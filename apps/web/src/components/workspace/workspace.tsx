@@ -52,7 +52,14 @@ export function Workspace({ session, onSignOut }: { session: Session; onSignOut:
       </Sheet>
 
       {room ? (
-        <RoomView key={room.id} room={room} token={session.token} me={session.user} onOpenMenu={() => setDrawerOpen(true)} />
+        <RoomView
+          key={room.id}
+          room={room}
+          token={session.token}
+          me={session.user}
+          onOpenMenu={() => setDrawerOpen(true)}
+          onSessionExpired={onSignOut}
+        />
       ) : (
         <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">
           {rooms ? "No rooms yet." : "Loading…"}

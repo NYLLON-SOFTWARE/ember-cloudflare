@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.18.3",
   "engines": {
-    "node": ">=22"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter @ember/worker --filter @ember/web dev",

@@ -26,12 +26,42 @@ describe("roomReducer", () => {
     expect(state.messages[0]!.id).toBe("m1");
   });
 
-  it("keeps unsent messages across a reconnect", () => {
+  it("keeps unsent messages across a reconnect, marked as not sent", () => {
     const pending = { ...message({ id: "c2", clientMessageId: "c2" }), pending: true as const };
     let state = roomReducer(initialRoomState, { type: "pending", message: pending });
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: false }, now: 0 });
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2"]);
+    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
     expect(state.status).toBe("open");
+  });
+
+  it("only reconciles a stored message with its own sender's optimistic copy", () => {
+    const grace: User = { id: "u2", name: "Grace" };
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2", body: "mine" }), pending: true } });
+
+    // Grace reuses the clientMessageIds she can see: neither Ada's stored nor her pending message is replaced.
+    for (const clientMessageId of ["c1", "c2"]) {
+      const copy = message({ id: `g-${clientMessageId}`, clientMessageId, creator: grace, body: "spoof" });
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: copy }, now: 0 });
+    }
+    expect(state.messages.map((m) => [m.creator.name, m.body])).toEqual([
+      ["Ada", "hi"],
+      ["Ada", "mine"],
+      ["Grace", "spoof"],
+      ["Grace", "spoof"],
+    ]);
+
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false }, now: 0 });
+    expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true, failed: true });
+  });
+
+  it("lets paging retry after a failed history request", () => {
+    let state = roomReducer(initialRoomState, { type: "loading-older" });
+    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.update" }, now: 0 });
+    expect(state.loadingOlder).toBe(true);
+    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "history.before" }, now: 0 });
+    expect(state.loadingOlder).toBe(false);
   });
 
   it("marks a refused message as failed", () => {

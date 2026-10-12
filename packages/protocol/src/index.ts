@@ -51,7 +51,8 @@ export type ServerFrame =
   | { type: "presence"; present: User[] }
   | { type: "typing"; user: User; typing: boolean }
   | { type: "history"; messages: Message[]; hasMore: boolean }
-  | { type: "error"; message: string; clientMessageId?: string }
+  /** `failed` names the request that went wrong, when the error answers one. */
+  | { type: "error"; message: string; clientMessageId?: string; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 export const MAX_MESSAGE_LENGTH = 10_000;

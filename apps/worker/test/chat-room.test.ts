@@ -1,4 +1,5 @@
 import type { ServerFrame } from "@ember/protocol";
+import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -49,6 +50,14 @@ async function until(condition: () => boolean, timeoutMs = 3_000): Promise<void>
     if (Date.now() > deadline) throw new Error("Timed out waiting for condition");
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+/** Runs SQL against a room's storage, whichever backend this suite is using. */
+async function roomSql(room: string, query: string, ...params: string[]): Promise<unknown[]> {
+  const db = (env as { DB?: D1Database }).DB;
+  if (db) return (await db.prepare(query).bind(...params).all()).results;
+  const stub = (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
+  return runInDurableObject(stub, (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
 }
 
 describe("API", () => {
@@ -185,6 +194,44 @@ describe("ChatRoom", () => {
     }
     ada.ws.close(1000);
     grace.ws.close(1000);
+  });
+
+  it("keeps a message's reactions when deleting it fails", async () => {
+    const ada = await connect("delete-fails", await signIn("Ada"));
+    await ada.next("welcome");
+    ada.send({ type: "message.create", clientMessageId: "c1", body: "keep my reactions" });
+    const { message } = await ada.next("message.created");
+    ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
+    await ada.next("boost.created");
+
+    await roomSql(
+      "delete-fails",
+      `CREATE TRIGGER refuse_deletes BEFORE DELETE ON messages WHEN OLD.room_id = 'delete-fails' BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+    );
+    ada.send({ type: "message.delete", messageId: message.id });
+    expect(await ada.next("error")).toMatchObject({ failed: "message.delete" });
+    expect(await roomSql("delete-fails", "SELECT content FROM boosts WHERE message_id = ?", message.id)).toEqual([{ content: "👍" }]);
+
+    await roomSql("delete-fails", "DROP TRIGGER refuse_deletes");
+    ada.send({ type: "message.delete", messageId: message.id });
+    await ada.next("message.deleted");
+    expect(await roomSql("delete-fails", "SELECT content FROM boosts WHERE message_id = ?", message.id)).toEqual([]);
+    ada.ws.close(1000);
+  });
+
+  it("ignores a reaction the same person already added", async () => {
+    const ada = await connect("repeat-boost", await signIn("Ada"));
+    await ada.next("welcome");
+    ada.send({ type: "message.create", clientMessageId: "c1", body: "react once" });
+    const { message } = await ada.next("message.created");
+
+    ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
+    ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
+    // Frames are handled in order, so once this one lands both reactions have been handled.
+    ada.send({ type: "message.create", clientMessageId: "c2", body: "fence" });
+    await until(() => ada.log.filter((f) => f.type === "message.created").length === 2);
+    expect(ada.log.filter((f) => f.type === "boost.created")).toHaveLength(1);
+    ada.ws.close(1000);
   });
 
   it("writes to the configured backend", async () => {

@@ -25,7 +25,7 @@ browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
 
 ## Getting started
 
-Requires Node 22+ and pnpm 10.
+Requires Node 22.22.2+, 24.15+ or 26+ (jsdom's supported versions) and pnpm 10.
 
 ```sh
 pnpm install

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
 import { HISTORY_PAGE_SIZE, parseServerFrame, type ClientFrame, type User } from "@ember/protocol";
-import { roomSocketUrl } from "@/lib/api";
+import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { initialRoomState, roomReducer } from "@/lib/room-state";
 
 const HEARTBEAT_MS = 25_000;
@@ -9,10 +9,11 @@ const TYPING_RESEND_MS = 3_000;
 const MAX_BACKOFF_MS = 15_000;
 
 /** One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object. */
-export function useRoom(roomId: string, token: string, me: User) {
+export function useRoom(roomId: string, token: string, me: User, onSessionExpired: () => void) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const socket = useRef<WebSocket | null>(null);
   const lastTypingSent = useRef(0);
+  const sessionExpired = useEffectEvent(onSessionExpired);
 
   useEffect(() => {
     let closed = false;
@@ -20,25 +21,45 @@ export function useRoom(roomId: string, token: string, me: User) {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
 
+    const reconnect = () => {
+      clearInterval(heartbeat);
+      const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** attempt++) * (0.75 + Math.random() / 2);
+      dispatch({ type: "status", status: "reconnecting" });
+      retry = setTimeout(open, delay);
+    };
+
     const open = () => {
       dispatch({ type: "status", status: attempt === 0 ? "connecting" : "reconnecting" });
       const ws = new WebSocket(roomSocketUrl(roomId, token));
       socket.current = ws;
+      let opened = false;
+      let unanswered = false;
 
       ws.onopen = () => {
+        opened = true;
         attempt = 0;
-        heartbeat = setInterval(() => ws.send('{"type":"ping"}'), HEARTBEAT_MS);
+        heartbeat = setInterval(() => {
+          if (unanswered) {
+            // Nothing came back since the last ping, so the network dropped without closing the socket.
+            ws.onclose = null;
+            ws.close();
+            return reconnect();
+          }
+          unanswered = true;
+          ws.send('{"type":"ping"}');
+        }, HEARTBEAT_MS);
       };
       ws.onmessage = (event) => {
+        unanswered = false;
         const frame = parseServerFrame(String(event.data));
         if (frame) dispatch({ type: "frame", frame, now: Date.now() });
       };
       ws.onclose = () => {
         clearInterval(heartbeat);
         if (closed) return;
-        const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** attempt++) * (0.75 + Math.random() / 2);
-        dispatch({ type: "status", status: "reconnecting" });
-        retry = setTimeout(open, delay);
+        // A refused upgrade looks like any other failure, so ask whether the session has expired.
+        if (!opened) void fetchMe(token).catch((error) => error instanceof ApiError && error.status === 401 && sessionExpired());
+        reconnect();
       };
     };
 
