@@ -51,6 +51,7 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const MEDIA = "img, svg, video, canvas, iframe";
 
   type Box = { left: number; top: number; right: number; bottom: number };
+  type Point = [x: number, y: number];
 
   const describe = (node: Node): string => {
     const element = node instanceof Element ? node : node.parentElement!;
@@ -173,12 +174,36 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     if (rect.width > 0.5 && rect.height > 0.5) checkFits(element, rect, clippers(element, false));
   }
 
+  /**
+   * Whether `list` can scroll a fingertip's `points` out from under whatever floats over it: to a
+   * place in its scroll range where every point lands on the list's own content. Scrolling by
+   * `shift` moves the content back by `shift`, so it tries every shift that keeps the fingertip
+   * inside the list, a few pixels apart.
+   */
+  const scrollsClear = (list: Element, axis: "x" | "y", points: Point[]): boolean => {
+    const box = list.getBoundingClientRect();
+    const along = points.map(([pointX, pointY]) => (axis === "x" ? pointX : pointY));
+    const [scrolled, range] = axis === "x" ? [list.scrollLeft, list.scrollWidth - list.clientWidth] : [list.scrollTop, list.scrollHeight - list.clientHeight];
+    const from = Math.max(-scrolled, Math.max(...along) - (axis === "x" ? box.right : box.bottom));
+    const to = Math.min(range - scrolled, Math.min(...along) - (axis === "x" ? box.left : box.top));
+    const steps = Math.ceil((to - from) / 4);
+    for (let step = 0; step <= steps; step++) {
+      const shift = from + ((to - from) * step) / Math.max(steps, 1);
+      const clear = points.every(([pointX, pointY]) => {
+        const hit = axis === "x" ? document.elementFromPoint(pointX - shift, pointY) : document.elementFromPoint(pointX, pointY - shift);
+        return hit !== null && list.contains(hit);
+      });
+      if (clear) return true;
+    }
+    return false;
+  };
+
   // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
   // make sure every point lands on the control. That catches small controls, controls crowded
   // together and controls partly covered or cut off, and credits hit areas enlarged with padding or
-  // pseudo-elements. Controls partly scrolled out of view are judged when they're scrolled in,
-  // controls in a list can be scrolled out from under a button floating over it, and controls that
-  // can't take a tap right now (behind an open menu or dialog) are skipped.
+  // pseudo-elements. Controls partly scrolled out of view are judged when they're scrolled in, a
+  // control under something floating over its list passes if the list can scroll it clear, and
+  // controls that can't take a tap right now (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
   for (const element of elements(INTERACTIVE)) {
@@ -196,15 +221,19 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const reach = size / 2 - 1;
     const [x, y] = [(shown.left + shown.right) / 2, (shown.top + shown.bottom) / 2];
     const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
-    const list = scrollerOf(element, "y") ?? scrollerOf(element, "x");
+    const axis = scrollerOf(element, "y") ? "y" : "x";
+    const list = scrollerOf(element, axis);
     const floatsOver = (hit: Element) => list !== null && list !== document.scrollingElement && !list.contains(hit);
-    const misses = new Set<string>();
-    for (const angle of [null, 0, 45, 90, 135, 180, 225, 270, 315]) {
-      const [dx, dy] = angle === null ? [0, 0] : [reach * Math.cos((angle * Math.PI) / 180), reach * Math.sin((angle * Math.PI) / 180)];
-      const hit = document.elementFromPoint(x + dx, y + dy);
+    const points = [null, 0, 45, 90, 135, 180, 225, 270, 315].map((angle): Point =>
+      angle === null ? [x, y] : [x + reach * Math.cos((angle * Math.PI) / 180), y + reach * Math.sin((angle * Math.PI) / 180)],
+    );
+    const [misses, floating] = [new Set<string>(), new Set<string>()];
+    for (const [pointX, pointY] of points) {
+      const hit = document.elementFromPoint(pointX, pointY);
       if (!hit) misses.add("the edge of the screen");
-      else if (!element.contains(hit) && !labels.some((label) => label.contains(hit)) && !floatsOver(hit)) misses.add(describe(hit));
+      else if (!element.contains(hit) && !labels.some((label) => label.contains(hit))) (floatsOver(hit) ? floating : misses).add(describe(hit));
     }
+    if (floating.size > 0 && !scrollsClear(list!, axis, points)) floating.forEach((what) => misses.add(what));
     if (misses.size > 0) {
       const cut = partlyShown ? ` (${px(shown.right - shown.left)}×${px(shown.bottom - shown.top)} of it shows)` : "";
       touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)}${cut}; a ${size}px fingertip on it can land on ${[...misses].join(", ")}`);
