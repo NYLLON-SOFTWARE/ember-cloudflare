@@ -37,7 +37,7 @@ Open http://localhost:5173, pick a name, and open a second browser to chat with 
 
 ```sh
 pnpm typecheck
-pnpm test           # protocol + web unit tests; worker tests run in workerd, once per storage backend
+pnpm test           # unit tests and the parity check; worker tests run in workerd, once per storage backend
 pnpm build
 ```
 
@@ -51,14 +51,35 @@ from `e2e/projects/` and its specs under `e2e/tests/<suite>/`.
 ```sh
 pnpm --filter @ember/e2e exec playwright install chromium   # once
 pnpm test:e2e       # every suite
+pnpm test:features  # just the feature-by-feature suite, on a desktop browser
 pnpm test:mobile    # just the phones
 ```
+
+The features suite (`e2e/tests/features/`) has a spec per area of [PARITY.md](PARITY.md). Each test gets
+rooms of its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
+each other type without seeing another test's messages.
 
 The mobile suite (`e2e/tests/mobile/`) emulates seven phones, from a 320px iPhone SE to an iPhone
 17 Pro Max on its side, with their notches, home indicators and on-screen keyboards. On every
 screen it checks that nothing overflows sideways or sits under the notch, that every control is a
 44px tap target, and that text fields are 16px so iOS doesn't zoom in on focus. Where a browser is
 already installed, point Playwright at it with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome`.
+
+## Parity with ember-rust
+
+[PARITY.md](PARITY.md) lists every feature of ember-rust, whether this port has it, and the tests
+that check it. It's generated from `packages/parity/src/features.ts`, where each feature has the
+behaviors a port has to match, the ember-rust and Campfire files they come from, and a note on
+anything this port does differently. Tests name the feature they cover:
+
+```ts
+describe(feature("messages.edit"), () => { ... });       // Vitest
+test.describe(feature("messages.edit"), () => { ... });  // Playwright
+```
+
+`pnpm test` fails when a ported or partial feature has no test, when a test names a feature that
+isn't listed, or when PARITY.md is out of date. After changing a feature or its tests, run
+`pnpm parity` to regenerate it.
 
 ## Storage: Durable Object SQLite or D1
 

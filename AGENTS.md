@@ -16,5 +16,8 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   Object applies the same SQL. The worker tests run against both backends, so keep them green on both.
 - Tests live beside the code (`*.test.ts`), except the worker's, which run inside workerd from
   `apps/worker/test/`. Run `pnpm typecheck && pnpm test && pnpm build` before committing.
+- Every feature of ember-rust is in `packages/parity/src/features.ts`, and `PARITY.md` is generated
+  from it. Tag tests with the feature they cover (`describe(feature("messages.edit"), ...)`). When
+  you port or change a feature, update its status and notes, then run `pnpm parity`.
 - Write code that reads like the surrounding code: small, clearly named functions, and comments
   only where the behavior is non-obvious.
