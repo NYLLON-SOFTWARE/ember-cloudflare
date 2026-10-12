@@ -64,7 +64,8 @@ export default {
 
     const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
     if (socket) {
-      const slug = decodeURIComponent(socket[1]!);
+      // Slugs never need percent-encoding, so an encoded segment can only be an unknown room.
+      const slug = socket[1]!;
       return isRoomSlug(slug) ? connectToRoom(request, env, slug) : problem(404, "No such room");
     }
 

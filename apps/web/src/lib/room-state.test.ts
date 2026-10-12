@@ -57,6 +57,12 @@ describe("roomReducer", () => {
     expect(state.typing).toEqual({});
   });
 
+  it("stops waiting for older history after a reconnect", () => {
+    let state = roomReducer(initialRoomState, { type: "loading-older" });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
+    expect(state.loadingOlder).toBe(false);
+  });
+
   it("prepends older history", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }) }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });

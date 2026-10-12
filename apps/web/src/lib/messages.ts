@@ -43,6 +43,16 @@ export function timeline(messages: Message[], now = new Date()): TimelineItem[] 
   });
 }
 
+/**
+ * Whether `body` @-mentions `name`, ignoring case. The mention can't run on into more letters
+ * or digits, judged by Unicode rather than ASCII, so "@José" and "@Alice!" count but "@Adam"
+ * doesn't mention Ada.
+ */
+export function mentions(body: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`@${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, "iu").test(body);
+}
+
 /** Groups a message's boosts by emoji, for the reaction chips under it. */
 export function boostSummary(message: Message, userId: string) {
   const groups = new Map<string, { content: string; count: number; mine: string | null; names: string[] }>();

@@ -75,7 +75,16 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "welcome": {
       // Keep unsent messages across a reconnect; everything else comes fresh from the room.
       const unsent = state.messages.filter((m) => isPending(m) && !frame.messages.some((s) => s.clientMessageId === m.clientMessageId));
-      return { ...state, status: "open", messages: [...frame.messages, ...unsent], present: frame.present, hasMore: frame.hasMore, typing: {} };
+      return {
+        ...state,
+        status: "open",
+        messages: [...frame.messages, ...unsent],
+        present: frame.present,
+        hasMore: frame.hasMore,
+        // A history request on the old socket will never be answered.
+        loadingOlder: false,
+        typing: {},
+      };
     }
     case "message.created": {
       const { message } = frame;

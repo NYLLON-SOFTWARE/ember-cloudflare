@@ -19,9 +19,18 @@ export function navigate(path: string): void {
   listeners.forEach((listener) => listener());
 }
 
-/** The room id in /rooms/:id, or null. */
-export function useRoomRoute(): string | null {
-  const pathname = useSyncExternalStore(subscribe, () => location.pathname);
+/** The room id in a /rooms/:id path, or null. */
+export function roomIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/rooms\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]!) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    // A malformed escape names no room, so the workspace falls back to the first one.
+    return null;
+  }
+}
+
+export function useRoomRoute(): string | null {
+  return roomIdFromPath(useSyncExternalStore(subscribe, () => location.pathname));
 }
