@@ -23,9 +23,12 @@ async function connect(room: string, token: string) {
   ws.accept();
 
   const frames: ServerFrame[] = [];
+  const log: ServerFrame[] = [];
   const waiters: Array<() => void> = [];
   ws.addEventListener("message", (event) => {
-    frames.push(JSON.parse(event.data as string));
+    const frame = JSON.parse(event.data as string) as ServerFrame;
+    frames.push(frame);
+    log.push(frame);
     waiters.splice(0).forEach((wake) => wake());
   });
 
@@ -37,7 +40,15 @@ async function connect(room: string, token: string) {
     }
   }
 
-  return { ws, next, send: (frame: object) => ws.send(JSON.stringify(frame)) };
+  return { ws, next, log, send: (frame: object) => ws.send(JSON.stringify(frame)) };
+}
+
+async function until(condition: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe("API", () => {
@@ -46,6 +57,21 @@ describe("API", () => {
       headers: { Upgrade: "websocket" },
     });
     expect(response.status).toBe(401);
+  });
+
+  it("treats a malformed room path as an unknown room", async () => {
+    const token = await signIn("Ada");
+    const response = await exports.default.fetch(`${origin}/api/rooms/%FF/socket?token=${token}`, {
+      headers: { Upgrade: "websocket" },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("rejects sign-ins without a usable name", async () => {
+    for (const body of ["null", "not json", "{}", '{"name":"   "}']) {
+      const response = await exports.default.fetch(`${origin}/api/session`, { method: "POST", body });
+      expect(response.status, body).toBe(422);
+    }
   });
 
   it("lists the default rooms for signed-in users", async () => {
@@ -107,6 +133,58 @@ describe("ChatRoom", () => {
     expect(page.messages.map((m) => m.body)).toEqual(["message 1"]);
     expect(page.hasMore).toBe(true);
     second.ws.close(1000);
+  });
+
+  it("sends a joining socket its snapshot before any live frames", async () => {
+    const ada = await connect("joining", await signIn("Ada"));
+    await ada.next("welcome");
+    const graceToken = await signIn("Grace");
+
+    // Ada keeps talking while Grace's socket loads its snapshot.
+    const joining = connect("joining", graceToken);
+    const bodies = Array.from({ length: 10 }, (_, i) => `joining ${i}`);
+    for (const [i, body] of bodies.entries()) {
+      ada.send({ type: "message.create", clientMessageId: `j${i}`, body });
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const grace = await joining;
+    for (const _ of bodies) await ada.next("message.created");
+
+    const seen = () => {
+      const [welcome, ...rest] = grace.log;
+      const snapshot = welcome?.type === "welcome" ? welcome.messages.map((m) => m.body) : [];
+      return [...snapshot, ...rest.flatMap((f) => (f.type === "message.created" ? [f.message.body] : []))];
+    };
+    await until(() => grace.log.length > 0);
+    expect(grace.log[0]?.type).toBe("welcome");
+    await until(() => seen().length >= bodies.length);
+    expect(seen()).toEqual(bodies);
+    ada.ws.close(1000);
+    grace.ws.close(1000);
+  });
+
+  it("keeps reactions that land while a message is being edited", async () => {
+    const ada = await connect("editing", await signIn("Ada"));
+    await ada.next("welcome");
+    const grace = await connect("editing", await signIn("Grace"));
+    await grace.next("welcome");
+
+    ada.send({ type: "message.create", clientMessageId: "e1", body: "first draft" });
+    const { message } = await grace.next("message.created");
+
+    ada.send({ type: "message.update", messageId: message.id, body: "second draft" });
+    grace.send({ type: "boost.create", messageId: message.id, content: "🎉" });
+    await until(() => ada.log.some((f) => f.type === "message.updated") && ada.log.some((f) => f.type === "boost.created"));
+
+    // Whichever lands second must not undo the first.
+    const updatedAt = ada.log.findIndex((f) => f.type === "message.updated");
+    const boostedAt = ada.log.findIndex((f) => f.type === "boost.created");
+    if (boostedAt < updatedAt) {
+      const updated = ada.log[updatedAt] as Extract<ServerFrame, { type: "message.updated" }>;
+      expect(updated.message.boosts.map((b) => b.content)).toEqual(["🎉"]);
+    }
+    ada.ws.close(1000);
+    grace.ws.close(1000);
   });
 
   it("writes to the configured backend", async () => {

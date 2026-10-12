@@ -1,9 +1,9 @@
 import { memo, useState } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import { boostSummary, timeLabel } from "@/lib/messages";
+import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
@@ -32,7 +32,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const pending = isPending(message);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
-  const mentioned = !mine && new RegExp(`@${me.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(message.body);
+  const mentioned = !mine && mentions(message.body, me.name);
 
   const saveEdit = () => {
     const body = draft.trim();
@@ -81,6 +81,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             <Textarea
               autoFocus
               value={draft}
+              maxLength={MAX_MESSAGE_LENGTH}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setEditing(false);

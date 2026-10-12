@@ -26,6 +26,7 @@ export const ROOM_HEADER = "X-Ember-Room";
  */
 export class ChatRoom extends DurableObject<Env> {
   private store: MessageStore | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -41,15 +42,16 @@ export class ChatRoom extends DurableObject<Env> {
     const roomId = request.headers.get(ROOM_HEADER);
     if (!user || !roomId) return new Response("Missing user or room", { status: 400 });
 
-    const { 0: client, 1: server } = new WebSocketPair();
-    this.ctx.acceptWebSocket(server, [user.id]);
-    server.serializeAttachment({ user, roomId } satisfies Attachment);
+    return this.serially(async () => {
+      const { messages, hasMore } = await this.storeFor(roomId).page(HISTORY_PAGE_SIZE);
+      const { 0: client, 1: server } = new WebSocketPair();
+      this.ctx.acceptWebSocket(server, [user.id]);
+      server.serializeAttachment({ user, roomId } satisfies Attachment);
 
-    const { messages, hasMore } = await this.storeFor(roomId).page(HISTORY_PAGE_SIZE);
-    this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
-    this.broadcast({ type: "presence", present: this.present() }, server);
-
-    return new Response(null, { status: 101, webSocket: client });
+      this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
+      this.broadcast({ type: "presence", present: this.present() }, server);
+      return new Response(null, { status: 101, webSocket: client });
+    });
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -57,22 +59,35 @@ export class ChatRoom extends DurableObject<Env> {
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });
 
     const { user, roomId } = ws.deserializeAttachment() as Attachment;
-    try {
-      await this.handle(ws, user, this.storeFor(roomId), frame);
-    } catch (error) {
-      console.error("ChatRoom frame failed", frame.type, error);
-      const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
-      this.send(ws, { type: "error", message: "Something went wrong", clientMessageId });
-    }
+    await this.serially(async () => {
+      try {
+        await this.handle(ws, user, this.storeFor(roomId), frame);
+      } catch (error) {
+        console.error("ChatRoom frame failed", frame.type, error);
+        const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId });
+      }
+    });
   }
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     ws.close(code === 1005 ? 1000 : code, "Closing");
-    this.leave(ws);
+    await this.serially(async () => this.leave(ws));
   }
 
   override async webSocketError(ws: WebSocket): Promise<void> {
-    this.leave(ws);
+    await this.serially(async () => this.leave(ws));
+  }
+
+  /**
+   * Runs one event at a time. Durable Object storage holds other events back while it works,
+   * but D1 queries are network calls that don't, so without this a joining socket could get
+   * live frames before its snapshot, or an edit could broadcast reactions it read too early.
+   */
+  private serially<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(work);
+    this.queue = result.catch(() => {});
+    return result;
   }
 
   private async handle(ws: WebSocket, user: User, store: MessageStore, frame: ClientFrame): Promise<void> {

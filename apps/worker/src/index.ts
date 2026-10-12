@@ -19,8 +19,9 @@ async function currentUser(request: Request, env: Env): Promise<User | null> {
 }
 
 async function createSession(request: Request, env: Env): Promise<Response> {
-  const { name } = (await request.json().catch(() => ({}))) as { name?: unknown };
-  const trimmed = typeof name === "string" ? name.trim() : "";
+  // Any JSON value parses, null included, so don't assume an object.
+  const body = (await request.json().catch(() => null)) as { name?: unknown } | null;
+  const trimmed = typeof body?.name === "string" ? body.name.trim() : "";
   if (!trimmed || trimmed.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
 
   const user: User = { id: sortableId(), name: trimmed };
@@ -64,7 +65,8 @@ export default {
 
     const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
     if (socket) {
-      const slug = decodeURIComponent(socket[1]!);
+      // Slugs never need percent-encoding, so an encoded segment can only be an unknown room.
+      const slug = socket[1]!;
       return isRoomSlug(slug) ? connectToRoom(request, env, slug) : problem(404, "No such room");
     }
 
