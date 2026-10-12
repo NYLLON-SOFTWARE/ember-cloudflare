@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const [draft, setDraft] = useState(message.body);
   const [timeline, setTimeline] = useState<Element | null>(null);
   const article = useRef<HTMLElement>(null);
+  const options = useRef<HTMLButtonElement>(null);
+  const actionBar = useRef<HTMLDivElement>(null);
+  // Set while the More reactions menu is up: to "chosen" once a reaction is picked from it, and to
+  // "elsewhere" once a click outside it closes it.
+  const moreReactions = useRef<"open" | "chosen" | "elsewhere" | null>(null);
   const touch = useMediaQuery("(hover: none)");
   const pending = isPending(message);
   const mine = message.creator.id === me.id;
@@ -49,16 +54,39 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
     setEditing(false);
   };
 
+  // With a mouse, a click or focus anywhere else closes the actions, so only one message has them open,
+  // as in ember-rust (message_actions_controller.js). The More reactions menu is outside the message
+  // while it's up, and closes them itself. On touch screens the popover does all of this.
+  useEffect(() => {
+    if (!menuOpen || touch) return;
+    const closeElsewhere = (event: Event) => {
+      const target = event.target as Node;
+      if (!moreReactions.current && !actionBar.current?.contains(target) && !options.current?.contains(target)) setMenuOpen(false);
+    };
+    document.addEventListener("click", closeElsewhere);
+    document.addEventListener("focusin", closeElsewhere);
+    return () => {
+      document.removeEventListener("click", closeElsewhere);
+      document.removeEventListener("focusin", closeElsewhere);
+    };
+  }, [menuOpen, touch]);
+
   const setTouchMenuOpen = (open: boolean) => {
     // ember-rust keeps the actions inside the timeline, so they go above the button when there's no room below.
     if (open) setTimeline(article.current?.closest('[role="log"]') ?? null);
     setMenuOpen(open);
   };
 
-  // Like ember-rust's, the actions close once a reaction is sent or the editor opens (messages/_reaction.html).
+  // Like ember-rust's, the actions close once a reaction is sent or the editor opens (messages/_reaction.html),
+  // and focus goes to Message options rather than staying on the reaction.
+  const closeAfterReacting = () => {
+    setMenuOpen(false);
+    options.current?.focus({ preventScroll: true });
+  };
+
   const boost = (emoji: string) => {
     actions.boost(message.id, emoji);
-    setMenuOpen(false);
+    closeAfterReacting();
   };
 
   const time = (
@@ -69,6 +97,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
   const optionsButton = (onClick?: () => void) => (
     <button
+      ref={options}
       type="button"
       aria-label="Message options"
       aria-expanded={menuOpen}
@@ -86,6 +115,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
   const bar = (
     <div
+      ref={actionBar}
       role="group"
       aria-label="Message actions"
       className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:touch:pr-12"
@@ -97,15 +127,45 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
       ))}
       {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
           first drops keyboard focus to the page. */}
-      <DropdownMenu onOpenChange={(open) => open && setMenuOpen(true)}>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (!open) return;
+          moreReactions.current = "open";
+          setMenuOpen(true);
+        }}
+      >
         <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
           <SmilePlus />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="rounded-[11px] p-2" onCloseAutoFocus={() => setMenuOpen(false)}>
+        <DropdownMenuContent
+          align="end"
+          className="rounded-[11px] p-2"
+          onPointerDownOutside={() => (moreReactions.current = "elsewhere")}
+          onCloseAutoFocus={(event) => {
+            if (moreReactions.current === "chosen") {
+              event.preventDefault();
+              closeAfterReacting();
+            } else {
+              // A click elsewhere closes the actions along with the menu, so focus doesn't go back to them.
+              if (moreReactions.current === "elsewhere") event.preventDefault();
+              setMenuOpen(false);
+            }
+            moreReactions.current = null;
+          }}
+        >
           <DropdownMenuLabel className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">More reactions</DropdownMenuLabel>
           <div className="flex">
             {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-              <DropdownMenuItem key={emoji} title={title} aria-label={title} className="size-8 justify-center p-0 text-base touch:size-11" onSelect={() => actions.boost(message.id, emoji)}>
+              <DropdownMenuItem
+                key={emoji}
+                title={title}
+                aria-label={title}
+                className="size-8 justify-center p-0 text-base touch:size-11"
+                onSelect={() => {
+                  moreReactions.current = "chosen";
+                  actions.boost(message.id, emoji);
+                }}
+              >
                 {emoji}
               </DropdownMenuItem>
             ))}

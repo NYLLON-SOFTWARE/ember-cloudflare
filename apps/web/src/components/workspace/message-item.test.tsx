@@ -1,5 +1,5 @@
 import { MAX_MESSAGE_LENGTH, type Message, type User } from "@ember/protocol";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageItem } from "./message-item";
 
@@ -20,6 +20,9 @@ const shown = (sent = true) => {
   render(<MessageItem message={message} me={ada} threaded={false} actions={actions} />);
   return actions;
 };
+
+/** The Message options button on the message that says `body`. */
+const optionsOn = (body: string) => within(screen.getByText(body).closest("article")!).getByRole("button", { name: "Message options" });
 
 const editing = (sent = true) => {
   const actions = shown(sent);
@@ -67,6 +70,39 @@ describe("MessageItem", () => {
     // While editing there's no bar to open.
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+  });
+
+  it("closes the actions after a reaction and hands focus to Message options", () => {
+    const actions = shown();
+    const options = optionsOn("hi");
+    fireEvent.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(options).toHaveFocus();
+  });
+
+  it("closes the actions on a click or focus anywhere else, so only one message has them open", () => {
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => true), remove: vi.fn() };
+    render(
+      <>
+        <MessageItem message={message} me={ada} threaded={false} actions={actions} />
+        <MessageItem message={{ ...message, id: "m2", clientMessageId: "c2", body: "there" }} me={ada} threaded actions={actions} />
+      </>,
+    );
+    fireEvent.click(optionsOn("hi"));
+    fireEvent.click(screen.getByText("hi"));
+    expect(optionsOn("hi")).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(optionsOn("hi"));
+    fireEvent.click(optionsOn("there"));
+    expect(optionsOn("hi")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("there")).toHaveAttribute("aria-expanded", "true");
+
+    // A keyboard moving on to the other message closes them too.
+    act(() => optionsOn("hi").focus());
+    expect(optionsOn("there")).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens a touch screen's actions from the options button, which closes them again", () => {
