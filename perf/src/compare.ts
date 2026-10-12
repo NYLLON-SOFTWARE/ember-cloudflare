@@ -1,7 +1,8 @@
 import type { Results } from "./report.ts";
 
-// Compares the headline numbers of two runs, ideally from the same machine: a baseline from main
-// and a run from a branch, say. Changes smaller than a metric's noise floor are ignored.
+// Compares the headline numbers of two runs of the same profile, ideally from the same machine: a
+// baseline from main and a run from a branch, say. A metric only counts as changed when it moves by
+// more than its noise floor and by more than it moves between two runs of the same commit.
 
 interface Metric {
   name: string;
@@ -9,77 +10,153 @@ interface Metric {
   better: "lower" | "higher";
   /** The smallest difference worth reporting, in the metric's own unit. */
   floor: number;
+  /** How far, in percent either way, the metric moves between two runs of the same commit. */
+  noise: number;
 }
+
+type Tolerance = Partial<Pick<Metric, "better" | "floor" | "noise">>;
+
+// The tolerances below come from running the same commit several times on one machine, in both
+// profiles. Metrics that swung too far between identical runs to say anything are left out.
+
+/** Tails, and timings taken while one room's thread is saturated, swing this much between runs. */
+const SWINGY: Tolerance = { noise: 40 };
+/** Lost or missing messages and errors shouldn't happen at all, so any increase counts. */
+const NEVER: Tolerance = { floor: 1, noise: 0 };
+/** A paint lands on the next frame, so differences under one frame (60 Hz) are scheduling, not speed. */
+const FRAME_MS = 17;
 
 function collect({ backend, web }: Results): Map<string, Metric> {
   const metrics = new Map<string, Metric>();
-  const add = (name: string, value: number | null | undefined, better: Metric["better"] = "lower", floor = 1) => {
-    if (typeof value === "number" && Number.isFinite(value)) metrics.set(name, { name, value, better, floor });
+  const add = (name: string, value: number | null | undefined, { better = "lower", floor = 1, noise = 10 }: Tolerance = {}) => {
+    if (typeof value === "number" && Number.isFinite(value)) metrics.set(name, { name, value, better, floor, noise });
   };
 
   for (const [storage, r] of Object.entries(backend)) {
-    add(`${storage} latency: ack p50 ms`, r.latency?.ack?.p50);
-    add(`${storage} latency: ack p99 ms`, r.latency?.ack?.p99);
-    add(`${storage} latency: delivery p50 ms`, r.latency?.delivery?.p50);
-    add(`${storage} throughput: messages/s`, r.throughput?.messagesPerSecond, "higher", 10);
-    add(`${storage} throughput: ack p95 ms`, r.throughput?.ack?.p95);
+    if (r.latency) {
+      // With 100 to 300 samples, the tail here is a handful of messages; fan-out has the tails worth comparing.
+      add(`${storage} latency: ack p50 ms`, r.latency.ack?.p50);
+      add(`${storage} latency: delivery p50 ms`, r.latency.delivery?.p50);
+      add(`${storage} latency: lost`, r.latency.lost, NEVER);
+    }
+    if (r.throughput) {
+      // Its acknowledgement times are queueing behind the room's saturated thread, and swing twofold.
+      add(`${storage} throughput: messages/s`, r.throughput.messagesPerSecond, { better: "higher", floor: 10, noise: 25 });
+      add(`${storage} throughput: out of order`, r.throughput.outOfOrder, NEVER);
+      add(`${storage} throughput: errors`, r.throughput.errors, NEVER);
+      add(`${storage} throughput: timed out`, Number(r.throughput.timedOut), NEVER);
+    }
     for (const f of r.fanout ?? []) {
-      add(`${storage} fan-out ${f.members}: delivery p50 ms`, f.delivery?.p50);
-      add(`${storage} fan-out ${f.members}: delivery p99 ms`, f.delivery?.p99);
+      add(`${storage} fan-out ${f.members}: delivery p50 ms`, f.delivery?.p50, { noise: 15 });
+      add(`${storage} fan-out ${f.members}: delivery p95 ms`, f.delivery?.p95, SWINGY);
+      add(`${storage} fan-out ${f.members}: lost`, f.lost, NEVER);
+      add(`${storage} fan-out ${f.members}: out of order`, f.outOfOrder, NEVER);
     }
-    for (const step of r.connections?.steps ?? []) {
-      add(`${storage} room of ${step.members}: join p50 ms`, step.connect?.p50);
-      add(`${storage} room of ${step.members}: presence KB per join`, step.presenceKbPerJoin);
+    if (r.connections) {
+      const { steps, maxConnectP95Ms } = r.connections;
+      const held = steps.filter((step) => step.connect && step.connect.p95 <= maxConnectP95Ms).map((step) => step.members);
+      add(`${storage} room size: most members with join p95 under ${maxConnectP95Ms} ms`, Math.max(0, ...held), { better: "higher", noise: 0 });
+      for (const step of steps) {
+        add(`${storage} room of ${step.members}: join p50 ms`, step.connect?.p50, SWINGY);
+        add(`${storage} room of ${step.members}: presence KB per join`, step.presenceKbPerJoin, { noise: 5 });
+      }
     }
-    add(`${storage} history: welcome p50 ms`, r.history?.welcome?.p50);
-    add(`${storage} history: page p50 ms`, r.history?.page?.p50);
+    if (r.history) {
+      // The quick profile pages through only ten pages, so these medians rest on few samples.
+      add(`${storage} history: welcome p50 ms`, r.history.welcome?.p50, { floor: 2, noise: 30 });
+      add(`${storage} history: page p50 ms`, r.history.page?.p50, { floor: 2, noise: 40 });
+    }
   }
 
   if (web) {
     add("bundle: JS+CSS gzip KB", web.bundle.code.gzipKb);
     for (const l of web.lighthouse) {
       const page = `lighthouse ${l.page} ${l.formFactor}`;
-      add(`${page}: score`, l.score, "higher");
-      add(`${page}: LCP ms`, l.lcpMs, "lower", 50);
-      add(`${page}: TBT ms`, l.tbtMs, "lower", 20);
-      add(`${page}: CLS`, l.cls, "lower", 0.01);
+      add(`${page}: score`, l.score, { better: "higher", floor: 3, noise: 0 });
+      add(`${page}: LCP ms`, l.lcpMs, { floor: 100 });
+      add(`${page}: TBT ms`, l.tbtMs, { floor: 50, noise: 35 });
+      add(`${page}: CLS`, l.cls, { floor: 0.02 });
     }
     for (const r of web.render) {
-      add(`render ${r.cpuSlowdown}x: room ready ms`, r.roomReadyMs, "lower", 20);
+      add(`render ${r.cpuSlowdown}x: room ready ms`, r.roomReadyMs, { floor: 50, noise: r.cpuSlowdown > 1 ? 40 : 10 });
       r.bursts.forEach((b, i) => {
         // Timelines grow by whatever paging brings in, so label them by position, not exact size.
         const label = `render ${r.cpuSlowdown}x ${i === 0 ? "short" : "long"} timeline`;
-        add(`${label}: frame to paint p95 ms`, b.frameToPaint?.p95);
-        add(`${label}: main thread ms per message`, b.mainThreadMsPerMessage, "lower", 0.5);
+        add(`${label}: frame to paint p50 ms`, b.frameToPaint?.p50, { floor: FRAME_MS });
+        add(`${label}: frame to paint p95 ms`, b.frameToPaint?.p95, { floor: FRAME_MS, ...SWINGY });
+        add(`${label}: main thread ms per message`, b.mainThreadMsPerMessage, { floor: 0.5, noise: 15 });
+        add(`${label}: missing messages`, b.missing, NEVER);
       });
     }
   }
   return metrics;
 }
 
-/** Prints how `after` moved against `before`. Returns how many metrics got worse by more than `threshold` percent. */
+/** Percent change, where anything from zero counts as infinitely large. */
+function percentChange(before: number, after: number): number {
+  if (before === 0) return after === 0 ? 0 : Infinity;
+  return ((after - before) / before) * 100;
+}
+
+/** How far apart two values are as a percentage of the smaller, so 100 to 80 and 80 to 100 count the same. */
+function spread(before: number, after: number): number {
+  const [low, high] = before < after ? [before, after] : [after, before];
+  if (low === high) return 0;
+  return low === 0 ? Infinity : ((high - low) / low) * 100;
+}
+
+export interface Row {
+  metric: string;
+  before: number;
+  /** Null when the second run didn't measure it. */
+  after: number | null;
+  /** Percent change from before; Infinity when before was zero. */
+  change: number | null;
+  verdict: "better" | "worse" | "missing" | "";
+}
+
+/**
+ * How each metric in `before` moved in `after`. A metric is better or worse once it moves by more
+ * than its floor, `threshold` percent, and its own run-to-run noise. A metric `after` didn't measure,
+ * such as a room size it no longer reaches or a summary left with no samples, is missing, which
+ * counts as a failure.
+ */
+export function compareResults(before: Results, after: Results, threshold: number): Row[] {
+  const now = collect(after);
+  return [...collect(before).values()].map((previous): Row => {
+    const metric = now.get(previous.name);
+    if (!metric) return { metric: previous.name, before: previous.value, after: null, change: null, verdict: "missing" };
+    const significant = Math.abs(metric.value - previous.value) >= metric.floor && spread(previous.value, metric.value) >= Math.max(threshold, metric.noise);
+    const improved = metric.better === "lower" ? metric.value < previous.value : metric.value > previous.value;
+    return {
+      metric: metric.name,
+      before: previous.value,
+      after: metric.value,
+      change: percentChange(previous.value, metric.value),
+      verdict: !significant ? "" : improved ? "better" : "worse",
+    };
+  });
+}
+
+const formatChange = (change: number | null) =>
+  change === null ? "" : Number.isFinite(change) ? `${change > 0 ? "+" : ""}${change.toFixed(1)}%` : "from 0";
+
+/** Prints how `after` moved against `before`, and returns how many metrics got worse or went missing. */
 export function compare(before: Results, after: Results, threshold: number): number {
-  const old = collect(before);
-  const rows: string[] = [];
-  let regressions = 0;
+  const rows = compareResults(before, after, threshold);
+  const worse = rows.filter((row) => row.verdict === "worse").length;
+  const missing = rows.filter((row) => row.verdict === "missing").length;
 
-  for (const metric of collect(after).values()) {
-    const previous = old.get(metric.name);
-    if (!previous) continue;
-    const change = previous.value === 0 ? 0 : ((metric.value - previous.value) / previous.value) * 100;
-    const worse = metric.better === "lower" ? change > 0 : change < 0;
-    const significant = Math.abs(metric.value - previous.value) >= metric.floor && Math.abs(change) >= threshold;
-    const verdict = !significant ? "" : worse ? "worse" : "better";
-    if (verdict === "worse") regressions++;
-    rows.push(`| ${metric.name} | ${previous.value} | ${metric.value} | ${change > 0 ? "+" : ""}${change.toFixed(1)}% | ${verdict} |`);
+  console.log(`Before: ${before.environment.commit} (${before.environment.date}, ${before.environment.profile} profile)`);
+  console.log(`After:  ${after.environment.commit} (${after.environment.date}, ${after.environment.profile} profile)`);
+  if (before.environment.profile !== after.environment.profile) {
+    console.log("\nThese runs used different profiles, so their rooms and bursts differ in size. Compare runs of the same profile.");
   }
-
-  console.log(`Before: ${before.environment.commit} (${before.environment.date})`);
-  console.log(`After:  ${after.environment.commit} (${after.environment.date})`);
   if (before.environment.cpu !== after.environment.cpu || before.environment.cores !== after.environment.cores) {
     console.log("\nThese runs come from different machines, so differences say as much about the hardware as the code.");
   }
-  console.log(["", "| Metric | Before | After | Change | |", "| --- | --: | --: | --: | --- |", ...rows].join("\n"));
-  console.log(`\n${regressions} metric${regressions === 1 ? "" : "s"} worse by more than ${threshold}%.`);
-  return regressions;
+  const lines = rows.map((row) => `| ${row.metric} | ${row.before} | ${row.after ?? "–"} | ${formatChange(row.change)} | ${row.verdict} |`);
+  console.log(["", "| Metric | Before | After | Change | |", "| --- | --: | --: | --: | --- |", ...lines].join("\n"));
+  console.log(`\n${worse} metric${worse === 1 ? "" : "s"} worse by more than ${threshold}% and their usual run-to-run noise${missing ? `; ${missing} missing from the second run` : ""}.`);
+  return worse + missing;
 }
