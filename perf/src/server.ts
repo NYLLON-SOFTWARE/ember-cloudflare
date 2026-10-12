@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
@@ -31,9 +31,13 @@ export interface Usage {
   rssBytes: number;
 }
 
-/** Every wrangler we started, so a crash or Ctrl-C doesn't leave one running. */
+/** Every wrangler we started and every scratch directory we made, so a crash or Ctrl-C leaves neither behind. */
 const running = new Set<ChildProcess>();
-process.on("exit", () => running.forEach((child) => child.kill("SIGTERM")));
+const scratch = new Set<string>();
+process.on("exit", () => {
+  running.forEach((child) => child.kill("SIGTERM"));
+  scratch.forEach((dir) => rmSync(dir, { recursive: true, force: true }));
+});
 process.on("SIGINT", () => process.exit(130));
 process.on("SIGTERM", () => process.exit(143));
 
@@ -118,13 +122,23 @@ export const stateRoot = existsSync("/dev/shm") ? "/dev/shm" : tmpdir();
 /** Starts `wrangler dev` for `storage`, serving `assetsDir` (an empty directory if omitted). */
 export async function startServer(storage: Storage, assetsDir?: string): Promise<Server> {
   const dir = await mkdtemp(path.join(stateRoot, `ember-perf-${storage}-`));
+  scratch.add(dir);
+  const removeDir = async () => {
+    await rm(dir, { recursive: true, force: true });
+    scratch.delete(dir);
+  };
   const state = path.join(dir, "state");
-  const assets = assetsDir ?? path.join(dir, "assets");
-  await mkdir(assets, { recursive: true });
-
   const config = path.join(dir, "wrangler.json");
-  await writeFile(config, JSON.stringify(configFor(storage, assets), null, 2));
-  if (storage === "d1") await run(["d1", "migrations", "apply", "DB", "--local", "--config", config, "--persist-to", state], dir);
+  try {
+    const assets = assetsDir ?? path.join(dir, "assets");
+    await mkdir(assets, { recursive: true });
+    await writeFile(config, JSON.stringify(configFor(storage, assets), null, 2));
+    if (storage === "d1") await run(["d1", "migrations", "apply", "DB", "--local", "--config", config, "--persist-to", state], dir);
+  } catch (error) {
+    // Nothing is running yet, so the scratch directory is all there is to clean up.
+    await removeDir();
+    throw error;
+  }
 
   const port = await freePort();
   const child = wrangler(
@@ -142,7 +156,7 @@ export async function startServer(storage: Storage, assetsDir?: string): Promise
       await exited;
       clearTimeout(stubborn);
     }
-    await rm(dir, { recursive: true, force: true });
+    await removeDir();
   };
 
   try {
