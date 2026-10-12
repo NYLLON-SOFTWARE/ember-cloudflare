@@ -51,7 +51,11 @@ test("the rail's menus fit the phone", async ({ page, room, screenIsFine }) => {
   const rail = page.getByRole("navigation", { name: "Workspace" });
   if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
 
-  await rail.getByRole("button", { name: "Appearance" }).tap();
+  // Where the rail scrolls, as on a phone in landscape, start with the button at the bottom of the
+  // screen, where its menu is most likely to open under the home indicator.
+  const appearance = rail.getByRole("button", { name: "Appearance" });
+  await appearance.evaluate((button) => button.scrollIntoView({ block: "end" }));
+  await appearance.tap();
   await expect(page.getByRole("menu")).toBeVisible();
   await screenIsFine();
   await page.getByRole("menuitemradio", { name: "Dark" }).tap();

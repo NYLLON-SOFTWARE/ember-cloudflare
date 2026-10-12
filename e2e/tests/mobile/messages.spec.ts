@@ -73,6 +73,26 @@ test("return to latest appears after scrolling back, and fits", async ({ page, r
   await expect(page.getByText("Message 30", { exact: true })).toBeInViewport();
 });
 
+test("the timeline stays on the newest message when it grows and then shrinks", async ({ page, room, participant }) => {
+  const ada = await participant("Ada");
+  for (let i = 1; i <= 30; i++) await ada.say(`Message ${i}`);
+  await openRoom(page, room);
+  const log = page.getByRole("log");
+  const distanceFromEnd = () => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  expect(await distanceFromEnd()).toBeLessThanOrEqual(1);
+
+  // The timeline grows, as when an inset goes away or the keyboard closes, so its scroll position
+  // is clamped and a scroll event queued. Before the next frame delivers it, the timeline shrinks, as
+  // when the keyboard opens. That late scroll isn't the reader scrolling away from the newest message.
+  await log.evaluate(async (el) => {
+    const timeline = el.parentElement!;
+    timeline.style.flex = `0 0 ${timeline.clientHeight + 120}px`;
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+    timeline.style.flex = "0 0 20px";
+  });
+  await expect.poll(distanceFromEnd).toBeLessThanOrEqual(1);
+});
+
 test("a notice fits the phone and can be dismissed", async ({ page, room, screenIsFine }) => {
   // Pass the real socket through, and add an error from the room on top.
   let socket: { send: (message: string) => void } | undefined;

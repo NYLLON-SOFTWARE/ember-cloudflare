@@ -20,6 +20,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  const viewHeight = useRef(0);
   const previousHeight = useRef(0);
   const firstId = useRef<string | undefined>(undefined);
   const [showLatest, setShowLatest] = useState(false);
@@ -43,6 +44,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   useEffect(() => {
     const el = scroller.current!;
     const observer = new ResizeObserver(() => {
+      viewHeight.current = el.clientHeight;
       if (pinned.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(el);
@@ -65,6 +67,9 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
 
   const onScroll = () => {
     const el = scroller.current!;
+    // A scroll can arrive after the timeline has resized but before the resize observer has caught
+    // up. The reader didn't move, so it mustn't unpin them from the newest message.
+    if (el.clientHeight !== viewHeight.current) return;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     setShowLatest(!pinned.current);
     previousHeight.current = el.scrollHeight;
