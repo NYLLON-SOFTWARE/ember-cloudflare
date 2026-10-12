@@ -64,6 +64,14 @@ describe("compareResults", () => {
     expect(verdicts(baseline(), after)).toEqual({ "do-sqlite fan-out 100: lost": "worse" });
   });
 
+  it("counts one more lost message even where some were lost before", () => {
+    const before = baseline();
+    before.backend["do-sqlite"]!.fanout![0]!.lost = 20;
+    const after = baseline();
+    after.backend["do-sqlite"]!.fanout![0]!.lost = 21;
+    expect(verdicts(before, after)).toEqual({ "do-sqlite fan-out 100: lost": "worse" });
+  });
+
   it("fails a run that no longer measures what the baseline did", () => {
     const after = baseline();
     after.backend["do-sqlite"]!.connections!.steps = [step(100, 50)];

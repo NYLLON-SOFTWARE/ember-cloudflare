@@ -2,7 +2,8 @@ import type { Results } from "./report.ts";
 
 // Compares the headline numbers of two runs of the same profile, ideally from the same machine: a
 // baseline from main and a run from a branch, say. A metric only counts as changed when it moves by
-// more than its noise floor and by more than it moves between two runs of the same commit.
+// more than its noise floor and by more than it moves between two runs of the same commit, except
+// counts of lost messages and errors, where every one counts.
 
 interface Metric {
   name: string;
@@ -12,9 +13,11 @@ interface Metric {
   floor: number;
   /** How far, in percent either way, the metric moves between two runs of the same commit. */
   noise: number;
+  /** Counts what shouldn't happen at all, so a change of `floor` counts whatever its percentage. */
+  anyChange: boolean;
 }
 
-type Tolerance = Partial<Pick<Metric, "better" | "floor" | "noise">>;
+type Tolerance = Partial<Pick<Metric, "better" | "floor" | "noise" | "anyChange">>;
 
 // The tolerances below come from running the same commit several times on one machine, in both
 // profiles. Metrics that swung too far between identical runs to say anything are left out.
@@ -22,14 +25,14 @@ type Tolerance = Partial<Pick<Metric, "better" | "floor" | "noise">>;
 /** Tails, and timings taken while one room's thread is saturated, swing this much between runs. */
 const SWINGY: Tolerance = { noise: 40 };
 /** Lost or missing messages and errors shouldn't happen at all, so any increase counts. */
-const NEVER: Tolerance = { floor: 1, noise: 0 };
+const NEVER: Tolerance = { floor: 1, anyChange: true };
 /** A paint lands on the next frame, so differences under one frame (60 Hz) are scheduling, not speed. */
 const FRAME_MS = 17;
 
 function collect({ backend, web }: Results): Map<string, Metric> {
   const metrics = new Map<string, Metric>();
-  const add = (name: string, value: number | null | undefined, { better = "lower", floor = 1, noise = 10 }: Tolerance = {}) => {
-    if (typeof value === "number" && Number.isFinite(value)) metrics.set(name, { name, value, better, floor, noise });
+  const add = (name: string, value: number | null | undefined, { better = "lower", floor = 1, noise = 10, anyChange = false }: Tolerance = {}) => {
+    if (typeof value === "number" && Number.isFinite(value)) metrics.set(name, { name, value, better, floor, noise, anyChange });
   };
 
   for (const [storage, r] of Object.entries(backend)) {
@@ -117,16 +120,18 @@ export interface Row {
 
 /**
  * How each metric in `before` moved in `after`. A metric is better or worse once it moves by more
- * than its floor, `threshold` percent, and its own run-to-run noise. A metric `after` didn't measure,
- * such as a room size it no longer reaches or a summary left with no samples, is missing, which
- * counts as a failure.
+ * than its floor, `threshold` percent, and its own run-to-run noise; a count of what shouldn't happen
+ * at all, such as lost messages, as soon as it changes. A metric `after` didn't measure, such as a
+ * room size it no longer reaches or a summary left with no samples, is missing, which counts as a
+ * failure.
  */
 export function compareResults(before: Results, after: Results, threshold: number): Row[] {
   const now = collect(after);
   return [...collect(before).values()].map((previous): Row => {
     const metric = now.get(previous.name);
     if (!metric) return { metric: previous.name, before: previous.value, after: null, change: null, verdict: "missing" };
-    const significant = Math.abs(metric.value - previous.value) >= metric.floor && spread(previous.value, metric.value) >= Math.max(threshold, metric.noise);
+    const moved = Math.abs(metric.value - previous.value) >= metric.floor;
+    const significant = moved && (metric.anyChange || spread(previous.value, metric.value) >= Math.max(threshold, metric.noise));
     const improved = metric.better === "lower" ? metric.value < previous.value : metric.value > previous.value;
     return {
       metric: metric.name,
@@ -157,6 +162,9 @@ export function compare(before: Results, after: Results, threshold: number): num
   }
   const lines = rows.map((row) => `| ${row.metric} | ${row.before} | ${row.after ?? "–"} | ${formatChange(row.change)} | ${row.verdict} |`);
   console.log(["", "| Metric | Before | After | Change | |", "| --- | --: | --: | --: | --- |", ...lines].join("\n"));
-  console.log(`\n${worse} metric${worse === 1 ? "" : "s"} worse by more than ${threshold}% and their usual run-to-run noise${missing ? `; ${missing} missing from the second run` : ""}.`);
+  console.log(
+    `\n${worse} metric${worse === 1 ? "" : "s"} worse${missing ? ` and ${missing} missing from the second run` : ""}. ` +
+      `A metric counts as changed once it moves by more than ${threshold}% and its usual run-to-run noise; lost messages and errors count from the first.`,
+  );
   return worse + missing;
 }
