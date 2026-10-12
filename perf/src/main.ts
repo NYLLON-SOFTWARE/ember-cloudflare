@@ -64,9 +64,12 @@ async function run(): Promise<Results> {
   return results;
 }
 
+/** pnpm runs this from perf/, so resolve paths against wherever `pnpm perf` was typed. */
+const fromInvocation = (file: string) => path.resolve(process.env.INIT_CWD ?? process.cwd(), file);
+
 async function readResults(file: string | undefined): Promise<Results> {
   if (!file) throw new Error(USAGE);
-  return JSON.parse(await readFile(file, "utf8")) as Results;
+  return JSON.parse(await readFile(fromInvocation(file), "utf8")) as Results;
 }
 
 if (values.help) {
@@ -77,7 +80,7 @@ if (values.help) {
 } else {
   const results = await run();
   const report = markdownReport(results);
-  const out = values.out ?? path.resolve(import.meta.dirname, "../results", results.environment.date.replace(/[:.]/g, "-"));
+  const out = values.out ? fromInvocation(values.out) : path.resolve(import.meta.dirname, "../results", results.environment.date.replace(/[:.]/g, "-"));
   await mkdir(out, { recursive: true });
   await writeFile(path.join(out, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
   await writeFile(path.join(out, "report.md"), report);

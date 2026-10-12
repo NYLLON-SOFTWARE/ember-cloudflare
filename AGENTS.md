@@ -16,5 +16,8 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   Object applies the same SQL. The worker tests run against both backends, so keep them green on both.
 - Tests live beside the code (`*.test.ts`), except the worker's, which run inside workerd from
   `apps/worker/test/`. Run `pnpm typecheck && pnpm test && pnpm build` before committing.
+- `pnpm perf` load-tests the Worker and the web app (`perf/README.md`). When a change touches
+  broadcasts, presence, storage queries or the message timeline, run `pnpm perf --quick` before and
+  after it and check the two with `pnpm perf compare`.
 - Write code that reads like the surrounding code: small, clearly named functions, and comments
   only where the behavior is non-obvious.
