@@ -85,7 +85,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setEditing(false);
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   saveEdit();
                 }

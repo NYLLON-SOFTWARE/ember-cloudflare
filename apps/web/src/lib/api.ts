@@ -53,6 +53,10 @@ export function signIn(name: string): Promise<Session> {
   return request<Session>("/api/session", { method: "POST", body: JSON.stringify({ name }) });
 }
 
+export async function fetchMe(token: string): Promise<User> {
+  return (await request<{ user: User }>("/api/me", { token })).user;
+}
+
 export async function fetchRooms(token: string): Promise<Room[]> {
   return (await request<{ rooms: Room[] }>("/api/rooms", { token })).rooms;
 }

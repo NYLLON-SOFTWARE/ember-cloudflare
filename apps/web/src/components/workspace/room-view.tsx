@@ -6,8 +6,16 @@ import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 
-export function RoomView({ room, token, me, onOpenMenu }: { room: Room; token: string; me: User; onOpenMenu: () => void }) {
-  const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, token, me);
+interface Props {
+  room: Room;
+  token: string;
+  me: User;
+  onOpenMenu: () => void;
+  onSessionExpired: () => void;
+}
+
+export function RoomView({ room, token, me, onOpenMenu, onSessionExpired }: Props) {
+  const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, token, me, onSessionExpired);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);

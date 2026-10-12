@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "@ember/protocol";
 import { ArrowDown } from "lucide-react";
 import { timeline } from "@/lib/messages";
@@ -18,6 +18,7 @@ interface Props {
 /** The scrolling timeline. Stays pinned to the newest message unless you've scrolled up. */
 export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
+  const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const previousHeight = useRef(0);
   const firstId = useRef<string | undefined>(undefined);
@@ -37,12 +38,25 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
     previousHeight.current = el.scrollHeight;
   }, [state.messages]);
 
+  const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
+  useEffect(() => {
+    // Load the previous page whenever the top of the timeline comes into view, whether by
+    // scrolling, a resize, or a window tall enough to show every loaded message. Observing
+    // afresh after each change asks again while the top is still in view, but a failed page
+    // changes nothing, so it waits for the reader instead of retrying in a loop.
+    const observer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadOlder(), {
+      root: scroller.current,
+      rootMargin: "200px 0px 0px 0px",
+    });
+    observer.observe(top.current!);
+    return () => observer.disconnect();
+  }, [state.messages]);
+
   const onScroll = () => {
     const el = scroller.current!;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     setShowLatest(!pinned.current);
     previousHeight.current = el.scrollHeight;
-    if (el.scrollTop < 200 && state.hasMore && !state.loadingOlder) onLoadOlder();
   };
 
   const items = timeline(state.messages);
@@ -50,6 +64,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   return (
     <div className="relative min-h-0 flex-1">
       <div ref={scroller} onScroll={onScroll} className="h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
+        <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
         {state.status === "open" && items.length === 0 && (
@@ -60,7 +75,8 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
         )}
 
         {items.map(({ message, daySeparator, threaded }) => (
-          <div key={message.clientMessageId}>
+          // Stable from optimistic copy to stored message, and distinct across senders.
+          <div key={`${message.creator.id}:${message.clientMessageId}`}>
             {daySeparator && (
               <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
                 <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>

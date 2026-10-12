@@ -39,6 +39,13 @@ export const initialRoomState: RoomState = {
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
 
+/**
+ * Whether `stored` is the room's copy of the optimistic message `m`. Anyone can send a
+ * clientMessageId they've seen, so the sender has to match as well.
+ */
+const confirms = (stored: Message, m: Message | PendingMessage) =>
+  isPending(m) && m.clientMessageId === stored.clientMessageId && m.creator.id === stored.creator.id;
+
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
 
@@ -73,8 +80,11 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
     case "welcome": {
-      // Keep unsent messages across a reconnect; everything else comes fresh from the room.
-      const unsent = state.messages.filter((m) => isPending(m) && !frame.messages.some((s) => s.clientMessageId === m.clientMessageId));
+      // Keep unsent messages across a reconnect, marked as not sent since the room never stored
+      // them; everything else comes fresh from the room.
+      const unsent = state.messages
+        .filter((m) => isPending(m) && !frame.messages.some((stored) => confirms(stored, m)))
+        .map((m) => ({ ...m, failed: true }));
       return {
         ...state,
         status: "open",
@@ -88,9 +98,9 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     }
     case "message.created": {
       const { message } = frame;
-      const exists = state.messages.some((m) => m.clientMessageId === message.clientMessageId);
-      const messages = exists
-        ? state.messages.map((m) => (m.clientMessageId === message.clientMessageId ? message : m))
+      const matches = (m: Message | PendingMessage) => m.id === message.id || confirms(message, m);
+      const messages = state.messages.some(matches)
+        ? state.messages.map((m) => (matches(m) ? message : m))
         : [...state.messages, message];
       return { ...state, messages, typing: withoutTyping(state.typing, message.creator.id) };
     }
@@ -121,7 +131,9 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       const messages = frame.clientMessageId
         ? state.messages.map((m) => (m.clientMessageId === frame.clientMessageId && isPending(m) ? { ...m, failed: true } : m))
         : state.messages;
-      return { ...state, messages, notice: frame.message };
+      // A failed history request leaves nothing in flight, so paging can be tried again.
+      const loadingOlder = frame.failed === "history.before" ? false : state.loadingOlder;
+      return { ...state, messages, notice: frame.message, loadingOlder };
     }
     case "pong":
       return state;

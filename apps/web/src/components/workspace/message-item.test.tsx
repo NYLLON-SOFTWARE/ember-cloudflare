@@ -15,11 +15,24 @@ const message: Message = {
   boosts: [],
 };
 
+const editing = () => {
+  const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+  render(<MessageItem message={message} me={ada} threaded={false} actions={actions} />);
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  return { actions, textbox: screen.getByRole("textbox") };
+};
+
 describe("MessageItem", () => {
   it("caps edits at the length the server accepts", () => {
-    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
-    render(<MessageItem message={message} me={ada} threaded={false} actions={actions} />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("textbox")).toHaveAttribute("maxlength", String(MAX_MESSAGE_LENGTH));
+    expect(editing().textbox).toHaveAttribute("maxlength", String(MAX_MESSAGE_LENGTH));
+  });
+
+  it("saves an edit on Enter, but not while an input method is composing", () => {
+    const { actions, textbox } = editing();
+    fireEvent.change(textbox, { target: { value: "こんにちは" } });
+    fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+    expect(actions.edit).not.toHaveBeenCalled();
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(actions.edit).toHaveBeenCalledWith("m1", "こんにちは");
   });
 });

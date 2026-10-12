@@ -117,8 +117,8 @@ export class MessageStore {
     await this.db.run(`UPDATE messages SET body = ?, updated_at = ? WHERE room_id = ? AND id = ?`, body, now, this.roomId, id);
   }
 
+  /** Its boosts go in the same statement, through ON DELETE CASCADE, so a failure keeps both. */
   async delete(id: string): Promise<void> {
-    await this.db.run(`DELETE FROM boosts WHERE room_id = ? AND message_id = ?`, this.roomId, id);
     await this.db.run(`DELETE FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id);
   }
 

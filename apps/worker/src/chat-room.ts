@@ -65,7 +65,7 @@ export class ChatRoom extends DurableObject<Env> {
       } catch (error) {
         console.error("ChatRoom frame failed", frame.type, error);
         const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
-        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId });
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, failed: frame.type });
       }
     });
   }
@@ -112,7 +112,10 @@ export class ChatRoom extends DurableObject<Env> {
         return this.broadcast({ type: "message.deleted", messageId: message.id });
       }
       case "boost.create": {
-        if (!(await store.find(frame.messageId))) return this.refuse(ws, "That message no longer exists");
+        const message = await store.find(frame.messageId);
+        if (!message) return this.refuse(ws, "That message no longer exists");
+        // Reactions toggle per person, so one they've already added is a repeated click.
+        if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
         const boost = await store.addBoost(sortableId(), frame.messageId, user, frame.content, now);
         return this.broadcast({ type: "boost.created", boost });
       }
