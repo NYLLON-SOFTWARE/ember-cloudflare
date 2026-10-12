@@ -1,5 +1,5 @@
 import type { User } from "@ember/protocol";
-import { Menu } from "lucide-react";
+import { Menu } from "@/components/icons/ember";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { UserAvatar } from "./user-avatar";
 
