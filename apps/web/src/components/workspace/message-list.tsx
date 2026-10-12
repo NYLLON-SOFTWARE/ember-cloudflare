@@ -63,7 +63,9 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
 
   return (
     <div className="relative min-h-0 flex-1">
-      <div ref={scroller} onScroll={onScroll} className="h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
+      {/* `isolate` keeps the message controls' z-indexes inside the timeline, so the return button
+          below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
+      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
         <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
