@@ -1,5 +1,5 @@
 import type { Message, User } from "@ember/protocol";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
 import { MessageList } from "./message-list";
@@ -21,10 +21,17 @@ class FakeIntersectionObserver {
   }
 }
 
-/** jsdom has no ResizeObserver either, and nothing here resizes. */
+/** jsdom has no ResizeObserver either. Like the real thing, it reports when it starts observing and when the size changes. */
 class FakeResizeObserver {
-  observe() {}
-  disconnect() {}
+  static observers = new Set<FakeResizeObserver>();
+  constructor(readonly callback: () => void) {}
+  observe() {
+    FakeResizeObserver.observers.add(this);
+    this.callback();
+  }
+  disconnect() {
+    FakeResizeObserver.observers.delete(this);
+  }
 }
 
 const scrollTopIntoView = () =>
@@ -32,6 +39,20 @@ const scrollTopIntoView = () =>
     FakeIntersectionObserver.topVisible = true;
     FakeIntersectionObserver.observers.forEach((o) => o.callback([{ isIntersecting: true }]));
   });
+
+/** jsdom has no layout either, so tests say how tall the timeline's content is. It shows 400px of it. */
+function layOut(log: HTMLElement, height: number) {
+  const layout = { height };
+  Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => layout.height });
+  Object.defineProperty(log, "clientHeight", { configurable: true, value: 400 });
+  FakeResizeObserver.observers.forEach((o) => o.callback());
+  return layout;
+}
+
+const scrollTo = (log: HTMLElement, top: number) => {
+  log.scrollTop = top;
+  fireEvent.scroll(log);
+};
 
 const ada: User = { id: "u1", name: "Ada" };
 const message = (id: string): Message => ({
@@ -80,6 +101,44 @@ describe("MessageList", () => {
     // A page arrived and the top is still in view, so it asks for the next one.
     rerender(list({ messages: [message("m2"), ...messages], hasMore: true }, onLoadOlder));
     expect(onLoadOlder).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a scrolled-up reader's place when older messages arrive, whether or not the browser kept it already", () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(list({ messages: [message("m5")], hasMore: true }, onLoadOlder));
+    const log = screen.getByRole("log");
+    const layout = layOut(log, 2000);
+    scrollTo(log, 150);
+
+    // Without scroll anchoring, the reader stays put only if the timeline moves them down by the page's height.
+    layout.height = 3000;
+    rerender(list({ messages: [message("m4"), message("m5")], hasMore: true }, onLoadOlder));
+    expect(log.scrollTop).toBe(1150);
+
+    // With it, the browser has already moved them by the time the page renders.
+    layout.height = 4000;
+    log.scrollTop = 2150;
+    rerender(list({ messages: [message("m3"), message("m4"), message("m5")], hasMore: true }, onLoadOlder));
+    expect(log.scrollTop).toBe(2150);
+  });
+
+  it("leaves a scrolled-up reader to the browser when the oldest message goes or a reconnect replaces history", () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(list({ messages: [message("m1"), message("m2"), message("m3")] }, onLoadOlder));
+    const log = screen.getByRole("log");
+    const layout = layOut(log, 2000);
+    scrollTo(log, 500);
+
+    // The browser's scroll anchoring keeps the reader's place as the deleted message goes.
+    layout.height = 1957;
+    log.scrollTop = 457;
+    rerender(list({ messages: [message("m2"), message("m3")] }, onLoadOlder));
+    expect(log.scrollTop).toBe(457);
+
+    // The room's latest page no longer has the message the timeline started with.
+    layout.height = 1500;
+    rerender(list({ messages: [message("m3"), message("m4")] }, onLoadOlder));
+    expect(log.scrollTop).toBe(457);
   });
 
   it("stops once history runs out", () => {
