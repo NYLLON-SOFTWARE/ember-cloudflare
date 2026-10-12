@@ -37,10 +37,21 @@ describe("Lucide icons", () => {
 
 describe("icon imports", () => {
   const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!/src/components/icons/**"], { query: "?raw", import: "default", eager: true });
+  // The package or any of its subpaths, in either quote style, so dynamic imports and re-exports count too.
+  const lucideReact = /["']lucide-react(\/[^"']*)?["']/;
+
+  it.each([
+    `import { Trash2 } from "lucide-react";`,
+    `import { Trash2 } from 'lucide-react';`,
+    `const icons = await import("lucide-react");`,
+    `export { DynamicIcon } from "lucide-react/dynamic";`,
+  ])("treat %s as importing lucide-react", (code) => {
+    expect(code).toMatch(lucideReact);
+  });
 
   it("take every icon from ember-rust's sets in this folder, never straight from lucide-react", () => {
     const strays = Object.entries(sources)
-      .filter(([, code]) => code.includes('from "lucide-react"'))
+      .filter(([, code]) => lucideReact.test(code))
       .map(([file]) => file);
     expect(strays).toEqual([]);
   });

@@ -1,8 +1,8 @@
 # Icons
 
 ember-cloudflare draws exactly the icons ember-rust draws, from the same sources. Import them from
-this folder, never from `lucide-react` directly: `icons.test.tsx` fails the build if any other file
-does, and it checks every Lucide icon here against ember-rust's catalog.
+this folder, never from `lucide-react` directly: `icons.test.tsx` fails `pnpm test`, and so CI, if any
+other file does, and it checks every Lucide icon here against ember-rust's catalog.
 
 | Module | What it holds | Where ember-rust gets it |
 |---|---|---|
