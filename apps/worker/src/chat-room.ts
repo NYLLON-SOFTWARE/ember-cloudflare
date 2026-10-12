@@ -21,6 +21,12 @@ export const USER_HEADER = "X-Ember-User";
 export const ROOM_HEADER = "X-Ember-Room";
 
 /**
+ * Close codes that only report how a socket closed, like 1006 for a dropped connection, and can't
+ * be sent in a close frame (RFC 6455, section 7.4.1).
+ */
+const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
+
+/**
  * One chat room: its WebSockets, who is present and typing, and its messages.
  * Uses the hibernation API, so an idle room costs nothing while sockets stay open.
  */
@@ -71,7 +77,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
-    ws.close(code === 1005 ? 1000 : code, "Closing");
+    ws.close(RESERVED_CLOSE_CODES.has(code) ? 1000 : code, "Closing");
     await this.serially(async () => this.leave(ws));
   }
 

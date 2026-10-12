@@ -57,8 +57,9 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
       ws.onclose = () => {
         clearInterval(heartbeat);
         if (closed) return;
-        // A refused upgrade looks like any other failure, so ask whether the session has expired.
-        if (!opened) void fetchMe(token).catch((error) => error instanceof ApiError && error.status === 401 && sessionExpired());
+        // A refused upgrade looks like any other failure, so ask whether the session has expired. An
+        // answer that comes after the room closed may be about a session that has since been replaced.
+        if (!opened) void fetchMe(token).catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionExpired());
         reconnect();
       };
     };
@@ -116,15 +117,20 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
     if (send({ type: "history.before", before: oldest.id, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
   }, [send, state.messages, state.loadingOlder]);
 
-  const messageActions = useMemo(
-    () => ({
-      edit: (messageId: string, body: string) => void send({ type: "message.update", messageId, body }),
-      remove: (messageId: string) => void send({ type: "message.delete", messageId }),
-      boost: (messageId: string, content: string) => void send({ type: "boost.create", messageId, content }),
-      unboost: (boostId: string) => void send({ type: "boost.delete", boostId }),
-    }),
-    [send],
-  );
+  const messageActions = useMemo(() => {
+    // Unlike new messages, these aren't kept to show as unsent, so say when one couldn't go.
+    const sendOrWarn = (frame: ClientFrame) => {
+      const sent = send(frame);
+      if (!sent) dispatch({ type: "frame", frame: { type: "error", message: "Not connected. Try again once you're reconnected." }, now: Date.now() });
+      return sent;
+    };
+    return {
+      edit: (messageId: string, body: string) => sendOrWarn({ type: "message.update", messageId, body }),
+      remove: (messageId: string) => void sendOrWarn({ type: "message.delete", messageId }),
+      boost: (messageId: string, content: string) => void sendOrWarn({ type: "boost.create", messageId, content }),
+      unboost: (boostId: string) => void sendOrWarn({ type: "boost.delete", boostId }),
+    };
+  }, [send]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 

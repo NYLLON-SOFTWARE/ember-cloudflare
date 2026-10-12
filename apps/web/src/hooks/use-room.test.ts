@@ -86,6 +86,30 @@ describe("useRoom", () => {
     expect(FakeSocket.sockets).toHaveLength(2);
   });
 
+  it("says so when an edit or reaction can't be sent, and the edit reports it", () => {
+    const { result } = renderHook(() => useRoom("general", "token", ada, () => {}));
+    const socket = FakeSocket.sockets[0]!;
+
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.messageActions.edit("m1", "hello");
+    });
+    expect(sent).toBe(false);
+    expect(result.current.state.notice).toMatch(/not connected/i);
+
+    act(() => result.current.dismissNotice());
+    act(() => result.current.messageActions.boost("m1", "👍"));
+    expect(result.current.state.notice).toMatch(/not connected/i);
+
+    act(() => {
+      socket.open();
+      socket.receive(welcome);
+      sent = result.current.messageActions.edit("m1", "hello");
+    });
+    expect(sent).toBe(true);
+    expect(socket.sent).toContain(JSON.stringify({ type: "message.update", messageId: "m1", body: "hello" }));
+  });
+
   it("signs out when a socket is refused because the session expired", async () => {
     const fetch = vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
@@ -95,6 +119,26 @@ describe("useRoom", () => {
     await act(async () => FakeSocket.sockets[0]!.onclose?.());
     await vi.waitFor(() => expect(signedOut).toHaveBeenCalled());
     expect(fetch).toHaveBeenCalledWith("/api/me", expect.objectContaining({ headers: expect.any(Headers) }));
+  });
+
+  it("ignores a session check that answers after its room has closed", async () => {
+    const answers: Array<() => void> = [];
+    const refused = { ok: false, status: 401, json: async () => ({ error: "Not signed in" }) };
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => answers.push(() => resolve(refused)))));
+    const stale = vi.fn();
+    const live = vi.fn();
+
+    // The user signs out and back in while the first check is still waiting.
+    const first = renderHook(() => useRoom("general", "old", ada, stale));
+    await act(async () => FakeSocket.sockets[0]!.onclose?.());
+    first.unmount();
+    renderHook(() => useRoom("general", "new", ada, live));
+    await act(async () => FakeSocket.sockets[1]!.onclose?.());
+
+    // Both checks answer, the old one first; only the live room acts on its answer.
+    await act(async () => answers.forEach((answer) => answer()));
+    await vi.waitFor(() => expect(live).toHaveBeenCalled());
+    expect(stale).not.toHaveBeenCalled();
   });
 
   it("keeps retrying when the network, not the session, is the problem", async () => {

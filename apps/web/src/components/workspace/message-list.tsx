@@ -20,7 +20,8 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
-  const previousHeight = useRef(0);
+  // Where the reader was after the last render or scroll.
+  const position = useRef({ top: 0, height: 0 });
   const firstId = useRef<string | undefined>(undefined);
   const [showLatest, setShowLatest] = useState(false);
 
@@ -28,14 +29,15 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
     const el = scroller.current;
     if (!el) return;
     const oldest = state.messages[0]?.id;
-    if (firstId.current && oldest !== firstId.current && !pinned.current) {
-      // Older history was prepended: keep the reader's place.
-      el.scrollTop += el.scrollHeight - previousHeight.current;
-    } else if (pinned.current) {
+    if (pinned.current) {
       el.scrollTop = el.scrollHeight;
+    } else if (oldest !== firstId.current && state.messages.some(({ id }) => id === firstId.current)) {
+      // Older history was prepended: keep the reader's place. Measure from where they were, since
+      // the browser's own scroll anchoring may already have moved scrollTop by the same amount.
+      el.scrollTop = position.current.top + el.scrollHeight - position.current.height;
     }
     firstId.current = oldest;
-    previousHeight.current = el.scrollHeight;
+    position.current = { top: el.scrollTop, height: el.scrollHeight };
   }, [state.messages]);
 
   const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
@@ -56,14 +58,16 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
     const el = scroller.current!;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     setShowLatest(!pinned.current);
-    previousHeight.current = el.scrollHeight;
+    position.current = { top: el.scrollTop, height: el.scrollHeight };
   };
 
   const items = timeline(state.messages);
 
   return (
     <div className="relative min-h-0 flex-1">
-      <div ref={scroller} onScroll={onScroll} className="h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
+      {/* `isolate` keeps the message controls' z-indexes inside the timeline, so the return button
+          below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
+      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
         <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 

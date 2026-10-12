@@ -26,6 +26,18 @@ describe("roomReducer", () => {
     expect(state.messages[0]!.id).toBe("m1");
   });
 
+  it("puts a confirmed message after the ones the room stored before it", () => {
+    const grace: User = { id: "u2", name: "Grace" };
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    // Grace's message reached the room first, so the room announces it before confirming Ada's.
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "g1", clientMessageId: "g1", creator: grace }) }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "m2" }) }, now: 0 });
+    expect(state.messages.map((m) => [m.creator.name, m.id, isPending(m)])).toEqual([
+      ["Grace", "g1", false],
+      ["Ada", "m2", false],
+    ]);
+  });
+
   it("keeps unsent messages across a reconnect, marked as not sent", () => {
     const pending = { ...message({ id: "c2", clientMessageId: "c2" }), pending: true as const };
     let state = roomReducer(initialRoomState, { type: "pending", message: pending });
@@ -91,6 +103,19 @@ describe("roomReducer", () => {
     let state = roomReducer(initialRoomState, { type: "loading-older" });
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
     expect(state.loadingOlder).toBe(false);
+  });
+
+  it("drops a copy marked unsent once older history turns up the stored message", () => {
+    // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect.
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
+    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
+
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.messages.map((m) => [m.id, isPending(m)])).toEqual([
+      ["m1", false],
+      ["m2", false],
+    ]);
   });
 
   it("prepends older history", () => {
