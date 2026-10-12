@@ -62,6 +62,8 @@ export class RoomClient {
       const timer = setTimeout(() => fail(new Error(`No welcome from ${room} after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS);
       const fail = (error: Error) => {
         clearTimeout(timer);
+        // Closing a socket that failed to open fires its error event again, so stop listening first.
+        ws.onerror = ws.onclose = ws.onmessage = null;
         ws.close();
         reject(error);
       };
