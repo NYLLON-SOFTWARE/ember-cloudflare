@@ -11,7 +11,8 @@ import { UserAvatar } from "./user-avatar";
 export interface MessageActions {
   boost: (messageId: string, content: string) => void;
   unboost: (boostId: string) => void;
-  edit: (messageId: string, body: string) => void;
+  /** Returns whether the edit was sent. */
+  edit: (messageId: string, body: string) => boolean;
   remove: (messageId: string) => void;
 }
 
@@ -36,7 +37,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
   const saveEdit = () => {
     const body = draft.trim();
-    if (body && body !== message.body) actions.edit(message.id, body);
+    // An edit that couldn't be sent keeps the editor open, so the draft isn't lost.
+    if (body && body !== message.body && !actions.edit(message.id, body)) return;
     setEditing(false);
   };
 
@@ -120,6 +122,27 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         )}
       </div>
 
+      {/* Touch screens have no hover, so this toggles the actions, as on ember-rust mobile. With a mouse
+          it's the bar's last button, in the space the bar leaves for it, as in ember-rust's overlapping
+          bar (zz-ember.css, `.mb-message-actions--overlapping`). It comes before the bar in tab order
+          because it's how a keyboard gets into the bar. */}
+      {!pending && !editing && (
+        <button
+          type="button"
+          aria-label="Message options"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+          className={cn(
+            actionButton,
+            "absolute opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 aria-expanded:opacity-100",
+            "[@media(hover:hover)]:-top-px [@media(hover:hover)]:right-[21px] [@media(hover:hover)]:z-20",
+            "[@media(hover:none)]:top-0 [@media(hover:none)]:right-1 [@media(hover:none)]:size-11 [@media(hover:none)]:opacity-50",
+          )}
+        >
+          <Ellipsis className="size-4" />
+        </button>
+      )}
+
       {!pending && !editing && (
         <div
           className={cn(
@@ -127,17 +150,23 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             menuOpen ? "flex" : "hidden group-hover/message:flex group-focus-within/message:flex",
           )}
         >
-          <div role="group" aria-label="Message actions" className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a]">
+          <div
+            role="group"
+            aria-label="Message actions"
+            className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:max-md:pr-[38px]"
+          >
             {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
               <button key={emoji} type="button" title={title} aria-label={title} className={actionButton} onClick={() => actions.boost(message.id, emoji)}>
                 {emoji}
               </button>
             ))}
-            <DropdownMenu onOpenChange={setMenuOpen}>
+            {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
+                first drops keyboard focus to the page. */}
+            <DropdownMenu onOpenChange={(open) => open && setMenuOpen(true)}>
               <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
                 <SmilePlus />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-[11px] p-2">
+              <DropdownMenuContent align="end" className="rounded-[11px] p-2" onCloseAutoFocus={() => setMenuOpen(false)}>
                 <DropdownMenuLabel className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">More reactions</DropdownMenuLabel>
                 <div className="flex">
                   {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
@@ -169,19 +198,6 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             )}
           </div>
         </div>
-      )}
-
-      {/* Touch screens have no hover, so a trigger toggles the actions, as on ember-rust mobile. */}
-      {!pending && (
-        <button
-          type="button"
-          aria-label="Message options"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((open) => !open)}
-          className="absolute top-0 right-1 hidden size-11 items-center justify-center rounded-md text-message-muted opacity-50 aria-expanded:opacity-100 [@media(hover:none)]:flex"
-        >
-          <Ellipsis className="size-4" />
-        </button>
       )}
     </article>
   );

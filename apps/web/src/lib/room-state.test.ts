@@ -93,6 +93,19 @@ describe("roomReducer", () => {
     expect(state.loadingOlder).toBe(false);
   });
 
+  it("drops a copy marked unsent once older history turns up the stored message", () => {
+    // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect.
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
+    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
+
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.messages.map((m) => [m.id, isPending(m)])).toEqual([
+      ["m1", false],
+      ["m2", false],
+    ]);
+  });
+
   it("prepends older history", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }) }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });

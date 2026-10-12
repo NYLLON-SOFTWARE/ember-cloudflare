@@ -125,8 +125,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         ...state,
         typing: frame.typing ? { ...state.typing, [frame.user.id]: { user: frame.user, at: now } } : withoutTyping(state.typing, frame.user.id),
       };
-    case "history":
-      return { ...state, messages: [...frame.messages, ...state.messages], hasMore: frame.hasMore, loadingOlder: false };
+    case "history": {
+      // A page can hold the stored copy of a message that a reconnect couldn't find, and marked unsent.
+      const messages = state.messages.filter((m) => !frame.messages.some((stored) => confirms(stored, m)));
+      return { ...state, messages: [...frame.messages, ...messages], hasMore: frame.hasMore, loadingOlder: false };
+    }
     case "error": {
       const messages = frame.clientMessageId
         ? state.messages.map((m) => (m.clientMessageId === frame.clientMessageId && isPending(m) ? { ...m, failed: true } : m))
