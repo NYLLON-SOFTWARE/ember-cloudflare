@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 7 ported and 33 partial of 143 features; 100 not started, 3 not applicable.
+**Overall:** 8 ported and 32 partial of 143 features; 100 not started, 3 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 0 | 2 | 14 | 0 | 16 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 8 | 0 | 9 |
-| [Messages](#messages) | 2 | 8 | 6 | 0 | 16 |
+| [Messages](#messages) | 3 | 7 | 6 | 0 | 16 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 1 | 1 | 0 | 2 |
 | [Attachments](#attachments) | 0 | 0 | 7 | 0 | 7 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 1 | 0 | 3 |
 | [Workspace interface](#workspace-interface) | 1 | 7 | 3 | 0 | 11 |
 | [Platform](#platform) | 2 | 1 | 3 | 3 | 9 |
-| **Total** | **7** | **33** | **100** | **3** | **143** |
+| **Total** | **8** | **32** | **100** | **3** | **143** |
 
 ## Sign-in and sessions
 
@@ -762,7 +762,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Scroll back through history | `messages.history` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Group messages by author | `messages.grouping` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Day separators | `messages.day-separators` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
-| Message rows | `messages.layout` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Message rows | `messages.layout` | Ember | ✅ Ported | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Times on follow-up messages | `messages.follow-up-times` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Message action bar | `messages.actions` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Reply with a quote | `messages.reply` | Campfire | ⬜ Not started |  |
@@ -868,13 +868,11 @@ Sources: [`reference/app/javascript/models/message_formatter.js`](https://github
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
 
-**Message rows** (`messages.layout`) 🟡
+**Message rows** (`messages.layout`) ✅
 
 - Every message is left-aligned, your own included: a 36px avatar with 6px corners, an 8px gap, then the author (15px bold), the time (12px) and the text (15px on 22px lines), 20px in from the edge.
 - Hovering a message tints its row (`#f8f8f8`, or `#202020` in dark) without moving anything.
 - On phones the avatar is 30px with a 10px gap and 12px inset, and long words wrap rather than run off the screen.
-
-Note: Avatars have 8px corners rather than 6px.
 
 Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_message.html)
 

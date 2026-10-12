@@ -23,15 +23,17 @@ class FakeIntersectionObserver {
   }
 }
 
-/** The list's ResizeObserver callbacks, which a browser calls when the log's size changes. */
-let resizeObservers: (() => void)[] = [];
-
+/** jsdom has no ResizeObserver either. Like the real thing, it reports when it starts observing and when the size changes. */
 class FakeResizeObserver {
-  constructor(notify: () => void) {
-    resizeObservers.push(notify);
+  static observers = new Set<FakeResizeObserver>();
+  constructor(readonly callback: () => void) {}
+  observe() {
+    FakeResizeObserver.observers.add(this);
+    this.callback();
   }
-  observe() {}
-  disconnect() {}
+  disconnect() {
+    FakeResizeObserver.observers.delete(this);
+  }
 }
 
 const scrollTopIntoView = () =>
@@ -40,18 +42,19 @@ const scrollTopIntoView = () =>
     FakeIntersectionObserver.observers.forEach((o) => o.callback([{ isIntersecting: true }]));
   });
 
-/** jsdom has no layout either, so give the log the scroll geometry a browser would. */
-function scrollTo(log: HTMLElement, { top, height = 2000, viewport = 500 }: { top: number; height?: number; viewport?: number }) {
-  const resized = log.clientHeight !== viewport;
-  Object.defineProperties(log, {
-    scrollHeight: { configurable: true, value: height },
-    clientHeight: { configurable: true, value: viewport },
-  });
-  // A browser reports the log's new size before the reader gets to scroll it.
-  if (resized) resizeObservers.forEach((notify) => notify());
-  Object.defineProperty(log, "scrollTop", { configurable: true, writable: true, value: top });
-  fireEvent.scroll(log);
+/** jsdom has no layout either, so tests say how tall the timeline's content is. It shows 400px of it. */
+function layOut(log: HTMLElement, height: number) {
+  const layout = { height };
+  Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => layout.height });
+  Object.defineProperty(log, "clientHeight", { configurable: true, value: 400 });
+  FakeResizeObserver.observers.forEach((o) => o.callback());
+  return layout;
 }
+
+const scrollTo = (log: HTMLElement, top: number) => {
+  log.scrollTop = top;
+  fireEvent.scroll(log);
+};
 
 const ada: User = { id: "u1", name: "Ada" };
 const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
@@ -76,7 +79,6 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-12T18:00:00"));
   FakeIntersectionObserver.topVisible = false;
-  resizeObservers = [];
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
@@ -139,6 +141,44 @@ describe(feature("messages.history"), () => {
     expect(onLoadOlder).not.toHaveBeenCalled();
   });
 
+  it("keeps a scrolled-up reader's place when older messages arrive, whether or not the browser kept it already", () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(list({ messages: [message("m5")], hasMore: true }, onLoadOlder));
+    const log = screen.getByRole("log");
+    const layout = layOut(log, 2000);
+    scrollTo(log, 150);
+
+    // Without scroll anchoring, the reader stays put only if the timeline moves them down by the page's height.
+    layout.height = 3000;
+    rerender(list({ messages: [message("m4"), message("m5")], hasMore: true }, onLoadOlder));
+    expect(log.scrollTop).toBe(1150);
+
+    // With it, the browser has already moved them by the time the page renders.
+    layout.height = 4000;
+    log.scrollTop = 2150;
+    rerender(list({ messages: [message("m3"), message("m4"), message("m5")], hasMore: true }, onLoadOlder));
+    expect(log.scrollTop).toBe(2150);
+  });
+
+  it("leaves a scrolled-up reader to the browser when the oldest message goes or a reconnect replaces history", () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(list({ messages: [message("m1"), message("m2"), message("m3")] }, onLoadOlder));
+    const log = screen.getByRole("log");
+    const layout = layOut(log, 2000);
+    scrollTo(log, 500);
+
+    // The browser's scroll anchoring keeps the reader's place as the deleted message goes.
+    layout.height = 1957;
+    log.scrollTop = 457;
+    rerender(list({ messages: [message("m2"), message("m3")] }, onLoadOlder));
+    expect(log.scrollTop).toBe(457);
+
+    // The room's latest page no longer has the message the timeline started with.
+    layout.height = 1500;
+    rerender(list({ messages: [message("m3"), message("m4")] }, onLoadOlder));
+    expect(log.scrollTop).toBe(457);
+  });
+
   it("stops once history runs out", () => {
     FakeIntersectionObserver.topVisible = true;
     const onLoadOlder = vi.fn();
@@ -154,13 +194,14 @@ describe(feature("ui.scroll"), () => {
     const log = screen.getByRole("log", { name: "Messages in general" });
     expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
 
-    scrollTo(log, { top: 600 });
+    layOut(log, 2000);
+    scrollTo(log, 600);
     const button = screen.getByRole("button", { name: "Return to latest messages" });
     log.scrollTo = vi.fn();
     await userEvent.click(button);
     expect(log.scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: "smooth" });
 
-    scrollTo(log, { top: 1450 });
+    scrollTo(log, 1550);
     expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
   });
 });

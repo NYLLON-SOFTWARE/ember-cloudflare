@@ -901,7 +901,7 @@ export const features = [
     id: "messages.layout",
     title: "Message rows",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Every message is left-aligned, your own included: a 36px avatar with 6px corners, an 8px gap, then the author (15px bold), the time (12px) and the text (15px on 22px lines), 20px in from the edge.",
       "Hovering a message tints its row (`#f8f8f8`, or `#202020` in dark) without moving anything.",
@@ -909,7 +909,6 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/zz-ember.css", "crates/views/templates/messages/_message.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Avatars have 8px corners rather than 6px.",
   },
   {
     id: "messages.follow-up-times",

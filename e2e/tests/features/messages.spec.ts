@@ -91,6 +91,7 @@ test.describe(feature("messages.layout"), () => {
       expect(avatar.width).toBe(36);
       expect(avatar.height).toBe(36);
       expect(avatar.x - log.x).toBe(20);
+      await expect(row.locator("[aria-hidden=true]").first()).toHaveCSS("border-radius", "6px");
 
       const name = row.getByText(author, { exact: true });
       expect((await box(name)).x - (avatar.x + avatar.width)).toBe(8);
@@ -103,17 +104,22 @@ test.describe(feature("messages.layout"), () => {
     }
   });
 
-  test("tints the row under the pointer without moving anything", async ({ members, participant }) => {
+  test("tints the row under the pointer without moving anything, in light and dark", async ({ members, participant }) => {
     await (await participant("Grace")).say("Point at me");
-    const ada = await members.signIn("Ada", { context: { colorScheme: "light" } });
-    const row = ada.message("Point at me");
-    const body = row.getByText("Point at me", { exact: true });
-    const before = await box(body);
-    await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    for (const [colorScheme, tint] of [
+      ["light", "rgb(248, 248, 248)"],
+      ["dark", "rgb(32, 32, 32)"],
+    ] as const) {
+      const ada = await members.signIn("Ada", { context: { colorScheme } });
+      const row = ada.message("Point at me");
+      const body = row.getByText("Point at me", { exact: true });
+      const before = await box(body);
+      await expect(row).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
-    await row.hover();
-    await expect(row).toHaveCSS("background-color", "rgb(248, 248, 248)");
-    expect(await box(body)).toEqual(before);
+      await row.hover();
+      await expect(row, colorScheme).toHaveCSS("background-color", tint);
+      expect(await box(body)).toEqual(before);
+    }
   });
 
   test("uses a smaller avatar on phones and wraps long words", async ({ members, participant }) => {
