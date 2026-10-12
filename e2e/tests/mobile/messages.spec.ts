@@ -12,8 +12,9 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
 
   // Phones can't hover, so each message has an options button instead.
   const message = page.getByRole("article").filter({ hasText: "Tap the options button" });
-  await message.getByRole("button", { name: "Message options" }).tap();
+  const options = message.getByRole("button", { name: "Message options" });
   const actions = message.getByRole("group", { name: "Message actions" });
+  await options.tap();
   await expect(actions).toBeVisible();
   await screenIsFine();
 
@@ -22,11 +23,49 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await screenIsFine();
   await page.getByRole("menuitem", { name: "Fire" }).tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: /🔥/ })).toBeVisible();
+  // As in ember-rust, a reaction closes the bar, and focus goes back to Message options.
+  await expect(actions).toBeHidden();
+  await expect(options).toBeFocused();
 
-  await message.getByRole("button", { name: "Message options" }).tap();
+  await options.tap();
   await actions.getByRole("button", { name: "Thumbs up" }).tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button")).toHaveCount(2);
+  await expect(actions).toBeHidden();
+  await expect(options).toBeFocused();
   await screenIsFine({ denseTargets: [REACTION_CHIPS] });
+});
+
+test("tapping Message options again closes the actions", async ({ page, room, participant }) => {
+  const ada = await participant("Ada");
+  await ada.say("Open and close my actions");
+  await openRoom(page, room);
+
+  const message = page.getByRole("article").filter({ hasText: "Open and close my actions" });
+  const options = message.getByRole("button", { name: "Message options" });
+  const actions = message.getByRole("group", { name: "Message actions" });
+  await options.tap();
+  await expect(actions).toBeVisible();
+  await options.tap();
+  await expect(options).toHaveAttribute("aria-expanded", "false");
+  await expect(actions).toBeHidden();
+});
+
+test("tapping anywhere else closes the actions, so only one message has them open", async ({ page, room, participant }) => {
+  const ada = await participant("Ada");
+  await ada.say("The first message");
+  await ada.say("The second message");
+  await openRoom(page, room);
+
+  const first = page.getByRole("article").filter({ hasText: "The first message" });
+  const second = page.getByRole("article").filter({ hasText: "The second message" });
+  await first.getByRole("button", { name: "Message options" }).tap();
+  await expect(first.getByRole("group", { name: "Message actions" })).toBeVisible();
+  await second.getByRole("button", { name: "Message options" }).tap();
+  await expect(second.getByRole("group", { name: "Message actions" })).toBeVisible();
+  await expect(first.getByRole("group", { name: "Message actions" })).toBeHidden();
+
+  await first.getByText("The first message").tap();
+  await expect(second.getByRole("group", { name: "Message actions" })).toBeHidden();
 });
 
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {

@@ -60,4 +60,28 @@ describe("MessageItem", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
+
+  it("closes the actions after a reaction and hands focus to Message options", () => {
+    const actions = shown();
+    const options = screen.getByRole("button", { name: "Message options" });
+    fireEvent.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(options).toHaveFocus();
+  });
+
+  it("closes the actions on a click anywhere else, and after Edit", () => {
+    shown();
+    const options = () => screen.getByRole("button", { name: "Message options" });
+    fireEvent.click(options());
+    fireEvent.click(screen.getByText("hi"));
+    expect(options()).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(options());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(options()).toHaveAttribute("aria-expanded", "false");
+  });
 });
