@@ -196,8 +196,6 @@ test.describe(feature("messages.actions"), () => {
     await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeFocused();
     await ada.page.keyboard.press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
-    // As in ember-rust, sending a reaction hands focus back to Message options.
-    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
   });
 
   test("opens the bar from a 44px Message options button on touch screens, on screen at 320px", async ({ members, participant }) => {

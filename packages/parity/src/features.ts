@@ -937,7 +937,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but once you've clicked one of its buttons, a reaction included, it stays until you click somewhere else, and Escape doesn't close it. On touch screens the bar opens beside Message options rather than below it.",
+    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. Clicking Message options pins it open until you click Message options again, react or edit, so a click elsewhere doesn't close it and several can be open at once. A reaction leaves focus on its button rather than moving it to Message options.",
   },
   {
     id: "messages.reply",

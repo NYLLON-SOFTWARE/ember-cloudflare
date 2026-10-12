@@ -10,10 +10,11 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await ada.say("Tap the options button to react to this");
   await openRoom(page, room);
 
-  // Phones can't hover, so each message has an options button instead.
+  // Phones can't hover, so each message has an options button instead. The actions open beside it,
+  // over the timeline rather than inside the message.
   const message = page.getByRole("article").filter({ hasText: "Tap the options button" });
   const options = message.getByRole("button", { name: "Message options" });
-  const actions = message.getByRole("group", { name: "Message actions" });
+  const actions = page.getByRole("group", { name: "Message actions" });
   await options.tap();
   await expect(actions).toBeVisible();
   await screenIsFine();
@@ -40,9 +41,8 @@ test("tapping Message options again closes the actions", async ({ page, room, pa
   await ada.say("Open and close my actions");
   await openRoom(page, room);
 
-  const message = page.getByRole("article").filter({ hasText: "Open and close my actions" });
-  const options = message.getByRole("button", { name: "Message options" });
-  const actions = message.getByRole("group", { name: "Message actions" });
+  const options = page.getByRole("article").filter({ hasText: "Open and close my actions" }).getByRole("button", { name: "Message options" });
+  const actions = page.getByRole("group", { name: "Message actions" });
   await options.tap();
   await expect(actions).toBeVisible();
   await options.tap();
@@ -52,20 +52,23 @@ test("tapping Message options again closes the actions", async ({ page, room, pa
 
 test("tapping anywhere else closes the actions, so only one message has them open", async ({ page, room, participant }) => {
   const ada = await participant("Ada");
-  await ada.say("The first message");
-  await ada.say("The second message");
+  // The first message's actions open over the next two, so the last one's button is clear of them.
+  for (const text of ["The first message", "The second", "The third", "The last message"]) await ada.say(text);
   await openRoom(page, room);
 
   const first = page.getByRole("article").filter({ hasText: "The first message" });
-  const second = page.getByRole("article").filter({ hasText: "The second message" });
+  const last = page.getByRole("article").filter({ hasText: "The last message" });
+  const actions = page.getByRole("group", { name: "Message actions" });
   await first.getByRole("button", { name: "Message options" }).tap();
-  await expect(first.getByRole("group", { name: "Message actions" })).toBeVisible();
-  await second.getByRole("button", { name: "Message options" }).tap();
-  await expect(second.getByRole("group", { name: "Message actions" })).toBeVisible();
-  await expect(first.getByRole("group", { name: "Message actions" })).toBeHidden();
+  await expect(actions).toHaveCount(1);
+  await last.getByRole("button", { name: "Message options" }).tap();
+  await expect(last.getByRole("button", { name: "Message options" })).toHaveAttribute("aria-expanded", "true");
+  await expect(first.getByRole("button", { name: "Message options" })).toHaveAttribute("aria-expanded", "false");
+  await expect(actions).toHaveCount(1);
 
   await first.getByText("The first message").tap();
-  await expect(second.getByRole("group", { name: "Message actions" })).toBeHidden();
+  await expect(last.getByRole("button", { name: "Message options" })).toHaveAttribute("aria-expanded", "false");
+  await expect(actions).toHaveCount(0);
 });
 
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {
@@ -77,8 +80,9 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
 
   const message = page.getByRole("article").filter({ hasText: "A message to edit" });
   await expect(message).not.toHaveAttribute("aria-busy");
+  const edit = page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Edit" });
   await message.getByRole("button", { name: "Message options" }).tap();
-  await message.getByRole("button", { name: "Edit" }).tap();
+  await edit.tap();
   const field = message.getByRole("textbox", { name: "Edit message" });
   await expect(field).toBeFocused();
   await screenIsFine();
@@ -92,7 +96,7 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await expect(message).toContainText("A message to edit\nwith a second line");
 
   await message.getByRole("button", { name: "Message options" }).tap();
-  await message.getByRole("button", { name: "Edit" }).tap();
+  await edit.tap();
   await message.getByRole("button", { name: "Cancel" }).tap();
   await expect(field).toBeHidden();
 });

@@ -31,6 +31,13 @@ function show(m: Message | PendingMessage, { me = ada, threaded = false, sent = 
 }
 
 afterEach(() => vi.restoreAllMocks());
+afterEach(() => vi.unstubAllGlobals());
+
+/** Lays components out as they are on a phone, where nothing can hover. */
+const onTouchScreen = () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: none)", media, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+};
 
 describe(feature("messages.create"), () => {
   it("shows the author, the time and the text", () => {
@@ -141,28 +148,24 @@ describe(feature("messages.actions"), () => {
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
 
-  it("closes the actions after a reaction and hands focus to Message options", async () => {
-    const { actions, user } = show(message());
+  it("opens a touch screen's actions beside the message from Message options, which closes them again", () => {
+    onTouchScreen();
+    const { actions, article } = show(message());
     const options = screen.getByRole("button", { name: "Message options" });
-    await user.click(options);
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+
+    fireEvent.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
-    await user.click(screen.getByRole("button", { name: "Thumbs up" }));
+    // They open beside the message, not over its button.
+    expect(article.contains(screen.getByRole("group", { name: "Message actions" }))).toBe(false);
+    fireEvent.click(options);
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+
+    // Sending a reaction closes them, as on ember-rust.
+    fireEvent.click(options);
+    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
     expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
-    expect(options).toHaveAttribute("aria-expanded", "false");
-    expect(options).toHaveFocus();
-  });
-
-  it("closes the actions on a click anywhere else, and after Edit", async () => {
-    const { user } = show(message());
-    const options = () => screen.getByRole("button", { name: "Message options" });
-    await user.click(options());
-    await user.click(screen.getByText("Hello"));
-    expect(options()).toHaveAttribute("aria-expanded", "false");
-
-    await user.click(options());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(options()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
   });
 });
 
