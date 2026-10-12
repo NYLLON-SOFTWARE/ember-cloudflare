@@ -98,10 +98,10 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     }
     case "message.created": {
       const { message } = frame;
-      const matches = (m: Message | PendingMessage) => m.id === message.id || confirms(message, m);
-      const messages = state.messages.some(matches)
-        ? state.messages.map((m) => (matches(m) ? message : m))
-        : [...state.messages, message];
+      // A confirmed message goes where the room put it, at the end, not where its optimistic copy sat:
+      // the room may have stored someone else's first. ember-rust's messages_controller does the same.
+      const others = state.messages.filter((m) => !confirms(message, m));
+      const messages = others.some((m) => m.id === message.id) ? replace(others, message.id, () => message) : [...others, message];
       return { ...state, messages, typing: withoutTyping(state.typing, message.creator.id) };
     }
     case "message.updated":
