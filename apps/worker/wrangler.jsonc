@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ember",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  // The Worker serves the built React app and answers /api/* itself.
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // One ChatRoom object per room. Each owns its sockets, presence and (by default) its messages.
+  "durable_objects": {
+    "bindings": [{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }],
+
+  "vars": {
+    // "do-sqlite" keeps each room's messages in its Durable Object's SQLite storage.
+    // "d1" writes them to the shared D1 database below instead.
+    "STORAGE_BACKEND": "do-sqlite",
+    "DEFAULT_ROOMS": "general,random"
+  }
+
+  // To use D1, create a database (`wrangler d1 create ember`), paste its id here,
+  // set STORAGE_BACKEND to "d1", and apply migrations/ with `pnpm d1:migrate:local`.
+  // "d1_databases": [
+  //   { "binding": "DB", "database_name": "ember", "database_id": "<your-database-id>", "migrations_dir": "migrations" }
+  // ]
+}

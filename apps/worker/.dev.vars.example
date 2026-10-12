@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `wrangler dev`. In production, set it with `wrangler secret put SESSION_SECRET`.
+SESSION_SECRET=change-me-to-a-long-random-string
