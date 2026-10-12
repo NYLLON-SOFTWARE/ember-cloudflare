@@ -44,3 +44,25 @@ test("choosing a room closes the drawer", async ({ page, room }) => {
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
 });
+
+test("rotating the phone with the drawer open leaves the page usable", async ({ page, room }) => {
+  await page.getByRole("button", { name: "Open conversations" }).tap();
+  await expect(page.getByRole("dialog")).toBeVisible();
+
+  // Turn it on its side, or upright for a phone already on its side. With viewport-fit=cover the
+  // page runs the full length of the screen.
+  const [short, long] = await page.evaluate(() => [Math.min(screen.width, screen.height), Math.max(screen.width, screen.height)]);
+  const { width, height } = page.viewportSize()!;
+  await page.setViewportSize(width < height ? { width: long, height: short } : { width: short, height: long });
+  if (hasDrawerLayout(page)) {
+    await expect(page.getByRole("dialog")).toBeVisible();
+  } else {
+    // A big phone on its side is past 900px, where there's no drawer. It has to close rather than
+    // hide, or it dims the page and takes the next tap.
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(page.locator("[data-slot=sheet-overlay]")).toBeHidden();
+    const composer = page.getByRole("textbox", { name: `Message #${room.name}` });
+    await composer.tap();
+    await expect(composer).toBeFocused();
+  }
+});
