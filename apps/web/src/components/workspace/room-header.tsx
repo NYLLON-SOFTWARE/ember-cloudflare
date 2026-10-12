@@ -1,21 +1,17 @@
 import type { User } from "@ember/protocol";
 import { Menu } from "lucide-react";
+import { SheetTrigger } from "@/components/ui/sheet";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { UserAvatar } from "./user-avatar";
 
 const MAX_FACES = 4;
 
-export function RoomHeader({ name, present, status, onOpenMenu }: { name: string; present: User[]; status: ConnectionStatus; onOpenMenu: () => void }) {
+export function RoomHeader({ name, present, status }: { name: string; present: User[]; status: ConnectionStatus }) {
   return (
-    <header className="flex min-h-header items-center gap-3 border-b bg-background px-[22px] py-2.5 max-md:min-h-14 max-md:gap-1.5 max-md:px-2 max-md:pt-[env(safe-area-inset-top)]">
-      <button
-        type="button"
-        onClick={onOpenMenu}
-        aria-label="Open conversations"
-        className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
-      >
+    <header className="flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]">
+      <SheetTrigger aria-label="Open conversations" className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
         <Menu className="size-[22px]" />
-      </button>
+      </SheetTrigger>
 
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         <span aria-hidden="true" className="shrink-0 text-[23px] text-muted-foreground">

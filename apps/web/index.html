@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- As in ember-rust's layouts/application.html. viewport-fit=cover runs the page under the notch
+         (the layout pads with env(safe-area-inset-*)), and resizes-content makes Android shrink the
+         page above the on-screen keyboard instead of covering the composer. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/png" href="/ember-icon.png" />
     <title>Ember</title>

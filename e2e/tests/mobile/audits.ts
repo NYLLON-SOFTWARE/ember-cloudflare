@@ -1,0 +1,234 @@
+import type { Page } from "@playwright/test";
+import type { SafeArea } from "./fixtures";
+
+/**
+ * Layout audits that run inside the page, over everything currently on screen. Each returns
+ * plain-language problems, empty when the screen is fine, so a failure says what to fix.
+ */
+export interface AuditResults {
+  /** Content cut off by its container or pushed past the sides of the screen. */
+  overflow: string[];
+  /** Controls a fingertip can miss: smaller than 44×44px, or partly covered by something else. */
+  touchTargets: string[];
+  /** Text, controls or media under the notch, the rounded corners or the home indicator. */
+  safeArea: string[];
+  /** Text fields under 16px, which make iOS Safari zoom the page when they're focused. */
+  zoomingFields: string[];
+}
+
+/** Waits for transitions such as the drawer sliding in, so the audits see where things land. */
+export async function settle(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const finite = document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+    await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
+
+export async function auditScreen(page: Page, safeArea: SafeArea, options: { denseTargets?: string[] } = {}): Promise<AuditResults> {
+  await settle(page);
+  return page.evaluate(runAudits, { insets: safeArea, denseTargets: options.denseTargets ?? [] });
+}
+
+/** Serialized into the page, so it must not refer to anything outside itself. */
+function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: string[] }): AuditResults {
+  const TOLERANCE = 1;
+  // Apple's Human Interface Guidelines and WCAG 2.5.5 ask for 44×44px; WCAG 2.5.8's floor is 24px.
+  const TARGET = 44;
+  const DENSE_TARGET = 24;
+  const INTERACTIVE = [
+    "a[href]",
+    "button",
+    "input:not([type=hidden])",
+    "select",
+    "textarea",
+    "summary",
+    "[contenteditable=true]",
+    "[tabindex]:not([tabindex='-1'])",
+    ...["button", "link", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "tab", "switch", "checkbox", "radio"].map((role) => `[role=${role}]`),
+  ].join(",");
+  const TEXT_FIELDS = "input:not([type=hidden],[type=checkbox],[type=radio],[type=button],[type=submit],[type=reset],[type=range],[type=color],[type=file]), textarea, select, [contenteditable=true]";
+  const MEDIA = "img, svg, video, canvas, iframe";
+
+  type Box = { left: number; top: number; right: number; bottom: number };
+
+  const describe = (node: Node): string => {
+    const element = node instanceof Element ? node : node.parentElement!;
+    const text = (node.textContent ?? "").trim().replace(/\s+/g, " ");
+    const name = element.getAttribute("aria-label") ?? element.getAttribute("title") ?? text;
+    const role = element.getAttribute("role");
+    const what = node instanceof Element ? `<${element.tagName.toLowerCase()}${role ? ` role=${role}` : ""}>` : `text in <${element.tagName.toLowerCase()}>`;
+    return name ? `${what} "${name.length > 40 ? `${name.slice(0, 39)}…` : name}"` : what;
+  };
+  const px = (value: number) => `${Math.round(value)}px`;
+
+  const isShown = (element: Element) => element.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  // Screen-reader-only text is clipped to 1px on purpose.
+  const isVisuallyHidden = (element: Element) => {
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 1 && rect.height <= 1 && getComputedStyle(node).overflow !== "visible") return true;
+    }
+    return false;
+  };
+  const isDisabled = (element: Element) => element.matches(":disabled, [aria-disabled=true], [data-disabled]");
+
+  /** Elements whose overflow clips `element`, nearest first, stopping where `position: fixed` escapes them. */
+  const clippers = (element: Element, includeSelf: boolean) => {
+    const result: Element[] = [];
+    let node: Element | null = includeSelf ? element : element.parentElement;
+    let escaped = false;
+    for (; node && node !== document.documentElement; node = node.parentElement) {
+      if (escaped) break;
+      const style = getComputedStyle(node);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") result.push(node);
+      if (style.position === "fixed") escaped = true;
+    }
+    return result;
+  };
+
+  /** The nearest container that can scroll `element` along an axis right now: an ancestor, or the page. */
+  const scrollerOf = (element: Element, axis: "x" | "y"): Element | null => {
+    const [overflow, size, client] = axis === "y" ? (["overflowY", "scrollHeight", "clientHeight"] as const) : (["overflowX", "scrollWidth", "clientWidth"] as const);
+    for (let node = element; node.parentElement; ) {
+      // The page's scroll doesn't move anything fixed in place, such as a drawer.
+      if (getComputedStyle(node).position === "fixed") return null;
+      node = node.parentElement;
+      const scrolls = node[size] > node[client] + TOLERANCE;
+      // A modal dialog stops the page scrolling by hiding the body's overflow.
+      if (node === document.scrollingElement) return scrolls && getComputedStyle(document.body)[overflow] !== "hidden" ? node : null;
+      if (scrolls && /auto|scroll/.test(getComputedStyle(node)[overflow])) return node;
+    }
+    return null;
+  };
+
+  /** The part of `box` that is painted, after clipping by overflow containers and the screen. */
+  const paintedPart = (box: Box, clipping: Element[]): Box | null => {
+    let { left, top, right, bottom } = box;
+    for (const clipper of clipping) {
+      const style = getComputedStyle(clipper);
+      const rect = clipper.getBoundingClientRect();
+      if (style.overflowX !== "visible") [left, right] = [Math.max(left, rect.left), Math.min(right, rect.right)];
+      if (style.overflowY !== "visible") [top, bottom] = [Math.max(top, rect.top), Math.min(bottom, rect.bottom)];
+    }
+    [left, top, right, bottom] = [Math.max(left, 0), Math.max(top, 0), Math.min(right, innerWidth), Math.min(bottom, innerHeight)];
+    return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom } : null;
+  };
+
+  const textNodes = () => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => (node.nodeValue?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+    });
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    return nodes.filter((node) => isShown(node.parentElement!) && !isVisuallyHidden(node.parentElement!));
+  };
+  const lineBoxes = (node: Text) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    return [...range.getClientRects()].filter((rect) => rect.width > 0.5 && rect.height > 0.5);
+  };
+  const elements = (selector: string) =>
+    [...document.body.querySelectorAll(selector)].filter((element) => isShown(element) && !isVisuallyHidden(element));
+
+  // Overflow: every box and line of text must fit inside the containers that clip it and the
+  // screen, unless the container scrolls sideways or truncates with an ellipsis on purpose.
+  const overflow: string[] = [];
+  const checkFits = (node: Node, box: Box, clipping: Element[]) => {
+    for (const clipper of clipping) {
+      const style = getComputedStyle(clipper);
+      if (style.textOverflow === "ellipsis" || style.overflowX === "auto" || style.overflowX === "scroll") return;
+      if (style.overflowX === "visible") continue;
+      const rect = clipper.getBoundingClientRect();
+      if (box.left < rect.left - TOLERANCE || box.right > rect.right + TOLERANCE) {
+        overflow.push(`${describe(node)} spans ${px(box.left)}–${px(box.right)} but ${describe(clipper)} cuts it off at ${px(rect.left)}–${px(rect.right)}`);
+        return;
+      }
+    }
+    if (box.left < -TOLERANCE || box.right > innerWidth + TOLERANCE) {
+      overflow.push(`${describe(node)} spans ${px(box.left)}–${px(box.right)} on a ${px(innerWidth)}-wide screen`);
+    }
+  };
+  const scrollWidth = document.scrollingElement!.scrollWidth;
+  if (scrollWidth > innerWidth + TOLERANCE) overflow.push(`the page scrolls sideways: ${px(scrollWidth)} wide on a ${px(innerWidth)}-wide screen`);
+  for (const node of textNodes()) {
+    for (const line of lineBoxes(node)) checkFits(node, line, clippers(node.parentElement!, true));
+  }
+  for (const element of elements("body *")) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width > 0.5 && rect.height > 0.5) checkFits(element, rect, clippers(element, false));
+  }
+
+  // Touch targets: probe a fingertip-sized circle around each control's centre and make sure every
+  // point lands on the control. That catches small controls, controls crowded together and controls
+  // partly covered by something else, and credits hit areas enlarged with padding or pseudo-elements.
+  // Controls partly scrolled out of view are judged when they're scrolled in, controls in a list
+  // can be scrolled out from under a button floating over it, and controls that can't take a tap
+  // right now (behind an open menu or dialog) are skipped.
+  const touchTargets: string[] = [];
+  const dense = denseTargets.join(",");
+  for (const element of elements(INTERACTIVE)) {
+    if (isDisabled(element) || element.closest("[aria-hidden=true], [inert]") || getComputedStyle(element).pointerEvents === "none") continue;
+    // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
+    if (getComputedStyle(element).display === "inline") continue;
+    const rect = element.getBoundingClientRect();
+    const painted = paintedPart(rect, clippers(element, false));
+    if (!painted || painted.left > rect.left + TOLERANCE || painted.right < rect.right - TOLERANCE || painted.top > rect.top + TOLERANCE || painted.bottom < rect.bottom - TOLERANCE) continue;
+
+    const size = dense && element.matches(dense) ? DENSE_TARGET : TARGET;
+    const reach = size / 2 - 1;
+    const [x, y] = [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2];
+    const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
+    const list = scrollerOf(element, "y") ?? scrollerOf(element, "x");
+    const floatsOver = (hit: Element) => list !== null && list !== document.scrollingElement && !list.contains(hit);
+    const misses = new Set<string>();
+    for (const angle of [null, 0, 45, 90, 135, 180, 225, 270, 315]) {
+      const [dx, dy] = angle === null ? [0, 0] : [reach * Math.cos((angle * Math.PI) / 180), reach * Math.sin((angle * Math.PI) / 180)];
+      const hit = document.elementFromPoint(x + dx, y + dy);
+      if (!hit) misses.add("the edge of the screen");
+      else if (!element.contains(hit) && !labels.some((label) => label.contains(hit)) && !floatsOver(hit)) misses.add(describe(hit));
+    }
+    if (misses.size > 0) {
+      touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)}; a ${size}px fingertip on it can land on ${[...misses].join(", ")}`);
+    }
+  }
+
+  // Safe area: backgrounds may run under the notch and home indicator, but nothing you read or tap.
+  // Scrolling content may pass under them too, as long as it can be scrolled clear: a list that
+  // runs to the bottom of the screen needs room after its last item, not to stop short of the edge.
+  const safe: Box = { left: insets.left, top: insets.top, right: innerWidth - insets.right, bottom: innerHeight - insets.bottom };
+  const safeArea: string[] = [];
+  const checkSafe = (node: Node, box: Box, clipping: Element[]) => {
+    const painted = paintedPart(box, clipping);
+    if (!painted) return;
+    const element = node instanceof Element ? node : node.parentElement!;
+    const [x, y] = [scrollerOf(element, "x"), scrollerOf(element, "y")];
+    const room = {
+      left: x ? x.scrollLeft : 0,
+      top: y ? y.scrollTop : 0,
+      right: x ? x.scrollWidth - x.clientWidth - x.scrollLeft : 0,
+      bottom: y ? y.scrollHeight - y.clientHeight - y.scrollTop : 0,
+    };
+    const outside = [
+      painted.left < safe.left - TOLERANCE && box.left + room.left < safe.left - TOLERANCE && `left inset (${px(insets.left)})`,
+      painted.top < safe.top - TOLERANCE && box.top + room.top < safe.top - TOLERANCE && `top inset (${px(insets.top)})`,
+      painted.right > safe.right + TOLERANCE && box.right - room.right > safe.right + TOLERANCE && `right inset (${px(insets.right)})`,
+      painted.bottom > safe.bottom + TOLERANCE && box.bottom - room.bottom > safe.bottom + TOLERANCE && `bottom inset (${px(insets.bottom)})`,
+    ].filter(Boolean);
+    if (outside.length > 0) {
+      safeArea.push(`${describe(node)} at ${px(painted.left)},${px(painted.top)}–${px(painted.right)},${px(painted.bottom)} is under the ${outside.join(" and ")}`);
+    }
+  };
+  for (const node of textNodes()) {
+    for (const line of lineBoxes(node)) checkSafe(node, line, clippers(node.parentElement!, true));
+  }
+  for (const element of elements(`${INTERACTIVE}, ${MEDIA}`)) {
+    checkSafe(element, element.getBoundingClientRect(), clippers(element, false));
+  }
+
+  const zoomingFields = elements(TEXT_FIELDS)
+    .filter((element) => parseFloat(getComputedStyle(element).fontSize) < 16)
+    .map((element) => `${describe(element)} uses ${getComputedStyle(element).fontSize} text`);
+
+  return { overflow, touchTargets, safeArea, zoomingFields };
+}

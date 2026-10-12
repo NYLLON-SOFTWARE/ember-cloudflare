@@ -41,6 +41,25 @@ pnpm test           # protocol + web unit tests; worker tests run in workerd, on
 pnpm build
 ```
 
+## Browser tests
+
+`e2e/` drives the production build in Chromium, against `wrangler dev` on :8788 with its own
+state in `e2e/.wrangler`. Every suite shares `e2e/playwright.config.ts` and `e2e/fixtures.ts`
+(sign in, an isolated room, other participants over a real WebSocket); each adds its projects
+from `e2e/projects/` and its specs under `e2e/tests/<suite>/`.
+
+```sh
+pnpm --filter @ember/e2e exec playwright install chromium   # once
+pnpm test:e2e       # every suite
+pnpm test:mobile    # just the phones
+```
+
+The mobile suite (`e2e/tests/mobile/`) emulates seven phones, from a 320px iPhone SE to an iPhone
+17 Pro Max on its side, with their notches, home indicators and on-screen keyboards. On every
+screen it checks that nothing overflows sideways or sits under the notch, that every control is a
+44px tap target, and that text fields are 16px so iOS doesn't zoom in on focus. Where a browser is
+already installed, point Playwright at it with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome`.
+
 ## Storage: Durable Object SQLite or D1
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks where messages live.

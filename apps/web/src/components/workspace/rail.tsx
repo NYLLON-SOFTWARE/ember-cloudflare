@@ -29,7 +29,11 @@ function RailLink({ icon: Icon, label, current, disabled, children }: { icon: Co
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
 export function Rail({ me, onSignOut }: { me: User; onSignOut: () => void }) {
   return (
-    <nav aria-label="Workspace" className="flex h-full w-rail flex-col items-center gap-3 border-r bg-surface px-3 pt-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+    // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
+    <nav
+      aria-label="Workspace"
+      className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
+    >
       <a href="/" aria-label="Ember home" className="mb-1 flex size-11 shrink-0 items-center justify-center">
         <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
       </a>
@@ -41,7 +45,7 @@ export function Rail({ me, onSignOut }: { me: User; onSignOut: () => void }) {
       <RailLink icon={Settings} label="Workspace" disabled />
       <AppearanceMenu />
       <DropdownMenu>
-        <DropdownMenuTrigger aria-label="Your profile" title={me.name} className="rounded-full">
+        <DropdownMenuTrigger aria-label="Your profile" title={me.name} className="shrink-0 rounded-full touch:p-1">
           <UserAvatar user={me} />
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-48 rounded-xl p-2">

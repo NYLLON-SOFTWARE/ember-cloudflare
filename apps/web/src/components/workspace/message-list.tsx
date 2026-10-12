@@ -38,6 +38,17 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
     previousHeight.current = el.scrollHeight;
   }, [state.messages]);
 
+  // When the timeline gets shorter, as it does when a phone's keyboard opens, stay on the newest
+  // message rather than leaving it hidden below the fold.
+  useEffect(() => {
+    const el = scroller.current!;
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
   useEffect(() => {
     // Load the previous page whenever the top of the timeline comes into view, whether by
@@ -95,7 +106,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
             scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
           }}
           aria-label="Return to latest messages"
-          className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover"
+          className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover touch:size-11"
         >
           <ArrowDown className="size-4" />
         </button>

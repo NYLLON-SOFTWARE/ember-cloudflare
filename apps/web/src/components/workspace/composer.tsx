@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { User } from "@ember/protocol";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import { ArrowUp } from "lucide-react";
+import { sendsMessage } from "@/lib/keyboard";
 
 function typingSentence(users: User[]): string {
   const names = users.map((u) => u.name);
@@ -43,7 +44,9 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
         <p aria-live="polite" className="absolute -top-[19px] left-0 m-0 text-[11px] text-muted-foreground max-md:-top-[15px]">
           {typing.length > 0 && typingSentence(typing)}
         </p>
-        <div className="flex min-h-[108px] flex-col rounded-xl border bg-surface p-3 focus-within:border-muted-foreground max-md:min-h-[100px] max-md:p-2.5">
+        {/* The text field takes the card's top and side padding, so all of the card above the
+            buttons is one big tap target. */}
+        <div className="flex min-h-[108px] flex-col rounded-xl border bg-surface pb-3 focus-within:border-muted-foreground max-md:min-h-[100px] max-md:pb-2.5">
           <label htmlFor="composer" className="sr-only">
             Message #{roomName}
           </label>
@@ -60,21 +63,23 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
             }}
             onBlur={() => onTyping(false)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (sendsMessage(event)) {
                 event.preventDefault();
                 submit();
               }
             }}
-            className="field-sizing-content max-h-[min(32dvh,300px)] min-h-10 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none max-md:min-h-[30px] max-md:text-base"
+            className="field-sizing-content max-h-[min(32dvh,300px)] min-h-[52px] flex-1 resize-none bg-transparent px-3 pt-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none max-md:min-h-10 max-md:px-2.5 max-md:pt-2.5 touch:text-base"
           />
-          <div className="mt-1 flex items-center gap-0.5">
-            <span className="text-xs text-muted-foreground max-md:hidden">Shift + Enter for a new line</span>
+          <div className="mt-1 flex items-center gap-0.5 px-3 max-md:mt-0 max-md:px-2.5">
+            <span className="text-xs text-muted-foreground touch:hidden">Shift + Enter for a new line</span>
             <button
               type="submit"
               disabled={disabled || body.trim().length === 0}
               aria-label="Send"
               title="Send"
-              className="ml-auto flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40 max-md:size-11"
+              // Keep focus in the text field, so a phone's keyboard stays up between messages.
+              onMouseDown={(event) => event.preventDefault()}
+              className="ml-auto flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40 touch:size-11"
             >
               <ArrowUp className="size-[18px]" />
             </button>

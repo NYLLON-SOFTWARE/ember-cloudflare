@@ -11,7 +11,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
   const [busy, setBusy] = useState(false);
 
   return (
-    <main className="flex min-h-dvh items-start justify-center bg-surface px-4">
+    <main className="flex min-h-dvh items-start justify-center bg-surface pt-[env(safe-area-inset-top)] pr-[max(16px,env(safe-area-inset-right))] pb-[env(safe-area-inset-bottom)] pl-[max(16px,env(safe-area-inset-left))]">
       <div className="mt-[clamp(24px,7vh,80px)] mb-6 w-[440px] max-w-full rounded-2xl border bg-background p-8 max-md:mt-[18px] max-md:px-5 max-md:py-6">
         <div className="mb-7 text-center">
           <img src="/ember-icon.png" alt="" width={48} height={48} className="mx-auto mb-5 size-12 object-contain" />
@@ -49,7 +49,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
                 onChange={(event) => setName(event.target.value)}
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? "name-error" : undefined}
-                className="h-[42px] rounded-[9px] bg-background pl-9 text-sm shadow-none max-md:h-11 max-md:text-base"
+                className="h-[42px] rounded-[9px] bg-background pl-9 text-sm shadow-none touch:h-11 touch:text-base"
               />
             </div>
             {error && (
@@ -58,7 +58,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
               </p>
             )}
           </div>
-          <Button type="submit" disabled={busy || !name.trim()} className="h-[42px] w-full rounded-[9px] font-[550] max-md:h-11">
+          <Button type="submit" disabled={busy || !name.trim()} className="h-[42px] w-full rounded-[9px] font-[550] touch:h-11">
             <LogIn className="size-[18px]" /> Join
           </Button>
         </form>

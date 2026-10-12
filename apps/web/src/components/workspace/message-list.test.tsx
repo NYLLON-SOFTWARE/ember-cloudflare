@@ -21,6 +21,12 @@ class FakeIntersectionObserver {
   }
 }
 
+/** jsdom has no ResizeObserver either, and nothing here resizes. */
+class FakeResizeObserver {
+  observe() {}
+  disconnect() {}
+}
+
 const scrollTopIntoView = () =>
   act(() => {
     FakeIntersectionObserver.topVisible = true;
@@ -46,6 +52,7 @@ const list = (state: Partial<RoomState>, onLoadOlder: () => void) => (
 beforeEach(() => {
   FakeIntersectionObserver.topVisible = false;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
 afterEach(() => vi.unstubAllGlobals());
 
