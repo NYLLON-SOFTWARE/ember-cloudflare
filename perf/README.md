@@ -37,7 +37,9 @@ messages and errors count from the first one.
 
 On a pull request, adding the `perf` label runs the quick suite in CI on every push. The report
 shows in the run's summary and both files are attached to the run. Running the Performance workflow
-by hand offers the full profile too.
+by hand offers the full profile too. GitHub's runners have 2 cores, half what the baseline had, and
+it shows: Lighthouse scored the room page 75 on mobile there, against 96 in the baseline. Compare a
+CI run only with another CI run.
 
 ## What it measures
 
