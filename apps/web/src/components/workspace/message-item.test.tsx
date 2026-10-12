@@ -105,6 +105,15 @@ describe("MessageItem", () => {
     expect(optionsOn("there")).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("marks an edited message, including one grouped under the message before it", () => {
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => true), remove: vi.fn() };
+    const edited = { ...message, updatedAt: "2026-10-12T10:05:00.000Z" };
+    const { rerender } = render(<MessageItem message={edited} me={ada} threaded={false} actions={actions} />);
+    expect(screen.getByText("(edited)")).toBeInTheDocument();
+    rerender(<MessageItem message={edited} me={ada} threaded actions={actions} />);
+    expect(screen.getByText("(edited)")).toBeInTheDocument();
+  });
+
   it("opens a touch screen's actions from the options button, which closes them again", () => {
     onTouchScreen();
     const actions = shown();

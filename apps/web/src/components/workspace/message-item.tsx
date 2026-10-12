@@ -44,6 +44,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
   const mentioned = !mine && mentions(message.body, me.name);
+  // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
+  const edited = message.updatedAt !== message.createdAt && <span className="text-xs text-message-muted">(edited)</span>;
 
   const saveEdit = () => {
     const body = draft.trim();
@@ -214,7 +216,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
             <strong className="font-bold text-message-ink">{message.creator.name}</strong>
             {time}
-            {message.updatedAt !== message.createdAt && <span className="text-xs text-message-muted">(edited)</span>}
+            {edited}
           </div>
         )}
 
@@ -243,7 +245,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             <p className="mt-1 text-xs text-muted-foreground">Escape to cancel, Enter to save</p>
           </form>
         ) : (
-          <p className="text-[15px] leading-[22px] break-words whitespace-pre-wrap text-message-ink">{message.body}</p>
+          <p className="text-[15px] leading-[22px] break-words whitespace-pre-wrap text-message-ink">
+            {message.body}
+            {/* A grouped message has no header, so its mark follows the text. */}
+            {threaded && edited && <>{" "}{edited}</>}
+          </p>
         )}
 
         {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
