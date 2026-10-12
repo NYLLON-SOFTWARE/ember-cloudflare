@@ -2,6 +2,7 @@ import type { ServerFrame } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import type { ChatRoom } from "../src/chat-room";
 
 const origin = "https://ember.test";
 
@@ -52,12 +53,13 @@ async function until(condition: () => boolean, timeoutMs = 3_000): Promise<void>
   }
 }
 
+const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace<ChatRoom> }).CHAT_ROOM.getByName(room);
+
 /** Runs SQL against a room's storage, whichever backend this suite is using. */
 async function roomSql(room: string, query: string, ...params: string[]): Promise<unknown[]> {
   const db = (env as { DB?: D1Database }).DB;
   if (db) return (await db.prepare(query).bind(...params).all()).results;
-  const stub = (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
-  return runInDurableObject(stub, (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
+  return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
 }
 
 describe("API", () => {
@@ -119,6 +121,23 @@ describe("ChatRoom", () => {
     expect((await grace.next("error")).message).toMatch(/your own/);
 
     grace.ws.close(1000);
+    expect((await ada.next("presence")).present.map((u) => u.name)).toEqual(["Ada"]);
+    ada.ws.close(1000);
+  });
+
+  it("tells everyone when someone's connection drops without closing", async () => {
+    const ada = await connect("dropped", await signIn("Ada"));
+    await ada.next("welcome");
+    const grace = await connect("dropped", await signIn("Grace"));
+    const { you } = await grace.next("welcome");
+    await ada.next("presence");
+
+    // A connection that drops, like a phone losing signal, reaches the room as code 1006 with no
+    // close frame to answer.
+    await runInDurableObject(roomStub("dropped"), async (room, state: DurableObjectState) => {
+      const [socket] = state.getWebSockets(you.id);
+      await room.webSocketClose(socket!, 1006);
+    });
     expect((await ada.next("presence")).present.map((u) => u.name)).toEqual(["Ada"]);
     ada.ws.close(1000);
   });
