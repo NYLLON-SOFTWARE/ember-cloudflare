@@ -1,6 +1,6 @@
 import { MAX_MESSAGE_LENGTH, type Message, type User } from "@ember/protocol";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageItem } from "./message-item";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -25,6 +25,14 @@ const editing = (sent = true) => {
   const actions = shown(sent);
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   return { actions, textbox: screen.getByRole("textbox") };
+};
+
+afterEach(() => vi.unstubAllGlobals());
+
+/** Lays components out as they are on a phone, where nothing can hover. */
+const onTouchScreen = () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: none)", media, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
 };
 
 describe("MessageItem", () => {
@@ -59,5 +67,25 @@ describe("MessageItem", () => {
     // While editing there's no bar to open.
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+  });
+
+  it("opens a touch screen's actions from the options button, which closes them again", () => {
+    onTouchScreen();
+    const actions = shown();
+    const options = screen.getByRole("button", { name: "Message options" });
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+
+    fireEvent.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    // They open beside the message, not over its button.
+    expect(screen.getByRole("article").contains(screen.getByRole("group", { name: "Message actions" }))).toBe(false);
+    fireEvent.click(options);
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+
+    // Sending a reaction closes them, as on ember-rust.
+    fireEvent.click(options);
+    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
   });
 });

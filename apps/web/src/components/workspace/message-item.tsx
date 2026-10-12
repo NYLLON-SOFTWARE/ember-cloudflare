@@ -1,8 +1,10 @@
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body);
+  const [timeline, setTimeline] = useState<Element | null>(null);
+  const article = useRef<HTMLElement>(null);
+  const touch = useMediaQuery("(hover: none)");
   const pending = isPending(message);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
@@ -42,14 +47,95 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
     setEditing(false);
   };
 
+  const setTouchMenuOpen = (open: boolean) => {
+    // ember-rust keeps the actions inside the timeline, so they go above the button when there's no room below.
+    if (open) setTimeline(article.current?.closest('[role="log"]') ?? null);
+    setMenuOpen(open);
+  };
+
+  // Like ember-rust's, the actions close once a reaction is sent or the editor opens (messages/_reaction.html).
+  const boost = (emoji: string) => {
+    actions.boost(message.id, emoji);
+    setMenuOpen(false);
+  };
+
   const time = (
     <time dateTime={message.createdAt} title={created.toLocaleString()} className="text-xs leading-[18px] text-message-muted">
       {timeLabel(created)}
     </time>
   );
 
+  const optionsButton = (onClick?: () => void) => (
+    <button
+      type="button"
+      aria-label="Message options"
+      aria-expanded={menuOpen}
+      onClick={onClick}
+      className={cn(
+        actionButton,
+        "absolute opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 aria-expanded:opacity-100",
+        "[@media(hover:hover)]:-top-px [@media(hover:hover)]:right-[21px] [@media(hover:hover)]:z-20",
+        "[@media(hover:none)]:top-0 [@media(hover:none)]:right-1 [@media(hover:none)]:size-11 [@media(hover:none)]:opacity-50",
+      )}
+    >
+      <Ellipsis className="size-4" />
+    </button>
+  );
+
+  const bar = (
+    <div
+      role="group"
+      aria-label="Message actions"
+      className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:max-md:pr-[38px]"
+    >
+      {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
+        <button key={emoji} type="button" title={title} aria-label={title} className={actionButton} onClick={() => boost(emoji)}>
+          {emoji}
+        </button>
+      ))}
+      {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
+          first drops keyboard focus to the page. */}
+      <DropdownMenu onOpenChange={(open) => open && setMenuOpen(true)}>
+        <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
+          <SmilePlus />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="rounded-[11px] p-2" onCloseAutoFocus={() => setMenuOpen(false)}>
+          <DropdownMenuLabel className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">More reactions</DropdownMenuLabel>
+          <div className="flex">
+            {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
+              <DropdownMenuItem key={emoji} title={title} aria-label={title} className="size-8 justify-center p-0 text-base" onSelect={() => actions.boost(message.id, emoji)}>
+                {emoji}
+              </DropdownMenuItem>
+            ))}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {mine && (
+        <>
+          <button
+            type="button"
+            title="Edit"
+            aria-label="Edit"
+            className={actionButton}
+            onClick={() => {
+              setMenuOpen(false);
+              setDraft(message.body);
+              setEditing(true);
+            }}
+          >
+            <Pencil />
+          </button>
+          <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions.remove(message.id)}>
+            <Trash2 />
+          </button>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <article
+      ref={article}
       aria-busy={pending || undefined}
       className={cn(
         "group/message relative grid grid-cols-[36px_minmax(0,1fr)] gap-x-2 px-5 hover:bg-message-hover max-md:grid-cols-[30px_minmax(0,1fr)] max-md:gap-x-2.5 max-md:px-3",
@@ -122,83 +208,41 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         )}
       </div>
 
-      {/* Touch screens have no hover, so this toggles the actions, as on ember-rust mobile. With a mouse
-          it's the bar's last button, in the space the bar leaves for it, as in ember-rust's overlapping
-          bar (zz-ember.css, `.mb-message-actions--overlapping`). It comes before the bar in tab order
-          because it's how a keyboard gets into the bar. */}
-      {!pending && !editing && (
-        <button
-          type="button"
-          aria-label="Message options"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((open) => !open)}
-          className={cn(
-            actionButton,
-            "absolute opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 aria-expanded:opacity-100",
-            "[@media(hover:hover)]:-top-px [@media(hover:hover)]:right-[21px] [@media(hover:hover)]:z-20",
-            "[@media(hover:none)]:top-0 [@media(hover:none)]:right-1 [@media(hover:none)]:size-11 [@media(hover:none)]:opacity-50",
-          )}
-        >
-          <Ellipsis className="size-4" />
-        </button>
-      )}
-
-      {!pending && !editing && (
-        <div
-          className={cn(
-            "absolute -top-1.5 right-4 z-10 items-center gap-1",
-            menuOpen ? "flex" : "hidden group-hover/message:flex group-focus-within/message:flex",
-          )}
-        >
-          <div
-            role="group"
-            aria-label="Message actions"
-            className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:max-md:pr-[38px]"
-          >
-            {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
-              <button key={emoji} type="button" title={title} aria-label={title} className={actionButton} onClick={() => actions.boost(message.id, emoji)}>
-                {emoji}
-              </button>
-            ))}
-            {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
-                first drops keyboard focus to the page. */}
-            <DropdownMenu onOpenChange={(open) => open && setMenuOpen(true)}>
-              <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
-                <SmilePlus />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-[11px] p-2" onCloseAutoFocus={() => setMenuOpen(false)}>
-                <DropdownMenuLabel className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">More reactions</DropdownMenuLabel>
-                <div className="flex">
-                  {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                    <DropdownMenuItem key={emoji} title={title} aria-label={title} className="size-8 justify-center p-0 text-base" onSelect={() => actions.boost(message.id, emoji)}>
-                      {emoji}
-                    </DropdownMenuItem>
-                  ))}
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {mine && (
-              <>
-                <button
-                  type="button"
-                  title="Edit"
-                  aria-label="Edit"
-                  className={actionButton}
-                  onClick={() => {
-                    setDraft(message.body);
-                    setEditing(true);
-                  }}
-                >
-                  <Pencil />
-                </button>
-                <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions.remove(message.id)}>
-                  <Trash2 />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {!pending &&
+        !editing &&
+        (touch ? (
+          // Touch screens have no hover, so the options button opens the actions just below it, or above
+          // it when there's no room, as ember-rust places them on phones (message_actions_controller.js).
+          <Popover open={menuOpen} onOpenChange={setTouchMenuOpen}>
+            <PopoverTrigger asChild>{optionsButton()}</PopoverTrigger>
+            <PopoverContent
+              aria-label="Message options"
+              align="end"
+              sideOffset={6}
+              collisionBoundary={timeline}
+              collisionPadding={8}
+              hideWhenDetached
+              className="w-auto rounded-none border-0 bg-transparent p-0 shadow-none"
+            >
+              {bar}
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <>
+            {/* With a mouse the options button is the bar's last button, in the space the bar leaves for
+                it, as in ember-rust's overlapping bar (zz-ember.css, `.mb-message-actions--overlapping`).
+                It comes before the bar in tab order because it's how a keyboard gets into the bar. */}
+            {optionsButton(() => setMenuOpen((open) => !open))}
+            <div
+              className={cn(
+                "absolute -top-1.5 right-4 z-10 items-center gap-1",
+                menuOpen ? "flex" : "hidden group-hover/message:flex group-focus-within/message:flex",
+              )}
+            >
+              {bar}
+            </div>
+          </>
+        ))}
     </article>
   );
 });
