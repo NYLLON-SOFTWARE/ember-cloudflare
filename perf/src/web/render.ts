@@ -24,6 +24,8 @@ export interface BurstResult {
   frameToPaint: Summary | null;
   /** Main-thread time per incoming message, from Chrome's own task accounting. */
   mainThreadMsPerMessage: number;
+  /** Where that time went. The rest is mostly paint, compositing and garbage collection. */
+  mainThreadBreakdown: { scriptMs: number; styleMs: number; layoutMs: number };
   longTasks: number;
   totalBlockingTimeMs: number;
   /** Main-thread time per second with nothing arriving, measured just before the burst. */
@@ -109,10 +111,18 @@ function instrument() {
   }).observe(document, { childList: true, subtree: true });
 }
 
-async function cdpMetric(cdp: CDPSession, name: "TaskDuration" | "JSHeapUsedSize"): Promise<number> {
+const METRICS = ["TaskDuration", "ScriptDuration", "RecalcStyleDuration", "LayoutDuration", "JSHeapUsedSize"] as const;
+type Metrics = Record<(typeof METRICS)[number], number>;
+
+/** Chrome's running totals: seconds of main-thread work by kind, and heap bytes. */
+async function cdpMetrics(cdp: CDPSession): Promise<Metrics> {
   const { metrics } = await cdp.send("Performance.getMetrics");
-  return metrics.find((m) => m.name === name)?.value ?? 0;
+  return Object.fromEntries(METRICS.map((name) => [name, metrics.find((m) => m.name === name)?.value ?? 0])) as Metrics;
 }
+
+/** Milliseconds per message of one kind of work between two readings, to two decimals. */
+const perMessage = (before: Metrics, after: Metrics, name: keyof Metrics, messages: number) =>
+  Math.round(((after[name] - before[name]) * 1000 * 100) / messages) / 100;
 
 const messageCount = (page: Page) => page.$$eval(`${TIMELINE} article`, (rows) => rows.length);
 
@@ -152,14 +162,14 @@ async function burst(page: Page, cdp: CDPSession, bot: RoomClient, { messages, r
   await page.$eval(TIMELINE, (log) => (log.scrollTop = log.scrollHeight));
   const timeline = await messageCount(page);
 
-  const idleBefore = await cdpMetric(cdp, "TaskDuration");
+  const idleBefore = await cdpMetrics(cdp);
   await sleep(IDLE_MS);
-  const idleMainThreadMsPerSecond = ((await cdpMetric(cdp, "TaskDuration")) - idleBefore) * 1000 / (IDLE_MS / 1000);
+  const idleMainThreadMsPerSecond = ((await cdpMetrics(cdp)).TaskDuration - idleBefore.TaskDuration) * 1000 / (IDLE_MS / 1000);
 
   const first = nextBurst;
   nextBurst += messages;
   const startedAt = await page.evaluate(() => performance.now());
-  const tasksBefore = await cdpMetric(cdp, "TaskDuration");
+  const before = await cdpMetrics(cdp);
   await atRate(messages, rate, (i) => bot.send({ type: "message.create", clientMessageId: `burst-${first + i}`, body: burstBody(first + i) }));
   await page
     .waitForFunction(
@@ -172,7 +182,7 @@ async function burst(page: Page, cdp: CDPSession, bot: RoomClient, { messages, r
       first + messages,
     )
     .catch(() => {}); // Whatever never arrived is counted as missing below.
-  const tasks = (await cdpMetric(cdp, "TaskDuration")) - tasksBefore;
+  const after = await cdpMetrics(cdp);
 
   const { rows, longTasks } = await page.evaluate(
     (from: number, to: number, since: number) => ({
@@ -191,11 +201,16 @@ async function burst(page: Page, cdp: CDPSession, bot: RoomClient, { messages, r
     rate,
     frameToDom: summarize(shown.map((r) => r.domAt! - r.frameAt!)),
     frameToPaint: summarize(shown.map((r) => r.paintAt! - r.frameAt!)),
-    mainThreadMsPerMessage: Math.round((tasks * 1000 * 100) / messages) / 100,
+    mainThreadMsPerMessage: perMessage(before, after, "TaskDuration", messages),
+    mainThreadBreakdown: {
+      scriptMs: perMessage(before, after, "ScriptDuration", messages),
+      styleMs: perMessage(before, after, "RecalcStyleDuration", messages),
+      layoutMs: perMessage(before, after, "LayoutDuration", messages),
+    },
     longTasks: longTasks.length,
     totalBlockingTimeMs: Math.round(longTasks.reduce((sum, t) => sum + Math.max(0, t.duration - 50), 0)),
     idleMainThreadMsPerSecond: Math.round(idleMainThreadMsPerSecond * 10) / 10,
-    heapMb: Math.round(((await cdpMetric(cdp, "JSHeapUsedSize")) / 2 ** 20) * 10) / 10,
+    heapMb: Math.round((after.JSHeapUsedSize / 2 ** 20) * 10) / 10,
     missing: messages - shown.length,
   };
 }

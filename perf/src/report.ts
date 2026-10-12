@@ -163,6 +163,19 @@ function webSection(web: WebResults): string[] {
         ),
       ),
     );
+    out.push("", "Main-thread time per message by kind of work. Other is mostly paint, compositing and garbage collection.", "");
+    out.push(
+      table(
+        ["CPU", "Timeline", "Script", "Style", "Layout", "Other"],
+        web.render.flatMap((r) =>
+          r.bursts.map((b) => {
+            const { scriptMs, styleMs, layoutMs } = b.mainThreadBreakdown;
+            const otherMs = Math.max(0, b.mainThreadMsPerMessage - scriptMs - styleMs - layoutMs);
+            return [`${r.cpuSlowdown}x`, num(b.timeline), `${ms(scriptMs)} ms`, `${ms(styleMs)} ms`, `${ms(layoutMs)} ms`, `${ms(otherMs)} ms`];
+          }),
+        ),
+      ),
+    );
     out.push("", table(["CPU", "Room ready", "Load older page p50", "p95"], web.render.map((r) => [`${r.cpuSlowdown}x`, `${ms(r.roomReadyMs)} ms`, p(r.loadOlder, "p50"), p(r.loadOlder, "p95")])));
     out.push("", "Room ready is navigation start to the newest messages being in the DOM.");
   }
