@@ -932,11 +932,12 @@ export const features = [
     behaviors: [
       "Hovering a message, or opening its Message options, shows its bar: three quick reactions, More reactions, then Reply (or Download and Share for files), Copy link and Edit. Only one bar is open at a time.",
       "Leaving a message closes its bar after 180ms unless the pointer reaches the bar, and Escape closes it, returning focus to Message options.",
-      "On touch screens a 44px Message options button opens the bar, which stays on screen at 320px wide.",
+      "A reaction, Edit, a click or tap anywhere else, or Message options again closes the bar. A reaction hands focus back to Message options.",
+      "On touch screens a 44px Message options button opens the bar 6px below it, or above it when there's no room, and the bar stays on screen at 320px wide.",
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. It closes as soon as the pointer leaves, except that after you click one of its buttons it stays until you click somewhere else, and Escape doesn't close it. On touch screens, tapping Message options again leaves the bar open until you tap somewhere else.",
+    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but once you've clicked one of its buttons, a reaction included, it stays until you click somewhere else, and Escape doesn't close it. On touch screens the bar opens beside Message options rather than below it.",
   },
   {
     id: "messages.reply",
@@ -1687,12 +1688,12 @@ export const features = [
     status: "partial",
     behaviors: [
       "At 900px wide and below, the rail and conversations become a drawer opened by the header's 44px Open conversations button, which turns into Close conversations (aria-expanded true) while it's open.",
-      "Opening it dims the page behind and focuses its Close conversations button, and Tab stays inside it. Escape, the close button, the backdrop, choosing a conversation or widening the window closes it, returning focus to whatever opened it.",
+      "Opening it dims the page behind and focuses its Close conversations button, and Tab stays inside it. Escape, the close button or the backdrop closes it and returns focus to whatever opened it. Choosing a conversation, or widening the window past 900px, closes it too.",
       "Rows and buttons in it are at least 44px tall.",
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/views/templates/layouts/application.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations. Widening the window past 900px hides the drawer but leaves the page dimmed, and the next click or Escape only closes the hidden drawer.",
+    notes: "The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations.",
   },
   {
     id: "ui.appearance",

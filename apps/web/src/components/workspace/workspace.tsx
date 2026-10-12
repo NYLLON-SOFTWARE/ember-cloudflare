@@ -22,6 +22,15 @@ export function Workspace({ session, onSignOut }: { session: Session; onSignOut:
       .catch((error) => (error instanceof ApiError && error.status === 401 ? onSignOut() : setRooms([])));
   }, [session.token, onSignOut]);
 
+  // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
+  // The wider layout has no drawer, and one left open would be hidden but still dim the page.
+  useEffect(() => {
+    const drawerLayout = matchMedia("(width < 56.25rem)");
+    const close = () => setDrawerOpen(false);
+    drawerLayout.addEventListener("change", close);
+    return () => drawerLayout.removeEventListener("change", close);
+  }, []);
+
   const room = rooms?.find((r) => r.id === routeRoomId) ?? rooms?.[0] ?? null;
   const select = (roomId: string) => {
     navigate(`/rooms/${roomId}`);

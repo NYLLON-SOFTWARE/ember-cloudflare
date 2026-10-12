@@ -140,6 +140,30 @@ describe(feature("messages.actions"), () => {
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
+
+  it("closes the actions after a reaction and hands focus to Message options", async () => {
+    const { actions, user } = show(message());
+    const options = screen.getByRole("button", { name: "Message options" });
+    await user.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(options).toHaveFocus();
+  });
+
+  it("closes the actions on a click anywhere else, and after Edit", async () => {
+    const { user } = show(message());
+    const options = () => screen.getByRole("button", { name: "Message options" });
+    await user.click(options());
+    await user.click(screen.getByText("Hello"));
+    expect(options()).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(options());
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(options()).toHaveAttribute("aria-expanded", "false");
+  });
 });
 
 describe(feature("messages.delete"), () => {

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,11 +31,34 @@ interface Props {
 export const MessageItem = memo(function MessageItem({ message, me, threaded, actions }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const optionsButton = useRef<HTMLButtonElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  // Set while the More reactions menu is on screen, closing included, and to "chosen" once a reaction
+  // is picked from it.
+  const moreReactions = useRef<"open" | "chosen" | null>(null);
   const [draft, setDraft] = useState(message.body);
   const pending = isPending(message);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
   const mentioned = !mine && mentions(message.body, me.name);
+
+  // As in ember-rust, tapping or clicking anywhere else closes the bar, so only one is open at a time.
+  // While the More reactions menu is up, it takes that tap and closes the bar once it's gone.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!moreReactions.current && !bar.current?.contains(target) && !optionsButton.current?.contains(target)) setMenuOpen(false);
+    };
+    document.addEventListener("click", closeOutside);
+    return () => document.removeEventListener("click", closeOutside);
+  }, [menuOpen]);
+
+  /** A reaction closes the bar, as in ember-rust, and focus goes to Message options rather than being lost with it. */
+  const closeAfterReacting = () => {
+    setMenuOpen(false);
+    optionsButton.current?.focus({ preventScroll: true });
+  };
 
   const saveEdit = () => {
     const body = draft.trim();
@@ -143,6 +166,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           because it's how a keyboard gets into the bar. */}
       {!pending && !editing && (
         <button
+          ref={optionsButton}
           type="button"
           aria-label="Message options"
           aria-expanded={menuOpen}
@@ -160,10 +184,13 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
       {!pending && !editing && (
         <div
+          ref={bar}
           className={cn(
             // On touch screens the bar opens beside the options button rather than over it.
             "absolute -top-1.5 right-4 z-10 items-center gap-1 [@media(hover:none)]:top-0 [@media(hover:none)]:right-12",
-            menuOpen ? "flex" : "hidden group-hover/message:flex group-focus-within/message:flex",
+            // Only with a mouse: a tapped button keeps focus, so on a touch screen focus would keep the
+            // bar open after a second tap on Message options.
+            menuOpen ? "flex" : "hidden group-hover/message:flex [@media(hover:hover)]:group-focus-within/message:flex",
           )}
         >
           <div
@@ -172,21 +199,56 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:touch:pr-12 [@media(hover:none)]:p-0.5"
           >
             {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
-              <button key={emoji} type="button" title={title} aria-label={title} className={actionButton} onClick={() => actions.boost(message.id, emoji)}>
+              <button
+                key={emoji}
+                type="button"
+                title={title}
+                aria-label={title}
+                className={actionButton}
+                onClick={() => {
+                  actions.boost(message.id, emoji);
+                  closeAfterReacting();
+                }}
+              >
                 {emoji}
               </button>
             ))}
-            {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
-                first drops keyboard focus to the page. */}
-            <DropdownMenu onOpenChange={(open) => open && setMenuOpen(true)}>
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (!open) return;
+                moreReactions.current = "open";
+                setMenuOpen(true);
+              }}
+            >
               <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
                 <SmilePlus />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-[11px] p-2" onCloseAutoFocus={() => setMenuOpen(false)}>
+              {/* Keep the bar shown until the menu has gone: the menu is placed against it, and hands focus
+                  back to it. Hiding it first would move the closing menu and drop focus to the page. */}
+              <DropdownMenuContent
+                align="end"
+                className="rounded-[11px] p-2"
+                onCloseAutoFocus={(event) => {
+                  if (moreReactions.current === "chosen") {
+                    event.preventDefault();
+                    closeAfterReacting();
+                  } else setMenuOpen(false);
+                  moreReactions.current = null;
+                }}
+              >
                 <DropdownMenuLabel className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">More reactions</DropdownMenuLabel>
                 <div className="flex">
                   {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                    <DropdownMenuItem key={emoji} title={title} aria-label={title} className="size-8 justify-center p-0 text-base touch:size-11" onSelect={() => actions.boost(message.id, emoji)}>
+                    <DropdownMenuItem
+                      key={emoji}
+                      title={title}
+                      aria-label={title}
+                      className="size-8 justify-center p-0 text-base touch:size-11"
+                      onSelect={() => {
+                        moreReactions.current = "chosen";
+                        actions.boost(message.id, emoji);
+                      }}
+                    >
                       {emoji}
                     </DropdownMenuItem>
                   ))}
@@ -203,6 +265,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
                   onClick={() => {
                     setDraft(message.body);
                     setEditing(true);
+                    setMenuOpen(false);
                   }}
                 >
                   <Pencil />

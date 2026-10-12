@@ -1,7 +1,8 @@
 import { feature } from "@ember/parity";
-import { evictDurableObject } from "cloudflare:test";
+import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { connect, freshRoom, post, settle, signIn } from "./support";
 
@@ -41,6 +42,21 @@ describe(feature("realtime.presence"), () => {
     firstTab.close();
     expect(names((await ada.next("presence")).present)).toEqual(["Ada", "Grace"]);
     secondTab.close();
+    expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
+  });
+
+  it("tells everyone when someone's connection drops without closing", async () => {
+    const room = freshRoom("dropped");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    await ada.next("presence");
+
+    // A connection that drops, like a phone losing signal, reaches the room as code 1006 with no
+    // close frame to answer.
+    await runInDurableObject((env as unknown as Env).CHAT_ROOM.getByName(room), async (instance: ChatRoom, state: DurableObjectState) => {
+      const [socket] = state.getWebSockets(grace.me.id);
+      await instance.webSocketClose(socket!, 1006);
+    });
     expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
   });
 });

@@ -87,6 +87,23 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await expect(drawer).toHaveCount(0);
   });
 
+  test("closes the drawer when the window widens past 900px, leaving the page usable", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 899, height: 700 } } });
+    await ada.page.getByRole("button", { name: "Open conversations" }).click();
+    await expect(ada.page.getByRole("dialog", { name: "Conversations" })).toBeVisible();
+
+    await ada.page.setViewportSize({ width: 1000, height: 700 });
+    await expect(ada.page.getByRole("dialog", { name: "Conversations" })).toHaveCount(0);
+    await expect(ada.page.locator("[data-slot=sheet-overlay]")).toHaveCount(0);
+    await ada.composer().click();
+    await expect(ada.composer()).toBeFocused();
+
+    // Narrowing again doesn't bring it back.
+    await ada.page.setViewportSize({ width: 899, height: 700 });
+    await expect(ada.page.getByRole("button", { name: "Open conversations" })).toHaveAttribute("aria-expanded", "false");
+    await expect(ada.page.getByRole("dialog", { name: "Conversations" })).toHaveCount(0);
+  });
+
   test("keeps keyboard focus inside the open drawer", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: phone });
     await ada.page.getByRole("button", { name: "Open conversations" }).click();

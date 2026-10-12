@@ -196,6 +196,8 @@ test.describe(feature("messages.actions"), () => {
     await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeFocused();
     await ada.page.keyboard.press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
+    // As in ember-rust, sending a reaction hands focus back to Message options.
+    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
   });
 
   test("opens the bar from a 44px Message options button on touch screens, on screen at 320px", async ({ members, participant }) => {
@@ -203,7 +205,8 @@ test.describe(feature("messages.actions"), () => {
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 640 } } });
     const message = ada.message("Tap for options");
     const options = message.getByRole("button", { name: "Message options" });
-    const bar = message.getByRole("group", { name: "Message actions" });
+    // Found on the page rather than in the message, so it doesn't matter where the bar is drawn.
+    const bar = ada.page.getByRole("group", { name: "Message actions" });
     expect(await box(options)).toMatchObject({ width: 44, height: 44 });
     await expect(options).toHaveAttribute("aria-expanded", "false");
     await expect(bar).toBeHidden();
@@ -214,6 +217,30 @@ test.describe(feature("messages.actions"), () => {
     const { x, width } = await box(bar);
     expect(x).toBeGreaterThanOrEqual(0);
     expect(x + width).toBeLessThanOrEqual(320);
+  });
+
+  test("closes the bar on touch screens with a second tap, a tap elsewhere or a reaction", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Tap me twice");
+    const ada = await members.signIn("Ada", { context: phone });
+    const message = ada.message("Tap me twice");
+    const options = message.getByRole("button", { name: "Message options" });
+    const bar = ada.page.getByRole("group", { name: "Message actions" });
+
+    await options.tap();
+    await expect(bar).toBeVisible();
+    await options.tap();
+    await expect(bar).toBeHidden();
+    await expect(options).toHaveAttribute("aria-expanded", "false");
+
+    await options.tap();
+    await expect(bar).toBeVisible();
+    await ada.page.getByRole("heading", { level: 1 }).tap();
+    await expect(bar).toBeHidden();
+
+    await options.tap();
+    await bar.getByRole("button", { name: "Thumbs up" }).tap();
+    await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
+    await expect(bar).toBeHidden();
   });
 });
 
