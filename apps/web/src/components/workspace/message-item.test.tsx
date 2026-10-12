@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { MAX_MESSAGE_LENGTH, type Boost, type Message, type User } from "@ember/protocol";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingMessage } from "@/lib/room-state";
@@ -26,9 +26,12 @@ const boost = (id: string, booster: User, content: string): Boost => ({ id, mess
 /** Renders one message. `sent` is what an edit reports: false when there's no connection. */
 function show(m: Message | PendingMessage, { me = ada, threaded = false, sent = true } = {}) {
   const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn() };
-  render(<MessageItem message={m} me={me} threaded={threaded} actions={actions} />);
-  return { actions, user: userEvent.setup(), article: screen.getByRole("article") };
+  const { container } = render(<MessageItem message={m} me={me} threaded={threaded} actions={actions} />);
+  return { actions, user: userEvent.setup(), article: within(container).getByRole("article") };
 }
+
+/** The Message options button on the message that says `body`. */
+const optionsOn = (body: string) => within(screen.getByText(body).closest("article")!).getByRole("button", { name: "Message options" });
 
 afterEach(() => vi.restoreAllMocks());
 afterEach(() => vi.unstubAllGlobals());
@@ -103,9 +106,10 @@ describe(feature("messages.edit"), () => {
     expect(actions.edit).not.toHaveBeenCalled();
   });
 
-  it("marks edited messages", () => {
-    show(message({ updatedAt: "2026-10-12T10:05:00.000Z" }));
-    expect(screen.getByText("(edited)")).toBeInTheDocument();
+  it("marks an edited message, including one grouped under the message before it", () => {
+    const edited = message({ updatedAt: "2026-10-12T10:05:00.000Z" });
+    expect(within(show(edited).article).getByText("(edited)")).toBeInTheDocument();
+    expect(within(show(edited, { threaded: true }).article).getByText("(edited)")).toBeInTheDocument();
   });
 
   it("caps edits at the length the server accepts", async () => {
@@ -146,6 +150,34 @@ describe(feature("messages.actions"), () => {
     // While editing there's no bar to open.
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+  });
+
+  it("closes the actions after a reaction and hands focus to Message options", () => {
+    const { actions } = show(message());
+    const options = optionsOn("Hello");
+    fireEvent.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(options).toHaveFocus();
+  });
+
+  it("closes the actions on a click or focus anywhere else, so only one message has them open", () => {
+    show(message());
+    show(message({ id: "m2", clientMessageId: "c2", body: "there" }), { threaded: true });
+    fireEvent.click(optionsOn("Hello"));
+    fireEvent.click(screen.getByText("Hello"));
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(optionsOn("Hello"));
+    fireEvent.click(optionsOn("there"));
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("there")).toHaveAttribute("aria-expanded", "true");
+
+    // A keyboard moving on to the other message closes them too.
+    act(() => optionsOn("Hello").focus());
+    expect(optionsOn("there")).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens a touch screen's actions beside the message from Message options, which closes them again", () => {

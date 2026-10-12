@@ -202,6 +202,34 @@ test.describe(feature("messages.actions"), () => {
     await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeFocused();
     await ada.page.keyboard.press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
+    // As in ember-rust, sending a reaction hands focus back to Message options.
+    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
+  });
+
+  test("closes a bar opened from Message options on a click elsewhere, so only one is open", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    await grace.say("First");
+    await grace.say("Second");
+    const ada = await members.signIn("Ada");
+    const options = (text: string) => ada.message(text).getByRole("button", { name: "Message options" });
+    const bar = (text: string) => ada.message(text).getByRole("group", { name: "Message actions" });
+
+    await ada.message("First").hover();
+    await options("First").click();
+    // Opened from its button, the bar stays when the pointer leaves, until a click anywhere else.
+    await ada.composer().hover();
+    await expect(bar("First")).toBeVisible();
+    await ada.page.getByRole("heading", { level: 1 }).click();
+    await expect(bar("First")).toBeHidden();
+    await expect(options("First")).toHaveAttribute("aria-expanded", "false");
+
+    await ada.message("First").hover();
+    await options("First").click();
+    await ada.message("Second").hover();
+    await options("Second").click();
+    await expect(options("First")).toHaveAttribute("aria-expanded", "false");
+    await expect(bar("First")).toBeHidden();
+    await expect(bar("Second")).toBeVisible();
   });
 
   test("opens the bar from a 44px Message options button on touch screens, on screen at 320px", async ({ members, participant }) => {

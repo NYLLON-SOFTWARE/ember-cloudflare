@@ -818,7 +818,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - The editor keeps mentions and link previews and can't add files. Ctrl or Cmd+Enter saves, Enter starts a new line and Escape cancels. File messages can only be deleted.
 - Up Arrow in an empty composer edits your latest message.
 
-Note: Only authors can edit, since there are no administrators yet. On a computer Enter saves (Shift+Enter starts a new line) rather than starting a new line. Up Arrow does nothing, and edited messages say "(edited)", which ember-rust's don't.
+Note: Only authors can edit, since there are no administrators yet. On a computer Enter saves (Shift+Enter starts a new line) rather than starting a new line. Up Arrow does nothing, and edited messages say "(edited)", which ember-rust's don't. A message grouped under the one before has no header, so its mark follows the text.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb)
 
@@ -896,7 +896,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - A reaction, Edit, a click or tap anywhere else, or Message options again closes the bar. A reaction hands focus back to Message options.
 - On touch screens a 44px Message options button opens the bar 6px below it, or above it when there's no room, and the bar stays on screen at 320px wide.
 
-Note: The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. Clicking Message options pins it open until you click Message options again, react or edit, so a click elsewhere doesn't close it and several can be open at once. A reaction leaves focus on its button rather than moving it to Message options.
+Note: The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it.
 
 Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
 

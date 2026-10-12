@@ -842,7 +842,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Only authors can edit, since there are no administrators yet. On a computer Enter saves (Shift+Enter starts a new line) rather than starting a new line. Up Arrow does nothing, and edited messages say \"(edited)\", which ember-rust's don't.",
+    notes: "Only authors can edit, since there are no administrators yet. On a computer Enter saves (Shift+Enter starts a new line) rather than starting a new line. Up Arrow does nothing, and edited messages say \"(edited)\", which ember-rust's don't. A message grouped under the one before has no header, so its mark follows the text.",
   },
   {
     id: "messages.delete",
@@ -936,7 +936,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. Clicking Message options pins it open until you click Message options again, react or edit, so a click elsewhere doesn't close it and several can be open at once. A reaction leaves focus on its button rather than moving it to Message options.",
+    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it.",
   },
   {
     id: "messages.reply",
