@@ -9,6 +9,9 @@ export interface Session {
 }
 
 const CONNECT_TIMEOUT_MS = 30_000;
+const HISTORY_TIMEOUT_MS = 30_000;
+
+type HistoryFrame = Extract<ServerFrame, { type: "history" }>;
 
 export async function signIn(baseUrl: string, name: string): Promise<Session> {
   const response = await fetch(new URL("/api/session", baseUrl), {
@@ -41,7 +44,8 @@ export class RoomClient {
   readonly session: Session;
   private readonly ws: WebSocket;
   private lastMessageId = "";
-  private pendingHistory: ((frame: Extract<ServerFrame, { type: "history" }>) => void) | null = null;
+  /** Settles the history request in flight, with its page or why it failed. */
+  private pendingHistory: ((answer: HistoryFrame | Error) => void) | null = null;
 
   private constructor(session: Session, ws: WebSocket) {
     this.session = session;
@@ -68,7 +72,8 @@ export class RoomClient {
         if (frame.type !== "welcome") return;
         clearTimeout(timer);
         const ms = performance.now() - started;
-        ws.onerror = ws.onclose = null;
+        ws.onerror = null;
+        ws.onclose = (event) => client.pendingHistory?.(new Error(`Socket to ${room} closed (${event.code}) during a history request`));
         ws.onmessage = (next) => client.receive(next.data as string);
         client.lastMessageId = frame.messages.at(-1)?.id ?? "";
         resolve({ client, welcome: frame, ms });
@@ -84,8 +89,14 @@ export class RoomClient {
   history(before: string, limit: number): Promise<{ messages: Message[]; hasMore: boolean; ms: number }> {
     if (this.pendingHistory) throw new Error("One history request at a time");
     const started = performance.now();
-    return new Promise((resolve) => {
-      this.pendingHistory = ({ messages, hasMore }) => resolve({ messages, hasMore, ms: performance.now() - started });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => this.pendingHistory?.(new Error(`No history page after ${HISTORY_TIMEOUT_MS}ms`)), HISTORY_TIMEOUT_MS);
+      this.pendingHistory = (answer) => {
+        clearTimeout(timer);
+        this.pendingHistory = null;
+        if (answer instanceof Error) reject(answer);
+        else resolve({ messages: answer.messages, hasMore: answer.hasMore, ms: performance.now() - started });
+      };
       this.send({ type: "history.before", before, limit });
     });
   }
@@ -113,14 +124,13 @@ export class RoomClient {
       case "boost.created":
         this.boostsCreated++;
         return;
-      case "history": {
-        const resolve = this.pendingHistory;
-        this.pendingHistory = null;
-        resolve?.(frame);
+      case "history":
+        this.pendingHistory?.(frame);
         return;
-      }
       case "error":
         this.errors.push(frame.message);
+        // Only message.create errors name their frame, so one without an id answers a pending history request.
+        if (!frame.clientMessageId) this.pendingHistory?.(new Error(`History request failed: ${frame.message}`));
         return;
     }
   }

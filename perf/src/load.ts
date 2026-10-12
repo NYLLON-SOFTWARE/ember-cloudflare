@@ -21,20 +21,32 @@ const BODIES = [
 /** A chat-sized message body. */
 export const messageBody = (i: number) => `${BODIES[i % BODIES.length]} (#${i})`;
 
-/** Signs in `count` users and joins them to `room`, `concurrency` at a time. */
+/**
+ * Signs in `count` users and joins them to `room`, `concurrency` at a time. If a join fails, no new
+ * ones start, everyone who already joined leaves, and the first error is thrown.
+ */
 export async function joinMany(server: Server, room: string, count: number, { concurrency = 16, name = "member" } = {}) {
   const clients: RoomClient[] = [];
   const connectMs: number[] = [];
   let next = 0;
+  let failure: Error | null = null;
   const worker = async () => {
-    while (next < count) {
-      const session = await signIn(server.url, `${name}-${next++}`);
-      const { client, ms } = await RoomClient.connect(server.url, room, session);
-      clients.push(client);
-      connectMs.push(ms);
+    while (next < count && !failure) {
+      try {
+        const session = await signIn(server.url, `${name}-${next++}`);
+        const { client, ms } = await RoomClient.connect(server.url, room, session);
+        clients.push(client);
+        connectMs.push(ms);
+      } catch (error) {
+        failure ??= error as Error;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
+  if (failure) {
+    closeAll(clients);
+    throw failure;
+  }
   return { clients, connectMs };
 }
 
