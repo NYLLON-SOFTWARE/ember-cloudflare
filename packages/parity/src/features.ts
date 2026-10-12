@@ -1804,7 +1804,7 @@ export const features = [
     origin: "cloudflare",
     status: "ported",
     behaviors: [
-      "Messages, boosts and sessions live in each room's Durable Object SQLite by default, or in D1 when `STORAGE_BACKEND` is `d1`, and behave the same either way.",
+      "Messages and boosts live in each room's Durable Object SQLite by default, or in D1 when `STORAGE_BACKEND` is `d1`, and behave the same either way.",
     ],
     sources: [],
   },

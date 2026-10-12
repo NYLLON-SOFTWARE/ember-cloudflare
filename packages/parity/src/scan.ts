@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 /** Where each layer's tests live, relative to the repository root. */
 export const LAYERS = [
@@ -18,8 +19,6 @@ export interface TestReference {
   line: number;
 }
 
-const FEATURE_CALL = /\bfeature\(\s*(["'`])([^"'`]*)\1\s*\)/g;
-
 /** Every `feature("id")` call in the test suites, grouped by feature id. */
 export function findTestReferences(root: string): Map<string, TestReference[]> {
   const found = new Map<string, TestReference[]>();
@@ -28,13 +27,28 @@ export function findTestReferences(root: string): Map<string, TestReference[]> {
     for (const entry of entries.sort()) {
       if (!layer.files.test(entry) || entry.includes("node_modules")) continue;
       const file = path.posix.join(layer.dir, entry.split(path.sep).join("/"));
-      const source = readFileSync(path.join(root, file), "utf8");
-      for (const match of source.matchAll(FEATURE_CALL)) {
-        const id = match[2]!;
-        const line = source.slice(0, match.index).split("\n").length;
+      for (const { id, line } of featureCalls(readFileSync(path.join(root, file), "utf8"), file)) {
         found.set(id, [...(found.get(id) ?? []), { layer: layer.name, file, line }]);
       }
     }
   }
   return found;
+}
+
+/**
+ * The `feature("id")` calls in one file, read from its syntax tree rather than its text, so a suite
+ * that's commented out, or the name in a string, doesn't count as a test.
+ */
+export function featureCalls(source: string, fileName: string): { id: string; line: number }[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest);
+  const calls: { id: string; line: number }[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "feature") {
+      const [id] = node.arguments;
+      if (id && ts.isStringLiteralLike(id)) calls.push({ id: id.text, line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1 });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return calls;
 }
