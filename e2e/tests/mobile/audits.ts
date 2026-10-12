@@ -6,9 +6,9 @@ import type { SafeArea } from "./fixtures";
  * plain-language problems, empty when the screen is fine, so a failure says what to fix.
  */
 export interface AuditResults {
-  /** Content cut off by its container or pushed past the sides of the screen. */
+  /** Content cut off where scrolling can't reach it, or pushed past the sides of the screen. */
   overflow: string[];
-  /** Controls a fingertip can miss: smaller than 44×44px, or partly covered by something else. */
+  /** Controls a fingertip can miss: smaller than 44×44px, or partly covered or cut off. */
   touchTargets: string[];
   /** Text, controls or media under the notch, the rounded corners or the home indicator. */
   safeArea: string[];
@@ -132,22 +132,36 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     [...document.body.querySelectorAll(selector)].filter((element) => isShown(element) && !isVisuallyHidden(element));
 
   // Overflow: every box and line of text must fit inside the containers that clip it and the
-  // screen, unless the container scrolls sideways or truncates with an ellipsis on purpose.
+  // screen, unless a container between them scrolls that way or truncates text on purpose, with an
+  // ellipsis or a line clamp. The page may scroll down to something, but never sideways.
   const overflow: string[] = [];
-  const checkFits = (node: Node, box: Box, clipping: Element[]) => {
+  /** Why `box` is cut off for good, or null when all of it shows or can be scrolled into view. */
+  const cutOff = (node: Node, box: Box, clipping: Element[]): string | null => {
+    let [checkX, checkY] = [true, true];
     for (const clipper of clipping) {
       const style = getComputedStyle(clipper);
-      if (style.textOverflow === "ellipsis" || style.overflowX === "auto" || style.overflowX === "scroll") return;
-      if (style.overflowX === "visible") continue;
+      if (style.textOverflow === "ellipsis" || /auto|scroll/.test(style.overflowX)) checkX = false;
+      if (style.webkitLineClamp !== "none" || /auto|scroll/.test(style.overflowY)) checkY = false;
       const rect = clipper.getBoundingClientRect();
-      if (box.left < rect.left - TOLERANCE || box.right > rect.right + TOLERANCE) {
-        overflow.push(`${describe(node)} spans ${px(box.left)}–${px(box.right)} but ${describe(clipper)} cuts it off at ${px(rect.left)}–${px(rect.right)}`);
-        return;
+      if (checkX && style.overflowX !== "visible" && (box.left < rect.left - TOLERANCE || box.right > rect.right + TOLERANCE)) {
+        return `${describe(node)} spans ${px(box.left)}–${px(box.right)} but ${describe(clipper)} cuts it off at ${px(rect.left)}–${px(rect.right)}`;
+      }
+      if (checkY && style.overflowY !== "visible" && (box.top < rect.top - TOLERANCE || box.bottom > rect.bottom + TOLERANCE)) {
+        return `${describe(node)} spans ${px(box.top)}–${px(box.bottom)} down the screen but ${describe(clipper)} cuts it off at ${px(rect.top)}–${px(rect.bottom)}`;
       }
     }
-    if (box.left < -TOLERANCE || box.right > innerWidth + TOLERANCE) {
-      overflow.push(`${describe(node)} spans ${px(box.left)}–${px(box.right)} on a ${px(innerWidth)}-wide screen`);
+    if (checkX && (box.left < -TOLERANCE || box.right > innerWidth + TOLERANCE)) {
+      return `${describe(node)} spans ${px(box.left)}–${px(box.right)} on a ${px(innerWidth)}-wide screen`;
     }
+    const element = node instanceof Element ? node : node.parentElement!;
+    if (checkY && !scrollerOf(element, "y") && (box.top < -TOLERANCE || box.bottom > innerHeight + TOLERANCE)) {
+      return `${describe(node)} spans ${px(box.top)}–${px(box.bottom)} down a ${px(innerHeight)}-tall screen and can't be scrolled into view`;
+    }
+    return null;
+  };
+  const checkFits = (node: Node, box: Box, clipping: Element[]) => {
+    const problem = cutOff(node, box, clipping);
+    if (problem) overflow.push(problem);
   };
   const scrollWidth = document.scrollingElement!.scrollWidth;
   if (scrollWidth > innerWidth + TOLERANCE) overflow.push(`the page scrolls sideways: ${px(scrollWidth)} wide on a ${px(innerWidth)}-wide screen`);
@@ -159,12 +173,12 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     if (rect.width > 0.5 && rect.height > 0.5) checkFits(element, rect, clippers(element, false));
   }
 
-  // Touch targets: probe a fingertip-sized circle around each control's centre and make sure every
-  // point lands on the control. That catches small controls, controls crowded together and controls
-  // partly covered by something else, and credits hit areas enlarged with padding or pseudo-elements.
-  // Controls partly scrolled out of view are judged when they're scrolled in, controls in a list
-  // can be scrolled out from under a button floating over it, and controls that can't take a tap
-  // right now (behind an open menu or dialog) are skipped.
+  // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
+  // make sure every point lands on the control. That catches small controls, controls crowded
+  // together and controls partly covered or cut off, and credits hit areas enlarged with padding or
+  // pseudo-elements. Controls partly scrolled out of view are judged when they're scrolled in,
+  // controls in a list can be scrolled out from under a button floating over it, and controls that
+  // can't take a tap right now (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
   for (const element of elements(INTERACTIVE)) {
@@ -172,12 +186,15 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
     if (getComputedStyle(element).display === "inline") continue;
     const rect = element.getBoundingClientRect();
-    const painted = paintedPart(rect, clippers(element, false));
-    if (!painted || painted.left > rect.left + TOLERANCE || painted.right < rect.right - TOLERANCE || painted.top > rect.top + TOLERANCE || painted.bottom < rect.bottom - TOLERANCE) continue;
+    const clipping = clippers(element, false);
+    const shown = paintedPart(rect, clipping);
+    if (!shown) continue;
+    const partlyShown = shown.left > rect.left + TOLERANCE || shown.right < rect.right - TOLERANCE || shown.top > rect.top + TOLERANCE || shown.bottom < rect.bottom - TOLERANCE;
+    if (partlyShown && !cutOff(element, rect, clipping)) continue;
 
     const size = dense && element.matches(dense) ? DENSE_TARGET : TARGET;
     const reach = size / 2 - 1;
-    const [x, y] = [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2];
+    const [x, y] = [(shown.left + shown.right) / 2, (shown.top + shown.bottom) / 2];
     const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
     const list = scrollerOf(element, "y") ?? scrollerOf(element, "x");
     const floatsOver = (hit: Element) => list !== null && list !== document.scrollingElement && !list.contains(hit);
@@ -189,7 +206,8 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
       else if (!element.contains(hit) && !labels.some((label) => label.contains(hit)) && !floatsOver(hit)) misses.add(describe(hit));
     }
     if (misses.size > 0) {
-      touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)}; a ${size}px fingertip on it can land on ${[...misses].join(", ")}`);
+      const cut = partlyShown ? ` (${px(shown.right - shown.left)}×${px(shown.bottom - shown.top)} of it shows)` : "";
+      touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)}${cut}; a ${size}px fingertip on it can land on ${[...misses].join(", ")}`);
     }
   }
 
