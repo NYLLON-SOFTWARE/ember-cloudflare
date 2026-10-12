@@ -67,6 +67,13 @@ describe("API", () => {
     expect(response.status).toBe(404);
   });
 
+  it("rejects sign-ins without a usable name", async () => {
+    for (const body of ["null", "not json", "{}", '{"name":"   "}']) {
+      const response = await exports.default.fetch(`${origin}/api/session`, { method: "POST", body });
+      expect(response.status, body).toBe(422);
+    }
+  });
+
   it("lists the default rooms for signed-in users", async () => {
     const token = await signIn("Ada");
     const response = await exports.default.fetch(`${origin}/api/rooms`, { headers: { Authorization: `Bearer ${token}` } });

@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
+import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
@@ -81,6 +81,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             <Textarea
               autoFocus
               value={draft}
+              maxLength={MAX_MESSAGE_LENGTH}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setEditing(false);
