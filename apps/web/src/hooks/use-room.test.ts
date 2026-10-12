@@ -189,6 +189,28 @@ describe(feature("realtime.reconnect"), () => {
     expect(FakeSocket.all).toHaveLength(2);
   });
 
+  it("says so when an edit or reaction can't be sent, and the edit reports it", () => {
+    const { result } = joinGeneral({ connect: false });
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.messageActions.edit("m1", "hello");
+    });
+    expect(sent).toBe(false);
+    expect(result.current.state.notice).toMatch(/not connected/i);
+
+    act(() => result.current.dismissNotice());
+    act(() => result.current.messageActions.boost("m1", "👍"));
+    expect(result.current.state.notice).toMatch(/not connected/i);
+
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    act(() => {
+      sent = result.current.messageActions.edit("m1", "hello");
+    });
+    expect(sent).toBe(true);
+    expect(socket().sentOfType("message.update")).toEqual([{ type: "message.update", messageId: "m1", body: "hello" }]);
+  });
+
   it("keeps retrying when the network, not the session, is the problem", async () => {
     const onSessionExpired = vi.fn();
     joinGeneral({ connect: false, onSessionExpired });
@@ -217,6 +239,26 @@ describe(feature("realtime.connection"), () => {
     await act(async () => socket().onclose?.());
     await vi.waitFor(() => expect(onSessionExpired).toHaveBeenCalled());
     expect(fetch).toHaveBeenCalledWith("/api/me", expect.objectContaining({ headers: expect.any(Headers) }));
+  });
+
+  it("ignores a session check that answers after its room has closed", async () => {
+    const answers: Array<() => void> = [];
+    const refused = { ok: false, status: 401, json: async () => ({ error: "Not signed in" }) };
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => answers.push(() => resolve(refused)))));
+    const stale = vi.fn();
+    const live = vi.fn();
+
+    // The user signs out and back in while the first check is still waiting.
+    const first = renderHook(() => useRoom("general", "old", ada, stale));
+    await act(async () => socket().onclose?.());
+    first.unmount();
+    renderHook(() => useRoom("general", "new", ada, live));
+    await act(async () => socket().onclose?.());
+
+    // Both checks answer, the old one first; only the live room acts on its answer.
+    await act(async () => answers.forEach((answer) => answer()));
+    await vi.waitFor(() => expect(live).toHaveBeenCalled());
+    expect(stale).not.toHaveBeenCalled();
   });
 });
 

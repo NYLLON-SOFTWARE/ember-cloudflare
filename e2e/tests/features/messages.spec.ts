@@ -182,6 +182,22 @@ test.describe(feature("messages.actions"), () => {
     await expect(bar("Ada's message")).toBeHidden();
   });
 
+  test("lets the keyboard reach the bar through Message options", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Reach me by keyboard");
+    const ada = await members.signIn("Ada");
+    const message = ada.message("Reach me by keyboard");
+    const bar = message.getByRole("group", { name: "Message actions" });
+
+    await ada.composer().focus();
+    await ada.page.keyboard.press("Shift+Tab");
+    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
+    await expect(bar).toBeVisible();
+    await ada.page.keyboard.press("Tab");
+    await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeFocused();
+    await ada.page.keyboard.press("Enter");
+    await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
+  });
+
   test("opens the bar from a 44px Message options button on touch screens, on screen at 320px", async ({ members, participant }) => {
     await (await participant("Grace")).say("Tap for options");
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 640 } } });

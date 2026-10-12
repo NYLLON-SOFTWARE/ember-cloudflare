@@ -764,7 +764,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Day separators | `messages.day-separators` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Message rows | `messages.layout` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Times on follow-up messages | `messages.follow-up-times` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Message action bar | `messages.actions` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Message action bar | `messages.actions` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Reply with a quote | `messages.reply` | Campfire | ⬜ Not started |  |
 | Copy a link to a message | `messages.copy-link` | Campfire | ⬜ Not started |  |
 | Link to a message | `messages.permalink` | Campfire | ⬜ Not started |  |
@@ -897,7 +897,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Leaving a message closes its bar after 180ms unless the pointer reaches the bar, and Escape closes it, returning focus to Message options.
 - On touch screens a 44px Message options button opens the bar, which stays on screen at 320px wide.
 
-Note: The bar has Edit and Delete on your own messages, and no Reply or Copy link. It closes as soon as the pointer leaves, and Escape doesn't close it. On touch screens, tapping Message options again leaves the bar open until you tap somewhere else. On a computer, the keyboard can't reach the bar unless the message has reactions.
+Note: The bar has Edit and Delete on your own messages, and no Reply or Copy link. It closes as soon as the pointer leaves, except that after you click one of its buttons it stays until you click somewhere else, and Escape doesn't close it. On touch screens, tapping Message options again leaves the bar open until you tap somewhere else.
 
 Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
 
@@ -1253,7 +1253,7 @@ ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://g
 - Coming back to a tab hidden for more than 60 seconds does the same.
 - The composer is disabled 5 seconds after the connection drops, until it returns.
 
-Note: The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.
+Note: The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. If the connection dropped before the room confirmed a message it did store, and more than a page of messages followed, that message shows as not sent until scrolling back loads it. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.
 
 Sources: [`crates/ember/src/controllers/rooms/refreshes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/refreshes.rs) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js) · [`reference/app/controllers/rooms/refreshes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/refreshes_controller.rb)
 

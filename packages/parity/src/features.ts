@@ -936,7 +936,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. It closes as soon as the pointer leaves, and Escape doesn't close it. On touch screens, tapping Message options again leaves the bar open until you tap somewhere else. On a computer, the keyboard can't reach the bar unless the message has reactions.",
+    notes: "The bar has Edit and Delete on your own messages, and no Reply or Copy link. It closes as soon as the pointer leaves, except that after you click one of its buttons it stays until you click somewhere else, and Escape doesn't close it. On touch screens, tapping Message options again leaves the bar open until you tap somewhere else.",
   },
   {
     id: "messages.reply",
@@ -1306,7 +1306,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/refreshes.rs", "reference/app/javascript/controllers/refresh_room_controller.js", "reference/app/controllers/rooms/refreshes_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms/refreshes_controller_test.rb", "parity/screens.yml"],
-    notes: "The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.",
+    notes: "The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. If the connection dropped before the room confirmed a message it did store, and more than a page of messages followed, that message shows as not sent until scrolling back loads it. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.",
   },
   {
     id: "realtime.connection",

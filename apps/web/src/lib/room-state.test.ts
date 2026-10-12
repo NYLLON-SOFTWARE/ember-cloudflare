@@ -28,10 +28,10 @@ describe(feature("messages.optimistic"), () => {
     expect(state.messages[0]!.id).toBe("m1");
   });
 
-  it("keeps quick sends in order, under one header, when the room confirms them out of order", () => {
+  it("ends quick sends in the order they were sent, under one header", () => {
     let state = initialRoomState;
     for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
-    for (const id of ["c3", "c1", "c2"]) {
+    for (const id of ["c1", "c2", "c3"]) {
       state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
     }
     expect(state.messages.map((m) => [m.body, isPending(m)])).toEqual([
@@ -40,6 +40,18 @@ describe(feature("messages.optimistic"), () => {
       ["c3", false],
     ]);
     expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
+  });
+
+  it("puts a confirmed message after the ones the room stored before it", () => {
+    const grace: User = { id: "u2", name: "Grace" };
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    // Grace's message reached the room first, so the room announces it before confirming Ada's.
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "g1", clientMessageId: "g1", creator: grace }) }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "m2" }) }, now: 0 });
+    expect(state.messages.map((m) => [m.creator.name, m.id, isPending(m)])).toEqual([
+      ["Grace", "g1", false],
+      ["Ada", "m2", false],
+    ]);
   });
 
   it("only reconciles a stored message with its own sender's optimistic copy", () => {
@@ -79,6 +91,19 @@ describe(feature("realtime.reconnect"), () => {
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2"]);
     expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
     expect(state.status).toBe("open");
+  });
+
+  it("drops a copy marked unsent once older history turns up the stored message", () => {
+    // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect.
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
+    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
+
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.messages.map((m) => [m.id, isPending(m)])).toEqual([
+      ["m1", false],
+      ["m2", false],
+    ]);
   });
 });
 

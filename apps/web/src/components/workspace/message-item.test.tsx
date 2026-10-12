@@ -23,8 +23,9 @@ const message = (overrides: Partial<Message> = {}): Message => ({
 
 const boost = (id: string, booster: User, content: string): Boost => ({ id, messageId: "m1", booster, content, createdAt: "" });
 
-function show(m: Message | PendingMessage, { me = ada, threaded = false } = {}) {
-  const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+/** Renders one message. `sent` is what an edit reports: false when there's no connection. */
+function show(m: Message | PendingMessage, { me = ada, threaded = false, sent = true } = {}) {
+  const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn() };
   render(<MessageItem message={m} me={me} threaded={threaded} actions={actions} />);
   return { actions, user: userEvent.setup(), article: screen.getByRole("article") };
 }
@@ -115,6 +116,29 @@ describe(feature("messages.edit"), () => {
     expect(actions.edit).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key: "Enter" });
     expect(actions.edit).toHaveBeenCalledWith("m1", "こんにちは");
+    expect(editor).not.toBeInTheDocument();
+  });
+
+  it("keeps the editor and its draft when the edit can't be sent", async () => {
+    const { actions, user } = show(message(), { sent: false });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.clear(screen.getByRole("textbox"));
+    await user.type(screen.getByRole("textbox"), "hello{Enter}");
+    expect(actions.edit).toHaveBeenCalledWith("m1", "hello");
+    expect(screen.getByRole("textbox")).toHaveValue("hello");
+  });
+});
+
+describe(feature("messages.actions"), () => {
+  it("puts the options button before the actions it opens, so a keyboard reaches them", async () => {
+    const { user } = show(message());
+    const options = screen.getByRole("button", { name: "Message options" });
+    const bar = screen.getByRole("group", { name: "Message actions" });
+    expect(options.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // While editing there's no bar to open.
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
 });
 
