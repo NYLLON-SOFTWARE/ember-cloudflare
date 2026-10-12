@@ -127,8 +127,8 @@ const perMessage = (before: Metrics, after: Metrics, name: keyof Metrics, messag
 const messageCount = (page: Page) => page.$$eval(`${TIMELINE} article`, (rows) => rows.length);
 
 /** Scrolls to the top until the timeline holds `target` messages, timing each page of history. */
-function growTimeline(page: Page, target: number): Promise<number[]> {
-  return page.$eval(
+async function growTimeline(page: Page, target: number): Promise<number[]> {
+  const { times, reached } = await page.$eval(
     TIMELINE,
     async (log, target) => {
       const count = () => log.querySelectorAll("article").length;
@@ -151,10 +151,13 @@ function growTimeline(page: Page, target: number): Promise<number[]> {
         await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
       }
       log.scrollTop = log.scrollHeight;
-      return times;
+      return { times, reached: count() };
     },
     target,
   );
+  // A burst on a shorter timeline than asked for would pass for a faster one.
+  if (reached < target) throw new Error(`Paging in history stopped at ${reached} messages, short of the ${target} the next burst needs`);
+  return times;
 }
 
 /** Measures idle cost, then has `bot` post a burst at the room's current size and times each message onto the screen. */

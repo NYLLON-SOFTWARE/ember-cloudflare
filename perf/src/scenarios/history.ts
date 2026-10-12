@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type Message } from "@ember/protocol";
 import { closeAll, joinMany, roomName, seedRoom } from "../load.ts";
 import { RoomClient } from "../room-client.ts";
 import type { Server } from "../server.ts";
@@ -30,22 +30,26 @@ export async function history(server: Server, options: HistoryOptions): Promise<
   await seedRoom([writer!], options.messages, options.boostEvery);
 
   const welcomeMs: number[] = [];
-  let oldestShown = "";
+  let newestPage: Message[] = [];
   for (let i = 0; i < options.welcomes; i++) {
     const { client, welcome, ms } = await RoomClient.connect(server.url, room, writer!.session);
     welcomeMs.push(ms);
-    oldestShown = welcome.messages[0]!.id;
+    newestPage = welcome.messages;
     client.close();
   }
 
   const pageMs: number[] = [];
   for (let pass = 0; pass < options.passes; pass++) {
-    for (let before = oldestShown, hasMore = true; hasMore; ) {
+    let read = newestPage.length;
+    for (let before = newestPage[0]!.id, hasMore = true; hasMore; ) {
       const page = await writer!.history(before, HISTORY_PAGE_SIZE);
       pageMs.push(page.ms);
+      read += page.messages.length;
       hasMore = page.hasMore;
       before = page.messages[0]?.id ?? before;
     }
+    // History that ends early would pass for a faster read path.
+    if (read !== options.messages) throw new Error(`Paging back through history read ${read} of the room's ${options.messages} messages`);
   }
   closeAll([writer!]);
 
