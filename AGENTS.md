@@ -14,10 +14,11 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   README says how to add one. shadcn/ui components arrive with `lucide-react` icons, so swap those.
 - Every WebSocket frame is typed in `packages/protocol`. Change the types there first, validate
   anything from a client in `parseClientFrame`, and keep the worker and web app in step.
-- Messages are stored through `apps/worker/src/store.ts`, which must work on both Durable Object
-  SQLite and D1. Schema changes go in a new file under `apps/worker/migrations/`, listed in
-  `MIGRATIONS` in `apps/worker/src/migrations.ts`: wrangler applies them to D1, and each room's
-  Durable Object applies the ones it's missing when it opens. The worker tests run against both
+- Data is stored through `apps/worker/src/db.ts`, whose SQL must work on both Durable Object SQLite
+  and D1; a write that has to be atomic is one `batch`. Schema changes go in a new file under
+  `apps/worker/migrations/`, listed in `MIGRATIONS` in `apps/worker/src/migrations.ts` with the kind
+  of object whose tables it changes: wrangler applies every file to D1, and each Durable Object
+  applies its own kind's that it's missing when it opens. The worker tests run against both
   backends, so keep them green on both.
 - Both backends bind at most 100 values a statement, so never bind a list whose length depends on
   the data. Write one statement per query shape, too: SQLite can't use an index through

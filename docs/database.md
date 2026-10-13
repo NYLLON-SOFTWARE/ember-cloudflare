@@ -8,7 +8,15 @@ choices to adopt as features land.
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
 each room's messages and boosts live in that room's Durable Object SQLite storage. With `d1`, every
 room's messages and boosts live in one D1 database. Both backends use the schema in
-`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`.
+`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
+`apps/worker/src/db.ts`.
+
+Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
+`apps/worker/src/migrations.ts` names as its scope: `room` for messages and boosts, and `workspace`
+for the workspace-wide tables to come (people, sessions, the room list). On DO SQLite, an object
+applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
+applies every file to D1, where all the tables share one database and each room's rows carry its
+`room_id`.
 
 So far only messages and boosts are stored. People sign in by display name, rooms come from
 `DEFAULT_ROOMS`, and presence and typing live in each room object's memory.
@@ -92,6 +100,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
 
 ## Writing SQL here
 
+- A write that has to be atomic is one `db.batch([...])`: it runs inside `transactionSync` on DO
+  SQLite and is D1's `batch()`, so its statements all take effect or none do. D1 has no other kind
+  of transaction, so don't read, decide in code and then write. Make each statement check its own
+  conditions instead, with a unique index, `INSERT … SELECT … WHERE NOT EXISTS` or
+  `UPDATE … WHERE … RETURNING`.
 - Use one statement per query shape. SQLite can't use an index through an optional filter like
   `? IS NULL OR id < ?`.
 - Never bind a list whose length depends on the data. Both backends bind at most 100 values a

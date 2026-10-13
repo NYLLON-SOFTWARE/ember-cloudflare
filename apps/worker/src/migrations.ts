@@ -2,21 +2,34 @@ import messages from "../migrations/0001_messages.sql";
 import clientMessageIds from "../migrations/0002_client_message_ids.sql";
 
 /**
- * Every file in migrations/, oldest first. D1 gets them from `wrangler d1 migrations apply`; a room's
- * Durable Object applies the ones its storage is missing when it opens. A test checks this list
- * against the directory.
+ * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
+ * applies only its own kind's migrations, so a room's storage never holds the workspace's tables;
+ * D1 holds every kind's.
  */
-export const MIGRATIONS = [
-  { name: "0001_messages.sql", sql: messages },
-  { name: "0002_client_message_ids.sql", sql: clientMessageIds },
+export type Scope = "room" | "workspace";
+
+export interface Migration {
+  name: string;
+  scope: Scope;
+  sql: string;
+}
+
+/**
+ * Every file in migrations/, oldest first. D1 gets them all from `wrangler d1 migrations apply`; each
+ * Durable Object applies the ones for its scope that its storage is missing when it opens. A test
+ * checks this list against the directory.
+ */
+export const MIGRATIONS: Migration[] = [
+  { name: "0001_messages.sql", scope: "room", sql: messages },
+  { name: "0002_client_message_ids.sql", scope: "room", sql: clientMessageIds },
 ];
 
 /**
- * Applies the migrations a Durable Object's storage is missing, recording each in the table wrangler
- * keeps for D1. Objects from before this table existed ran 0001 already; it only creates what's
- * missing, so it runs again harmlessly and is recorded.
+ * Applies the migrations for `scope` that a Durable Object's storage is missing, recording each in
+ * the table wrangler keeps for D1. Rooms from before this table existed ran 0001 already; it only
+ * creates what's missing, so it runs again harmlessly and is recorded.
  */
-export function migrate(storage: DurableObjectStorage): void {
+export function migrate(storage: DurableObjectStorage, scope: Scope): void {
   storage.sql.exec(`CREATE TABLE IF NOT EXISTS d1_migrations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE,
@@ -24,7 +37,7 @@ export function migrate(storage: DurableObjectStorage): void {
   )`);
   const applied = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations").toArray().map((row) => row.name));
   for (const migration of MIGRATIONS) {
-    if (applied.has(migration.name)) continue;
+    if (migration.scope !== scope || applied.has(migration.name)) continue;
     storage.transactionSync(() => {
       storage.sql.exec(migration.sql);
       storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", migration.name);
