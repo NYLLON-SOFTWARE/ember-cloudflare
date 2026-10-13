@@ -12,6 +12,16 @@ export interface Client {
 /** ember-rust's user statuses (crates/db/src/models/user.rs). Only active people can sign in. */
 const ACTIVE = 0;
 
+/** A session and the person it signs in. */
+export interface StoredSession {
+  id: string;
+  user: User;
+  /** Whether the person signed in with just a name. */
+  guest: boolean;
+  /** When the session was last refreshed, in milliseconds since the epoch. */
+  lastActiveAt: number;
+}
+
 interface SessionRow {
   session_id: string;
   last_active_at: string;
@@ -35,7 +45,7 @@ export class WorkspaceStore {
   }
 
   /** The session a token's digest names, if its person is still active. */
-  async findSession(tokenDigest: string): Promise<SessionRow | null> {
+  async findSession(tokenDigest: string): Promise<StoredSession | null> {
     const [row] = await this.db.all<SessionRow>(
       `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name, users.guest
        FROM sessions JOIN users ON users.id = sessions.user_id
@@ -43,7 +53,8 @@ export class WorkspaceStore {
       tokenDigest,
       ACTIVE,
     );
-    return row ?? null;
+    if (!row) return null;
+    return { id: row.session_id, user: { id: row.user_id, name: row.name }, guest: row.guest === 1, lastActiveAt: Date.parse(row.last_active_at) };
   }
 
   /** Records that the session is in use from `client`, as ember-rust's `resume` does. */

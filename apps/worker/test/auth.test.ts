@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_REFRESH_MS } from "../src/workspace";
 import { api, apiWith, origin, signIn, upgrade, workspaceSql } from "./support";
 
@@ -18,11 +18,9 @@ interface SessionRow {
 const sessionsOf = (userId: string) =>
   workspaceSql("SELECT last_active_at, ip_address, user_agent FROM sessions WHERE user_id = ?", userId) as Promise<SessionRow[]>;
 
-/** Moves a person's sessions' last activity `ms` into the past. */
-const lastActive = (userId: string, ms: number) =>
-  workspaceSql("UPDATE sessions SET last_active_at = ? WHERE user_id = ?", new Date(Date.now() - ms).toISOString(), userId);
-
 describe(feature("auth.sessions"), () => {
+  afterEach(() => vi.useRealTimers());
+
   it("keeps the session in an HttpOnly cookie for 400 days, which only this origin can set over HTTPS", async () => {
     const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "Ada" }) });
     expect(response.headers.get("Set-Cookie")).toMatch(/^__Host-session_token=[\w-]{43}; Path=\/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure$/);
@@ -60,25 +58,36 @@ describe(feature("auth.sessions"), () => {
     expect(JSON.stringify(stored)).not.toContain(token);
   });
 
-  it("refreshes the session's last activity, browser and IP at most once an hour, sending the cookie again", async () => {
+  it("refreshes the session's last activity, browser and IP at most once an hour", async () => {
     const { user, cookie } = await signIn("Ada");
     const fromPhone = { headers: { Cookie: cookie, "User-Agent": "Phone", "CF-Connecting-IP": "198.51.100.4" } };
     const [signedIn] = await sessionsOf(user.id);
+    const signedInAt = Date.parse(signedIn!.last_active_at);
 
-    await lastActive(user.id, SESSION_REFRESH_MS - 60_000);
-    const early = await api("/api/me", fromPhone);
-    expect(early.status).toBe(200);
-    expect(early.headers.has("Set-Cookie")).toBe(false);
-    expect(await sessionsOf(user.id)).toEqual([expect.objectContaining({ ip_address: signedIn!.ip_address, user_agent: signedIn!.user_agent })]);
+    // The Workspace runs in this isolate, so it sees the faked clock too.
+    vi.useFakeTimers({ toFake: ["Date"], now: signedInAt + SESSION_REFRESH_MS - 1 });
+    expect((await api("/api/me", fromPhone)).status).toBe(200);
+    expect(await sessionsOf(user.id)).toEqual([signedIn]);
 
-    await lastActive(user.id, SESSION_REFRESH_MS);
-    const due = await api("/api/me", fromPhone);
-    expect(due.headers.get("Set-Cookie")).toBe(`${cookie}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure`);
-    const [refreshed] = await sessionsOf(user.id);
-    expect(refreshed).toMatchObject({ ip_address: "198.51.100.4", user_agent: "Phone" });
-    expect(Date.now() - Date.parse(refreshed!.last_active_at)).toBeLessThan(60_000);
+    vi.setSystemTime(signedInAt + SESSION_REFRESH_MS);
+    expect((await api("/api/me", fromPhone)).status).toBe(200);
+    const refreshed = { last_active_at: new Date(signedInAt + SESSION_REFRESH_MS).toISOString(), ip_address: "198.51.100.4", user_agent: "Phone" };
+    expect(await sessionsOf(user.id)).toEqual([refreshed]);
 
-    expect((await api("/api/me", fromPhone)).headers.has("Set-Cookie")).toBe(false);
+    vi.setSystemTime(signedInAt + 2 * SESSION_REFRESH_MS - 1);
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
+    expect(await sessionsOf(user.id)).toEqual([refreshed]);
+  });
+
+  it("sends the cookie again whenever the app asks who's signed in, so it lasts as long as it's used", async () => {
+    const { cookie } = await signIn("Ada");
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + SESSION_REFRESH_MS });
+    // Something else, such as opening a room, may be what refreshes the session.
+    expect((await api("/api/rooms", withCookie(cookie))).status).toBe(200);
+    for (let load = 0; load < 2; load++) {
+      const response = await api("/api/me", withCookie(cookie));
+      expect(response.headers.get("Set-Cookie")).toBe(`${cookie}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure`);
+    }
   });
 
   it("signs everyone out when SESSION_SECRET changes", async () => {

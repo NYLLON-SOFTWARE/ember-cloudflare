@@ -46,9 +46,8 @@ async function signInGuest(request: Request, env: Env): Promise<Response> {
 async function me(request: Request, env: Env): Promise<Response> {
   const session = await authenticate(request, env);
   if (!session) return problem(401, "Not signed in");
-  // Sending the cookie again whenever the session refreshes keeps it from expiring while it's in use.
-  const headers: HeadersInit = session.refreshed ? { "Set-Cookie": sessionCookie(request, session.token) } : {};
-  return json({ user: session.user }, { headers });
+  // The app asks every time it loads, so sending the cookie again keeps it from expiring while it's in use.
+  return json({ user: session.user }, { headers: { "Set-Cookie": sessionCookie(request, session.token) } });
 }
 
 async function endSession(request: Request, env: Env): Promise<Response> {

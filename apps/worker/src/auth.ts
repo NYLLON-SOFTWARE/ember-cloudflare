@@ -1,5 +1,6 @@
+import type { User } from "@ember/protocol";
 import type { Env } from "./env";
-import { workspace, type Authenticated } from "./workspace";
+import { workspace } from "./workspace";
 import type { Client } from "./workspace-store";
 
 // Sessions ride an HttpOnly cookie holding a random token, and the Workspace keeps only its digest.
@@ -71,12 +72,12 @@ export const clientOf = (request: Request): Client => ({
   userAgent: request.headers.get("User-Agent"),
 });
 
-/** The person whose session the request's cookie names, if it names one that's still valid. */
-export async function authenticate(request: Request, env: Env): Promise<(Authenticated & { token: string }) | null> {
+/** The person whose session the request's cookie names, if it names one that's still valid, and its token. */
+export async function authenticate(request: Request, env: Env): Promise<{ user: User; token: string } | null> {
   const token = sessionToken(request);
   if (!token) return null;
-  const session = await workspace(env).authenticate(await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
-  return session && { ...session, token };
+  const user = await workspace(env).authenticate(await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
+  return user && { user, token };
 }
 
 /** Ends the session the request's cookie names, if any. */
