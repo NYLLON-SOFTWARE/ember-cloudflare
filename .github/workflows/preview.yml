@@ -64,8 +64,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
         run: |
-          # Until email sign-in lands, the preview lets anyone sign in with just a name.
-          pnpm exec wrangler deploy --name "$WORKER_NAME" --var EMBER_GUEST_SIGN_IN:true
+          # Until email sign-in lands, the preview lets anyone sign in with just a name. Its general
+          # and random rooms date from before the Workspace kept a list, so it registers them.
+          pnpm exec wrangler deploy --name "$WORKER_NAME" --var EMBER_GUEST_SIGN_IN:true --var LEGACY_ROOMS:general,random
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"

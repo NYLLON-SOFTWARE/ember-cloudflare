@@ -32,8 +32,7 @@
   "vars": {
     // "do-sqlite" keeps each room's messages in its Durable Object's SQLite storage.
     // "d1" writes them to the shared D1 database below instead.
-    "STORAGE_BACKEND": "do-sqlite",
-    "DEFAULT_ROOMS": "general,random"
+    "STORAGE_BACKEND": "do-sqlite"
   }
 
   // To use D1, create a database (`wrangler d1 create ember`), paste its id here,

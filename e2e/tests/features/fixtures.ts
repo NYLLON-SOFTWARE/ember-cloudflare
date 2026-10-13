@@ -1,5 +1,5 @@
 import type { BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, createSession, expect, uniqueRoomId, type Session, type TestRoom } from "../../fixtures";
+import { test as app, createRoom, createSession, expect, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
 
@@ -10,14 +10,17 @@ export interface Rooms {
 }
 
 /**
- * Makes every page in `context` list `rooms`, so the test never shares a room with another one.
- * The server still answers first, so a session it refuses gets its 401 as usual.
+ * Makes every page in `context` list just `rooms` of the server's rooms, since every other test's
+ * open rooms take everyone in too. The server still answers first, so a session it refuses gets
+ * its 401 as usual.
  */
 async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
+  const ids = new Set(Object.values(rooms).map((room) => room.id));
   await context.route("**/api/rooms", async (route) => {
     const response = await route.fetch();
     if (!response.ok()) return route.fulfill({ response });
-    await route.fulfill({ response, json: { rooms: Object.values(rooms).map((room) => ({ ...room, kind: "open" })) } });
+    const { rooms: listed } = (await response.json()) as { rooms: TestRoom[] };
+    await route.fulfill({ response, json: { rooms: listed.filter((room) => ids.has(room.id)) } });
   });
 }
 
@@ -94,8 +97,8 @@ export interface Members {
 }
 
 export const test = app.extend<{ rooms: Rooms; members: Members }>({
-  rooms: async ({}, use) => {
-    await use({ general: { id: uniqueRoomId(), name: "general" }, random: { id: uniqueRoomId(), name: "random" } });
+  rooms: async ({ request, session }, use) => {
+    await use({ general: await createRoom(request, session, "general"), random: await createRoom(request, session, "random") });
   },
 
   // The shared `room` is this test's #general, so `participant` posts where its members are.

@@ -1,5 +1,5 @@
 import { HISTORY_PAGE_SIZE, type Message } from "@ember/protocol";
-import { closeAll, joinMany, roomName, seedRoom } from "../load.ts";
+import { closeAll, joinMany, newRoom, seedRoom } from "../load.ts";
 import { RoomClient } from "../room-client.ts";
 import type { Server } from "../server.ts";
 import { summarize, type Summary } from "../stats.ts";
@@ -23,7 +23,7 @@ export interface HistoryResult extends HistoryOptions {
 
 /** A room with a long backlog: how fast it hands out pages, which is where the two storage backends differ most. */
 export async function history(server: Server, options: HistoryOptions): Promise<HistoryResult> {
-  const room = roomName("history");
+  const room = await newRoom(server, "history");
   const {
     clients: [writer],
   } = await joinMany(server, room, 1, { name: "writer" });

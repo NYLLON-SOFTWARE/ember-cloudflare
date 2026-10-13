@@ -2,12 +2,13 @@ import { feature } from "@ember/parity";
 import { expect, test } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
-  test("lists the rooms the server has", async ({ members }) => {
-    const ada = await members.signIn("Ada", { path: "/", serverRooms: true });
-    const response = await ada.page.request.get("/api/rooms");
-    const { rooms } = (await response.json()) as { rooms: { name: string }[] };
-    expect(rooms.length).toBeGreaterThan(0);
-    await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(rooms.map((room) => `#${room.name}`));
+  test("lists the rooms the server says you're in", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { serverRooms: true });
+    const sidebar = ada.page.getByRole("region", { name: "Rooms" });
+    // Every other test's open rooms are listed too, so look for this test's by address.
+    for (const room of Object.values(rooms)) {
+      await expect(sidebar.locator(`a[href="/rooms/${room.id}"]`)).toHaveText(`#${room.name}`);
+    }
   });
 
   test("marks the open room and switches between them", async ({ members, rooms }) => {

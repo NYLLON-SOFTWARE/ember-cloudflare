@@ -17,16 +17,25 @@ const HISTORY_TIMEOUT_MS = 30_000;
 
 type HistoryFrame = Extract<ServerFrame, { type: "history" }>;
 
+/** A JSON write as the app's own pages send it: over HTTPS the Worker refuses writes that don't say so. */
+const write = (baseUrl: string, body: unknown, cookie?: string): RequestInit => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json", Origin: new URL(baseUrl).origin, "Sec-Fetch-Site": "same-origin", ...(cookie ? { Cookie: cookie } : {}) },
+  body: JSON.stringify(body),
+});
+
 export async function signIn(baseUrl: string, name: string): Promise<Session> {
-  const response = await fetch(new URL("/api/session", baseUrl), {
-    method: "POST",
-    // As the app's own pages send it: over HTTPS the Worker refuses writes that don't say so.
-    headers: { "Content-Type": "application/json", Origin: new URL(baseUrl).origin, "Sec-Fetch-Site": "same-origin" },
-    body: JSON.stringify({ name }),
-  });
+  const response = await fetch(new URL("/api/session", baseUrl), write(baseUrl, { name }));
   if (response.status !== 201) throw new Error(`Sign-in failed (${response.status}): ${await response.text()}`);
   const { user } = (await response.json()) as { user: User };
   return { user, cookie: response.headers.getSetCookie()[0]!.split(";")[0]! };
+}
+
+/** Creates an open room as `session`'s person and answers its id. Everyone who signs in afterwards is in it. */
+export async function createRoom(baseUrl: string, session: Session, name: string): Promise<string> {
+  const response = await fetch(new URL("/api/rooms", baseUrl), write(baseUrl, { kind: "open", name }, session.cookie));
+  if (response.status !== 201) throw new Error(`Creating a room failed (${response.status}): ${await response.text()}`);
+  return ((await response.json()) as { room: { id: string } }).room.id;
 }
 
 export function socketUrl(baseUrl: string, room: string): string {

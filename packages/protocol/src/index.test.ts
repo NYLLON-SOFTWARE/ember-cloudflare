@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { isRoomSlug, MAX_BOOST_LENGTH, MAX_CHECKED_MESSAGES, MAX_MESSAGE_LENGTH, parseClientFrame } from "./index";
+import { isRoomId, MAX_BOOST_LENGTH, MAX_CHECKED_MESSAGES, MAX_LISTED_USERS, MAX_MESSAGE_LENGTH, MAX_ROOM_NAME_LENGTH, parseClientFrame, parseNewRoom } from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 
@@ -54,13 +54,50 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("rooms.open"), () => {
-  it("allows short lowercase room slugs only", () => {
-    expect(isRoomSlug("general")).toBe(true);
-    expect(isRoomSlug("dm-ab12")).toBe(true);
-    expect(isRoomSlug("General")).toBe(false);
-    expect(isRoomSlug("-x")).toBe(false);
-    expect(isRoomSlug("a/b")).toBe(false);
-    expect(isRoomSlug("x".repeat(64))).toBe(false);
+describe(feature("rooms.show"), () => {
+  it("takes sortable ids and legacy rooms' addresses as room ids, and nothing else", () => {
+    expect(isRoomId("mgp3x2c4a1b2c3d4")).toBe(true);
+    expect(isRoomId("general")).toBe(true);
+    expect(isRoomId("dm-ab12")).toBe(true);
+    expect(isRoomId("General")).toBe(false);
+    expect(isRoomId("-x")).toBe(false);
+    expect(isRoomId("a/b")).toBe(false);
+    expect(isRoomId("_health")).toBe(false);
+    expect(isRoomId("x".repeat(64))).toBe(false);
+  });
+});
+
+describe(feature("rooms.create-open"), () => {
+  it("takes a kind and a trimmed name", () => {
+    expect(parseNewRoom({ kind: "open", name: "  Design  " })).toEqual({ kind: "open", name: "Design" });
+    expect(parseNewRoom({ kind: "open", name: "x".repeat(MAX_ROOM_NAME_LENGTH) })).toEqual({ kind: "open", name: "x".repeat(MAX_ROOM_NAME_LENGTH) });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [], 'Kind must be "open" or "closed"'],
+    ["no kind", { name: "Design" }, 'Kind must be "open" or "closed"'],
+    ["a direct message", { kind: "direct", name: "Design" }, 'Kind must be "open" or "closed"'],
+    ["no name", { kind: "open" }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a blank name", { kind: "open", name: "   " }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a name that isn't text", { kind: "open", name: 42 }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a name that's too long", { kind: "open", name: "x".repeat(MAX_ROOM_NAME_LENGTH + 1) }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseNewRoom(body)).toBe(error);
+  });
+});
+
+describe(feature("rooms.create-closed"), () => {
+  it("takes a closed room's members, or nobody", () => {
+    expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds: ["u1", "u2"] })).toEqual({ kind: "closed", name: "Leads", memberIds: ["u1", "u2"] });
+    expect(parseNewRoom({ kind: "closed", name: "Leads" })).toEqual({ kind: "closed", name: "Leads", memberIds: [] });
+  });
+
+  it("refuses members that aren't a bounded list of ids", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const memberIds of ["u1", [1], [""], ["x".repeat(65)], tooMany]) {
+      expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds }), JSON.stringify(memberIds).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
+    }
+    expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds: tooMany.slice(1) })).not.toBeTypeOf("string");
   });
 });

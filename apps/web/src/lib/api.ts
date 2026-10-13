@@ -1,13 +1,9 @@
-import type { User } from "@ember/protocol";
+import type { Room, User } from "@ember/protocol";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and room
 // socket, so nothing here handles a token.
 
-export interface Room {
-  id: string;
-  name: string;
-  kind: "open" | "closed" | "direct";
-}
+export type { Room };
 
 export class ApiError extends Error {
   constructor(
@@ -42,6 +38,7 @@ export async function fetchMe(): Promise<User> {
   return (await request<{ user: User }>("/api/me")).user;
 }
 
+/** The rooms this person is in. */
 export async function fetchRooms(): Promise<Room[]> {
   return (await request<{ rooms: Room[] }>("/api/rooms")).rooms;
 }

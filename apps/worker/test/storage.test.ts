@@ -10,7 +10,7 @@ import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, workspaceS
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Scope, string[]> = {
   room: ["boosts", "messages"],
-  workspace: ["sessions", "users"],
+  workspace: ["memberships", "rooms", "sessions", "users"],
 };
 
 /** The tables migrations made, leaving out SQLite's, Cloudflare's and the record of migrations. */
@@ -27,7 +27,7 @@ describe(feature("platform.storage"), () => {
     expect(storage).toBe(db ? "d1" : "do-sqlite");
     if (!db) return;
 
-    const room = freshRoom("d1");
+    const room = await freshRoom("d1");
     const ada = await connect(room, "Ada");
     const message = await post(ada, "stored in D1");
     ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
@@ -50,14 +50,14 @@ describe(feature("platform.storage"), () => {
       expect((await db.prepare(MIGRATED_TABLES).all()).results).toEqual(names(Object.values(TABLES).flat().sort()));
       return;
     }
-    const room = freshRoom("tables");
+    const room = await freshRoom("tables");
     await connect(room, "Ada");
     expect(await objectSql(roomStub(room), MIGRATED_TABLES)).toEqual(names(TABLES.room));
     expect(await objectSql(workspaceStub(), MIGRATED_TABLES)).toEqual(names(TABLES.workspace));
   });
 
   it("applies each migration once: all of them to D1, and each object's own to its storage", async () => {
-    const room = freshRoom("migrated");
+    const room = await freshRoom("migrated");
     await connect(room, "Ada");
     const db = (env as { DB?: D1Database }).DB;
     const recorded = (db ? MIGRATIONS : roomMigrations).map(({ name }) => ({ name }));
@@ -72,7 +72,7 @@ describe(feature("platform.storage"), () => {
 
   it("records the first migration in rooms that ran it before migrations were tracked", async () => {
     if ((env as { DB?: D1Database }).DB) return;
-    const room = freshRoom("untracked");
+    const room = await freshRoom("untracked");
     const messages = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
       // What every room did on opening before migrate() existed.
       state.storage.sql.exec(MIGRATIONS[0]!.sql);
@@ -88,7 +88,7 @@ describe(feature("platform.storage"), () => {
   });
 
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {
-    const room = freshRoom("batch");
+    const room = await freshRoom("batch");
     // D1 keeps every room's messages in one table, so the ids are the room's own.
     const insert = (id: string, body: string) =>
       statement(

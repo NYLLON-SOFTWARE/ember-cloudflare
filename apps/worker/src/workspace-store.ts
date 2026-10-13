@@ -1,7 +1,8 @@
-import type { User } from "@ember/protocol";
+import type { Room, RoomId, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 
-// People and sessions, kept by the Workspace in its own SQLite storage or in D1 (see db.ts).
+// People, their sessions and their rooms, kept by the Workspace in its own SQLite storage or in D1
+// (see db.ts).
 
 /** The browser and IP a session records. */
 export interface Client {
@@ -11,6 +12,7 @@ export interface Client {
 
 /** ember-rust's user statuses (crates/db/src/models/user.rs). Only active people can sign in. */
 const ACTIVE = 0;
+const DEACTIVATED = 1;
 
 /** A session and the person it signs in. */
 export interface StoredSession {
@@ -33,14 +35,43 @@ interface SessionRow {
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
+/** The rooms someone is in, by name as ember-rust's sidebar sorts them (membership.rs). */
+export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ? ORDER BY rooms.name COLLATE NOCASE, rooms.id`;
+
+/** Whether someone is in a room, asked on every room socket's upgrade. */
+export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
+
+// Memberships are granted with one statement for everyone, rather than a row at a time, since both
+// backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
+// SQLite would otherwise read as part of a join.
+
+/** Puts someone new in every open room, as ember-rust does for every person and bot who joins (user.rs). */
+const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' ON CONFLICT DO NOTHING`;
+
+/** Puts every active person in an open room, keeping the memberships they already have (room.rs). */
+const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING`;
+
+/** Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do. */
+const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING`;
+
+/** Keeps the people a JSON list of `{id, name}` names as deactivated guests, unless they're already here. */
+const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, created_at, updated_at)
+  SELECT json_extract(value, '$.id'), json_extract(value, '$.name'), ${DEACTIVATED}, 1, ?, ? FROM json_each(?) WHERE true
+  ON CONFLICT DO NOTHING`;
+
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
 
-  /** Adds a guest, who has a name but no way to sign in again, together with their session. */
+  /** Adds a guest, who has a name but no way to sign in again, together with their session and open rooms. */
   async createGuest(user: User, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
       statement(`INSERT INTO users (id, name, guest, created_at, updated_at) VALUES (?, ?, 1, ?, ?)`, user.id, user.name, now, now),
       statement(INSERT_SESSION, sessionId, user.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, user.id, now, now),
     ]);
   }
 
@@ -71,5 +102,39 @@ export class WorkspaceStore {
 
   async deleteSession(tokenDigest: string): Promise<void> {
     await this.db.run(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest);
+  }
+
+  async roomsFor(userId: UserId): Promise<Room[]> {
+    return this.db.all<Room>(ROOMS_FOR_USER, userId);
+  }
+
+  async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
+    return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */
+  async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, room.id, room.kind, room.name, creatorId, now, now),
+      memberIds ? statement(GRANT_ROOM_TO_USERS, room.id, now, now, JSON.stringify(memberIds)) : statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
+    ]);
+  }
+
+  /** Of the rooms `ids` names, the ones that aren't registered yet. The ids go as one JSON value. */
+  async unregisteredRooms(ids: RoomId[]): Promise<RoomId[]> {
+    const rows = await this.db.all<{ id: RoomId }>(`SELECT DISTINCT value AS id FROM json_each(?) WHERE value NOT IN (SELECT id FROM rooms)`, JSON.stringify(ids));
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Registers a room from before the Workspace kept a list as an open room everyone is in, named for
+   * its old address, and keeps the people who wrote or reacted in it as deactivated guests.
+   */
+  async registerLegacyRoom(id: RoomId, authors: User[], now: string): Promise<void> {
+    await this.db.batch([
+      statement(INSERT_FORMER_GUESTS, now, now, JSON.stringify(authors)),
+      statement(`INSERT INTO rooms (id, kind, name, created_at, updated_at) VALUES (?, 'open', ?, ?, ?) ON CONFLICT DO NOTHING`, id, id, now, now),
+      statement(GRANT_ROOM_TO_ACTIVE_USERS, id, now, now),
+    ]);
   }
 }

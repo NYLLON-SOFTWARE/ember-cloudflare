@@ -1,4 +1,4 @@
-import { atRate, closeAll, joinMany, measure, messageBody, Outbox, roomName, settle, waitFor, type Window } from "../load.ts";
+import { atRate, closeAll, joinMany, measure, messageBody, Outbox, newRoom, settle, waitFor, type Window } from "../load.ts";
 import type { Server } from "../server.ts";
 import { summarize, type Summary } from "../stats.ts";
 
@@ -18,7 +18,7 @@ export interface LatencyResult extends LatencyOptions {
 
 /** Two people in a room, one posting at a steady, unhurried rate. The floor for every other number. */
 export async function latency(server: Server, { messages, rate }: LatencyOptions): Promise<LatencyResult> {
-  const room = roomName("latency");
+  const room = await newRoom(server, "latency");
   const {
     clients: [sender, listener],
   } = await joinMany(server, room, 2);

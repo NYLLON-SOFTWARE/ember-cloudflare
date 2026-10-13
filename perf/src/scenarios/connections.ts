@@ -1,4 +1,4 @@
-import { closeAll, joinMany, measure, roomName, settle, sum, type Window } from "../load.ts";
+import { closeAll, joinMany, measure, newRoom, settle, sum, type Window } from "../load.ts";
 import type { RoomClient } from "../room-client.ts";
 import type { Server } from "../server.ts";
 import { perSecond, summarize, type Summary } from "../stats.ts";
@@ -31,7 +31,7 @@ export interface ConnectionsResult extends ConnectionsOptions {
 
 /** Grows one room step by step and times each join, to find how many sockets one Durable Object holds well. */
 export async function connections(server: Server, options: ConnectionsOptions): Promise<ConnectionsResult> {
-  const room = roomName("connections");
+  const room = await newRoom(server, "connections");
   const members: RoomClient[] = [];
   const steps: ConnectionsStep[] = [];
   let stopped: string | null = null;

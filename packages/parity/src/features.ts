@@ -502,13 +502,13 @@ export const features = [
     ],
     sources: ["crates/db/src/models/user.rs", "crates/db/src/models/room.rs", "reference/app/models/rooms/open.rb", "reference/app/models/user.rb"],
     upstreamTests: ["reference/test/models/user_test.rb", "reference/test/models/rooms/open_test.rb"],
-    notes: "Rooms here are the names in the `DEFAULT_ROOMS` setting, and everyone signed in can use all of them. There are no memberships, so there's nothing to join or leave.",
+    notes: "People join every open room when they first sign in, at `mentions`, and a new open room takes in everyone active. There are no bots, nobody can be deactivated, and a private room can't be made open yet.",
   },
   {
     id: "rooms.create-open",
     title: "Create an open room",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "New room in workspace settings opens a page titled \"New chat room\" that reads \"New room\" / \"Create a place for a team, topic, or project.\", with Go Back to workspace settings.",
       "The form has \"Room name\" (placeholder \"Name the room\", prefilled with \"New room\", required and focused; Enter saves), the icon picker and Save.",
@@ -520,12 +520,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/views/templates/rooms/layouts/_new.html", "crates/views/templates/rooms/opens/_form.html", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/opens_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs"],
+    notes: "Only the API makes rooms so far (`POST /api/rooms` with `{ \"kind\": \"open\", \"name\" }`), for the tests and load tests: there's no New room page or icon, and the room shows in sidebars when they next load. Unlike ember-rust's server, it refuses a blank name, or one over 100 characters.",
   },
   {
     id: "rooms.create-closed",
     title: "Create a private room",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Turning off New room's \"Everyone\" switch shows the private room form, keeping the name and icon; turning it back on (\"Give everyone access to this room\" to screen readers) returns to the open one.",
       "The private form lists everyone active by name: you with a check mark and no switch, everyone else with a switch, off, named \"Give <name> access to this room\". Over 20 people, a \"Filter…\" box narrows the list.",
@@ -534,6 +535,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/closeds.rs", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/closeds/_user.html", "reference/app/controllers/rooms/closeds_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/closeds_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/broadcasts_test.rs"],
+    notes: "Only the API makes them (`POST /api/rooms` with `{ \"kind\": \"closed\", \"name\", \"memberIds\" }`), granting the ids as ember-rust's server does: there's no form, and members see the room when their sidebars next load.",
   },
   {
     id: "rooms.creation-permission",
@@ -560,7 +562,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/templates/rooms/show.html", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms_controller_test.rb", "parity/screens.yml"],
-    notes: "Rooms open at `/rooms/<name>` and show the newest 50 messages. An address naming a room that isn't listed quietly opens the first room, and the page title is always \"Ember\". There are no unread marks yet.",
+    notes: "Rooms open at `/rooms/<id>` and show the newest 50 messages. An address naming a room you aren't in quietly opens your first room, and the page title is always \"Ember\". There are no unread marks yet.",
   },
   {
     id: "rooms.last-visited",
@@ -731,20 +733,20 @@ export const features = [
     id: "rooms.member-only-access",
     title: "Only members see a room",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Only members get a room's page, messages, typing and presence; anyone else is refused, including someone removed from the room replaying a stream name they saw earlier.",
       "Sending a message to a room you're not in, or one that no longer exists, posts nothing and shows \"This room was deleted.\" in place of the composer.",
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/ember/src/channels/room.rs", "crates/ember/src/channels/revocation.rs", "crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/room_not_found.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "Every room here is open to anyone signed in, and the room socket accepts any well-formed room name, even one that isn't in `DEFAULT_ROOMS`.",
+    notes: "Only members can open a room's socket, which carries its messages, typing and presence; anyone else gets 404 \"Room not found or inaccessible\" without the room's object waking. Nobody can be removed from a room yet, so nothing closes a socket that's already open, and there's no \"This room was deleted.\"",
   },
   {
     id: "rooms.legacy-rooms",
     title: "Rooms from before memberships",
     origin: "cloudflare",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Each room named in `LEGACY_ROOMS` is registered as an open room whose id and name are its old address, so `/rooms/general` keeps its messages and reactions, and everyone is a member.",
       "Registering again changes nothing, and an old room that isn't listed can no longer be opened.",
@@ -752,7 +754,7 @@ export const features = [
       "A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.",
     ],
     sources: [],
-    notes: "Rooms here are still the names in the `DEFAULT_ROOMS` setting.",
+    notes: "There's no first run yet, so a fresh deploy starts with no rooms, and `pnpm dev` sets `LEGACY_ROOMS` to general and random to have some.",
   },
 
   // Direct messages
@@ -845,7 +847,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists every room with a `#` and marks the one you're in. Missing: the workspace's name (the heading says \"Ember\"), room icons, DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms with a `#` and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), room icons, DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.",
   },
   {
     id: "sidebar.room-order",
@@ -859,7 +861,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/presenters/accounts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "Rooms are listed in `DEFAULT_ROOMS` order here.",
+    notes: "Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order.",
   },
   {
     id: "sidebar.dm-order",

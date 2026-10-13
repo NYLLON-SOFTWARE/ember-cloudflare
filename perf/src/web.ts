@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
-import { closeAll, joinMany, seedRoom } from "./load.ts";
+import { closeAll, joinMany, newRoom, seedRoom } from "./load.ts";
 import type { Profile } from "./profiles.ts";
 import { signIn } from "./room-client.ts";
 import { startServer } from "./server.ts";
@@ -18,8 +18,6 @@ export interface WebResults {
 }
 
 const webDist = path.resolve(import.meta.dirname, "../../apps/web/dist");
-/** The room the browser opens. It has to be one of DEFAULT_ROOMS for the sidebar to offer it. */
-const ROOM = "general";
 
 async function buildWeb(): Promise<void> {
   const child = spawn("pnpm", ["--filter", "@ember/web", "build"], { stdio: ["ignore", "ignore", "inherit"] });
@@ -35,12 +33,14 @@ export async function runWeb(profile: Profile, log: (line: string) => void): Pro
 
   const server = await startServer("do-sqlite", webDist);
   try {
-    log(`web · seeding #${ROOM} with ${profile.web.backlog} messages`);
-    const { clients: authors } = await joinMany(server, ROOM, 3, { name: "author" });
+    log(`web · seeding #general with ${profile.web.backlog} messages`);
+    // The room the browser opens. Everyone signed in after it's made is in it.
+    const room = await newRoom(server, "general");
+    const { clients: authors } = await joinMany(server, room, 3, { name: "author" });
     await seedRoom(authors, profile.web.backlog, 10);
     closeAll(authors);
     const reader = await signIn(server.url, "Perf Reader");
-    const roomUrl = new URL(`/rooms/${ROOM}`, server.url).href;
+    const roomUrl = new URL(`/rooms/${room}`, server.url).href;
 
     const lighthouse: LighthouseResult[] = [];
     for (const formFactor of ["mobile", "desktop"] as const) {
@@ -52,7 +52,7 @@ export async function runWeb(profile: Profile, log: (line: string) => void): Pro
 
     const {
       clients: [bot],
-    } = await joinMany(server, ROOM, 1, { name: "bot" });
+    } = await joinMany(server, room, 1, { name: "bot" });
     const browser = await launchChrome();
     const chrome = (await browser.version()).replace(/^\D+\//, "");
     const render: RenderResult[] = [];

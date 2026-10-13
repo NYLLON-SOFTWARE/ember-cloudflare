@@ -67,6 +67,11 @@ export class ChatRoom extends DurableObject<Env> {
     await this.serially(() => this.storeFor(roomId).page(1));
   }
 
+  /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
+  async authors(roomId: RoomId): Promise<User[]> {
+    return this.serially(() => this.storeFor(roomId).authors());
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const frame = typeof raw === "string" ? parseClientFrame(raw) : null;
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });

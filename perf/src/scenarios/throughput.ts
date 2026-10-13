@@ -1,4 +1,4 @@
-import { closeAll, joinMany, measure, messageBody, Outbox, roomName, settle, waitFor, type Window } from "../load.ts";
+import { closeAll, joinMany, measure, messageBody, Outbox, newRoom, settle, waitFor, type Window } from "../load.ts";
 import type { RoomClient } from "../room-client.ts";
 import type { Server } from "../server.ts";
 import { perSecond, summarize, type Summary } from "../stats.ts";
@@ -22,7 +22,7 @@ export interface ThroughputResult extends ThroughputOptions {
 
 /** Several people posting as fast as the room acknowledges them: the most one room can write. */
 export async function throughput(server: Server, { messages, senders, inFlight }: ThroughputOptions): Promise<ThroughputResult> {
-  const room = roomName("throughput");
+  const room = await newRoom(server, "throughput");
   const { clients: writers } = await joinMany(server, room, senders, { name: "writer" });
   const {
     clients: [listener],

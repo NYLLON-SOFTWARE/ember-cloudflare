@@ -75,35 +75,6 @@ describe(feature("auth.require-sign-in"), () => {
   });
 });
 
-describe(feature("rooms.open"), () => {
-  it("lists the workspace's open rooms to everyone signed in", async () => {
-    const { cookie } = await signIn("Ada");
-    const response = await api("/api/rooms", withCookie(cookie));
-    expect(await response.json()).toEqual({
-      rooms: [
-        { id: "general", name: "general", kind: "open" },
-        { id: "random", name: "random", kind: "open" },
-      ],
-    });
-  });
-
-  it("lets anyone signed in join any open room", async () => {
-    const { cookie } = await signIn("Grace");
-    const response = await api("/api/rooms/general/socket", upgrade(cookie));
-    expect(response.status).toBe(101);
-    response.webSocket!.accept();
-    response.webSocket!.close(1000);
-  });
-
-  it("answers 404 for room names that can't exist", async () => {
-    const { cookie } = await signIn("Ada");
-    for (const room of ["General", "-general", "a%2Fb", "%FF", "x".repeat(64)]) {
-      const response = await api(`/api/rooms/${room}/socket`, upgrade(cookie));
-      expect(response.status, room).toBe(404);
-    }
-  });
-});
-
 describe(feature("realtime.connection"), () => {
   it("refuses room sockets without a valid session", async () => {
     expect((await api("/api/rooms/general/socket", upgrade())).status).toBe(401);

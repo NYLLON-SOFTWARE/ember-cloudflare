@@ -1,4 +1,4 @@
-import { atRate, closeAll, joinMany, measure, messageBody, Outbox, roomName, settle, sum, waitFor, type Window } from "../load.ts";
+import { atRate, closeAll, joinMany, measure, messageBody, Outbox, newRoom, settle, sum, waitFor, type Window } from "../load.ts";
 import type { Server } from "../server.ts";
 import { perSecond, summarize, type Summary } from "../stats.ts";
 
@@ -25,7 +25,7 @@ export interface FanoutResult {
 
 /** One person posting into a room of `members` listeners. Joins happen first, so presence traffic is over. */
 export async function fanoutAt(server: Server, members: number, { messages, rate }: Omit<FanoutOptions, "sizes">): Promise<FanoutResult> {
-  const room = roomName("fanout", members);
+  const room = await newRoom(server, `fanout ${members}`);
   const { clients: listeners } = await joinMany(server, room, members);
   const {
     clients: [sender],

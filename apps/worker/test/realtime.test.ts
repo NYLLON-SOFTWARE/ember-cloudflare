@@ -11,7 +11,7 @@ const names = (users: { name: string }[]) => users.map((u) => u.name).sort();
 
 describe(feature("realtime.presence"), () => {
   it("tells newcomers who is here and tells everyone else they arrived", async () => {
-    const room = freshRoom("presence");
+    const room = await freshRoom("presence");
     const ada = await connect(room, "Ada");
     expect(names(ada.welcome.present)).toEqual(["Ada"]);
 
@@ -21,7 +21,7 @@ describe(feature("realtime.presence"), () => {
   });
 
   it("tells everyone when someone leaves", async () => {
-    const room = freshRoom("leave");
+    const room = await freshRoom("leave");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     await ada.next("presence.joined");
@@ -31,7 +31,7 @@ describe(feature("realtime.presence"), () => {
   });
 
   it("counts someone with several tabs open once, until their last tab closes", async () => {
-    const room = freshRoom("tabs");
+    const room = await freshRoom("tabs");
     const ada = await connect(room, "Ada");
     const grace = await signIn("Grace");
     const firstTab = await connect(room, grace);
@@ -50,7 +50,7 @@ describe(feature("realtime.presence"), () => {
   });
 
   it("tells everyone when someone's connection drops without closing", async () => {
-    const room = freshRoom("dropped");
+    const room = await freshRoom("dropped");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     await ada.next("presence.joined");
@@ -67,7 +67,7 @@ describe(feature("realtime.presence"), () => {
 
 describe(feature("realtime.typing"), () => {
   it("tells everyone else when someone starts and stops typing", async () => {
-    const room = freshRoom("typing");
+    const room = await freshRoom("typing");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
 
@@ -81,7 +81,7 @@ describe(feature("realtime.typing"), () => {
   });
 
   it("lets someone's message say they've stopped typing, without a frame of its own", async () => {
-    const room = freshRoom("typing-sent");
+    const room = await freshRoom("typing-sent");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     ada.send({ type: "typing.start" });
@@ -94,7 +94,7 @@ describe(feature("realtime.typing"), () => {
   });
 
   it("lets someone's leaving say they've stopped typing, without a frame of its own", async () => {
-    const room = freshRoom("typing-left");
+    const room = await freshRoom("typing-left");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     ada.send({ type: "typing.start" });
@@ -109,7 +109,7 @@ describe(feature("realtime.typing"), () => {
 
 describe(feature("realtime.reconnect"), () => {
   it("answers heartbeats, so clients can tell a dead connection from a quiet room", async () => {
-    const ada = await connect(freshRoom("heartbeat"), "Ada");
+    const ada = await connect(await freshRoom("heartbeat"), "Ada");
     ada.sendRaw('{"type":"ping"}');
     expect(await ada.next("pong")).toEqual({ type: "pong" });
     ada.send({ type: "ping", extra: true });
@@ -117,7 +117,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 
   it("catches a reconnecting client up on what it missed", async () => {
-    const room = freshRoom("missed");
+    const room = await freshRoom("missed");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     grace.close();
@@ -129,7 +129,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 
   it("tells a sender which of their messages it stored", async () => {
-    const room = freshRoom("checking");
+    const room = await freshRoom("checking");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     await post(ada, "stored", "a1");
@@ -139,13 +139,13 @@ describe(feature("realtime.reconnect"), () => {
     expect(await ada.next("message.checked")).toEqual({ type: "message.checked", stored: ["a1"], missing: ["g1", "lost"] });
 
     // On D1 every room's messages share one table, so the lookup has to stay in its own room.
-    const elsewhere = await connect(freshRoom("checking-elsewhere"), ada.session);
+    const elsewhere = await connect(await freshRoom("checking-elsewhere"), ada.session);
     elsewhere.send({ type: "message.check", clientMessageIds: ["a1"] });
     expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
   });
 
   it("checks a sender's messages through the room's index", async () => {
-    const room = freshRoom("checking-plan");
+    const room = await freshRoom("checking-plan");
     const ada = await connect(room, "Ada");
     const plan = await roomSql(room, `EXPLAIN QUERY PLAN ${STORED_CLIENT_MESSAGE_IDS}`, room, ada.me.id, '["c1"]');
     // Without it, a check reads every message in the room.
@@ -157,7 +157,7 @@ describe(feature("realtime.reconnect"), () => {
   it("names the messages it couldn't check", async () => {
     // Only a Durable Object's storage can be broken for one room without breaking the tests beside it.
     if ((env as { DB?: D1Database }).DB) return;
-    const room = freshRoom("check-fails");
+    const room = await freshRoom("check-fails");
     const ada = await connect(room, "Ada");
     await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
       state.storage.sql.exec("ALTER TABLE messages RENAME TO messages_gone");
@@ -169,7 +169,7 @@ describe(feature("realtime.reconnect"), () => {
 
 describe(feature("platform.hibernation"), () => {
   it("keeps sockets, presence and who-said-what when the room hibernates", async () => {
-    const room = freshRoom("hibernate");
+    const room = await freshRoom("hibernate");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     await ada.next("presence.joined");
