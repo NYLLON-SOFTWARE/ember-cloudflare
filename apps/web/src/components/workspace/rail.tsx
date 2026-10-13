@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
 import type { User } from "@ember/protocol";
-import { Bell, House, LogOut, MessagesSquare, Search, Settings } from "lucide-react";
+import { Logout } from "@/components/icons/campfire";
+import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
@@ -37,8 +38,8 @@ export function Rail({ me, onSignOut }: { me: User; onSignOut: () => void }) {
       <a href="/" aria-label="Ember home" className="mb-1 flex size-11 shrink-0 items-center justify-center">
         <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
       </a>
-      <RailLink icon={House} label="Home" current />
-      <RailLink icon={MessagesSquare} label="DMs" disabled />
+      <RailLink icon={Home} label="Home" current />
+      <RailLink icon={Messages} label="DMs" disabled />
       <RailLink icon={Bell} label="Activity" disabled />
       <RailLink icon={Search} label="Search" disabled />
       <hr className="my-1 w-8 border-t" />
@@ -52,7 +53,7 @@ export function Rail({ me, onSignOut }: { me: User; onSignOut: () => void }) {
           <DropdownMenuLabel className="truncate">{me.name}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onSignOut}>
-            <LogOut /> Sign out
+            <Logout className="size-[18px]" /> Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

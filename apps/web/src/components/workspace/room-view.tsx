@@ -1,5 +1,5 @@
 import type { User } from "@ember/protocol";
-import { X } from "lucide-react";
+import { Close } from "@/components/icons/ember";
 import { useRoom } from "@/hooks/use-room";
 import type { Room } from "@/lib/api";
 import { Composer } from "./composer";
@@ -28,7 +28,7 @@ export function RoomView({ room, token, me, onSessionExpired }: Props) {
           <div role="alert" className="mx-auto mt-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-[10px] bg-foreground py-2 pr-1 pl-3 text-sm text-background touch:py-0.5">
             {state.notice}
             <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="flex size-6 shrink-0 items-center justify-center rounded hover:opacity-80 touch:size-11">
-              <X className="size-4" />
+              <Close className="size-4" />
             </button>
           </div>
         )}
