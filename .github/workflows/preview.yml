@@ -1,0 +1,87 @@
+name: Preview
+
+# Deploys main to a Worker named ember-preview on the account's workers.dev subdomain, then checks
+# it end to end. It needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets and
+# skips without them, so forks don't try to deploy.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time. A push while one runs waits for it rather than cancelling it mid-upload.
+concurrency:
+  group: preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No preview: add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to deploy one."
+          fi
+
+  deploy:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      WORKER_NAME: ember-preview
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      # Pinned to commits, not tags, because this job holds the Cloudflare token: a moved tag
+      # can't change what runs before the deploy step. These are the commits v4 pointed at.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Deploy
+        id: deploy
+        working-directory: apps/worker
+        env:
+          # Only this step sees the token, not the install or build scripts.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
+        run: |
+          pnpm exec wrangler deploy --name "$WORKER_NAME"
+          url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
+          if [ -z "$url" ]; then
+            echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
+
+          # Sessions are signed with SESSION_SECRET, so the first deploy makes one and later ones keep
+          # it. The Worker exists by now, so failing to list its secrets stops here rather than
+          # replacing a secret that may be there.
+          secrets=$(pnpm exec wrangler secret list --name "$WORKER_NAME")
+          has_secret=$(jq 'any(.[]; .name == "SESSION_SECRET")' <<< "$secrets")
+          if [ "$has_secret" = false ]; then
+            openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --name "$WORKER_NAME"
+          fi
+      - name: Check the preview
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        run: node apps/worker/scripts/check-deploy.ts "$PREVIEW_URL"
