@@ -17,17 +17,17 @@ describe(feature("realtime.presence"), () => {
 
     const grace = await connect(room, "Grace");
     expect(names(grace.welcome.present)).toEqual(["Ada", "Grace"]);
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada", "Grace"]);
+    expect(await ada.next("presence.joined")).toEqual({ type: "presence.joined", user: grace.me });
   });
 
   it("tells everyone when someone leaves", async () => {
     const room = freshRoom("leave");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
-    await ada.next("presence");
+    await ada.next("presence.joined");
 
     grace.close();
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
+    expect(await ada.next("presence.left")).toEqual({ type: "presence.left", userId: grace.me.id });
   });
 
   it("counts someone with several tabs open once, until their last tab closes", async () => {
@@ -37,20 +37,23 @@ describe(feature("realtime.presence"), () => {
     const firstTab = await connect(room, grace);
     const secondTab = await connect(room, grace);
     expect(names(secondTab.welcome.present)).toEqual(["Ada", "Grace"]);
-    await ada.next("presence"); // Grace's first tab arriving
-    await ada.next("presence"); // and her second
 
     firstTab.close();
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada", "Grace"]);
+    // Closing one of her tabs only stops any typing in it.
+    expect(await ada.next("typing")).toEqual({ type: "typing", user: grace.user, typing: false });
     secondTab.close();
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
+    await ada.next("presence.left");
+    expect(ada.log.filter((frame) => frame.type.startsWith("presence."))).toEqual([
+      { type: "presence.joined", user: grace.user },
+      { type: "presence.left", userId: grace.user.id },
+    ]);
   });
 
   it("tells everyone when someone's connection drops without closing", async () => {
     const room = freshRoom("dropped");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
-    await ada.next("presence");
+    await ada.next("presence.joined");
 
     // A connection that drops, like a phone losing signal, reaches the room as code 1006 with no
     // close frame to answer.
@@ -58,7 +61,7 @@ describe(feature("realtime.presence"), () => {
       const [socket] = state.getWebSockets(grace.me.id);
       await instance.webSocketClose(socket!, 1006);
     });
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
+    expect(await ada.next("presence.left")).toEqual({ type: "presence.left", userId: grace.me.id });
   });
 });
 
@@ -77,18 +80,20 @@ describe(feature("realtime.typing"), () => {
     expect(ada.pending("typing")).toEqual([]);
   });
 
-  it("stops showing someone as typing once their message arrives", async () => {
+  it("lets someone's message say they've stopped typing, without a frame of its own", async () => {
     const room = freshRoom("typing-sent");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     ada.send({ type: "typing.start" });
     await grace.next("typing");
 
-    await post(ada, "Done typing");
-    expect(await grace.next("typing")).toEqual({ type: "typing", user: ada.me, typing: false });
+    const message = await post(ada, "Done typing");
+    expect((await grace.next("message.created")).message).toEqual(message);
+    await settle(grace);
+    expect(grace.pending("typing")).toEqual([]);
   });
 
-  it("stops showing someone as typing when they leave", async () => {
+  it("lets someone's leaving say they've stopped typing, without a frame of its own", async () => {
     const room = freshRoom("typing-left");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
@@ -96,7 +101,9 @@ describe(feature("realtime.typing"), () => {
     await grace.next("typing");
 
     ada.close();
-    expect(await grace.next("typing")).toEqual({ type: "typing", user: ada.me, typing: false });
+    expect(await grace.next("presence.left")).toEqual({ type: "presence.left", userId: ada.me.id });
+    await settle(grace);
+    expect(grace.pending("typing")).toEqual([]);
   });
 });
 
@@ -165,7 +172,7 @@ describe(feature("platform.hibernation"), () => {
     const room = freshRoom("hibernate");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
-    await ada.next("presence");
+    await ada.next("presence.joined");
 
     await evictDurableObject((env as unknown as Env).CHAT_ROOM.getByName(room));
 
@@ -173,6 +180,6 @@ describe(feature("platform.hibernation"), () => {
     expect(message.creator).toEqual(ada.me);
     expect((await grace.next("message.created")).message).toEqual(message);
     grace.close();
-    expect(names((await ada.next("presence")).present)).toEqual(["Ada"]);
+    expect(await ada.next("presence.left")).toEqual({ type: "presence.left", userId: grace.me.id });
   });
 });

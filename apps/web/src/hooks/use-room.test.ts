@@ -342,6 +342,13 @@ describe(feature("realtime.typing"), () => {
     wait(2_000);
     expect(result.current.state.typing).toEqual({});
   });
+
+  it("leaves an idle room's state alone between its checks on who's typing", () => {
+    const { result } = joinGeneral();
+    const idle = result.current.state;
+    wait(5_000);
+    expect(result.current.state).toBe(idle);
+  });
 });
 
 describe(feature("messages.history"), () => {
@@ -410,9 +417,9 @@ describe(feature("boosts.remove"), () => {
 describe(feature("realtime.presence"), () => {
   it("keeps the list of who's here current", () => {
     const { result } = joinGeneral();
-    socket().receive({ type: "presence", present: [ada, grace] });
+    socket().receive({ type: "presence.joined", user: grace });
     expect(result.current.state.present).toEqual([ada, grace]);
-    socket().receive({ type: "presence", present: [ada] });
+    socket().receive({ type: "presence.left", userId: grace.id });
     expect(result.current.state.present).toEqual([ada]);
   });
 });
