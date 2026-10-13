@@ -1,47 +1,12 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
+import { openDb, type Db } from "./db";
 import type { Env } from "./env";
-import { migrate } from "./migrations";
 
-// Messages for one room. The same SQL runs against the room's Durable Object SQLite
-// storage or against D1, chosen by STORAGE_BACKEND; only the driver differs.
+// Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts).
 
-type Value = string | number | null;
-
-interface Driver {
-  all<T>(query: string, ...params: Value[]): Promise<T[]>;
-  run(query: string, ...params: Value[]): Promise<void>;
-}
-
-function durableObjectDriver(sql: SqlStorage): Driver {
-  return {
-    async all<T>(query: string, ...params: Value[]) {
-      return sql.exec(query, ...params).toArray() as T[];
-    },
-    async run(query: string, ...params: Value[]) {
-      sql.exec(query, ...params);
-    },
-  };
-}
-
-function d1Driver(db: D1Database): Driver {
-  return {
-    async all<T>(query: string, ...params: Value[]) {
-      return (await db.prepare(query).bind(...params).all<T>()).results;
-    },
-    async run(query: string, ...params: Value[]) {
-      await db.prepare(query).bind(...params).run();
-    },
-  };
-}
-
-/** Picks the driver for a room and makes sure its tables exist. */
+/** The room's messages, with its migrations applied first if its storage needs them. */
 export function openStore(env: Env, state: DurableObjectState, roomId: RoomId): MessageStore {
-  if (env.STORAGE_BACKEND === "d1") {
-    if (!env.DB) throw new Error('STORAGE_BACKEND is "d1" but no D1 database is bound as DB in wrangler.jsonc.');
-    return new MessageStore(d1Driver(env.DB), roomId);
-  }
-  migrate(state.storage);
-  return new MessageStore(durableObjectDriver(state.storage.sql), roomId);
+  return new MessageStore(openDb(env, state.storage, "room"), roomId);
 }
 
 interface MessageRow {
@@ -97,7 +62,7 @@ export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? 
 
 export class MessageStore {
   constructor(
-    private readonly db: Driver,
+    private readonly db: Db,
     readonly roomId: RoomId,
   ) {}
 

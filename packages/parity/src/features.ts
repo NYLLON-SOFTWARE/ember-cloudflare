@@ -2387,7 +2387,8 @@ export const features = [
     status: "ported",
     behaviors: [
       "Messages and boosts live in each room's Durable Object SQLite by default, or in D1 when `STORAGE_BACKEND` is `d1`, and behave the same either way.",
-      "Both get every file in `apps/worker/migrations/`: wrangler applies them to D1, and each room's Durable Object applies the ones it's missing when it opens, recording each so it runs once.",
+      "Wrangler applies every file in `apps/worker/migrations/` to D1. On DO SQLite, each Durable Object applies the files for its own kind of object (`MIGRATIONS` names each file's scope) that it's missing when it opens, recording each so it runs once, so a room never holds another kind's tables.",
+      "A write that has to be atomic is one batch: on either backend its statements run in order and all take effect, or, if one fails, none do.",
     ],
     sources: [],
   },
