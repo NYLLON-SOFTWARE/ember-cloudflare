@@ -46,6 +46,10 @@ export const isPending = (m: Message | PendingMessage): m is PendingMessage => "
 const confirms = (stored: Message, m: Message | PendingMessage) =>
   isPending(m) && m.clientMessageId === stored.clientMessageId && m.creator.id === stored.creator.id;
 
+/** The pending messages whose stored copies aren't in `snapshot`, the newest page a reconnect brings. */
+export const unconfirmed = (messages: RoomState["messages"], snapshot: Message[]) =>
+  messages.filter((m): m is PendingMessage => isPending(m) && !snapshot.some((stored) => confirms(stored, m)));
+
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
 
@@ -80,15 +84,13 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
     case "welcome": {
-      // Keep unsent messages across a reconnect, marked as not sent since the room never stored
-      // them; everything else comes fresh from the room.
-      const unsent = state.messages
-        .filter((m) => isPending(m) && !frame.messages.some((stored) => confirms(stored, m)))
-        .map((m) => ({ ...m, failed: true }));
+      // Keep unconfirmed messages across a reconnect; everything else comes fresh from the room. The
+      // old socket may have closed after the room stored one, so those it sent stay as sending while
+      // useRoom asks the room about them.
       return {
         ...state,
         status: "open",
-        messages: [...frame.messages, ...unsent],
+        messages: [...frame.messages, ...unconfirmed(state.messages, frame.messages)],
         present: frame.present,
         hasMore: frame.hasMore,
         // A history request on the old socket will never be answered.
@@ -125,14 +127,29 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         ...state,
         typing: frame.typing ? { ...state.typing, [frame.user.id]: { user: frame.user, at: now } } : withoutTyping(state.typing, frame.user.id),
       };
+    case "message.checked": {
+      const among = (ids: string[]) => (m: Message | PendingMessage) => isPending(m) && ids.includes(m.clientMessageId);
+      const stored = among(frame.stored);
+      const missing = among(frame.missing);
+      // The room stored these before the oldest message of the snapshot it sent on reconnect, so they
+      // belong in older history, where scrolling up finds them.
+      const sent = state.messages.filter(stored).length;
+      const messages = state.messages.flatMap((m) => (stored(m) ? [] : missing(m) ? [{ ...m, failed: true }] : [m]));
+      const notice = sent === 0 ? state.notice : sent === 1 ? "Your message was sent. Scroll up to see it." : "Your messages were sent. Scroll up to see them.";
+      return { ...state, messages, notice };
+    }
     case "history": {
-      // A page can hold the stored copy of a message that a reconnect couldn't find, and marked unsent.
+      // A page can hold the stored copy of a message that a reconnect left unconfirmed.
       const messages = state.messages.filter((m) => !frame.messages.some((stored) => confirms(stored, m)));
       return { ...state, messages: [...frame.messages, ...messages], hasMore: frame.hasMore, loadingOlder: false };
     }
     case "error": {
-      const messages = frame.clientMessageId
-        ? state.messages.map((m) => (m.clientMessageId === frame.clientMessageId && isPending(m) ? { ...m, failed: true } : m))
+      // A message the room refused shows as not sent, as do the ones it couldn't check. An error about no
+      // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
+      // page that just failed.
+      const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
+      const messages = notSent.length
+        ? state.messages.map((m) => (isPending(m) && notSent.includes(m.clientMessageId) ? { ...m, failed: true } : m))
         : state.messages;
       // A failed history request leaves nothing in flight, so paging can be tried again.
       const loadingOlder = frame.failed === "history.before" ? false : state.loadingOlder;

@@ -65,6 +65,10 @@ interface BoostRow {
   created_at: string;
 }
 
+/** The ids go as one JSON value, since both backends bind at most 100 values a statement. */
+export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
+  WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
+
 const toBoost = (row: BoostRow): Boost => ({
   id: row.id,
   messageId: row.message_id,
@@ -126,6 +130,17 @@ export class MessageStore {
       now,
     );
     return { id, clientMessageId, roomId: this.roomId, creator, body, createdAt: now, updatedAt: now, boosts: [] };
+  }
+
+  /** Which of `clientMessageIds` the room has stored from `creator`. */
+  async storedClientMessageIds(creator: User, clientMessageIds: string[]): Promise<string[]> {
+    const rows = await this.db.all<Pick<MessageRow, "client_message_id">>(
+      STORED_CLIENT_MESSAGE_IDS,
+      this.roomId,
+      creator.id,
+      JSON.stringify(clientMessageIds),
+    );
+    return rows.map((row) => row.client_message_id);
   }
 
   async updateBody(id: string, body: string, now: string): Promise<void> {

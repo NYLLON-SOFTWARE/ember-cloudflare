@@ -1,11 +1,15 @@
 import messages from "../migrations/0001_messages.sql";
+import clientMessageIds from "../migrations/0002_client_message_ids.sql";
 
 /**
  * Every file in migrations/, oldest first. D1 gets them from `wrangler d1 migrations apply`; a room's
  * Durable Object applies the ones its storage is missing when it opens. A test checks this list
  * against the directory.
  */
-export const MIGRATIONS = [{ name: "0001_messages.sql", sql: messages }];
+export const MIGRATIONS = [
+  { name: "0001_messages.sql", sql: messages },
+  { name: "0002_client_message_ids.sql", sql: clientMessageIds },
+];
 
 /**
  * Applies the migrations a Durable Object's storage is missing, recording each in the table wrangler

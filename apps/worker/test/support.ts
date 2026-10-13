@@ -70,7 +70,9 @@ export async function connect(room: string, as: string | { token: string }) {
     next,
     pending,
     log,
-    send: (frame: ClientFrame | Record<string, unknown>) => ws.send(JSON.stringify(frame)),
+    // Any frame, the ones the protocol refuses included. Not `Record<string, unknown>`: once ClientFrame
+    // has ten members, TypeScript checks an object literal against the member its `type` names alone.
+    send: (frame: ClientFrame | { type: string; [field: string]: unknown }) => ws.send(JSON.stringify(frame)),
     sendRaw: (data: string | ArrayBuffer) => ws.send(data),
     close: () => ws.close(1000),
   };

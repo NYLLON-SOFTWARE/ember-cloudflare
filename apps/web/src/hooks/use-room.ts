@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
-import { HISTORY_PAGE_SIZE, parseServerFrame, type ClientFrame, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Message, type User } from "@ember/protocol";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
-import { initialRoomState, roomReducer } from "@/lib/room-state";
+import { initialRoomState, roomReducer, unconfirmed } from "@/lib/room-state";
 
 const HEARTBEAT_MS = 25_000;
 const TYPING_TTL_MS = 6_000;
@@ -14,6 +14,19 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
   const socket = useRef<WebSocket | null>(null);
   const lastTypingSent = useRef(0);
   const sessionExpired = useEffectEvent(onSessionExpired);
+
+  // ember-rust posts each message over HTTP, and shows it as failed only when that request fails
+  // (composer_controller.js). A socket can lose the answer instead: it can close after the room stored a
+  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page.
+  // So ask the room about the sent messages the welcome doesn't confirm, which the reducer keeps as
+  // sending until it answers.
+  const checkUnconfirmed = useEffectEvent((ws: WebSocket, snapshot: Message[]) => {
+    const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed ? [] : [m.clientMessageId]));
+    for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
+      const check: ClientFrame = { type: "message.check", clientMessageIds: clientMessageIds.slice(i, i + MAX_CHECKED_MESSAGES) };
+      ws.send(JSON.stringify(check));
+    }
+  });
 
   useEffect(() => {
     let closed = false;
@@ -52,7 +65,9 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
       ws.onmessage = (event) => {
         unanswered = false;
         const frame = parseServerFrame(String(event.data));
-        if (frame) dispatch({ type: "frame", frame, now: Date.now() });
+        if (!frame) return;
+        dispatch({ type: "frame", frame, now: Date.now() });
+        if (frame.type === "welcome") checkUnconfirmed(ws, frame.messages);
       };
       ws.onclose = () => {
         clearInterval(heartbeat);

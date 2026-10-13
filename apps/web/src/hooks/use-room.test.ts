@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Message, ServerFrame, User } from "@ember/protocol";
+import { MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRoom } from "./use-room";
@@ -153,6 +153,40 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.messages.map((m) => m.body)).toEqual(["m1", "m2", "Sent while offline"]);
     expect(result.current.state.messages[2]).toMatchObject({ pending: true, failed: true });
     expect(result.current.state.present).toEqual([ada, grace]);
+  });
+
+  it("asks the room about the messages a closed socket never confirmed", () => {
+    const { result } = joinGeneral();
+    act(() => result.current.postMessage("are you there?"));
+    const clientMessageId = socket().sentOfType("message.create")[0]!.clientMessageId as string;
+
+    // The socket closes before the room's confirmation comes back, and the next message can't go at all.
+    socket().drop();
+    act(() => result.current.postMessage("hello?"));
+    wait(500);
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: [clientMessageId] }]);
+    const [unconfirmed, unsent] = result.current.state.messages;
+    expect(unconfirmed).toMatchObject({ body: "are you there?", pending: true });
+    expect(unconfirmed).not.toHaveProperty("failed");
+    expect(unsent).toMatchObject({ body: "hello?", failed: true });
+
+    socket().receive({ type: "message.checked", stored: [clientMessageId], missing: [] });
+    expect(result.current.state.messages.map((m) => m.body)).toEqual(["hello?"]);
+  });
+
+  it("asks in batches the room accepts", () => {
+    const { result } = joinGeneral();
+    act(() => {
+      for (let i = 0; i <= MAX_CHECKED_MESSAGES; i++) result.current.postMessage(`message ${i}`);
+    });
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    const checks = socket().sentOfType("message.check").map((frame) => (frame.clientMessageIds as string[]).length);
+    expect(checks).toEqual([MAX_CHECKED_MESSAGES, 1]);
   });
 
   it("sends a heartbeat every 25 seconds while connected", () => {

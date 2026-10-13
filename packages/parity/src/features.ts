@@ -1306,7 +1306,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/refreshes.rs", "reference/app/javascript/controllers/refresh_room_controller.js", "reference/app/controllers/rooms/refreshes_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms/refreshes_controller_test.rb", "parity/screens.yml"],
-    notes: "The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. If the connection dropped before the room confirmed a message it did store, and more than a page of messages followed, that message shows as not sent until scrolling back loads it. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.",
+    notes: "The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with \"Your message was sent. Scroll up to see it.\", and if not, it shows as not sent. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.",
   },
   {
     id: "realtime.connection",

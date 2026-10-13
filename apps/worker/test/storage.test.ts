@@ -52,6 +52,6 @@ describe(feature("platform.storage"), () => {
       return state.storage.sql.exec("SELECT body FROM messages").toArray();
     });
     expect(messages).toEqual([{ body: "from before" }]);
-    expect(await roomSql(room, "SELECT name FROM d1_migrations")).toEqual([{ name: MIGRATIONS[0]!.name }]);
+    expect(await roomSql(room, "SELECT name FROM d1_migrations ORDER BY id")).toEqual(MIGRATIONS.map(({ name }) => ({ name })));
   });
 });

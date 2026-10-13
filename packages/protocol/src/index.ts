@@ -39,6 +39,8 @@ export type ClientFrame =
   | { type: "typing.start" }
   | { type: "typing.stop" }
   | { type: "history.before"; before: string; limit?: number }
+  /** Asks which of these messages the room stored from the sender, after a closed socket lost their confirmations. */
+  | { type: "message.check"; clientMessageIds: string[] }
   | { type: "ping" };
 
 export type ServerFrame =
@@ -51,14 +53,21 @@ export type ServerFrame =
   | { type: "presence"; present: User[] }
   | { type: "typing"; user: User; typing: boolean }
   | { type: "history"; messages: Message[]; hasMore: boolean }
-  /** `failed` names the request that went wrong, when the error answers one. */
-  | { type: "error"; message: string; clientMessageId?: string; failed?: ClientFrame["type"] }
+  /** Answers message.check: which of the sender's messages the room stored, and which it never received. */
+  | { type: "message.checked"; stored: string[]; missing: string[] }
+  /**
+   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
+   * `clientMessageIds` the messages it was about.
+   */
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 export const MAX_MESSAGE_LENGTH = 10_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
 export const MAX_BOOST_LENGTH = 16;
 export const HISTORY_PAGE_SIZE = 50;
+/** How many messages one message.check can ask about: more than anyone sends before a dead socket is noticed. */
+export const MAX_CHECKED_MESSAGES = 50;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -114,6 +123,12 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       if (!id(f.before)) return null;
       const limit = typeof f.limit === "number" ? Math.min(Math.max(1, Math.floor(f.limit)), 100) : undefined;
       return { type: f.type, before: f.before, limit };
+    }
+    case "message.check": {
+      const ids = f.clientMessageIds;
+      return Array.isArray(ids) && ids.length > 0 && ids.length <= MAX_CHECKED_MESSAGES && ids.every(id)
+        ? { type: f.type, clientMessageIds: ids }
+        : null;
     }
     case "typing.start":
     case "typing.stop":

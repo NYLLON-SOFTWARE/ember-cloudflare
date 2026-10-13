@@ -71,7 +71,8 @@ export class ChatRoom extends DurableObject<Env> {
       } catch (error) {
         console.error("ChatRoom frame failed", frame.type, error);
         const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
-        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, failed: frame.type });
+        const clientMessageIds = frame.type === "message.check" ? frame.clientMessageIds : undefined;
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, failed: frame.type });
       }
     });
   }
@@ -137,6 +138,11 @@ export class ChatRoom extends DurableObject<Env> {
       case "history.before": {
         const { messages, hasMore } = await store.page(frame.limit ?? HISTORY_PAGE_SIZE, frame.before);
         return this.send(ws, { type: "history", messages, hasMore });
+      }
+      case "message.check": {
+        const stored = await store.storedClientMessageIds(user, frame.clientMessageIds);
+        const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
+        return this.send(ws, { type: "message.checked", stored, missing });
       }
       case "ping":
         return this.send(ws, { type: "pong" });
