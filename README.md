@@ -41,6 +41,13 @@ pnpm test           # protocol + web unit tests; worker tests run in workerd, on
 pnpm build
 ```
 
+## Performance
+
+`pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,
+throughput, fan-out, room size, history paging) and measures how the web app loads and renders a
+busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
+suite started with are in `perf/baseline/report.md`.
+
 ## Storage: Durable Object SQLite or D1
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks where messages live.

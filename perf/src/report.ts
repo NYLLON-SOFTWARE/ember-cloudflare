@@ -1,0 +1,197 @@
+import type { BackendResults } from "./backend.ts";
+import type { Environment } from "./environment.ts";
+import type { Storage } from "./server.ts";
+import type { Summary } from "./stats.ts";
+import type { WebResults } from "./web.ts";
+
+export interface Results {
+  environment: Environment;
+  backend: Partial<Record<Storage, BackendResults>>;
+  web: WebResults | null;
+}
+
+const STORAGE_NAMES: Record<Storage, string> = { "do-sqlite": "DO SQLite", d1: "D1" };
+
+const num = (value: number | null | undefined, digits = 0) =>
+  value === null || value === undefined || Number.isNaN(value) ? "–" : value.toLocaleString("en-US", { maximumFractionDigits: digits });
+/** Milliseconds, with a decimal only where it matters. */
+const ms = (value: number | null | undefined) => num(value, value !== null && value !== undefined && value < 10 ? 1 : 0);
+const pct = (value: number | null) => (value === null ? "–" : `${value}%`);
+const p = (summary: Summary | null, key: "p50" | "p95" | "p99") => ms(summary?.[key]);
+
+function table(headers: string[], rows: string[][]): string {
+  const align = headers.map((_, i) => (i === 0 ? "---" : "--:"));
+  return [headers, align, ...rows].map((cells) => `| ${cells.join(" | ")} |`).join("\n");
+}
+
+function backendSection(backend: Results["backend"]): string[] {
+  const runs = Object.entries(backend) as Array<[Storage, BackendResults]>;
+  if (runs.length === 0) return [];
+  const out = ["## Backend", "", "Milliseconds from one client sending a frame to a client receiving the result, through `wrangler dev`."];
+
+  const latency = runs.filter(([, r]) => r.latency);
+  if (latency.length) {
+    const { messages, rate } = latency[0]![1].latency!;
+    out.push("", `### Message latency`, "", `Two members, one posting ${rate} messages a second (${messages} messages). Ack is the sender seeing its own message come back.`, "");
+    out.push(
+      table(
+        ["Storage", "Ack p50", "p95", "p99", "Delivery p50", "p95", "p99", "Lost"],
+        latency.map(([storage, { latency: r }]) => [STORAGE_NAMES[storage], p(r!.ack, "p50"), p(r!.ack, "p95"), p(r!.ack, "p99"), p(r!.delivery, "p50"), p(r!.delivery, "p95"), p(r!.delivery, "p99"), num(r!.lost)]),
+      ),
+    );
+  }
+
+  const throughput = runs.filter(([, r]) => r.throughput);
+  if (throughput.length) {
+    const { senders, inFlight, messages } = throughput[0]![1].throughput!;
+    out.push("", "### Write throughput", "", `${senders} members posting as fast as the room acknowledges, ${inFlight} messages in flight each (${messages} messages).`, "");
+    out.push(
+      table(
+        ["Storage", "Messages/s", "Ack p50", "p95", "p99", "Out of order", "Busiest process CPU"],
+        throughput.map(([storage, { throughput: r }]) => [
+          STORAGE_NAMES[storage],
+          num(r!.messagesPerSecond),
+          p(r!.ack, "p50"),
+          p(r!.ack, "p95"),
+          p(r!.ack, "p99"),
+          num(r!.outOfOrder),
+          pct(r!.window.busiestProcessCpuPercent),
+        ]),
+      ),
+    );
+  }
+
+  const fanout = runs.filter(([, r]) => r.fanout?.length);
+  if (fanout.length) {
+    const { rate, messages } = fanout[0]![1].fanout![0]!;
+    out.push("", "### Fan-out", "", `One member posting ${rate} messages a second (${messages} messages) to everyone else. Last member is how long until the final copy of a message lands.`, "");
+    out.push(
+      table(
+        ["Storage", "Members", "Delivery p50", "p95", "p99", "Last member p50", "p95", "Busiest process CPU", "Lost"],
+        fanout.flatMap(([storage, { fanout: rows }]) =>
+          rows!.map((r) => [STORAGE_NAMES[storage], num(r.members), p(r.delivery, "p50"), p(r.delivery, "p95"), p(r.delivery, "p99"), p(r.completion, "p50"), p(r.completion, "p95"), pct(r.window.busiestProcessCpuPercent), num(r.lost)]),
+        ),
+      ),
+    );
+  }
+
+  const connections = runs.filter(([, r]) => r.connections);
+  if (connections.length) {
+    const { concurrency, maxConnectP95Ms } = connections[0]![1].connections!;
+    out.push(
+      "",
+      "### Room size",
+      "",
+      `One room grown step by step, ${concurrency} joins at a time, until p95 time-to-welcome passes ${num(maxConnectP95Ms)} ms. Presence per join is what the room sends to everyone already in it each time someone joins.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Storage", "Members", "Join p50", "p95", "Joins/s", "Presence per join", "Busiest process CPU", "Server memory"],
+        connections.flatMap(([storage, { connections: r }]) =>
+          r!.steps.map((step) => [
+            STORAGE_NAMES[storage],
+            num(step.members),
+            p(step.connect, "p50"),
+            p(step.connect, "p95"),
+            num(step.joinsPerSecond, 1),
+            `${num(step.presenceKbPerJoin)} KB`,
+            pct(step.window.busiestProcessCpuPercent),
+            step.window.serverRssMb === null ? "–" : `${num(step.window.serverRssMb)} MB`,
+          ]),
+        ),
+      ),
+    );
+    for (const [storage, { connections: r }] of connections) if (r!.stopped) out.push("", `${STORAGE_NAMES[storage]} stopped: ${r!.stopped}.`);
+  }
+
+  const history = runs.filter(([, r]) => r.history);
+  if (history.length) {
+    const { messages, welcomes } = history[0]![1].history!;
+    out.push("", "### History", "", `A room with ${num(messages)} messages: ${welcomes} fresh joins (the welcome carries the newest page), then paging back to the start.`, "");
+    out.push(
+      table(
+        ["Storage", "Welcome p50", "p95", "Page p50", "p95", "p99"],
+        history.map(([storage, { history: r }]) => [STORAGE_NAMES[storage], p(r!.welcome, "p50"), p(r!.welcome, "p95"), p(r!.page, "p50"), p(r!.page, "p95"), p(r!.page, "p99")]),
+      ),
+    );
+  }
+  return out;
+}
+
+function webSection(web: WebResults): string[] {
+  const out = ["## Frontend", "", `Chrome ${web.chrome}.`];
+
+  const { code, files } = web.bundle;
+  out.push("", "### Bundle", "", `JavaScript and CSS: ${num(code.kb, 1)} KB raw, ${num(code.gzipKb, 1)} KB gzip, ${num(code.brotliKb, 1)} KB brotli.`, "");
+  out.push(table(["File", "Raw", "Gzip", "Brotli"], files.map((f) => [`\`${f.file}\``, `${num(f.kb, 1)} KB`, `${num(f.gzipKb, 1)} KB`, `${num(f.brotliKb, 1)} KB`])));
+
+  const runs = web.lighthouse[0]?.runs ?? 0;
+  out.push("", "### Lighthouse", "", `Cold loads, median of ${runs}. Mobile simulates slow 4G and a 4x slower CPU; desktop a fast connection. The room page loads signed in.`, "");
+  out.push(
+    table(
+      ["Page", "Form factor", "Score", "FCP", "LCP", "TBT", "CLS", "Speed Index", "Transfer"],
+      web.lighthouse.map((r) => [r.page, r.formFactor, num(r.score), ms(r.fcpMs), ms(r.lcpMs), ms(r.tbtMs), num(r.cls, 3), ms(r.speedIndexMs), `${num(r.transferKb)} KB`]),
+    ),
+  );
+
+  const burst = web.render[0]?.bursts[0];
+  if (burst) {
+    out.push(
+      "",
+      "### Live rendering",
+      "",
+      `A signed-in browser at the bottom of a room while another member posts ${burst.rate} messages a second (${burst.messages} per burst). Frame to paint is a message.created frame reaching the page until the frame showing it is painted. Main thread is Chrome's own task time per incoming message.`,
+      "",
+    );
+    out.push(
+      table(
+        ["CPU", "Timeline", "Frame to DOM p50", "p95", "Frame to paint p50", "p95", "Main thread per message", "Long tasks", "Idle main thread", "JS heap"],
+        web.render.flatMap((r) =>
+          r.bursts.map((b) => [
+            `${r.cpuSlowdown}x`,
+            num(b.timeline),
+            p(b.frameToDom, "p50"),
+            p(b.frameToDom, "p95"),
+            p(b.frameToPaint, "p50"),
+            p(b.frameToPaint, "p95"),
+            `${ms(b.mainThreadMsPerMessage)} ms`,
+            num(b.longTasks),
+            `${ms(b.idleMainThreadMsPerSecond)} ms/s`,
+            `${num(b.heapMb, 1)} MB`,
+          ]),
+        ),
+      ),
+    );
+    out.push("", "Main-thread time per message by kind of work. Other is mostly paint, compositing and garbage collection.", "");
+    out.push(
+      table(
+        ["CPU", "Timeline", "Script", "Style", "Layout", "Other"],
+        web.render.flatMap((r) =>
+          r.bursts.map((b) => {
+            const { scriptMs, styleMs, layoutMs } = b.mainThreadBreakdown;
+            const otherMs = Math.max(0, b.mainThreadMsPerMessage - scriptMs - styleMs - layoutMs);
+            return [`${r.cpuSlowdown}x`, num(b.timeline), `${ms(scriptMs)} ms`, `${ms(styleMs)} ms`, `${ms(layoutMs)} ms`, `${ms(otherMs)} ms`];
+          }),
+        ),
+      ),
+    );
+    out.push("", table(["CPU", "Room ready", "Load older page p50", "p95"], web.render.map((r) => [`${r.cpuSlowdown}x`, `${ms(r.roomReadyMs)} ms`, p(r.loadOlder, "p50"), p(r.loadOlder, "p95")])));
+    out.push("", "Room ready is navigation start to the newest messages being in the DOM.");
+  }
+  return out;
+}
+
+export function markdownReport({ environment: env, backend, web }: Results): string {
+  return [
+    "# Ember performance report",
+    "",
+    `${env.date.slice(0, 16).replace("T", " ")} UTC · commit ${env.commit} · ${env.profile} profile · ${env.target}`,
+    "",
+    `${env.cpu}, ${env.cores} cores, ${env.memoryGb} GB · ${env.os} · Node ${env.node} · wrangler ${env.wrangler} · workerd ${env.workerd} · Lighthouse ${env.lighthouse}`,
+    "",
+    ...backendSection(backend),
+    ...(web ? ["", ...webSection(web)] : []),
+    "",
+  ].join("\n");
+}
