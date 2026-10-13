@@ -81,6 +81,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **SQLite tuning:** WAL checkpoints off the writer thread, the prepared-statement cache, no memory
   mapping. Cloudflare runs SQLite for both backends, so there's nothing for us to set.
 
+### Ours alone
+
+- **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
+  HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which
+  can close after the room stored a message but before its confirmation arrived, so after a
+  reconnect the client asks the room which of its unconfirmed messages it has (`message.check`).
+  The index keeps that lookup at about 0.05 ms however big the room gets, where reading every
+  message took 12 ms at 100,000 messages. It costs each stored message about 60 bytes and 4 µs.
+
 ## Writing SQL here
 
 - Use one statement per query shape. SQLite can't use an index through an optional filter like
