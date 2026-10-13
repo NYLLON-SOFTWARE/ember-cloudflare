@@ -1,4 +1,5 @@
 import type { ServerFrame } from "@ember/protocol";
+import { STORED_CLIENT_MESSAGE_IDS } from "../src/store";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -162,6 +163,17 @@ describe("ChatRoom", () => {
     elsewhere.send({ type: "message.check", clientMessageIds: ["a1"] });
     expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
     for (const socket of [ada, grace, elsewhere]) socket.ws.close(1000);
+  });
+
+  it("checks a sender's messages through the room's index", async () => {
+    const ada = await connect("checking-plan", await signIn("Ada"));
+    const { you } = await ada.next("welcome");
+    const plan = await roomSql("checking-plan", `EXPLAIN QUERY PLAN ${STORED_CLIENT_MESSAGE_IDS}`, "checking-plan", you.id, '["c1"]');
+    // Without it, a check reads every message in the room.
+    expect(plan.map((row) => (row as { detail: string }).detail).join("; ")).toContain(
+      "index_messages_on_room_id_and_client_message_id (room_id=? AND client_message_id=?)",
+    );
+    ada.ws.close(1000);
   });
 
   it("keeps history and pages backwards through it", async () => {

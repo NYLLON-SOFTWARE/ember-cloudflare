@@ -1,6 +1,7 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
 import type { Env } from "./env";
 import schema from "../migrations/0001_messages.sql";
+import clientMessageIdIndex from "../migrations/0002_client_message_ids.sql";
 
 // Messages for one room. The same SQL runs against the room's Durable Object SQLite
 // storage or against D1, chosen by STORAGE_BACKEND; only the driver differs.
@@ -41,6 +42,7 @@ export function openStore(env: Env, state: DurableObjectState, roomId: RoomId): 
     return new MessageStore(d1Driver(env.DB), roomId);
   }
   state.storage.sql.exec(schema);
+  state.storage.sql.exec(clientMessageIdIndex);
   return new MessageStore(durableObjectDriver(state.storage.sql), roomId);
 }
 
@@ -62,6 +64,10 @@ interface BoostRow {
   content: string;
   created_at: string;
 }
+
+/** The ids go as one JSON value, since both backends bind at most 100 values a statement. */
+export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
+  WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
 
 const toBoost = (row: BoostRow): Boost => ({
   id: row.id,
@@ -113,14 +119,10 @@ export class MessageStore {
     return { id, clientMessageId, roomId: this.roomId, creator, body, createdAt: now, updatedAt: now, boosts: [] };
   }
 
-  /**
-   * Which of `clientMessageIds` the room has stored from `creator`. The ids go as one JSON value, since
-   * both backends bind at most 100 values a statement.
-   */
+  /** Which of `clientMessageIds` the room has stored from `creator`. */
   async storedClientMessageIds(creator: User, clientMessageIds: string[]): Promise<string[]> {
     const rows = await this.db.all<Pick<MessageRow, "client_message_id">>(
-      `SELECT client_message_id FROM messages
-       WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`,
+      STORED_CLIENT_MESSAGE_IDS,
       this.roomId,
       creator.id,
       JSON.stringify(clientMessageIds),
