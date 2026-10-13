@@ -144,9 +144,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       return { ...state, messages: [...frame.messages, ...messages], hasMore: frame.hasMore, loadingOlder: false };
     }
     case "error": {
-      // A message the room refused shows as not sent, as do the ones it couldn't check.
-      const notSent = (m: PendingMessage) => m.clientMessageId === frame.clientMessageId || frame.clientMessageIds?.includes(m.clientMessageId);
-      const messages = state.messages.map((m) => (isPending(m) && notSent(m) ? { ...m, failed: true } : m));
+      // A message the room refused shows as not sent, as do the ones it couldn't check. An error about no
+      // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
+      // page that just failed.
+      const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
+      const messages = notSent.length
+        ? state.messages.map((m) => (isPending(m) && notSent.includes(m.clientMessageId) ? { ...m, failed: true } : m))
+        : state.messages;
       // A failed history request leaves nothing in flight, so paging can be tried again.
       const loadingOlder = frame.failed === "history.before" ? false : state.loadingOlder;
       return { ...state, messages, notice: frame.message, loadingOlder };

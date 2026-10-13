@@ -116,6 +116,12 @@ describe("roomReducer", () => {
     expect(state.loadingOlder).toBe(false);
   });
 
+  it("keeps the same messages after an error about none, so the timeline doesn't ask again for a failed page", () => {
+    const state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    const failed = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "history.before" }, now: 0 });
+    expect(failed.messages).toBe(state.messages);
+  });
+
   it("marks a refused message as failed", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message(), pending: true } });
     state = frame(state, { type: "frame", frame: { type: "error", message: "nope", clientMessageId: "c1" }, now: 0 });
