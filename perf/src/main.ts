@@ -40,6 +40,12 @@ function pick<T extends string>(value: string | undefined, all: readonly T[], wh
   return picked;
 }
 
+/** Anything but a plain number, such as "10%", would make every comparison pass. */
+function parseThreshold(value: string): number {
+  if (!/^\d+(\.\d+)?$/.test(value)) throw new Error(`--threshold takes a percentage as a plain number, such as 10, not "${value}".`);
+  return Number(value);
+}
+
 const started = performance.now();
 const log = (line: string) => console.log(`[perf ${((performance.now() - started) / 1000).toFixed(0).padStart(4)}s] ${line}`);
 
@@ -75,7 +81,8 @@ async function readResults(file: string | undefined): Promise<Results> {
 if (values.help) {
   console.log(USAGE);
 } else if (positionals[0] === "compare") {
-  const regressions = compare(await readResults(positionals[1]), await readResults(positionals[2]), Number(values.threshold));
+  const threshold = parseThreshold(values.threshold);
+  const regressions = compare(await readResults(positionals[1]), await readResults(positionals[2]), threshold);
   process.exitCode = regressions > 0 ? 1 : 0;
 } else {
   const results = await run();
