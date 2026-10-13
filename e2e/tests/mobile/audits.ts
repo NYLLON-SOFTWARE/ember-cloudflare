@@ -201,10 +201,10 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
   // make sure every point lands on the control. That catches small controls, controls crowded
   // together and controls partly covered or cut off, and credits hit areas enlarged with padding or
-  // pseudo-elements. Controls partly scrolled out of view are judged when they're scrolled in, a
-  // control under something floating over its list passes if it's big enough under the cover and the
-  // list can scroll it clear, and controls that can't take a tap right now (behind an open menu or
-  // dialog) are skipped.
+  // pseudo-elements. Controls partly scrolled out of view are judged by their size alone, since the
+  // audits don't scroll, a control under something floating over its list passes if it's big enough
+  // under the cover and the list can scroll it clear, and controls that can't take a tap right now
+  // (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
   for (const element of elements(INTERACTIVE)) {
@@ -215,13 +215,20 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const clipping = clippers(element, false);
     const shown = paintedPart(rect, clipping);
     if (!shown) continue;
-    const partlyShown = shown.left > rect.left + TOLERANCE || shown.right < rect.right - TOLERANCE || shown.top > rect.top + TOLERANCE || shown.bottom < rect.bottom - TOLERANCE;
-    if (partlyShown && !cutOff(element, rect, clipping)) continue;
-
     const size = dense && element.matches(dense) ? DENSE_TARGET : TARGET;
+    const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
+    const partlyShown = shown.left > rect.left + TOLERANCE || shown.right < rect.right - TOLERANCE || shown.top > rect.top + TOLERANCE || shown.bottom < rect.bottom - TOLERANCE;
+    if (partlyShown && !cutOff(element, rect, clipping)) {
+      // Scrolling can bring the rest into view, but the audits don't scroll and can't probe what's
+      // scrolled away, so judge the control by its size. One with a label may take taps on that too.
+      if (labels.length === 0 && Math.min(rect.width, rect.height) < size - TOLERANCE) {
+        touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)} and partly scrolled out of view; a ${size}px fingertip on it can land beside it`);
+      }
+      continue;
+    }
+
     const reach = size / 2 - 1;
     const [x, y] = [(shown.left + shown.right) / 2, (shown.top + shown.bottom) / 2];
-    const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
     const isOnControl = (hit: Element) => element.contains(hit) || labels.some((label) => label.contains(hit));
     const axis = scrollerOf(element, "y") ? "y" : "x";
     const list = scrollerOf(element, axis);

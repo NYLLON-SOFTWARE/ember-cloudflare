@@ -22,6 +22,19 @@ test("a control cut off for good fails, but not one scrolled partly out of view"
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Cut off" is 44px×44px (44px×24px of it shows)')]);
 });
 
+test("a control scrolled partly out of view must still be big enough", async ({ page, safeArea }) => {
+  // Neither list is scrolled far enough to show all of its button, and the audits don't scroll.
+  const list = (label: string, size: number) => `
+    <div style="height: 100px; overflow-y: auto">
+      <div style="height: 80px"></div>
+      <button aria-label="${label}" style="display: block; width: ${size}px; height: ${size}px"></button>
+      <div style="height: 80px"></div>
+    </div>`;
+  await page.setContent(phonePage(`${list("Small", 32)}${list("Big", 44)}`));
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
+});
+
 test("a control covered for good by something floating over its list fails, but not one the list can scroll clear", async ({ page, safeArea }) => {
   // The last button in each list sits under a floating notice; only the second list has room to
   // scroll it out from under.
