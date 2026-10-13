@@ -28,9 +28,11 @@ export default defineConfig<MobileOptions>({
   },
   projects: [...featureProjects, ...mobileProjects],
   // The production build and the API on one origin, served by `wrangler dev` the way the deployed
-  // Worker serves them. State lives in e2e/.wrangler so tests never touch your local dev data.
+  // Worker serves them. State lives in e2e/.wrangler so tests never touch your local dev data, and
+  // starts empty, since every open room a test makes takes in everyone who signs in after it.
   webServer: {
     command: [
+      `node -e "require('node:fs').rmSync('e2e/.wrangler/state', { recursive: true, force: true })"`,
       "pnpm --filter @ember/web build",
       `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --persist-to ../../e2e/.wrangler/state`,
     ].join(" && "),

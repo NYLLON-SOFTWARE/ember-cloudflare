@@ -1,6 +1,6 @@
-// The wire protocol shared by the browser and the ChatRoom Durable Object.
-// Every frame is one JSON object with a `type`. Keep this file dependency-free:
-// the worker and the web app both import it directly as TypeScript.
+// The wire protocol shared by the browser and the Worker: the room socket's frames, each one JSON
+// object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
+// worker and the web app both import it directly as TypeScript.
 
 export type UserId = string;
 export type RoomId = string;
@@ -9,6 +9,18 @@ export interface User {
   id: UserId;
   name: string;
 }
+
+export type RoomKind = "open" | "closed" | "direct";
+
+/** A room someone is in, as their room list shows it. */
+export interface Room {
+  id: RoomId;
+  kind: RoomKind;
+  name: string;
+}
+
+/** A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names. */
+export type NewRoom = { kind: "open"; name: string } | { kind: "closed"; name: string; memberIds: UserId[] };
 
 export interface Boost {
   id: string;
@@ -73,6 +85,10 @@ export const MAX_BOOST_LENGTH = 16;
 export const HISTORY_PAGE_SIZE = 50;
 /** How many messages one message.check can ask about: more than anyone sends before a dead socket is noticed. */
 export const MAX_CHECKED_MESSAGES = 50;
+/** ember-rust has no limit; this keeps a name to what a sidebar row and a room's header can show. */
+export const MAX_ROOM_NAME_LENGTH = 100;
+/** How many people one request can name: a bound on the request's size, not on a room's. */
+export const MAX_LISTED_USERS = 1_000;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -144,9 +160,26 @@ export function parseClientFrame(raw: string): ClientFrame | null {
   }
 }
 
-/** Room slugs double as Durable Object names, so keep them short and URL-safe. */
-export function isRoomSlug(value: string): boolean {
+/**
+ * Whether `value` could name a room. A room's id also names its Durable Object: the Workspace's
+ * sortable ids, or the old address of a room from before it kept a list (`LEGACY_ROOMS`).
+ */
+export function isRoomId(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value);
+}
+
+/** Parses an untrusted request to create a room. Returns why it's refused instead of the room. */
+export function parseNewRoom(data: unknown): NewRoom | string {
+  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  const r = data as Record<string, unknown>;
+  if (r.kind !== "open" && r.kind !== "closed") return 'Kind must be "open" or "closed"';
+  const name = text(r.name, MAX_ROOM_NAME_LENGTH);
+  if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
+  if (r.kind === "open") return { kind: r.kind, name };
+  const memberIds = r.memberIds ?? [];
+  return Array.isArray(memberIds) && memberIds.length <= MAX_LISTED_USERS && memberIds.every(id)
+    ? { kind: r.kind, name, memberIds }
+    : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /** Parses a frame from the server. The server is trusted, so this only guards against garbage. */

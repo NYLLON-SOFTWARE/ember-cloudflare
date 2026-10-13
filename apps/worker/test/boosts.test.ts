@@ -5,7 +5,7 @@ import { connect, freshRoom, post, settle } from "./support";
 
 describe(feature("boosts.add"), () => {
   it("adds a reaction to a message for everyone, attributed to whoever reacted", async () => {
-    const room = freshRoom("boost");
+    const room = await freshRoom("boost");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const message = await post(ada, "Ship it?");
@@ -17,7 +17,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("accepts every reaction in the toolbar and tray", async () => {
-    const ada = await connect(freshRoom("every"), "Ada");
+    const ada = await connect(await freshRoom("every"), "Ada");
     const message = await post(ada, "React");
     for (const [emoji] of REACTIONS) {
       ada.send({ type: "boost.create", messageId: message.id, content: emoji });
@@ -26,7 +26,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("keeps reactions in order, so latecomers see them as they were added", async () => {
-    const room = freshRoom("boost-order");
+    const room = await freshRoom("boost-order");
     const ada = await connect(room, "Ada");
     const message = await post(ada, "Order");
     const added = [];
@@ -38,7 +38,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("ignores a reaction the same person already added", async () => {
-    const ada = await connect(freshRoom("repeat-boost"), "Ada");
+    const ada = await connect(await freshRoom("repeat-boost"), "Ada");
     const message = await post(ada, "React once");
     ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
     ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
@@ -47,7 +47,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("refuses reactions to messages that don't exist", async () => {
-    const ada = await connect(freshRoom("boost-missing"), "Ada");
+    const ada = await connect(await freshRoom("boost-missing"), "Ada");
     ada.send({ type: "boost.create", messageId: "missing", content: "👍" });
     expect((await ada.next("error")).message).toBe("That message no longer exists");
   });
@@ -55,7 +55,7 @@ describe(feature("boosts.add"), () => {
 
 describe(feature("boosts.custom"), () => {
   it(`stores free-text reactions up to ${MAX_BOOST_LENGTH} characters, trimmed`, async () => {
-    const ada = await connect(freshRoom("custom"), "Ada");
+    const ada = await connect(await freshRoom("custom"), "Ada");
     const message = await post(ada, "Custom");
     ada.send({ type: "boost.create", messageId: message.id, content: "  nice one  " });
     expect((await ada.next("boost.created")).boost.content).toBe("nice one");
@@ -71,7 +71,7 @@ describe(feature("boosts.custom"), () => {
 
 describe(feature("boosts.remove"), () => {
   it("lets people take back their own reactions, for everyone", async () => {
-    const room = freshRoom("unboost");
+    const room = await freshRoom("unboost");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const message = await post(ada, "Hmm");
@@ -85,7 +85,7 @@ describe(feature("boosts.remove"), () => {
   });
 
   it("refuses to remove someone else's reaction", async () => {
-    const room = freshRoom("unboost-other");
+    const room = await freshRoom("unboost-other");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const message = await post(ada, "Mine to react to");

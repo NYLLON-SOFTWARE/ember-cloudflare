@@ -1,15 +1,15 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setTimeout as sleep } from "node:timers/promises";
 import { REACTIONS } from "@ember/protocol";
-import { RoomClient, signIn } from "./room-client.ts";
+import { createRoom, RoomClient, signIn } from "./room-client.ts";
 import type { Server, Usage } from "./server.ts";
 
 // Building blocks shared by the backend scenarios.
 
-const runId = Date.now().toString(36);
-
-/** Room slugs name Durable Objects, so a per-run suffix gives every scenario a fresh room. */
-export const roomName = (...parts: Array<string | number>) => [...parts, runId].join("-");
+/** A fresh open room for a scenario, made by a host of its own: everyone it signs in afterwards is in it. */
+export async function newRoom(server: Server, name: string): Promise<string> {
+  return createRoom(server.url, await signIn(server.url, `${name} host`), name);
+}
 
 const BODIES = [
   "Morning! Did the deploy go out?",

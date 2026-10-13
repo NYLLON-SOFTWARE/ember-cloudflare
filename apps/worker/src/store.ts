@@ -108,6 +108,16 @@ export class MessageStore {
     return rows.map((row) => row.client_message_id);
   }
 
+  /** Everyone who wrote or reacted here, under each name they did it with. */
+  async authors(): Promise<User[]> {
+    return this.db.all<User>(
+      `SELECT creator_id AS id, creator_name AS name FROM messages WHERE room_id = ?
+       UNION SELECT booster_id, booster_name FROM boosts WHERE room_id = ?`,
+      this.roomId,
+      this.roomId,
+    );
+  }
+
   async updateBody(id: string, body: string, now: string): Promise<void> {
     await this.db.run(`UPDATE messages SET body = ?, updated_at = ? WHERE room_id = ? AND id = ?`, body, now, this.roomId, id);
   }

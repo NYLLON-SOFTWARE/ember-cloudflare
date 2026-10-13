@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --var LEGACY_ROOMS:general,random",
     "deploy": "wrangler deploy",
     "build": "wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc -p . && tsc -p scripts",

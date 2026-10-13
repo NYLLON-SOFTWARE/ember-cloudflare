@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 7 ported and 35 partial of 172 features; 125 not started, 5 not applicable.
+**Overall:** 7 ported and 39 partial of 172 features; 121 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 1 | 4 | 7 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
-| [Rooms](#rooms) | 0 | 2 | 16 | 0 | 18 |
+| [Rooms](#rooms) | 0 | 6 | 12 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
 | [Platform](#platform) | 2 | 1 | 8 | 4 | 15 |
-| **Total** | **7** | **35** | **125** | **5** | **172** |
+| **Total** | **7** | **39** | **121** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -482,11 +482,11 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Open rooms everyone is in | `rooms.open` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [api](apps/worker/test/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Create an open room | `rooms.create-open` | Campfire | ⬜ Not started |  |
-| Create a private room | `rooms.create-closed` | Campfire | ⬜ Not started |  |
+| Open rooms everyone is in | `rooms.open` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Create an open room | `rooms.create-open` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [rooms](apps/worker/test/rooms.test.ts) |
+| Create a private room | `rooms.create-closed` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [rooms](apps/worker/test/rooms.test.ts) |
 | Only administrators create rooms (setting) | `rooms.creation-permission` | Campfire | ⬜ Not started |  |
-| Open a room | `rooms.show` | Campfire | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Open a room | `rooms.show` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Go back to the last room | `rooms.last-visited` | Campfire | ⬜ Not started |  |
 | Room addresses | `rooms.index` | Campfire | ⬜ Not started |  |
 | Room settings page | `rooms.settings-page` | Ember | ⬜ Not started |  |
@@ -498,8 +498,8 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Room icon picker | `rooms.icon-picker` | Ember | ⬜ Not started |  |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | ⬜ Not started |  |
-| Only members see a room | `rooms.member-only-access` | Campfire | ⬜ Not started |  |
-| Rooms from before memberships | `rooms.legacy-rooms` | This port | ⬜ Not started |  |
+| Only members see a room | `rooms.member-only-access` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts) |
+| Rooms from before memberships | `rooms.legacy-rooms` | This port | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -511,13 +511,13 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 - Deactivated people are never added, and deactivating someone takes them out of every room but their DMs.
 - A room's messages stay in that room.
 
-Note: Rooms here are the names in the `DEFAULT_ROOMS` setting, and everyone signed in can use all of them. There are no memberships, so there's nothing to join or leave.
+Note: People join every open room when they first sign in, at `mentions`, and a new open room takes in everyone active. There are no bots, nobody can be deactivated, and a private room can't be made open yet.
 
 Sources: [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
 
 ember-rust tests: [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb)
 
-**Create an open room** (`rooms.create-open`) ⬜
+**Create an open room** (`rooms.create-open`) 🟡
 
 - New room in workspace settings opens a page titled "New chat room" that reads "New room" / "Create a place for a team, topic, or project.", with Go Back to workspace settings.
 - The form has "Room name" (placeholder "Name the room", prefilled with "New room", required and focused; Enter saves), the icon picker and Save.
@@ -527,16 +527,20 @@ ember-rust tests: [`reference/test/models/user_test.rb`](https://github.com/base
 - The room appears in everyone's sidebar at once, sorted into place (starred rooms, then the shared room order, then by name) rather than at the top.
 - Leaving the form after changing it asks first (`rooms.unsaved-changes`); saving from that dialog creates the room and carries on to where you were going.
 
+Note: Only the API makes rooms so far (`POST /api/rooms` with `{ "kind": "open", "name" }`), for the tests and load tests: there's no New room page or icon, and the room shows in sidebars when they next load. Unlike ember-rust's server, it refuses a blank name, or one over 100 characters.
+
 Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/opens.rs) · [`crates/views/templates/rooms/layouts/_new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_new.html) · [`crates/views/templates/rooms/opens/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/opens/_form.html) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms/opens_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/opens_controller.rb)
 
 ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Create a private room** (`rooms.create-closed`) ⬜
+**Create a private room** (`rooms.create-closed`) 🟡
 
 - Turning off New room's "Everyone" switch shows the private room form, keeping the name and icon; turning it back on ("Give everyone access to this room" to screen readers) returns to the open one.
 - The private form lists everyone active by name: you with a check mark and no switch, everyone else with a switch, off, named "Give &lt;name&gt; access to this room". Over 20 people, a "Filter…" box narrows the list.
 - Saving creates the room with exactly the people chosen, at `mentions`, and opens it. The server grants every posted id that belongs to someone, whatever their status, and doesn't add the creator itself: the form does.
 - Only its members see it appear in their sidebars, at once, and nobody else is told it exists.
+
+Note: Only the API makes them (`POST /api/rooms` with `{ "kind": "closed", "name", "memberIds" }`), granting the ids as ember-rust's server does: there's no form, and members see the room when their sidebars next load.
 
 Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_form.html) · [`crates/views/templates/rooms/closeds/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_user.html) · [`reference/app/controllers/rooms/closeds_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/closeds_controller.rb)
 
@@ -558,7 +562,7 @@ ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](
 - Non-members, missing rooms and malformed ids go to `/` with "Room not found or inaccessible".
 - Opening a room remembers it as the last room visited. Its unread mark clears once the room's live connection is up, not when the page loads.
 
-Note: Rooms open at `/rooms/<name>` and show the newest 50 messages. An address naming a room that isn't listed quietly opens the first room, and the page title is always "Ember". There are no unread marks yet.
+Note: Rooms open at `/rooms/<id>` and show the newest 50 messages. An address naming a room you aren't in quietly opens your first room, and the page title is always "Ember". There are no unread marks yet.
 
 Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
 
@@ -700,25 +704,25 @@ Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.c
 
 ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Only members see a room** (`rooms.member-only-access`) ⬜
+**Only members see a room** (`rooms.member-only-access`) 🟡
 
 - Only members get a room's page, messages, typing and presence; anyone else is refused, including someone removed from the room replaying a stream name they saw earlier.
 - Sending a message to a room you're not in, or one that no longer exists, posts nothing and shows "This room was deleted." in place of the composer.
 
-Note: Every room here is open to anyone signed in, and the room socket accepts any well-formed room name, even one that isn't in `DEFAULT_ROOMS`.
+Note: Only members can open a room's socket, which carries its messages, typing and presence; anyone else gets 404 "Room not found or inaccessible" without the room's object waking. Nobody can be removed from a room yet, so nothing closes a socket that's already open, and there's no "This room was deleted."
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/ember/src/channels/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/room.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/room_not_found.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/room_not_found.html)
 
 ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
 
-**Rooms from before memberships** (`rooms.legacy-rooms`) ⬜
+**Rooms from before memberships** (`rooms.legacy-rooms`) 🟡
 
 - Each room named in `LEGACY_ROOMS` is registered as an open room whose id and name are its old address, so `/rooms/general` keeps its messages and reactions, and everyone is a member.
 - Registering again changes nothing, and an old room that isn't listed can no longer be opened.
 - The people who wrote or reacted in those rooms become deactivated people with the same ids and names, so their names and avatar colors still show.
 - A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.
 
-Note: Rooms here are still the names in the `DEFAULT_ROOMS` setting.
+Note: There's no first run yet, so a fresh deploy starts with no rooms, and `pnpm dev` sets `LEGACY_ROOMS` to general and random to have some.
 
 </details>
 
@@ -820,7 +824,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 - Room rows show the room's icon and name and are at least 36px tall (44px on phones). The room you're in is marked `aria-current="page"` and set in weight 600, even on a link to one of its messages.
 - It's on every signed-in page, settings and profiles included, and stays put as you move between pages, reloading only in the background (`sidebar.live-updates`).
 
-Note: The sidebar lists every room with a `#` and marks the one you're in. Missing: the workspace's name (the heading says "Ember"), room icons, DMs and suggestions (New direct message is a disabled button, and "No direct messages yet." stands in for the list), "No conversations found.", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.
+Note: The sidebar lists your rooms with a `#` and marks the open one. Missing: the workspace's name (the heading says "Ember"), room icons, DMs and suggestions (New direct message is a disabled button, and "No direct messages yet." stands in for the list), "No conversations found.", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.
 
 Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/templates/users/sidebars/rooms/_shared.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_shared.html) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 
@@ -832,7 +836,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 - A room added or renamed while the page is open sorts into place at once.
 - Shared-order rooms you can't see are skipped, and their ids never reach your page. Your stars never reorder anyone else's sidebar.
 
-Note: Rooms are listed in `DEFAULT_ROOMS` order here.
+Note: Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order.
 
 Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs)
 

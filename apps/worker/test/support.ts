@@ -1,4 +1,4 @@
-import type { ClientFrame, ServerFrame, User } from "@ember/protocol";
+import type { ClientFrame, Room, RoomId, ServerFrame, User, UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
@@ -67,8 +67,23 @@ export const roomSql = (room: string, query: string, ...params: Array<string | n
 /** Runs SQL against the Workspace's tables, whichever backend this suite is using. */
 export const workspaceSql = (query: string, ...params: Array<string | number>) => tablesSql(workspaceStub(), query, ...params);
 
-/** A unique room name, so tests never share a ChatRoom. */
-export const freshRoom = (label: string) => `${label}-${crypto.randomUUID().slice(0, 8)}`;
+/** Who creates rooms for the tests, signed in once per test file. */
+let host: Promise<Session> | undefined;
+
+/**
+ * Creates a room through the API as `as`, or as the tests' host: an open room everyone is in, or a
+ * closed one for just the people `closedTo` names.
+ */
+export async function createRoom(name: string, { closedTo, as }: { closedTo?: UserId[]; as?: Session } = {}): Promise<Room> {
+  const { cookie } = as ?? (await (host ??= signIn("Host")));
+  const room = closedTo ? { kind: "closed", name, memberIds: closedTo } : { kind: "open", name };
+  const response = await api("/api/rooms", { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify(room) });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return ((await response.json()) as { room: Room }).room;
+}
+
+/** A new open room, so tests never share a ChatRoom. Everyone is in it, whenever they sign in. */
+export const freshRoom = async (label: string): Promise<RoomId> => (await createRoom(label)).id;
 
 export type Client = Awaited<ReturnType<typeof connect>>;
 

@@ -36,14 +36,17 @@ export async function signInAs(page: Page, session: Session): Promise<void> {
   await page.context().addCookies([session.cookie]);
 }
 
-/** A room slug no other test uses. The Worker opens a fresh ChatRoom for any valid slug. */
-export function uniqueRoomId(): string {
-  return `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+/** Creates an open room through the API as `session`'s person. Everyone is in it, whenever they sign in. */
+export async function createRoom(request: APIRequestContext, session: Session, name: string): Promise<TestRoom> {
+  const response = await request.post("/api/rooms", { data: { kind: "open", name }, headers: { Cookie: cookieHeader(session) } });
+  expect(response.status(), await response.text()).toBe(201);
+  const { room } = (await response.json()) as { room: TestRoom };
+  return { id: room.id, name: room.name };
 }
 
 /**
  * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
- * own instead of sharing #general with every other test.
+ * own instead of among every other test's open rooms.
  */
 export async function isolateRoom(page: Page, room: TestRoom): Promise<void> {
   await page.route("**/api/rooms", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open" }] } }));
@@ -137,8 +140,8 @@ export const test = base.extend<AppFixtures>({
   session: async ({ request }, use) => {
     await use(await createSession(request, "Test Person"));
   },
-  room: async ({ page }, use) => {
-    const room = { id: uniqueRoomId(), name: "general" };
+  room: async ({ page, request, session }, use) => {
+    const room = await createRoom(request, session, "general");
     await isolateRoom(page, room);
     await use(room);
   },

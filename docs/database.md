@@ -6,21 +6,22 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages and boosts live in that room's Durable Object SQLite storage, and people and their
-sessions in the Workspace object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
-`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
-`apps/worker/src/db.ts`.
+each room's messages and boosts live in that room's Durable Object SQLite storage, and people, their
+sessions, rooms and memberships in the Workspace object's. With `d1`, all of them live in one D1
+database. Both backends use the schema in `apps/worker/migrations/` and the queries in
+`apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages and boosts, and `workspace`
-for the workspace-wide tables (people and sessions, and the room list to come). On DO SQLite, an object
+for the workspace-wide tables (people, sessions, rooms and memberships). On DO SQLite, an object
 applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
-So far rooms keep messages and boosts, and the Workspace keeps `users` and `sessions`. People still
-sign in by display name, rooms come from `DEFAULT_ROOMS`, and presence and typing live in each room
-object's memory.
+So far rooms keep messages and boosts, and the Workspace keeps `users`, `sessions`, `rooms` and
+`memberships`. A room's id also names its Durable Object, and the Worker asks the Workspace whether
+someone is a member before it wakes the room for their socket. People still sign in by display name,
+and presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -44,6 +45,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **Stored sessions, refreshed hourly.** Each sign-in adds a `sessions` row with the browser and IP,
   and a request rewrites its `last_active_at`, browser and IP at most once an hour rather than every
   time, as ember-rust's `resume` does (`crates/ember/src/concerns.rs`). Signing out deletes the row.
+- **Memberships are found by room and person, or by person.** ember-rust's unique
+  `(room_id, user_id)` index is our primary key, which answers each socket upgrade's "is this person
+  in this room?", and its `user_id` index is ours with `room_id` added, so listing someone's rooms
+  reads only the index for their memberships. Its `room_id` index repeats the key's first column, and
+  `(room_id, created_at)` orders a room's members, which nothing lists yet, so neither is here.
 - **No unbounded lists of bound values**
   ([`a8b713a`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/a8b713a) batches inserts under
   SQLite's limit). Our limit is lower: Durable Object SQLite and D1 bind at most 100 values a
@@ -106,6 +112,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
   Workspace restarts, which every deploy does, and changing `SESSION_SECRET` still signs everyone
   out.
 
+- **Granting rooms is one statement.** ember-rust reads the ids of everyone a room takes in (or of
+  every open room a new person joins) and inserts them 1,000 rows at a time. Our bound-value limit
+  would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so
+  each grant selects from `users` or `rooms` inside its `INSERT`, one statement however many there
+  are.
+- **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
+  too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
+  is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace
+  kept a list, which `LEGACY_ROOMS` registers, keep their old addresses as ids and have no creator.
 - **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
   HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which
   can close after the room stored a message but before its confirmation arrived, so after a

@@ -6,7 +6,7 @@ import { connect, freshRoom, post, roomSql, settle, signIn } from "./support";
 
 describe(feature("messages.create"), () => {
   it("delivers a message to everyone in the room, attributed to its sender", async () => {
-    const room = freshRoom("create");
+    const room = await freshRoom("create");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
 
@@ -24,7 +24,7 @@ describe(feature("messages.create"), () => {
   });
 
   it("keeps messages, so people who join later see them", async () => {
-    const room = freshRoom("kept");
+    const room = await freshRoom("kept");
     const ada = await connect(room, "Ada");
     const message = await post(ada, "Still here");
     ada.close();
@@ -34,7 +34,7 @@ describe(feature("messages.create"), () => {
   });
 
   it("gives later messages later ids, even when sent in a burst", async () => {
-    const ada = await connect(freshRoom("burst"), "Ada");
+    const ada = await connect(await freshRoom("burst"), "Ada");
     const ids = [];
     for (let i = 0; i < 5; i++) ids.push((await post(ada, `burst ${i}`)).id);
     expect([...ids].sort()).toEqual(ids);
@@ -42,7 +42,7 @@ describe(feature("messages.create"), () => {
   });
 
   it("keeps each room's messages to itself", async () => {
-    const [first, second] = [freshRoom("one"), freshRoom("two")];
+    const [first, second] = [await freshRoom("one"), await freshRoom("two")];
     const ada = await connect(first, "Ada");
     const grace = await connect(second, "Grace");
     await post(ada, "Only in the first room");
@@ -53,7 +53,7 @@ describe(feature("messages.create"), () => {
   });
 
   it(`refuses blank messages and messages over ${MAX_MESSAGE_LENGTH} characters`, async () => {
-    const room = freshRoom("refused");
+    const room = await freshRoom("refused");
     const ada = await connect(room, "Ada");
     ada.send({ type: "message.create", clientMessageId: "blank", body: " \n " });
     expect((await ada.next("error")).message).toBe("Unrecognized frame");
@@ -66,7 +66,7 @@ describe(feature("messages.create"), () => {
   });
 
   it("answers frames it can't read with an error, and keeps the socket open", async () => {
-    const ada = await connect(freshRoom("garbage"), "Ada");
+    const ada = await connect(await freshRoom("garbage"), "Ada");
     for (const frame of ["not json", "null", JSON.stringify({ type: "message.create" }), JSON.stringify({ type: "nope" })]) {
       ada.sendRaw(frame);
       expect((await ada.next("error")).message).toBe("Unrecognized frame");
@@ -79,7 +79,7 @@ describe(feature("messages.create"), () => {
 
 describe(feature("messages.edit"), () => {
   it("lets the author change a message, for everyone, and keeps the change", async () => {
-    const room = freshRoom("edit");
+    const room = await freshRoom("edit");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const original = await post(ada, "Helo");
@@ -95,7 +95,7 @@ describe(feature("messages.edit"), () => {
   });
 
   it("refuses edits to someone else's message, telling only the person who tried", async () => {
-    const room = freshRoom("edit-other");
+    const room = await freshRoom("edit-other");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const original = await post(ada, "Mine");
@@ -109,7 +109,7 @@ describe(feature("messages.edit"), () => {
   });
 
   it("refuses edits to messages that don't exist and blank edits", async () => {
-    const ada = await connect(freshRoom("edit-missing"), "Ada");
+    const ada = await connect(await freshRoom("edit-missing"), "Ada");
     const original = await post(ada, "Here");
     ada.send({ type: "message.update", messageId: "missing", body: "Hello" });
     expect((await ada.next("error")).message).toBe("You can only edit your own messages");
@@ -118,7 +118,7 @@ describe(feature("messages.edit"), () => {
   });
 
   it("keeps reactions that land while a message is being edited", async () => {
-    const room = freshRoom("edit-boost");
+    const room = await freshRoom("edit-boost");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const message = await post(ada, "First draft");
@@ -139,7 +139,7 @@ describe(feature("messages.edit"), () => {
 
 describe(feature("messages.delete"), () => {
   it("lets the author delete a message, with its reactions, for everyone", async () => {
-    const room = freshRoom("delete");
+    const room = await freshRoom("delete");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const doomed = await post(ada, "Oops");
@@ -158,7 +158,7 @@ describe(feature("messages.delete"), () => {
   });
 
   it("keeps a message's reactions when deleting it fails", async () => {
-    const room = freshRoom("delete-fails");
+    const room = await freshRoom("delete-fails");
     const ada = await connect(room, "Ada");
     const message = await post(ada, "Keep my reactions");
     ada.send({ type: "boost.create", messageId: message.id, content: "👍" });
@@ -178,7 +178,7 @@ describe(feature("messages.delete"), () => {
   });
 
   it("refuses to delete someone else's message", async () => {
-    const room = freshRoom("delete-other");
+    const room = await freshRoom("delete-other");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const message = await post(ada, "Mine");
@@ -193,7 +193,7 @@ describe(feature("messages.delete"), () => {
 
 describe(feature("messages.history"), () => {
   it("opens a room on its newest 50 messages, oldest first, and says when there are more", async () => {
-    const room = freshRoom("page");
+    const room = await freshRoom("page");
     const ada = await connect(room, "Ada");
     for (let i = 1; i <= 52; i++) await post(ada, `message ${i}`);
 
@@ -205,7 +205,7 @@ describe(feature("messages.history"), () => {
   });
 
   it("pages backwards from the oldest message shown until there's nothing left", async () => {
-    const room = freshRoom("back");
+    const room = await freshRoom("back");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
     const posted = [];
@@ -226,7 +226,7 @@ describe(feature("messages.history"), () => {
   });
 
   it("hands out the largest history page a client may ask for", async () => {
-    const room = freshRoom("long-history");
+    const room = await freshRoom("long-history");
     const ada = await connect(room, "Ada");
     const bodies = Array.from({ length: 101 }, (_, i) => `long ${i}`);
     const ids: string[] = [];
@@ -246,7 +246,7 @@ describe(feature("messages.history"), () => {
   });
 
   it("pages history by seeking the room's index from the cursor", async () => {
-    const room = freshRoom("paging-plan");
+    const room = await freshRoom("paging-plan");
     await connect(room, "Ada");
     const plan = async (query: string, ...params: Array<string | number>) =>
       (await roomSql(room, `EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
@@ -260,7 +260,7 @@ describe(feature("messages.history"), () => {
   });
 
   it("gives someone joining mid-conversation every message exactly once, snapshot first", async () => {
-    const room = freshRoom("joining");
+    const room = await freshRoom("joining");
     const ada = await connect(room, "Ada");
     const session = await signIn("Grace");
 
@@ -282,7 +282,7 @@ describe(feature("messages.history"), () => {
   });
 
   it("includes each message's reactions in history", async () => {
-    const room = freshRoom("history-boosts");
+    const room = await freshRoom("history-boosts");
     const ada = await connect(room, "Ada");
     const message = await post(ada, "React to me");
     ada.send({ type: "boost.create", messageId: message.id, content: "🎉" });
