@@ -4,7 +4,7 @@
 
 Every feature of [ember-rust](https://github.com/NYLLON-SOFTWARE/ember-rust), whether this port has it yet, and the
 tests here that check it. The behaviors under each area are what a port has to do to match ember-rust, taken from its
-source at [`873946e`](https://github.com/NYLLON-SOFTWARE/ember-rust/tree/873946ef5610ac0598e23875cbb0e9b53f8c9532)
+source at [`cfeb4c2`](https://github.com/NYLLON-SOFTWARE/ember-rust/tree/cfeb4c289f9ab3042248777f29a103294ff3de87)
 and the Campfire app it pins at [`90b3300`](https://github.com/basecamp/once-campfire/tree/90b330024dec3e757c79b6a7e6568f93da8e3148).
 
 `pnpm test` fails when a ported or partial feature has no test, when a test names a feature that isn't listed here,
@@ -13,29 +13,29 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 8 ported and 33 partial of 143 features; 99 not started, 3 not applicable.
+**Overall:** 7 ported and 34 partial of 172 features; 126 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 1 | 3 | 7 | 0 | 11 |
-| [Workspace administration](#workspace-administration) | 0 | 0 | 13 | 0 | 13 |
-| [People and profiles](#people-and-profiles) | 0 | 1 | 3 | 0 | 4 |
-| [Rooms](#rooms) | 0 | 2 | 14 | 0 | 16 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 1 | 3 | 8 | 0 | 12 |
+| [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
+| [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
+| [Rooms](#rooms) | 0 | 2 | 16 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 8 | 0 | 9 |
-| [Messages](#messages) | 3 | 7 | 6 | 0 | 16 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
+| [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
-| [Mentions](#mentions) | 0 | 1 | 1 | 0 | 2 |
-| [Attachments](#attachments) | 0 | 0 | 7 | 0 | 7 |
+| [Mentions](#mentions) | 0 | 1 | 2 | 0 | 3 |
+| [Attachments](#attachments) | 0 | 0 | 10 | 1 | 11 |
 | [Link previews](#link-previews) | 0 | 0 | 4 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
-| [Presence, typing and live updates](#presence-typing-and-live-updates) | 1 | 4 | 0 | 0 | 5 |
-| [Notifications](#notifications) | 0 | 0 | 11 | 0 | 11 |
-| [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 11 | 0 | 11 |
-| [Composer](#composer) | 0 | 2 | 1 | 0 | 3 |
+| [Presence, typing and live updates](#presence-typing-and-live-updates) | 1 | 4 | 1 | 0 | 6 |
+| [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
+| [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
+| [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
-| [Platform](#platform) | 2 | 1 | 3 | 3 | 9 |
-| **Total** | **8** | **33** | **99** | **3** | **143** |
+| [Platform](#platform) | 2 | 1 | 8 | 4 | 15 |
+| **Total** | **7** | **34** | **126** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -52,45 +52,55 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | Private sign-in link | `auth.sign-in-link` | Campfire | ⬜ Not started |  |
 | Sign up with the join link | `auth.sign-up` | Ember | ⬜ Not started |  |
 | Help contact on sign-in pages | `auth.help-contact` | Campfire | ⬜ Not started |  |
+| Forgery protection without tokens | `auth.csrf` | Ember | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Set up the workspace** (`auth.first-run`) ⬜
 
-- With no account yet, `/first_run` shows "Set up Ember" / "Create the admin account for your workspace." with Name, Email address, Password (8 to 72 characters), an optional profile photo and Continue; `/session/new` redirects there until then.
-- Submitting creates the workspace "Ember", its first administrator and an open room "All Talk" with them in it, signs them in and opens All Talk.
-- A password under 8 characters (counted in characters, not bytes) answers 422 with "Password must be at least 8 characters.", keeps the name and email, and saves nothing.
-- Once the workspace exists, `/first_run` redirects to `/`, and simultaneous submissions still create exactly one account and administrator.
+- Before setup, `/first_run` (titled "Set up Ember") shows "Set up Ember" / "Create the admin account for your workspace.", a photo picker named "Upload profile image (optional)" with the hint "Add a profile photo (optional).", Name (placeholder "Jane Cooper"), Email address ("jane@company.com"), Password ("••••••••", with the hint "Must be at least 8 characters.") and Continue.
+- While there are no people, `/session/new`, and so a signed-out `/`, redirects to `/first_run`; once the workspace exists, `/first_run` redirects to `/`.
+- In the browser the password takes 8 to 72 characters, and a "Show password" / "Hide password" toggle (`aria-pressed`) reveals it; the toggle stays hidden without JavaScript.
+- Submitting creates the workspace "Ember", with a join code and room creation open to everyone, its first administrator (with the photo, if one was chosen) and an open room "All Talk" with them in it, then signs them in and opens All Talk, which shows "Welcome to Ember".
+- A password under 8 characters (counted in characters, not bytes) answers 422 before any photo is stored or anything is saved: the form keeps the name and email, empties and focuses the password with `aria-invalid`, and replaces its hint with the alert "Password must be at least 8 characters."
+- The server validates no other field and sets no maximum password length: a missing name fails with 500, and the email address isn't checked, so a missing one is saved empty.
+- Simultaneous submissions create exactly one account and administrator; the others are redirected to `/` without being signed in.
 - The page follows a saved appearance, or the device's, before it paints, and has no appearance picker.
 
-Sources: [`crates/views/templates/first_runs/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/first_runs/show.html) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/first_runs.rs) · [`crates/db/src/models/first_run.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/first_run.rs) · [`reference/app/models/first_run.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/first_run.rb)
+Sources: [`crates/views/templates/first_runs/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/first_runs/show.html) · [`crates/views/templates/components/ui.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/ui.html) · [`crates/assets/overrides/basecoat/src/password.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/password.js) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs.rs) · [`crates/db/src/models/first_run.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/first_run.rs) · [`reference/app/models/first_run.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/first_run.rb)
 
-ember-rust tests: [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/first-run.test.mjs) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/first_runs.rs) · [`reference/test/controllers/first_runs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/first_runs_controller_test.rb)
+ember-rust tests: [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs.rs) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/first_runs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/first_runs_controller_test.rb)
 
 **Installer-protected setup link** (`auth.protected-setup`) ⬜
 
-- When `EMBER_SETUP_TOKEN` (64 lowercase hex characters) is set, `/first_run` answers 403 "Setup is locked" until the installer's private link `/first_run/access#token=…` has been opened; without it, setup is open as in Campfire.
-- The access page removes the token from the address bar and posts it as a form: the right token gets 204 and a 15-minute `__Host-ember_setup` cookie (Secure, HttpOnly, SameSite=Strict), a wrong one 403.
-- The post needs `Sec-Fetch-Site: same-origin` and a matching Origin (else 422) and a form body (else 415); setup responses send `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
-- Creating the account clears the cookie, and every setup URL then redirects to `/`.
+- When `EMBER_SETUP_TOKEN` is set, `/first_run` answers 403 with "Setup is locked" / "Open the private setup link printed by the installer." until this browser has opened the installer's private link `/first_run/access#token=<token>`. Without a token, setup is open as in Campfire and `/first_run/access` answers 404.
+- The token must be 64 lowercase hex characters: any other value, even an empty one, stops the server from starting.
+- The access page ("Ember setup", "Opening your private setup link…") removes the fragment from the address bar before reading the token, posts it as a form, then opens `/first_run`, or `/` if setup is already done.
+- Otherwise the page reads "Open the complete private HTTPS setup link printed by the installer." (no valid token, or not HTTPS), "This setup link is unavailable. Request the current link from the server administrator." (refused) or "Could not open setup. Check your connection and reopen the private link." (network error), and without JavaScript "Enable JavaScript to open this private setup link."
+- The right token gets 204 and a 15-minute `__Host-ember_setup` cookie (Secure, HttpOnly, SameSite=Strict) holding an encrypted fingerprint of the token, never the token; a wrong or empty token, or `token[]`, gets 403 with an empty body. The token is read only from the body.
+- Setup needs HTTPS (403 over plain HTTP) and refuses any query string (400). The post also needs `Sec-Fetch-Site: same-origin` and the app's own Origin (else 422) and a form body (else 415).
+- `/first_run/access`, and every `/first_run` response while a token is set, sends `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, except the unlocked form and its 422, which send `Referrer-Policy: same-origin`. The access page also sends `Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+- An expired or tampered cookie, or one issued for an earlier token, locks setup again and is cleared. Creating the account clears the cookie, and every setup URL then redirects to `/`.
 
-Sources: [`crates/ember/src/controllers/first_runs/access.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/first_runs/access.rs) · [`crates/assets/overrides/setup_access.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/setup_access.js) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/config.rs)
+Sources: [`crates/ember/src/controllers/first_runs/access.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs/access.rs) · [`crates/assets/overrides/setup_access.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/setup_access.js) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs)
 
-ember-rust tests: [`crates/ember/src/controllers/first_runs/access/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/first_runs/access/tests.rs) · [`parity/kro/protected-setup.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/protected-setup.test.mjs)
+ember-rust tests: [`crates/ember/src/controllers/first_runs/access/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs/access/tests.rs) · [`parity/kro/protected-setup.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/protected-setup.test.mjs)
 
 **Sign in with email and password** (`auth.sign-in`) ⬜
 
-- `/session/new` (title "Sign in") shows the workspace logo, "Sign in to &lt;workspace name&gt;", "Welcome back. Pick up the conversation.", Email address (autofocused, prefilled from `?email_address=`), Password (up to 72 characters) and Sign in.
-- Correct credentials for an active person start a new session (a long-lived HttpOnly, SameSite=Lax `session_token` cookie) and redirect to the page asked for before signing in, else to `/`.
-- A wrong password, unknown email, blank password, or a removed or banned account answers 401 with "Too many requests or unauthorized."; the email stays filled in and the password is cleared.
+- `/session/new` (titled "Sign in") shows the workspace logo, "Sign in to &lt;workspace name&gt;" / "Welcome back. Pick up the conversation.", Email address (placeholder "Enter your email address", autofocused, prefilled from `?email_address=`), Password ("Enter your password", up to 72 characters) and Sign in, with the help contact below.
+- It's public, and people who are already signed in can still open it.
+- Correct credentials for an active person start a new session, with a long-lived `session_token` cookie (HttpOnly, SameSite=Lax, Secure over HTTPS), and redirect to the page asked for before signing in, else to `/`.
+- A wrong password, an unknown email, a blank password, a missing field, or a removed or banned account answers 401: the card shakes, the alert reads "Too many requests or unauthorized.", the email stays filled in and the password is cleared.
+- Accounts without a password, such as bots and people who joined with an empty one, never sign in this way, and an unknown email still costs a password check, so timing doesn't reveal which addresses have accounts.
 - Email addresses must match exactly, with no trimming or case folding.
 
-Note: Until accounts are ported, people join with just a display name (`auth.guest-sign-in`).
+Note: People join here with just a display name (`auth.guest-sign-in`); there are no email addresses or passwords.
 
-Sources: [`crates/views/templates/sessions/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/sessions/new.html) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/sessions.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
+Sources: [`crates/views/templates/sessions/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/sessions/new.html) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb)
 
 **Sign in with a display name** (`auth.guest-sign-in`) ✅
 
@@ -100,79 +110,97 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 
 **Sign-in attempt limit** (`auth.rate-limit`) ⬜
 
-- Each client IP gets 10 sign-in attempts, successful or not, per fixed 3-minute window that starts at its first attempt.
-- The 11th attempt answers 429 with the sign-in page and "Too many requests or unauthorized." without checking the password; other IPs are unaffected.
+- Each client IP, as seen through trusted proxies, gets 10 sign-in attempts, successful or not, per fixed 3-minute window that starts at its first attempt. Only posts to `/session` count, not first run, join links or sign-in links.
+- The 11th attempt answers 429 with the sign-in page, the shaking card and "Too many requests or unauthorized.", keeping the email, without checking the password; other IPs are unaffected.
 - Counts live in server memory, so a restart resets them.
 
-Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/sessions.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
+Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/kit/src/request.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/request.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs)
 
 **Pages need a signed-in person** (`auth.require-sign-in`) 🟡
 
-- Signed-out requests for app pages redirect to `/session/new`, and signing in returns to the page asked for.
+- Signed-out requests for app pages redirect to `/session/new`, which remembers the full URL asked for, and signing in returns there once.
 - Sign-in, first run, join links, sign-in links, QR codes, the workspace logo, the web app manifest, the service worker and `/up` are public; avatars are not.
-- A missing, tampered or forged session cookie, or one whose session was deleted, counts as signed out.
-- Signed-in people who open a join link go to `/` instead.
+- A missing, tampered or forged session cookie counts as signed out, and so does one whose session was deleted by signing out, removal, a ban or a password reset.
+- Signed-in people who open a join link, or post to one, go to `/` instead.
 
-Note: The API answers 401 without a valid token and the app shows the sign-in card, but signing in doesn't return you to the page you asked for.
+Note: The API answers 401 without a valid token, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. Nothing can revoke a token, so only a missing, forged or expired one counts as signed out, and there are no join links.
 
-Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
+Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/app/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
 
 **Stay signed in, per device** (`auth.sessions`) 🟡
 
 - Every sign-in creates its own session, recording the browser and IP, so a person can be signed in on several devices at once.
-- The session survives browser restarts; its activity is refreshed at most once an hour.
-- Signing out ends only this device's session. Removing or banning a person ends all of theirs.
+- The session cookie lasts 20 years, so the session survives browser restarts. At most once an hour, a request refreshes the session's last activity, browser and IP and extends the cookie.
+- Signing out ends only this device's session. Removing or banning a person, or resetting their password, ends all of theirs.
 
-Note: Sessions here are signed tokens that the browser keeps for 30 days. The server keeps no record of them, so a session can't be ended except by the browser holding it.
+Note: Sessions here are signed tokens kept in localStorage, which expire 30 days after sign-in however active the person is. The server keeps no record of them, or of the browser and IP, so nothing can end one early, and signing in again makes a new person rather than a second session.
 
-Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`reference/app/models/session.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/session.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
+Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/db/src/models/session.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/session.rs) · [`reference/app/models/session.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/session.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
-ember-rust tests: [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb)
+ember-rust tests: [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`crates/db/src/tests/callbacks_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/callbacks_test.rs) · [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/user_test.rs)
 
 **Sign out** (`auth.sign-out`) 🟡
 
-- "Log out" on the profile page deletes the session and its cookie and goes to `/`; protected pages then redirect to sign-in.
-- Before leaving, the page unsubscribes this browser from push, and the server deletes that subscription.
-- The person's open connections are told to reconnect, so their other devices carry on with their own sessions.
+- The profile page's header has a "Log out" button (logout icon) that sends `DELETE /session`: it deletes the session, its cookie and the rest of the browser's session data, then goes to `/`, which redirects to sign-in.
+- Before submitting, the page unsubscribes this browser from push and sends the subscription's endpoint, and the server deletes that subscription if it's the person's own.
+- The person's open connections are told to reconnect, so their other devices carry on with their own sessions; signing out still completes if they can't be disconnected.
 
-Note: Sign out is in the profile menu on the rail, and it only makes this browser forget its token, which stays valid until it expires.
+Note: "Sign out" is an item in the rail's profile menu rather than a "Log out" button on the profile page. It only makes this browser forget its token, which stays valid until it expires; other tabs stay signed in until they reload, and there's no push subscription to remove.
 
-Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/sessions.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/show.html) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
+Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb)
 
 **Private sign-in link** (`auth.sign-in-link`) ⬜
 
-- Your profile shows a private link `/session/transfers/<id>` with QR code, copy and share buttons (shared as "Your sign-in link"); administrators see the same on other people's pages.
-- Opening the link needs no session: it signs that person in on this device with a new session and goes to `/`.
-- Links are signed and expire after 4 hours, and can be reused until then. An expired, tampered or unknown link, or a removed or banned person, gets 400 with an empty body.
+- Your profile shows your private link `/session/transfers/<id>`, with "Use this link to login automatically on another device" for screen readers and buttons named "Show auto-login QR code", "Copy auto-login link" and "Share auto-login link"; sharing sends the title "Your sign-in link" and the text "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out."
+- Administrators also see it on every active person's page, their own included; on someone else's it reads "Share to get them back into their account", with a crown.
+- Every view makes a new link. Links are signed, expire after 4 hours and can be reused until then.
+- Opening a link needs no session: the page submits itself, signs that person in with a new session that replaces any session this browser had (without ending it), and goes to the page asked for before signing in, else `/`.
+- The page opens for any link, but submitting an expired, tampered or unknown link, or one for a removed or banned person, gets 400 with an empty body.
 
-Sources: [`crates/ember/src/controllers/sessions/transfers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/sessions/transfers.rs) · [`crates/views/templates/users/profiles/_transfer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/_transfer.html) · [`reference/app/models/user/transferable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/transferable.rb)
+Sources: [`crates/ember/src/controllers/sessions/transfers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions/transfers.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/profiles/_transfer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_transfer.html) · [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`reference/app/models/user/transferable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/transferable.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions/transfers_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions/transfers_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions/transfers_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions/transfers_controller_test.rb)
 
 **Sign up with the join link** (`auth.sign-up`) ⬜
 
-- `/join/<current code>` shows "Join &lt;workspace name&gt;" / "Create your account and join the conversation." with an optional photo, Name, Email address, Password and Create account; any other code is 404.
+- `/join/<current code>` (titled "Sign up") shows "Join &lt;workspace name&gt;" / "Create your account and join the conversation.", an optional photo ("Your profile photo", "Upload photo", "Optional"), Name, Email address and Password (each with its label as placeholder; the password up to 72 characters), Create account, "Already have an account? Sign in" and the help contact.
+- Any other code answers 404 with an empty body, and every join URL fails with 500 while there's no workspace.
 - Signing up creates a member who joins every open room, signs them in and goes to `/`.
-- An email that already has an account redirects to `/session/new?email_address=<email>` and creates nothing.
-- There's no minimum password length here, unlike first run.
+- An email that already has an account redirects to `/session/new?email_address=<email>` (escaped, so `@` becomes `%40`) and creates nothing.
+- The server doesn't check the password's length, so an empty one is accepted if the browser doesn't stop it, leaving an account that can never sign in with a password; a missing name fails with 500.
 
-Sources: [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users.rs) · [`crates/views/templates/users/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/new.html) · [`reference/app/controllers/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users_controller.rb)
+Sources: [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users.rs) · [`crates/views/templates/users/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/new.html) · [`reference/app/controllers/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Help contact on sign-in pages** (`auth.help-contact`) ⬜
 
-- The sign-in and join pages end with a mail button for the first administrator ("Email &lt;name&gt;") and "Ember™ version &lt;version&gt;"; both are left out when there's no administrator.
+- The sign-in and join pages end with a mail button for the first administrator, showing their email address with a lifebuoy icon, titled "Email &lt;name&gt;" and linking to `mailto:"<name>" <<email>>`, then "Ember™ version &lt;version&gt;"; both are left out when there's no administrator.
+- The first administrator is the earliest-created one, whatever their status, so a removed one still shows, with their scrambled email address.
 
-Sources: [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/_help_contact.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts.rs)
+Sources: [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`reference/app/views/accounts/_help_contact.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/_help_contact.html.erb)
 
-ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**Forgery protection without tokens** (`auth.csrf`) ⬜
+
+- Writes (requests other than GET and HEAD) with `Sec-Fetch-Site: same-origin` or `same-site` are accepted; `cross-site`, `none` or any other value answers 422, changing nothing and setting no cookies.
+- Without `Sec-Fetch-Site`, a write answers 422 over HTTPS or when the app requires HTTPS; on plain HTTP it's accepted, with the `SameSite=Lax` session cookie as the protection.
+- A write whose `Origin` is `null`, or isn't the app's own origin, answers 422; one without an `Origin` passes this check.
+- Pages carry no forgery tokens, so pages left open keep working.
+- Requests authenticated with a bot key skip the check.
+
+Note: Requests here carry the session token from localStorage, in a header or the socket URL, rather than a cookie, and nothing checks `Sec-Fetch-Site` or `Origin`.
+
+Sources: [`crates/kit/src/ctx.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/ctx.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/src/helpers/forms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/forms.rs) · [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
+
+ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
 </details>
 
@@ -193,136 +221,178 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
 | Ban and unban people | `accounts.ban` | Campfire | ⬜ Not started |  |
 | What a ban blocks | `accounts.ban-enforcement` | Campfire | ⬜ Not started |  |
+| Reset a password from the server | `accounts.reset-password` | Ember | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Workspace settings page** (`accounts.settings-page`) ⬜
 
-- The rail's Admin link (Workspace for members) opens `/account/edit`: "Workspace settings" / "Manage your workspace, invitations, and people.", with "Ember™ version &lt;version&gt;" at the foot.
-- Administrators get Chat bots and Custom styles, the logo picker, the workspace name, Hide translation buttons, and a Rooms section with New room, Must be admin to create new rooms and the shared room order.
-- Members see the logo and name read-only, the Rooms section with New room only while anyone may create rooms, the invite link and the people list.
+- The rail's Admin link (Workspace for members) opens `/account/edit`, titled "Account settings": "Workspace settings" / "Manage your workspace, invitations, and people.", with "Ember™ version &lt;version&gt;" at the foot. Anyone signed in may open it.
+- Go Back returns to the last room visited, else your oldest room, else `/`. Administrators also get Chat bots and Custom styles buttons, with their labels showing.
+- Administrators see, in order: the logo picker, Workspace name, Hide translation buttons, the Rooms section, then one box holding the invite link and, under "People", the people list.
+- Members see the logo ("Account logo") and the workspace name in place of the picker and the name form, then the Rooms section only while anyone may create rooms, the invite link and the people list.
+- The Rooms section has "Rooms" and New room, which opens `/rooms/opens/new`; administrators also get Must be admin to create new rooms and the shared room order.
+- At 390px wide nothing scrolls sideways.
 
 Note: The rail shows Workspace, disabled.
 
-Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts.rs)
+Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`reference/test/controllers/accounts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts_controller_test.rb)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/controllers/accounts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts_controller_test.rb)
 
 **Rename the workspace** (`accounts.name`) ⬜
 
-- An administrator saving Workspace name (Enter submits) returns to settings with "Changes saved."; members get 403.
-- The name shows in settings, in "Sign in to &lt;name&gt;" and "Join &lt;name&gt;", and as the installed app's name.
+- Administrators save Workspace name (placeholder "Name this account", not autofocused) with Save changes or Enter, and return to settings with "Changes saved." even when nothing changed; members get 403.
+- The name isn't validated, so a blank one is saved.
+- The name shows as members' settings heading, the rail logo's title, the sidebar heading, "Sign in to &lt;name&gt;" and "Join &lt;name&gt;", and the installed app's name ("Ember" before there's a workspace).
 
-Sources: [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/account.rs) · [`reference/app/controllers/accounts_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts_controller.rb)
+Sources: [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/controllers/accounts_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts_controller_test.rb)
 
 **Workspace logo** (`accounts.logo`) ⬜
 
-- Administrators upload a logo from a 96px picker as soon as a file is chosen, and remove it with Remove logo; members get 403.
-- The logo replaces the Ember mark on the rail, the favicon, the sign-in, join and welcome headers, and the app icons.
-- `/account/logo` is public: the upload as a 512px PNG (192px with `size=small`), or Ember's own `app-icon.png` and `app-icon-192.png` without one, cacheable for 5 minutes.
+- Administrators pick a logo from the round picker in workspace settings ("Upload logo", "Choose a workspace logo", previewed as "Workspace logo"), which saves as soon as a file is chosen and shows "Changes saved.", or with a "Save logo" button without JavaScript. Members get 403.
+- Remove logo, shown only while a logo is attached, removes it with no confirmation or notice, and the rail goes back to the Ember flame.
+- Any file is accepted. One that can't be resized, such as an SVG, BMP or ICO, still counts as attached, so Remove logo shows, but the stock icon is served.
+- `/account/logo` needs no sign-in and serves a PNG within 512×512, or 192×192 with `size=small`, never enlarged; without a usable logo it serves Ember's `app-icon.png` or `app-icon-192.png` byte for byte.
+- Responses carry `Cache-Control: max-age=300, public, stale-while-revalidate=604800` and an ETag, and a matching `If-None-Match` answers 304.
+- Logo URLs carry `?v=` from the account's last update, which renaming the workspace, changing the logo, regenerating the join code or flipping a settings switch all bump.
+- The logo replaces the Ember flame on the rail, sitting on the page's background, and becomes the favicon, the apple-touch icon, the app icons and the logo on the sign-in, join and welcome screens.
 
-Sources: [`crates/ember/src/controllers/accounts/logos.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/logos.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html) · [`reference/app/controllers/accounts/logos_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/logos_controller.rb)
+Sources: [`crates/ember/src/controllers/accounts/logos.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/logos.rs) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/presenters/attachments.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/attachments.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/controllers/accounts/logos_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/logos_controller.rb) · [`reference/app/models/account.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account.rb)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`reference/test/controllers/accounts/logos_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/logos_controller_test.rb)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/controllers/accounts/logos_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/logos_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
 **Custom CSS** (`accounts.custom-css`) ⬜
 
-- Administrators edit Custom CSS at `/account/custom_styles/edit` ("Use Caution: you could break things."); members get 403.
-- The CSS goes into every page, sign-in and join included, in a reload-tracked `<style>`, so open tabs reload on their next navigation after a change.
+- Administrators edit Custom CSS at `/account/custom_styles/edit`, titled "Custom styles" and opened from settings' Custom styles button: "Custom CSS", "Add custom CSS styles." and "Use Caution: you could break things." Members get 403.
+- The textarea ("Add CSS styles…") has spellcheck, autocorrect, autocapitalize and autocomplete off. The check button ("Save changes"), Ctrl+Enter or ⌘+Enter saves the CSS as typed and reloads the page with the check notice; Go Back returns to settings.
+- The CSS goes into every page, sign-in and join included, in a reload-tracked `<style>` after the app's styles, so other open tabs pick it up on their next navigation. An empty value still writes an empty `<style>`.
+- Every page's body has the class `admin` for administrators and `account-has-logo` while a logo is attached, for custom CSS to target.
 
-Sources: [`crates/ember/src/controllers/accounts/custom_styles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/custom_styles.rs) · [`crates/views/templates/accounts/custom_styles/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/custom_styles/edit.html) · [`reference/app/controllers/accounts/custom_styles_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/custom_styles_controller.rb)
+Sources: [`crates/ember/src/controllers/accounts/custom_styles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/custom_styles.rs) · [`crates/views/templates/accounts/custom_styles/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/custom_styles/edit.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/app/controllers/accounts/custom_styles_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/custom_styles_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/custom_styles_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/custom_styles_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/custom_styles_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/custom_styles_controller_test.rb)
 
 **Translation buttons** (`accounts.translation-buttons`) ⬜
 
-- Translation (globe) buttons beside form labels are hidden unless an administrator unchecks Hide translation buttons, which saves at once; members never see the switch and get 403.
-- Each globe opens the label's translations; Escape or a click outside closes it, and it opens upward near the bottom of the screen.
-- Changing the setting reloads open tabs. It applies to the sign-in and join pages too.
+- Translation buttons are hidden unless an administrator turns off Hide translation buttons ("Hide language help throughout the app for everyone.") in workspace settings, which saves at once with no notice, or with a "Save" button without JavaScript. Members never see the switch and get 403.
+- Hidden is the default while nothing is stored, and a stored false or blank value shows them. Saving the switch leaves other settings alone.
+- The switch reloads the administrator's page; other open tabs change on their next navigation, not live. The setting applies to sign-in and join too.
+- Each button is a globe ("Translate" to screen readers) that Tab skips. It lists the text it sits by in English, Spanish, French, Hindi, German, Brazilian Portuguese and Japanese, each after its country's flag.
+- Escape or a click outside closes it, and it opens upward near the bottom of the screen.
+- Globes sit by the workspace name, custom CSS, the profile's name, email, new password and bio, sign-in's email and password, join's name, email and password, room names, the welcome card's invite text, the bots page, bot names, webhook URLs and the unsupported-browser message.
 
-Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html) · [`crates/views/src/helpers/translations.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/translations.rs) · [`reference/app/javascript/controllers/popup_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/popup_controller.js)
+Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/src/helpers/translations.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/translations.rs) · [`crates/views/src/helpers/translations_table.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/translations_table.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/javascript/controllers/popup_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/popup_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/first-run.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
 **Join link** (`accounts.join-link`) ⬜
 
-- The workspace has one join code shaped `XXXX-XXXX-XXXX`, and its join link is `/join/<code>`.
-- Workspace settings shows everyone the link as "Share to invite more people", with QR code, copy and share buttons (shared as "Link to join Ember" / "Hit this link to join me in Ember and start chatting.").
+- The workspace has one join code of 12 random letters and digits in groups of four (`XXXX-XXXX-XXXX`), made with the account and kept until an administrator regenerates it.
+- Workspace settings shows everyone the absolute link `https://<host>/join/<code>` in a read-only field labeled "Share to invite more people".
+- Its buttons read "Show join link QR code", "Copy join link" and "Share join link" to screen readers. Copy writes the link and flashes a success state on every click, failing silently if the clipboard refuses.
+- Share shows only where the browser can share, and shares "Link to join Ember" / "Hit this link to join me in Ember and start chatting." with the link.
+- The first room's welcome card offers the same link and buttons, without Regenerate.
 
-Sources: [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/_invite.html) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/account.rs) · [`reference/app/models/account/joinable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account/joinable.rb)
+Sources: [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`reference/app/models/account/joinable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account/joinable.rb)
 
-ember-rust tests: [`reference/test/models/account/joinable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/account/joinable_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/models/account/joinable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/account/joinable_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
 **Regenerate the join link** (`accounts.regenerate-join-link`) ⬜
 
-- An administrator's Regenerate join link issues a new code; the old `/join/<code>` then answers 404.
+- An administrator's Regenerate join link, an icon button with that name, issues a new code at once with no confirmation or notice, and settings show the new link.
+- The old `/join/<code>` then answers 404 with an empty body, to GET and POST alike.
 - Members get 403 and see no button.
 
-Sources: [`crates/ember/src/controllers/accounts/join_codes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/join_codes.rs) · [`reference/app/controllers/accounts/join_codes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/join_codes_controller.rb)
+Sources: [`crates/ember/src/controllers/accounts/join_codes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/join_codes.rs) · [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/controllers/accounts/join_codes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/join_codes_controller.rb)
 
 ember-rust tests: [`reference/test/controllers/accounts/join_codes_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/join_codes_controller_test.rb)
 
 **QR codes for links** (`accounts.qr-codes`) ⬜
 
-- `/qr_code/<id>` is public and returns an SVG QR code of the URL base64url-encoded in the id, cacheable for a year.
+- `/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.
+- It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version="1.0" standalone="yes"?><svg`.
+- The code uses error correction level H, black 11-unit modules on a white background and no quiet zone, drawn byte for byte as rqrcode 3.2.0 does.
+- Text too long for the largest QR code, such as 3,000 bytes, answers 422.
 - The join link and sign-in link open their QR codes in the image viewer.
-- Text too long to encode answers 422.
 
-Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/qr_code.rs) · [`reference/app/controllers/qr_code_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/qr_code_controller.rb)
+Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`reference/app/controllers/qr_code_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/qr_code_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/qr_code_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/qr_code_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/controllers/qr_code_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/qr_code_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs)
 
 **People list** (`accounts.people`) ⬜
 
-- Workspace settings lists administrators, then members, each by name ignoring case, with avatars. Bots and removed people never appear, and only administrators see banned people.
+- Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.
+- Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.
+- Each row shows the person's avatar, linking to their page with the title "&lt;name&gt; – &lt;bio&gt;", and their name.
 - Your own row links to your profile ("My settings").
-- Lists show 500 people a page.
 
-Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/users/_user.html) · [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/users.rs)
+Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb)
 
 **Make or revoke administrators** (`accounts.roles`) ⬜
 
-- Administrators toggle a crown on each active person who isn't a bot ("Role: Administrator" or "Role: Member"), saved at once; their own crown is disabled.
+- Administrators toggle a crown on each active person who isn't a bot ("Role: Administrator" or "Role: Member" to screen readers), filled for administrators; it saves at once with no notice.
+- An administrator's own crown is disabled: dimmed, and clicks do nothing.
 - Members get 403, and removed, banned or unknown people 404.
 
-Sources: [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/users.rs) · [`reference/app/models/user/role.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/role.rb)
+Sources: [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`reference/app/models/user/role.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/role.rb)
 
 ember-rust tests: [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb) · [`reference/test/models/user/role_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/role_test.rb)
 
 **Remove someone from the workspace** (`accounts.remove-person`) ⬜
 
-- Administrators remove an active person other than themselves after confirming "Are you sure you want to permanently remove this person from the account? This can’t be undone."
-- Removal signs them out everywhere, takes them out of every room but their DMs, deletes their push subscriptions and recent searches, and frees their email address.
-- Their messages stay, and their page reads "&lt;name&gt; is no longer on this account". Members get 403.
+- Administrators remove an active person with their row's Delete button ("Delete &lt;name&gt;" to screen readers) after confirming "Are you sure you want to permanently remove this person from the account? This can’t be undone.", with no notice after. Their own row has no Delete.
+- Removal closes the person's live connections for good and deletes their sessions, so they're signed out everywhere and can't reconnect.
+- It takes them out of every room but their DMs and deletes their push subscriptions and recent searches.
+- Their email becomes `<local>-deactivated-<uuid>@<domain>`, freeing the address. They can't sign in, and their sign-in links answer 400.
+- Their messages, boosts, DM memberships, bans, avatar and role stay, and their page reads "&lt;name&gt; is no longer on this account".
+- Members get 403, and anyone not active 404.
 
-Sources: [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/users.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/user.rs) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
+Sources: [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
 
-ember-rust tests: [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb)
+ember-rust tests: [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
 
 **Ban and unban people** (`accounts.ban`) ⬜
 
-- From someone's page, an administrator bans them after confirming, or lifts a ban; members get 403, and nobody can ban themselves.
-- Banning blocks the IPs of their sessions, signs them out everywhere for good, and deletes their messages in the background, removing each from every room as it goes.
-- If any of their session IPs is private, loopback, link-local or invalid, the ban fails with 422 and nothing changes.
-- Lifting a ban unblocks the IPs and reactivates them, without bringing their messages back.
+- On an active person's page, an administrator's "Ban &lt;name&gt;" asks "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses."; on a banned person's page, "Remove ban" asks "Are you sure you want to remove the ban on this user?". Both return to the page with no notice, and members get 403.
+- Neither button shows on your own page, a removed person's or a bot's.
+- Banning blocks every distinct IP address recorded on their sessions, closes their live connections for good and deletes their sessions. Someone with no sessions is banned with no IP blocked.
+- If any of those addresses is private, loopback, link-local (IPv4-mapped forms included) or invalid, the ban answers 422 ("That didn’t work (422)") and nothing changes.
+- Their messages are then deleted in the background, each removed from its room as it goes. Their memberships, push subscriptions, recent searches and boosts on other people's messages stay.
+- Lifting a ban deletes their IP blocks and makes them active, even if they had been removed, without bringing their messages back.
 
-Sources: [`crates/ember/src/controllers/users/bans.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/bans.rs) · [`crates/db/src/models/ban.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/ban.rs) · [`reference/app/models/user/bannable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bannable.rb) · [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/jobs.rs)
+Sources: [`crates/ember/src/controllers/users/bans.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/bans.rs) · [`crates/db/src/models/ban.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/ban.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/views/templates/users/_ban_button.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_ban_button.html) · [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs.rs) · [`reference/app/models/user/bannable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bannable.rb)
 
-ember-rust tests: [`reference/test/controllers/users/bans_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/bans_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/revocation_test.rs)
+ember-rust tests: [`reference/test/controllers/users/bans_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/bans_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
 **What a ban blocks** (`accounts.ban-enforcement`) ⬜
 
-- Every request but GET and HEAD from a banned IP answers 429 with an empty body, before anything else is checked.
-- Banned people can't sign in, their sign-in links answer 400, and they get no push notifications, though their subscriptions are kept.
+- Every request but GET and HEAD from a banned IP answers 429 with an empty `text/html` body. The check comes after routing, so unknown paths still answer 404, but before anything else, so it blocks signing in, signing up and bot posts too.
+- The client IP must match a banned address exactly, with no ranges, so everyone sharing that address is blocked as well.
+- GET requests, the live connection among them, still work: a banned IP keeps receiving updates but can't post, boost, edit or submit any form, all of which are non-GET requests.
+- Banned people can't sign in ("Too many requests or unauthorized.", 401), their sign-in links answer 400, and they get no push notifications, though their subscriptions are kept.
 
-Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`crates/db/src/models/ban.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/ban.rs) · [`reference/app/controllers/concerns/block_banned_requests.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/block_banned_requests.rb)
+Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/db/src/models/ban.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/ban.rs) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/push_subscription.rs) · [`reference/app/controllers/concerns/block_banned_requests.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/block_banned_requests.rb)
 
-ember-rust tests: [`reference/test/controllers/concerns/block_banned_requests_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/concerns/block_banned_requests_test.rb) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/app/tests.rs)
+ember-rust tests: [`reference/test/controllers/concerns/block_banned_requests_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/concerns/block_banned_requests_test.rb) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
+
+**Reset a password from the server** (`accounts.reset-password`) ⬜
+
+- `ember reset-password <email>` reads exactly one password from stdin and refuses a terminal: "Read the new password with a hidden prompt, then pipe it to ember reset-password; passwords are accepted only on stdin".
+- One trailing LF or CRLF is stripped and spaces are kept. Any other CR, LF or NUL gives "provide exactly one password on stdin", more than 4096 bytes "password input exceeds 4096 bytes", invalid UTF-8 "password must be UTF-8", and fewer than 8 characters "password must contain at least 8 characters".
+- It never creates a database ("could not open the existing Ember database"), and refuses pending migrations ("database has pending migrations; migrate it before resetting a password"), an unknown email ("no user has that email address") and a bot ("bots cannot sign in with a password").
+- Only the password digest and update time change, so role and status stay, a ban included. That person's sessions are deleted and nobody else's, and it prints "Password reset; existing sessions revoked. Restart Ember to close existing WebSocket connections."
+- `emberctl reset-password <email>` needs a terminal ("Run reset-password from a terminal; passwords are read privately and never accepted as arguments.") and prompts "New password: " and "Repeat new password: " without echoing, refusing with "Password must contain at least eight characters and fit within 4096 bytes." or "Passwords do not match."
+- It then pipes the password to `ember reset-password`, restarts the app so the person's live connections close, and prints "Password updated; existing sessions and live connections for this user were revoked."
+
+Sources: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py)
+
+ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py)
 
 </details>
 
@@ -334,51 +404,76 @@ ember-rust tests: [`reference/test/controllers/concerns/block_banned_requests_te
 | Upload an avatar | `users.avatar-upload` | Ember | ⬜ Not started |  |
 | Someone's profile page | `users.show` | Campfire | ⬜ Not started |  |
 | Initials avatars | `users.avatars` | Campfire | 🟡 Partial | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Avatars open people's pages | `users.avatar-links` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Edit your profile** (`users.profile`) ⬜
 
-- `/users/me/profile` ("Your profile") has the avatar picker, Name, Email address, New password ("Leave blank to keep your current password.") and Bio (up to 200 characters), then your notification levels and private sign-in link; nothing is autofocused.
-- Saving shows a single check mark ("Changes saved" to screen readers), or "It may take up to 30 minutes to change everywhere." when the avatar changed.
+- `/users/me/profile`, titled with your name, has Go Back to the previous page, a visible "Log out", "Your profile" / "Manage how you appear to the people in your workspace.", the app's install instructions, then the avatar picker.
+- The form has Name ("Enter your name", required), Email address ("Enter your email address"), New password ("Change password", at most 72 characters, "Leave blank to keep your current password.") and Bio ("A few words about yourself…", at most 200 characters), then Save changes; nothing is autofocused.
+- Below it come "Conversation notifications", with your level for each room and DM, and your private sign-in link.
+- The server checks nothing: a blank name or email is saved, the 72 and 200 limits apply only in the browser, and a blank password keeps the current one.
+- A new password leaves your other sessions signed in.
+- Saving shows a single check mark ("Changes saved" to screen readers), or "It may take up to 30 minutes to change everywhere." when the save included an avatar.
 
 Note: The rail's profile picture opens a menu with your name and Sign out instead.
 
-Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/show.html) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/profiles.rs) · [`reference/app/controllers/users/profiles_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/profiles_controller.rb)
+Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/views/src/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/users.rs) · [`reference/app/controllers/users/profiles_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/profiles_controller.rb)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`reference/test/controllers/users/profiles_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/profiles_controller_test.rb)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/controllers/users/profiles_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/profiles_controller_test.rb)
 
 **Upload an avatar** (`users.avatar-upload`) ⬜
 
-- The profile's 96px picker saves as soon as an image is chosen; Remove avatar, shown only while there is one, brings back the initials.
-- Uploads are served as WebP within 512×512, and avatar URLs carry `?v=` so a new picture replaces cached ones.
+- The profile's round picker ("Upload avatar", "Choose a profile photo", previewed as "Your avatar") saves as soon as a file is chosen and shows "It may take up to 30 minutes to change everywhere.", or uses a "Save avatar" button without JavaScript.
+- Remove avatar, shown only while there is one, removes it with no confirmation or notice and brings back the initials.
+- Any file is accepted. One that can't be resized, such as an SVG or BMP, is stored and Remove avatar shows, but the initials are served.
+- Uploads are served as WebP within 512×512, keeping their proportions rather than cropped square.
+- Avatar URLs carry `?v=` with the person's last update, to the second, so a new picture replaces cached ones.
 
-Sources: [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/avatars.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/show.html) · [`reference/app/controllers/users/avatars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/avatars_controller.rb)
+Sources: [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/avatars.rs) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`reference/app/controllers/users/avatars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/avatars_controller.rb)
 
 ember-rust tests: [`reference/test/controllers/users/avatars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/avatars_controller_test.rb) · [`reference/test/models/user/avatar_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/avatar_test.rb)
 
 **Someone's profile page** (`users.show`) ⬜
 
-- `/users/<id>` shows their avatar, name and bio, with a direct message button for active people; unknown ids are 404, and your own page links to Edit my profile.
-- Only administrators see email addresses, other people's sign-in links and Ban or Remove ban.
-- Removed people and deleted bots read "&lt;name&gt; is no longer on this account".
+- `/users/<id>` shows anyone, whatever their status, titled with their name: Go Back to the previous page, the avatar ("Profile avatar"), and on your own page a pencil to "Edit my profile". Unknown ids are 404.
+- Active and banned people show their name and bio, and to administrators their email as a mail link.
+- Active people also get a direct message button, its icon labeled "Ping &lt;name&gt;", and administrators see their sign-in link, on their own page too.
+- Administrators see Ban, or Remove ban for banned people, on everyone's page but their own, removed people's and bots'.
+- Banned people's avatars are dimmed under a cancel mark.
+- Removed people show their name and "&lt;name&gt; is no longer on this account". Bots show only their avatar, then a direct message button while active, or that line once deleted.
 
-Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/show.html) · [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users.rs)
+Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`crates/views/templates/users/_ban_button.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_ban_button.html) · [`crates/views/templates/users/profiles/_transfer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_transfer.html) · [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users.rs)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb)
 
 **Initials avatars** (`users.avatars`) 🟡
 
-- Without an upload, an avatar is the person's initials in white on one of 18 colors, picked by the CRC32 of their id (1 is `#BF7C2A`, 2 is `#698F9C`, 42 is `#D07B53`).
-- Initials are the first character of each word that starts with an ASCII letter, digit or underscore ("David Heinemeier Hansson" is "DHH"); more than two are squeezed to fit.
-- Avatars need a session and are cacheable for 30 minutes; bots without an upload get the default bot picture.
+- Without a usable upload, an avatar is the person's initials in white on one of 18 colors, picked by the CRC32 of their id (1 is `#BF7C2A`, 2 is `#698F9C`, 42 is `#D07B53`, 1000 is `#BFA07A`).
+- Initials are every ASCII letter, digit or underscore that doesn't follow a letter, digit or underscore of any script, however many: "David Heinemeier Hansson" is "DHH" and "Élodie Ünal-Smith o'Brien 3po _x ñ" is "SoB3_". A name with none gets a plain tile.
+- Three or more initials are squeezed to fit.
+- Avatars are images at `/users/<token>/avatar?v=<version>`. The token is signed and never expires; a bad one answers 404 with an empty body, and a signed-out request is sent to sign-in.
+- They're cacheable for 30 minutes (`Cache-Control: max-age=1800, public, stale-while-revalidate=604800`) with an ETag, and a matching `If-None-Match` answers 304. Removed and banned people's avatars are still served.
+- Bots without an upload get the default bot picture.
 
-Note: Avatars are drawn in the page rather than served as images, and show at most three initials.
+Note: Avatars are drawn in the page, not served as images, so there are no avatar URLs, caching or bot picture. Initials come from JavaScript's word boundaries, which count a letter after a non-ASCII one ("Élodie" gives "l"), and stop at three, with "?" when there are none.
 
-Sources: [`crates/views/templates/users/avatars/show.svg`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/avatars/show.svg) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/avatars.rs)
+Sources: [`crates/views/templates/users/avatars/show.svg`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/avatars/show.svg) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/avatars.rs)
 
-ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/users.rs) · [`reference/test/controllers/users/avatars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/avatars_controller_test.rb)
+ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`reference/test/controllers/users/avatars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/avatars_controller_test.rb)
+
+**Avatars open people's pages** (`users.avatar-links`) ⬜
+
+- Avatars on messages, boosts, mentions, mention suggestions, the people and bot lists, room member lists and the DM editor link to the person's page, `/users/<id>`, outside any frame.
+- The link's title is "&lt;name&gt; – &lt;bio&gt;", or just the name when the bio is blank.
+- The 48×48 image is hidden from screen readers, except on a boost, where it reads "&lt;name&gt; boosted &lt;content&gt;"; the people, bot and member lists and the DM editor load it lazily.
+- Avatars in the sidebar's DM rows and on profile pages aren't links.
+
+Sources: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html) · [`crates/views/templates/messages/boosts/_boost.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/boosts/_boost.html) · [`reference/app/helpers/users/avatars_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/users/avatars_helper.rb)
+
+ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/user_test.rs)
 
 </details>
 
@@ -392,6 +487,7 @@ ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLO
 | Only administrators create rooms (setting) | `rooms.creation-permission` | Campfire | ⬜ Not started |  |
 | Open a room | `rooms.show` | Campfire | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Go back to the last room | `rooms.last-visited` | Campfire | ⬜ Not started |  |
+| Room addresses | `rooms.index` | Campfire | ⬜ Not started |  |
 | Room settings page | `rooms.settings-page` | Ember | ⬜ Not started |  |
 | Who can change a room | `rooms.edit-permissions` | Campfire | ⬜ Not started |  |
 | Switch a room between open and private | `rooms.convert-access` | Campfire | ⬜ Not started |  |
@@ -402,6 +498,7 @@ ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLO
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | ⬜ Not started |  |
 | Only members see a room | `rooms.member-only-access` | Campfire | ⬜ Not started |  |
+| Rooms from before memberships | `rooms.legacy-rooms` | This port | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -409,166 +506,218 @@ ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLO
 **Open rooms everyone is in** (`rooms.open`) 🟡
 
 - Everyone who joins, bots included, becomes a member of every open room, at the `mentions` notification level; private rooms and DMs aren't joined.
-- Making a private room open adds everyone, keeping existing members' notification levels.
+- Creating an open room, or making a private room open, adds every active person; people already in it keep their notification levels.
 - Deactivated people are never added, and deactivating someone takes them out of every room but their DMs.
 - A room's messages stay in that room.
 
 Note: Rooms here are the names in the `DEFAULT_ROOMS` setting, and everyone signed in can use all of them. There are no memberships, so there's nothing to join or leave.
 
-Sources: [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/user.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
+Sources: [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
 
 ember-rust tests: [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb)
 
 **Create an open room** (`rooms.create-open`) ⬜
 
-- New room opens "New chat room" with the name prefilled as "New room", a Go Back link to workspace settings and the unsaved-changes guard.
-- Saving creates the room with everyone in it at `mentions` and opens it; it appears at the top of everyone's sidebar at once.
+- New room in workspace settings opens a page titled "New chat room" that reads "New room" / "Create a place for a team, topic, or project.", with Go Back to workspace settings.
+- The form has "Room name" (placeholder "Name the room", prefilled with "New room", required and focused; Enter saves), the icon picker and Save.
+- An "Everyone" row has its switch on ("Give only some access to this room" to screen readers); turning it off switches to the private room form, keeping the name and icon.
+- Below it everyone active is listed by name with a check mark, with a "Filter…" box when there are more than 20 people.
+- Saving creates the room with everyone in it at `mentions` and opens it. Only the form requires a name: the server saves a blank one.
+- The room appears in everyone's sidebar at once, sorted into place (starred rooms, then the shared room order, then by name) rather than at the top.
+- Leaving the form after changing it asks first (`rooms.unsaved-changes`); saving from that dialog creates the room and carries on to where you were going.
 
-Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/opens.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms/opens_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/opens_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/opens.rs) · [`crates/views/templates/rooms/layouts/_new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_new.html) · [`crates/views/templates/rooms/opens/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/opens/_form.html) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms/opens_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/opens_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Create a private room** (`rooms.create-closed`) ⬜
 
-- A private room's members are exactly the people chosen on its form; the form starts with you chosen and everyone else not.
-- Only its members see it appear in their sidebar, and nobody else is told it exists.
+- Turning off New room's "Everyone" switch shows the private room form, keeping the name and icon; turning it back on ("Give everyone access to this room" to screen readers) returns to the open one.
+- The private form lists everyone active by name: you with a check mark and no switch, everyone else with a switch, off, named "Give &lt;name&gt; access to this room". Over 20 people, a "Filter…" box narrows the list.
+- Saving creates the room with exactly the people chosen, at `mentions`, and opens it. The server grants every posted id that belongs to someone, whatever their status, and doesn't add the creator itself: the form does.
+- Only its members see it appear in their sidebars, at once, and nobody else is told it exists.
 
-Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/closeds/_form.html) · [`reference/app/controllers/rooms/closeds_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/closeds_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_form.html) · [`crates/views/templates/rooms/closeds/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_user.html) · [`reference/app/controllers/rooms/closeds_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/closeds_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/closeds_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/closeds_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/broadcasts_test.rs)
+ember-rust tests: [`reference/test/controllers/rooms/closeds_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/closeds_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs)
 
 **Only administrators create rooms (setting)** (`rooms.creation-permission`) ⬜
 
-- Administrators toggle Must be admin to create new rooms, which saves at once.
-- While it's on, members get 403 from the new room pages and from creating open or private rooms, and New room disappears from their settings; DMs are unaffected.
 - New room lives in the Rooms section of workspace settings; the sidebar has no create-room link.
+- Administrators get a "Must be admin to create new rooms" row, marked with a crown, whose switch (named the same for screen readers) saves as soon as it changes.
+- While it's on, members get 403 from the new room pages and from creating open or private rooms, and the whole Rooms section, heading included, is hidden from them. Administrators and DMs are unaffected.
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html) · [`reference/app/models/account.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account.rb)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/models/account.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`reference/test/models/account_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/account_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`reference/test/models/account_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/account_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Open a room** (`rooms.show`) 🟡
 
-- `/rooms/<id>` shows a member the room with its newest 40 messages, with the room's name as the page title.
+- `/rooms/<id>` shows a member the room with its newest 40 messages. The page title is the room's name, or for a DM its name as a sentence ("A and B").
 - Non-members, missing rooms and malformed ids go to `/` with "Room not found or inaccessible".
-- Opening a room remembers it as the last room visited and clears its unread mark.
+- Opening a room remembers it as the last room visited. Its unread mark clears once the room's live connection is up, not when the page loads.
 
-Note: Rooms open at `/rooms/<name>`. An address naming a room that isn't listed quietly opens the first room, and the page title is always "Ember".
+Note: Rooms open at `/rooms/<name>` and show the newest 50 messages. An address naming a room that isn't listed quietly opens the first room, and the page title is always "Ember". There are no unread marks yet.
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show.html) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Go back to the last room** (`rooms.last-visited`) ⬜
 
-- `/` goes to the room you visited last while you're still in it, otherwise to your oldest room; with no rooms it says "No rooms yet".
-- The last room is kept in a permanent `last_room` cookie, which ember-rust sends only when it changes; one naming a deleted or left room is ignored.
-- Settings pages' Go Back links return to the last room visited, or to `/`.
+- `/` goes to the room you visited last while you're still in it, otherwise to your oldest room by creation, which can be a DM or a hidden room.
+- With no rooms, `/` shows an empty-state picture with your name for screen readers; "No rooms yet" is only the page title.
+- Room pages, message links, `/rooms/opens/<id>` and `/rooms/closeds/<id>` remember the room in a permanent `last_room` cookie, which ember-rust sends only when it changes.
+- A `last_room` naming a room you've left, a deleted room or no room at all is ignored.
+- Go Back on workspace settings, room and DM settings and Push Notification Subscriptions returns to the last room visited, otherwise your oldest room, and to `/` only when you have no rooms. New room's Go Back returns to workspace settings.
 
-Note: `/` always opens the first room here.
+Note: `/` always opens the first room here, and with no rooms the page says "No rooms yet."
 
-Sources: [`crates/ember/src/controllers/welcome.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/welcome.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/tracked_room_visit.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/tracked_room_visit.rb)
+Sources: [`crates/ember/src/controllers/welcome.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/welcome.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/welcome/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/welcome/show.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`reference/app/controllers/concerns/tracked_room_visit.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/tracked_room_visit.rb)
 
-ember-rust tests: [`reference/test/controllers/welcome_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/welcome_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs)
+ember-rust tests: [`reference/test/controllers/welcome_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/welcome_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
+
+**Room addresses** (`rooms.index`) ⬜
+
+- `/rooms` goes to the newest room you're in, the one created last; with no rooms, ember-rust answers 500.
+- `/rooms/opens/<id>` and `/rooms/closeds/<id>` remember the room as your last one and redirect to `/rooms/<id>`; a DM's id, or a room you're not in, goes to `/` with "Room not found or inaccessible".
+- `/rooms/directs/<id>` redirects to `/rooms/<id>` without a check, and that page checks membership.
+- `/rooms/opens`, `/rooms/closeds` and `/rooms/directs` are read as room ids, because `/rooms/<id>` is matched first, so they go to `/` with "Room not found or inaccessible".
+
+Note: Here `/rooms` and the `/rooms/opens`, `/rooms/closeds` and `/rooms/directs` addresses all open the first room, and the address stays as typed.
+
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/opens.rs) · [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs) · [`reference/config/routes.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/routes.rb)
+
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs) · [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`reference/test/controllers/rooms/closeds_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/closeds_controller_test.rb)
 
 **Room settings page** (`rooms.settings-page`) ⬜
 
-- The header's Conversation settings opens "Room settings" / "Manage the room name, access, and members.", with Go Back to the last room.
-- An access switch flips between open and private, keeping the draft; private rooms list people with membership switches, filterable above 20 people.
-- People who can change the room get Save, the icon picker and Delete; everyone else gets a read-only page.
+- The room header's settings button (titled "Conversation settings", "Settings for this room" to screen readers) opens a page titled "Edit settings for &lt;name&gt;" that reads "Room settings" / "Manage the room name, access, and members.", with Go Back to the last room.
+- People who can change the room get "Room name", the icon picker, the "Everyone" switch and Save. The switch flips between the open and private forms, keeping the draft.
+- For them, an open room lists everyone active with a check mark, and a private room lists its members with their switches on, then everyone else with theirs off, each group by name; their own switch can remove them. Lists over 20 people get a "Filter…" box.
+- They also get a second panel with Delete, showing the trash icon and the room's name and labelled "Delete &lt;name&gt;".
+- Everyone else gets a read-only page: the name as a heading and the people listed, with no icon picker, switches, check marks, Save, unsaved-changes guard or Delete.
 
-Sources: [`crates/views/templates/rooms/layouts/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/layouts/_form.html) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/closeds/_form.html) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_nav.html)
+Sources: [`crates/views/templates/rooms/layouts/_edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_edit.html) · [`crates/views/templates/rooms/layouts/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_form.html) · [`crates/views/templates/rooms/opens/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/opens/_form.html) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_form.html) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Who can change a room** (`rooms.edit-permissions`) ⬜
 
-- Administrators and the room's creator can change it; other members get 403 and nothing changes.
-- Non-members and missing rooms go to `/` with "Room not found or inaccessible".
+- Administrators and the room's creator can change it. Other members can open its settings page, read-only, but saving answers 403 before any input is checked, and nothing changes.
+- Non-members (administrators included), missing rooms, and a DM's id on the open or private room addresses go to `/` with "Room not found or inaccessible".
 
-Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/opens.rs) · [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/closeds.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/opens.rs) · [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs)
+ember-rust tests: [`reference/test/controllers/rooms/opens_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/opens_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
 **Switch a room between open and private** (`rooms.convert-access`) ⬜
 
-- Making a private room open adds everyone; making an open room private keeps exactly the people chosen and disconnects everyone else.
+- Making a private room open adds everyone, keeping members' notification levels.
+- Making an open room private keeps exactly the people chosen and removes everyone else: their connections drop and reconnect without the room, which leaves their sidebar.
 - Only administrators and the creator can switch a room, DMs never switch, and the room keeps its icon.
+- In ember-rust, other people's sidebars show the switch only after a reload, and people it adds see the room only then.
 
-Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/opens.rs) · [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/closeds.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb)
+Sources: [`crates/ember/src/controllers/rooms/opens.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/opens.rs) · [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb)
 
 **Add and remove private room members** (`rooms.members`) ⬜
 
-- Saving a private room's members adds newcomers at `mentions` and removes everyone else, including the editor if they unticked themselves.
-- People removed are disconnected, the room leaves their sidebar, and they can no longer follow its messages, typing or presence, even with a stream name they saw before.
+- Saving a private room's members adds newcomers at `mentions` and removes everyone else. Editors who untick themselves are removed too, and go to `/` with "Room not found or inaccessible".
+- The form lists only active people, but the id of anyone who exists is accepted.
+- People removed are disconnected and reconnect without the room: it leaves their sidebar, and they can no longer follow its messages, typing or presence, even with a stream name they saw before.
+- Someone removed who still has the room open and sends a message sees "This room was deleted." in place of the composer.
+- In ember-rust, people just added see the room in their sidebar only after a reload.
 
-Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/revocation.rs) · [`reference/app/models/room.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/room.rb)
+Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/closeds.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`reference/app/models/room.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/room.rb)
 
-ember-rust tests: [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/revocation_test.rs) · [`reference/test/models/room_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/room_test.rb)
+ember-rust tests: [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs) · [`reference/test/models/room_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/room_test.rb)
 
 **Delete a room** (`rooms.delete`) ⬜
 
-- Administrators and the room's creator delete a room and all its messages after confirming "Are you sure you want to delete this room and all messages in it? This can’t be undone."; others get 403.
-- The room disappears from every sidebar at once, and anyone still in it who sends a message sees "This room was deleted."
+- Delete in room settings (the trash icon and the room's name, labelled "Delete &lt;name&gt;") asks "Are you sure you want to delete this room and all messages in it? This can’t be undone.", then deletes the room, its messages and its icon, and goes to `/`.
+- Only administrators and the room's creator can delete a room; others get 403.
+- The room disappears from every sidebar at once.
+- Nobody is disconnected: anyone still in the room who sends a message sees "This room was deleted."
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`reference/app/controllers/rooms_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Room icons** (`rooms.icons`) ⬜
 
-- A room's icon is a lowercase Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`; anything else answers 422 before anything is saved.
-- The icon shows on the room's sidebar row and in its header, updates for everyone at once, survives switching access, and is never set for DMs.
+- A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.
+- Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`" coffee "`, `"Coffee"`, `"../coffee"`, `"<svg></svg>"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.
+- The icon shows on the room's sidebar row and in its header. A change reaches its members' sidebars and open headers at once, except one saved together with an access switch (`rooms.convert-access`).
+- The icon survives switching access, and DMs never have one.
 
 Note: Every room shows `#` here.
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs) · [`crates/views/src/helpers/icons.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/icons.rs) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/lucide/catalog.json)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/src/helpers/icons.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/icons.rs) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/room_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/room_test.rs)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/room_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/room_test.rs)
 
 **Room icon picker** (`rooms.icon-picker`) ⬜
 
-- Choose room icon opens "Choose a room icon", loading the catalog the first time: 72 icons a page with Show more icons, popular ones first, and a search that needs every word to match.
-- Picking stages an icon and Use icon applies it; Cancel, Escape or a click outside keeps the old one, and Use default icon resets to `#`.
-- Arrow keys, Home and End move through the grid, and Enter in the search picks the first match. If the catalog can't load: "Icons couldn’t load. Try again; your current icon is unchanged."
+- New room and room settings have a "Room icon" field: a "Choose room icon" button showing the current icon and its label ("Default hashtag" for `#`) with "Choose from Lucide icons", above "Shown beside this room for everyone in the workspace."
+- It opens "Choose a room icon" / "A little personality for your room." with "Search icons, e.g. coffee or rocket" focused, loading the catalog the first time ("Loading icons…"). If that fails: "Icons couldn’t load. Try again; your current icon is unchanged." with Try again.
+- With an empty search, 24 popular icons come first: hash, messages-square, bot, code, sparkles, coffee, rocket, palette, megaphone, heart, lightbulb, music, gamepad-2, book-open, camera, calendar, globe, users, flame, leaf, star, wrench, shield, lock. A search splits on spaces and hyphens, and every word must appear in an icon's name or label.
+- The "Room icons" grid shows 72 icons a page; Show more icons adds the next 72 and focuses the first of them. The status reads "1,869 icons · 72 shown", "5 icons", "1 icon" or "No icons match your search. Try another word."
+- Each icon is a button "Use &lt;Label&gt; icon". Clicking one, or Use default icon, stages it in the footer's preview, and Enter in the search stages the first match.
+- Use icon puts the staged icon in the form, which then counts as changed, and closes; the room keeps it only once the form is saved. Cancel, "Close icon picker", Escape or a click outside close without changing it, and focus returns to the trigger.
+- Arrow keys move through the grid by one or by a row, stopping at the ends, and Home and End go to the first and last icon.
 
-Sources: [`crates/assets/overrides/controllers/icon_picker_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/icon_picker_controller.js) · [`crates/views/templates/rooms/layouts/_icon_picker.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/layouts/_icon_picker.html)
+Sources: [`crates/assets/overrides/controllers/icon_picker_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/icon_picker_controller.js) · [`crates/views/templates/rooms/layouts/_icon_picker.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_icon_picker.html) · [`crates/views/src/helpers/icons.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/icons.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/basecoat/test/lucide.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/test/lucide.test.mjs)
 
 **Unsaved changes guard** (`rooms.unsaved-changes`) ⬜
 
-- Leaving a changed room form, by a link, another form or Back, opens "Unsaved Changes" with Save (focused), Discard and Keep editing; changing a field back clears the guard.
-- Save carries on only once the change is saved; otherwise it says "Your changes couldn’t be saved. Please try again, or keep editing."
-- Reloading or closing the tab with changes raises the browser's own prompt.
+- Leaving a changed room form, by a link, another form, Back or Forward, opens "Unsaved Changes" / "You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were." with Discard and Save (focused). Changing a field back clears the guard.
+- The dialog's × ("Keep editing") and Escape return to the form, and Tab stays within the dialog.
+- Discard carries on without saving, and going Back doesn't bring the discarded edits back.
+- Save first checks the form: if a field is invalid, the dialog closes and the browser points at it. Otherwise it reads "Saving…" with the dialog's buttons disabled, and carries on only once the server confirms the save, so a redirect to sign-in fails: "Your changes couldn’t be saved. Please try again, or keep editing."
+- Switching between open and private doesn't ask: it keeps the draft (name, icon and each form's member choices) and counts as a change.
+- New direct message opens its dialog without asking, but starting the conversation is guarded, and Keep editing returns to the DM dialog.
+- Only people who can change the room are guarded. Reloading or closing the tab with changes raises the browser's own prompt.
 
-Sources: [`crates/assets/overrides/ember/settings.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/settings.js) · [`crates/views/templates/components/unsaved_changes.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/components/unsaved_changes.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs)
+Sources: [`crates/assets/overrides/ember/settings.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/settings.js) · [`crates/views/templates/components/unsaved_changes.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/unsaved_changes.html) · [`crates/views/templates/rooms/layouts/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_form.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
 **Welcome and invite card** (`rooms.invitation-card`) ⬜
 
-- The workspace's first room shows "Welcome to Ember" / "To invite people to chat, share the join link below." with the logo and the join link, until it holds more than 40 messages; no other room shows it.
-- The card has QR code, copy and share buttons, and Share only where the browser can share.
+- The workspace's oldest room, of any kind, shows "Welcome to Ember" / "To invite people to chat, share the join link below." while it holds 40 messages or fewer; no other room shows it. The card comes with the page, so it stays until a reload.
+- It shows the workspace logo, or Ember's mark when there's none, and the absolute join link (`https://<host>/join/<code>`) in a read-only field labelled "Share to invite more people" for screen readers.
+- Its buttons are "Show join link QR code", which opens the QR code in the image viewer, "Copy join link" and "Share join link"; the link can't be regenerated here.
+- Share appears only where the browser can share, and shares the title "Link to join Ember" with "Hit this link to join me in Ember and start chatting."
 
 Note: Every empty room here shows its own welcome instead (`ui.empty-room`).
 
-Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_invitation.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs)
+Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_invitation.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs)
 
-ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Only members see a room** (`rooms.member-only-access`) ⬜
 
-- A room's messages, typing and presence are refused to non-members, including someone removed from the room replaying a stream name they saw earlier.
-- Changes to rooms, DMs, stars, notification levels and sidebar order from another site (`Sec-Fetch-Site: cross-site`) answer 422.
+- Only members get a room's page, messages, typing and presence; anyone else is refused, including someone removed from the room replaying a stream name they saw earlier.
+- Sending a message to a room you're not in, or one that no longer exists, posts nothing and shows "This room was deleted." in place of the composer.
 
 Note: Every room here is open to anyone signed in, and the room socket accepts any well-formed room name, even one that isn't in `DEFAULT_ROOMS`.
 
-Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`crates/ember/src/channels/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/room.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/revocation.rs)
+Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/ember/src/channels/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/room.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/room_not_found.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/room_not_found.html)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/channels_test.rs) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/revocation_test.rs)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
+
+**Rooms from before memberships** (`rooms.legacy-rooms`) ⬜
+
+- Each room named in `LEGACY_ROOMS` is registered as an open room whose id and name are its old address, so `/rooms/general` keeps its messages and reactions, and everyone is a member.
+- Registering again changes nothing, and an old room that isn't listed can no longer be opened.
+- The people who wrote or reacted in those rooms become deactivated people with the same ids and names, so their names and avatar colors still show.
+- A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.
+
+Note: Rooms here are still the names in the `DEFAULT_ROOMS` setting.
 
 </details>
 
@@ -587,54 +736,62 @@ ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github
 
 **Start or reopen a direct message** (`dms.create`) ⬜
 
-- Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM.
-- DM members start at the `everything` notification level, and the DM goes to the top of each member's DM list.
-- Without JavaScript, `/rooms/directs/new` offers a people search and Start Ping.
+- Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM. With nobody chosen, it's your DM with yourself.
+- Anyone who exists can be included, whatever their status, and you go to the DM afterwards.
+- Members of a new DM start at the `everything` notification level, and it goes to the top of their DM lists; reopening a DM leaves it in its place, since the list is ordered by last activity.
+- `/rooms/directs/new`, where New direct message leads when clicked with a modifier key, is a page with "New direct message", a "To" people search, Start Ping and "Search for people to start a conversation."
 
 Note: The sidebar has a DMs heading saying "No direct messages yet.", and New direct message and the rail's DMs are disabled.
 
-Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/directs.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/room.rs) · [`reference/app/models/rooms/direct.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/direct.rb)
+Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/views/templates/rooms/directs/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/new.html) · [`reference/app/models/rooms/direct.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/direct.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/directs_controller_test.rb) · [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs)
+ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/directs_controller_test.rb) · [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
 **Group DMs and DM names** (`dms.naming`) ⬜
 
-- A DM is named after the other members as a sentence ("A and B", "A, B, and C"), or after you when it's only you.
-- Its sidebar row lists the other members after a hidden "Direct message with", with up to 4 avatars for a group.
-- A DM's settings list its members and offer Delete. Members can't be added or removed, and DMs have no star or icon.
+- A DM is named after the other members as a sentence ("A and B", "A, B, and C"), or after you when it's only you; that name is its page title.
+- Its sidebar row says "Direct message with " to screen readers, then the other members' names joined by ", ", or yours followed by " (you)" in a DM with yourself. One other person shows one avatar, a group up to 4.
+- Its header shows the `messages-outlined` icon instead of `#`, says "Direct message with " before the name to screen readers, and has no star; the composer says "Message &lt;name&gt;" without `#`.
+- Its settings button ("Settings for this Ping" to screen readers) opens a page titled "Edit settings for &lt;name&gt;", with a card for each member but you (just you in a DM with yourself) and a button labelled "Delete Ping" whose text is "Ping".
+- Members can't be added or removed, and DMs have no star or icon.
 
-Sources: [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/rooms/_direct.html) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/directs/edit.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/rooms.rs)
+Sources: [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct.html) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/edit.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html)
 
-ember-rust tests: [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Delete a direct message** (`dms.delete`) ⬜
 
-- Any member can delete a DM and its messages, and only their own DMs: anything else goes to `/` with "Room not found or inaccessible".
-- The DM disappears from every sidebar at once.
+- Delete Ping in a DM's settings asks "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", then deletes the DM and its messages and goes to `/`.
+- Any member can delete a DM this way, and only their own DMs: anything else goes to `/` with "Room not found or inaccessible". Deleting a DM through the room address (`DELETE /rooms/<id>`) instead needs an administrator or the DM's creator.
+- The DM disappears from every sidebar at once. Nobody is disconnected: a member who sends a message afterwards sees "This room was deleted."
 
-Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/directs.rs) · [`reference/app/controllers/rooms/directs_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/directs_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/edit.html) · [`reference/app/controllers/rooms/directs_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/directs_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/directs_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs)
+ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/directs_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
 **New direct message dialog** (`dms.picker`) ⬜
 
-- The rail's DMs and the sidebar's New direct message open "New direct message" without leaving the page and focus Search people; on phones the drawer closes first.
-- Typing searches people by name 180ms after you stop, ignoring a leading @ and never listing you, 20 at a time with Show more people. Arrow keys and Enter pick, and each pick becomes a removable chip.
-- Start conversation is disabled until someone is picked. If loading or starting fails it says so and keeps your picks.
-- Cancel, the close button, Escape and a click outside close it, returning focus to what opened it.
+- The rail's DMs and the sidebar's New direct message open "New direct message" / "Find people by full name. You can also type @name." without leaving the page, focus "Search by name or @name" and list the first 20 people; on phones the drawer closes first. Clicked with a modifier key, they follow the link to `/rooms/directs/new`.
+- Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more.
+- The status reads "Search by name or @name.", "Loading people…", "Searching…", "Choose one or more people.", "Everyone shown is selected.", "No people found. Try another name." or "No other people are available to message yet."
+- Clicking a person, or Enter on the one highlighted with the arrow keys (which wrap around), adds a chip "&lt;name&gt; ×" ("Remove &lt;name&gt;") under "Selected people" and takes them out of the list; clicking the chip puts them back. Enter with nobody highlighted does nothing.
+- Start conversation is disabled until someone is picked and says "Starting conversation…" while it works; if starting fails: "Couldn’t start the conversation. Please try again.", keeping your picks.
+- If people can't load: "Couldn’t load people. Please try again." with Try again.
+- Cancel, Close, Escape and a click outside close and clear it, except while a conversation is starting; focus returns to what opened it, or to the drawer's toggle when that's hidden.
 
-Sources: [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/direct_message_controller.js) · [`crates/views/templates/components/direct_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/components/direct_message.html) · [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/autocompletable.rs)
+Sources: [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js) · [`crates/views/templates/components/direct_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/direct_message.html) · [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Suggested people** (`dms.suggestions`) ⬜
 
-- Under your DMs, the sidebar suggests active people you have no DM with, oldest accounts first, never you: 20, less the people across your DMs (you included), less 1, so 19 when you have none.
-- A suggestion starts a DM in one click ("Start a direct message with &lt;name&gt;"). Suggestions hide while Activity is on.
+- Under your DMs, the sidebar suggests active people, bots included, you have no DM with, oldest accounts first, never you.
+- It shows 20, less the people across your DMs (you included), less 1: 19 with no DMs, 17 with one DM with one person, 18 with only a DM with yourself.
+- Each suggestion is a button with the person's avatar and name ("Start a direct message with &lt;name&gt;" to screen readers) that starts the DM in one click. Suggestions hide while Activity is on.
 
-Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct_placeholder.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/rooms/_direct_placeholder.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb)
+Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct_placeholder.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct_placeholder.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 </details>
 
@@ -651,102 +808,134 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | Star rooms | `sidebar.favorites` | Ember | ⬜ Not started |  |
 | Reorder starred rooms | `sidebar.favorite-order` | Ember | ⬜ Not started |  |
 | Shared room order | `sidebar.shared-order` | Ember | ⬜ Not started |  |
+| Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Conversations sidebar** (`sidebar.rooms`) 🟡
 
-- The sidebar shows the workspace name, the rooms (a section named Rooms with no visible heading), then a DMs heading with New direct message, your DMs and suggestions; "No conversations found." when a filter leaves nothing.
+- The sidebar shows the workspace name, the rooms you haven't hidden (a section named Rooms with no visible heading), then a DMs heading with New direct message (a link to `/rooms/directs/new`), your DMs and suggestions. "No conversations found." shows when there's nothing to list.
 - Room rows show the room's icon and name and are at least 36px tall (44px on phones). The room you're in is marked `aria-current="page"` and set in weight 600, even on a link to one of its messages.
-- It loads once and stays put as you move between rooms.
+- It's on every signed-in page, settings and profiles included, and stays put as you move between pages, reloading only in the background (`sidebar.live-updates`).
 
-Note: The sidebar lists the rooms and marks the one you're in. DMs, unread marks and stars aren't here yet.
+Note: The sidebar lists every room with a `#` and marks the one you're in. Missing: the workspace's name (the heading says "Ember"), room icons, DMs and suggestions (New direct message is a disabled button, and "No direct messages yet." stands in for the list), "No conversations found.", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.
 
-Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/show.html) · [`crates/views/templates/users/sidebars/rooms/_shared.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/rooms/_shared.html) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/sidebars.rs)
+Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/templates/users/sidebars/rooms/_shared.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_shared.html) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 
-ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Room order** (`sidebar.room-order`) ⬜
 
-- Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically, ignoring case.
-- Shared-order rooms you can't see are skipped, and your stars never reorder anyone else's sidebar.
+- Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.
+- A room added or renamed while the page is open sorts into place at once.
+- Shared-order rooms you can't see are skipped, and their ids never reach your page. Your stars never reorder anyone else's sidebar.
 
 Note: Rooms are listed in `DEFAULT_ROOMS` order here.
 
-Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/account.rs)
+Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/account_test.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
 **DM order** (`sidebar.dm-order`) ⬜
 
-- DMs are listed most recently active first, and a DM with a new message jumps to the top at once, in the sender's sidebar too. Suggestions always come after.
+- On load, DMs are listed most recently active first; a new message, an edit, a deletion, an attachment change and a reaction all count as activity.
+- While the page is open, only new messages move a DM: it jumps to the top at once in every member's sidebar, the author's too, bot and webhook messages included.
+- Suggestions always come after your DMs.
 
-Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/rooms/_direct.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb)
+Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb) · [`reference/app/javascript/controllers/sorted_list_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sorted_list_controller.js) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/rooms_list_controller.js) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
 
 ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`reference/test/system/unread_rooms_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unread_rooms_test.rb)
 
 **Live sidebar updates** (`sidebar.live-updates`) ⬜
 
-- Every sidebar adds new open rooms, renames them and drops deleted rooms as it happens; private rooms, DMs and hidden rooms reach only the people concerned.
-- The sidebar reloads when the connection comes back, and when the tab returns after more than 60 seconds hidden.
-- Saving the shared room order makes every open sidebar reload, keeping its scroll position and focus.
+- A new open room appears in every sidebar as it's created, and renaming an open room shows in every sidebar at once.
+- Private rooms appear and change only for their members. A new one appears at once in its members' sidebars; when one is renamed or its members change, its remaining members see it at once, and people just given access see it on their next reload.
+- A deleted room of any kind disappears at once from every sidebar showing it, and hiding or showing a room changes only your own sidebar.
+- When you lose access to a room your live connection drops, and the reload when it reconnects removes the room.
+- The sidebar reloads when its live connection first comes up and whenever it comes back, and when a room page's tab returns after more than 60 seconds hidden.
+- Saving the shared room order makes every open sidebar reload (`sidebar.refresh-preserves-state`).
 
-Sources: [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/broadcasts.rs) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/rooms_list_controller.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js)
+Sources: [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/rooms_list_controller.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js)
 
-ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/broadcasts_test.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
 
 **Unread rooms** (`sidebar.unread`) ⬜
 
-- A new message marks its room unread for every member except the sender, people who hid the room, and people who've had it open in the last 60 seconds.
-- Members hear of it on their own unread stream (nobody outside the room does), and the row turns bold with a 7px dot unless it's the room being viewed.
-- Opening the room clears the mark, in your other tabs too.
+- A new message, from a person, a bot or a webhook, marks its room unread for every member except its author, people who've hidden the room and people viewing it. Edits, deletions and reactions mark nothing.
+- You're viewing a room while a tab shows it, from when it opens until 5 seconds after the tab is hidden, and again from 5 seconds after it's shown; a connection that dropped without closing counts for up to 60 seconds.
+- Nobody outside the room hears of its messages. Members it marks see the row turn bold with a 7px dot in every tab not showing the room, and the mark survives reloads.
+- The row also turns bold, until the sidebar next reloads, in tabs of members the message didn't mark: the author's other tabs, and tabs of members viewing the room elsewhere.
+- Opening the room clears the mark in all your tabs once its live connection is up; a request for the room's page alone doesn't. Coming back to a tab showing the room clears it 5 seconds after the tab is shown.
+- A tab never shows its own room bold, even while it's hidden and the room is marked.
 
-Sources: [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/room.rs) · [`crates/ember/src/channels/unread_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/unread_rooms.rs) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/rooms_list_controller.js) · [`reference/app/channels/unread_rooms_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/unread_rooms_channel.rb)
+Sources: [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/ember/src/channels/unread_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/unread_rooms.rs) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/rooms_list_controller.js) · [`reference/app/channels/unread_rooms_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/unread_rooms_channel.rb) · [`crates/ember/src/channels/presence.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/presence.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`reference/app/javascript/controllers/presence_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/presence_controller.js) · [`reference/app/javascript/controllers/read_rooms_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/read_rooms_controller.js)
 
-ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/channels_test.rs) · [`reference/test/system/unread_rooms_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unread_rooms_test.rb) · [`reference/test/channels/unread_rooms_channel_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/unread_rooms_channel_test.rb)
+ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`reference/test/system/unread_rooms_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unread_rooms_test.rb) · [`reference/test/channels/unread_rooms_channel_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/unread_rooms_channel_test.rb) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs)
 
 **Activity filter** (`sidebar.activity-filter`) ⬜
 
-- The rail's Activity shows only unread conversations (`aria-pressed`) and hides suggestions; with nothing unread it says "You’re all caught up. No unread conversations."
-- Its badge counts unread conversations, each once, hides at 0 and updates as messages arrive.
-- Following any rail or sidebar link turns it off. On phones, turning it on opens the drawer.
+- The rail's Activity button (titled "Show unread conversations", `aria-pressed`) toggles a filter that shows only unread conversations and hides suggestions; with nothing unread it says "You’re all caught up. No unread conversations."
+- Its badge shows how many rooms and DMs are unread, never counting the room you're viewing. It hides at 0 and updates as messages arrive and rooms are read.
+- Following any rail or sidebar link turns the filter off. Other navigation and background sidebar reloads leave it on, and a full page load starts with it off.
+- On phones, every click on Activity opens the drawer, whether it turns the filter on or off.
 
 Note: The rail shows Activity, disabled.
 
-Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html)
+Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Star rooms** (`sidebar.favorites`) ⬜
 
-- The header's star ("Favorite room", `aria-pressed`, titled Add to favorites or Remove from favorites; not on DMs) stars a room for you alone, moving it to the top of your sidebar with a star.
-- DMs, hidden rooms and rooms you're not in can't be starred (403), and you can star up to 4,096 rooms.
-- If saving fails it says "Couldn’t save your favorite. Please try again." and the star goes back.
+- The header's star ("Favorite room", `aria-pressed`, titled "Add to favorites" or "Remove from favorites"; not on DMs) stars a room for you alone. It's disabled while saving and changes only once the save succeeds.
+- A starred room moves to the top of your sidebar with a ★ ("Favorite" to screen readers). A new star goes after your other stars, and starring a starred room keeps its place.
+- DMs, hidden rooms, rooms you're not in or that don't exist, and a star past 4,096 answer 403. An id that isn't a positive number answers 400 "invalid room ID", and a `favorite` other than `true` or `false` answers 400 "favorite must be true or false".
+- Starring or unstarring also drops your stars on rooms you've since left or hidden.
+- The answer lists your stars in order (`{"favorite_channels":[...]}`), and without JavaScript the form redirects back to the room.
+- The sidebar re-sorts at once in the tab that starred; your other tabs catch up on their next reload.
+- If saving fails it says "Couldn’t save your favorite. Please try again." and the star stays as it was.
 
-Sources: [`crates/ember/src/controllers/rooms/favorites.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/favorites.rs) · [`crates/assets/overrides/controllers/room_favorite_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/room_favorite_controller.js) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_nav.html)
+Sources: [`crates/ember/src/controllers/rooms/favorites.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/favorites.rs) · [`crates/assets/overrides/controllers/room_favorite_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/room_favorite_controller.js) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/account_test.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
 **Reorder starred rooms** (`sidebar.favorite-order`) ⬜
 
-- Drag a starred row (on touch, hold it for 400ms; moving 8px first cancels) or press Alt+Up or Alt+Down on it, and the new order is saved.
-- The saved list must be exactly your starred rooms; anything else is refused.
-- Moves are announced: "Starred room order saved.", "Room move canceled." after Escape, or "Couldn’t save room order. Please try again." with the old order put back.
+- With at least two starred rooms showing, a starred row can be dragged after a 400ms hold with a mouse, pen or finger (moving 8px first cancels), or moved with Alt+Up and Alt+Down. The new order saves at once, and unstarred rows don't move.
+- Dragging near the list's top or bottom scrolls it, and releasing a drag never opens the room.
+- A save sends all your stars in order, starred rooms Activity hides included. Any list but exactly your stars on rooms still in your sidebar answers 403.
+- A malformed list answers 400: "room_ids must be an array", "too many rooms" (over 4,096) or "room IDs must be unique positive integers".
+- Screen readers hear "Moving &lt;name&gt;. Release to save, or press Escape to cancel.", "Saving room order…" and "Starred room order saved." Escape, or a canceled touch, puts the row back with "Room move canceled." and saves nothing.
+- A failed save shows "Couldn’t save room order. Please try again.", the only message shown on screen, and puts the old order back unless your stars changed meanwhile.
+- The room list tells screen readers "Hold a starred room to drag it, or press Alt and the up or down arrow to reorder your favorites. Other rooms follow the workspace order."
 
-Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/account.rs)
+Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/account_test.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
 **Shared room order** (`sidebar.shared-order`) ⬜
 
-- Administrators arrange rooms for everyone in workspace settings by dragging or with Alt+Up and Alt+Down; changes wait as a draft ("Unsaved room order. Save to apply it to everyone.") until Save order.
-- Saving announces "Room order saved for everyone." and reloads every open sidebar; members get 403.
+- Administrators arrange the rooms in their own sidebar, DMs aside, in workspace settings, under "Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.", or see "No rooms to arrange yet." when there are none. Members don't see it.
+- A row moves by dragging its "Move &lt;name&gt;" handle, at once with no hold ("Moving &lt;name&gt;. Release to place, or press Escape to cancel."), or with Alt+Up and Alt+Down.
+- Moves wait as a draft ("Unsaved room order. Save to apply it to everyone."). Save order and Cancel are disabled until the draft differs from the saved order, and Cancel puts the saved order back.
+- Saving shows "Room order saved for everyone." and makes every open sidebar reload, through a broadcast that names no rooms. A failure shows "Couldn’t save room order. Please try again." and keeps the draft.
+- Rooms outside the administrator's sidebar keep their places in the order, rooms left out of a shorter list lose their rank, and an empty list clears the order.
+- Members get 403, and so does a list naming a room outside the administrator's sidebar. A malformed list answers 400, as in `sidebar.favorite-order`.
 - Everyone's stars, and their order, are kept.
 
-Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/account.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/edit.html)
+Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/account_test.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
+
+**Background sidebar reloads keep your place** (`sidebar.refresh-preserves-state`) ⬜
+
+- A reload for a shared-order change waits until any hold, drag or save in the room list is over, then keeps the list's scroll position and the focused row.
+- Other background reloads, on reconnect or when a tab comes back after 60 seconds, never interrupt a hold, drag or save in progress.
+
+Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js)
+
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 </details>
 
@@ -760,7 +949,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Delete a message | `messages.delete` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Scroll back through history | `messages.history` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
-| Group messages by author | `messages.grouping` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Group messages by author | `messages.grouping` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Day separators | `messages.day-separators` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Message rows | `messages.layout` | Ember | ✅ Ported | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Times on follow-up messages | `messages.follow-up-times` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -770,6 +959,9 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Link to a message | `messages.permalink` | Campfire | ⬜ Not started |  |
 | Emoji-only messages | `messages.emoji-only` | Campfire | ⬜ Not started |  |
 | /play sounds | `messages.sounds` | Campfire | ⬜ Not started |  |
+| Plain-text version of a message | `messages.plain-text` | Campfire | ⬜ Not started |  |
+| Links in message text | `messages.autolink` | Campfire | ⬜ Not started |  |
+| Messages that can't be shown | `messages.unrenderable` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -783,22 +975,23 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 Note: Messages are plain text sent over the room's WebSocket rather than rich text posted over HTTP, and are capped at 10,000 characters.
 
-Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/message.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message.rb)
+Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/message.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb)
 
 **Rich text, safely** (`messages.rich-text`) ⬜
 
-- Bold, italic, links, lists, headings, quotes, code and tables survive, and `~~x~~` becomes strikethrough.
-- Scripts, event handlers and style attributes are stripped, and autolinking can't inject markup.
-- Code blocks are highlighted (bash, css, diff, go, java, javascript, json, python, ruby, rust, sql, xml). Links to this site open in place and others in a new tab.
-- Content that can't be shown, such as markup nested too deep, reads "Failed to load message content" but is still delivered and searchable.
+- Bold, italic, strikethrough, underline, highlight, code, links, headings, quotes with their attribution, nested lists, code blocks, dividers and tables survive, and `~~x~~` becomes strikethrough.
+- Scripts, event handlers, styles, `target`, `rel`, `name`, list numbering (`start`, `value`) and data attributes other than `data-language` are stripped, and table wrappers are unwrapped.
+- Images inside the text are removed; only attachments show images.
+- Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
+- While a message is sending, its pending copy shows the formatting as typed.
 
 Note: Messages here are plain text: line breaks are kept and nothing else is formatted.
 
-Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js)
+Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
-ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/helpers/content_filters_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/helpers/content_filters_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/helpers/content_filters_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/helpers/content_filters_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs)
 
 **See your message before it's saved** (`messages.optimistic`) ✅
 
@@ -807,34 +1000,37 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - A send that fails marks the pending message as failed.
 - Three quick sends confirmed out of order still group under one header.
 
-Sources: [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/messages_controller.js) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/models/client_message.js) · [`crates/views/templates/messages/_template.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_template.html)
+Sources: [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js) · [`crates/views/templates/messages/_template.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_template.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/broadcasts_test.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs)
 
 **Edit a message** (`messages.edit`) 🟡
 
 - The author or an administrator can edit a message; anyone else gets 403. Edit shows on your own messages, and on everyone's for administrators.
-- The change reaches everyone in the room in place, without moving their scroll position, and updates search.
-- The editor keeps mentions and link previews and can't add files. Ctrl or Cmd+Enter saves, Enter starts a new line and Escape cancels. File messages can only be deleted.
-- Up Arrow in an empty composer edits your latest message.
+- The change reaches everyone in the room in place, without moving their scroll position, and updates search, but notifies no one and isn't sent to bots.
+- Only the text is replaced, so reactions and an open custom reaction form stay as they were.
+- The editor, "Edit message", keeps mentions and link previews and can't add files; file messages can only be deleted. Ctrl or Cmd+Enter saves, Enter starts a new line and Escape cancels.
+- Its buttons are Save changes, Delete message and Close editor and discard changes. It sends no typing notice, and shows a formatting toolbar above the text only on wide screens with a mouse.
+- Saving without changes leaves the message as it was, its update time included.
+- Up Arrow pressed anywhere on the page, while the composer is blank and the newest messages are loaded, edits your latest loaded message.
 
-Note: Only authors can edit, since there are no administrators yet. On a computer Enter saves (Shift+Enter starts a new line) rather than starting a new line. Up Arrow does nothing, and edited messages say "(edited)", which ember-rust's don't. A message grouped under the one before has no header, so its mark follows the text.
+Note: Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing, and the server saves an unchanged body as an edit, though the app never sends one. Edited messages say "(edited)", which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.
 
-Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb)
+Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/composer.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/composer.css)
 
-ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
+ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
 **Delete a message** (`messages.delete`) 🟡
 
 - The author or an administrator can delete a message, with its reactions and file; anyone else gets 403.
 - It disappears for everyone in the room at once and leaves search.
-- Delete is in the message's edit view, not on its action bar, and asks "Are you sure you want to delete this message?"
+- Delete message is a button in the message's editor, not on its action bar, and asks "Are you sure you want to delete this message?" A file message's editor holds only the file and this button.
 
 Note: Delete is on the action bar and asks "Delete this message?". Only authors can delete.
 
-Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/message.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/edit.html)
+Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html)
 
-ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`reference/test/system/sending_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/sending_messages_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs)
+ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`reference/test/system/sending_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/sending_messages_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
 **Scroll back through history** (`messages.history`) 🟡
 
@@ -844,29 +1040,33 @@ ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](htt
 
 Note: Pages hold 50 messages. The timeline only grows backwards from the newest message, so it never pages forward or trims.
 
-Sources: [`reference/app/models/message/pagination.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/pagination.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`reference/app/javascript/models/message_paginator.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_paginator.js)
+Sources: [`reference/app/models/message/pagination.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/pagination.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/javascript/models/message_paginator.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_paginator.js)
 
-ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Group messages by author** (`messages.grouping`) ✅
+**Group messages by author** (`messages.grouping`) 🟡
 
-- A message from the same person within 5 minutes of their last shows without their avatar or name.
+- A message shows without its author's avatar and name when the message above it is theirs and no more than 5 minutes apart (exactly 5 minutes still groups).
+- Days don't break a group: a follow-up just after midnight gets the day separator but still no avatar or name.
 - Grouping is worked out again as pages load and messages arrive, so it doesn't depend on the order they reached the page.
 
-Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/messages_controller.js)
+Note: Messages exactly 5 minutes apart don't group, and the first message of a day always shows its author's avatar and name.
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
+
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Day separators** (`messages.day-separators`) 🟡
 
 - The first message of each day in the viewer's time zone, and the first one loaded, gets a separator with the date written out ("October 12, 2026").
+- Hovering the date shows the short date and time of the day's first message ("10/12/26, 3:04 PM").
 - The separator is a 14px bold pill, not uppercase, with a rule on either side.
 
-Note: Separators read "Today", "Yesterday", or the weekday and date.
+Note: Separators read "Today", "Yesterday", or the weekday and date, and show nothing on hover.
 
-Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/controllers/local_time_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/local_time_controller.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Message rows** (`messages.layout`) ✅
 
@@ -874,9 +1074,9 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Hovering a message tints its row (`#f8f8f8`, or `#202020` in dark) without moving anything.
 - On phones the avatar is 30px with a 10px gap and 12px inset, and long words wrap rather than run off the screen.
 
-Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_message.html)
+Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Times on follow-up messages** (`messages.follow-up-times`) 🟡
 
@@ -885,40 +1085,41 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 Note: Follow-up times appear in the avatar column, and times aren't links.
 
-Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_message.html)
+Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Message action bar** (`messages.actions`) 🟡
 
-- Hovering a message, or opening its Message options, shows its bar: three quick reactions, More reactions, then Reply (or Download and Share for files), Copy link and Edit. Only one bar is open at a time.
-- Leaving a message closes its bar after 180ms unless the pointer reaches the bar, and Escape closes it, returning focus to Message options.
-- A reaction, Edit, a click or tap anywhere else, or Message options again closes the bar. A reaction hands focus back to Message options.
-- On touch screens a 44px Message options button opens the bar 6px below it, or above it when there's no room, and the bar stays on screen at 320px wide.
+- Hovering a message with a mouse, or opening its Message options, shows its bar: three quick reactions, Reply (or Download and Share for files), Copy link, Edit, then More reactions, followed by Message options itself when using a mouse.
+- Leaving the message closes a bar that hovering opened after 180ms, unless the pointer comes back or the bar has focus. Clicking Message options pins such a bar open, and only one bar is open at a time.
+- A reaction, Reply, Edit, New boost, Message options again, a click, tap or focus anywhere else, or the message scrolling out of view closes the bar, but Copy link leaves it open. A reaction hands focus back to Message options.
+- Escape closes More reactions first, returning focus to its button, then the bar, returning focus to Message options. When Add a boost opened them, Escape closes both and returns focus to Add a boost.
+- Without a mouse, Message options opens the bar 6px below it, or above it when there's no room. On phones the button is 44px and the bar stays on screen at 320px wide.
 
-Note: The bar has Edit and Delete on your own messages, and no Reply or Copy link. With a mouse it closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it.
+Note: More reactions comes straight after the quick reactions, Edit and Delete follow on your own messages, and there's no Reply or Copy link. With a mouse the bar closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. An open bar stays open when its message scrolls out of view.
 
-Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Reply with a quote** (`messages.reply`) ⬜
 
-- Reply puts the message in the composer as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.
-- Mentions in the quote become plain text and link previews are dropped. File messages offer Download and Share instead.
+- Reply replaces whatever is in the composer with the message as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.
+- Mentions in the quote become the person's name without "@", and link previews are dropped; a message that was only a preview is quoted as its address. File messages offer Download and Share instead.
 
-Sources: [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html)
+Sources: [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html)
 
-ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Copy a link to a message** (`messages.copy-link`) ⬜
 
-- Copy link copies `<origin>/rooms/<room>/@<message>` and briefly shows a check. Every message has it, files included.
+- Copy link copies `<origin>/rooms/<room>/@<message>` and turns its icon green until it's clicked again; the bar stays open, and a failed copy shows nothing. Every message has it, files included.
 - Pages carry only the path, so a forged Host header never reaches another person's copy.
 
-Sources: [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html)
+Sources: [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html)
 
-ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Link to a message** (`messages.permalink`) ⬜
 
@@ -926,24 +1127,61 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - An unknown message opens the newest page, and a room you can't see goes to `/` with the alert. The room stays marked in the sidebar.
 - `/rooms/<room>/messages/<id>` shows a single message, or 404 when it isn't in that room.
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms.rs) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/messages.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/messages.css)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/messages.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/messages.css)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Emoji-only messages** (`messages.emoji-only`) ⬜
 
 - A message that's only emoji ("😄🤘", but not "Haha! 😄🤘" or "🔥 💯") shows large without a bubble, pending ones included; reactions that are all emoji are larger too.
+- Skin tones, flags, ❤️, © and ™ count as emoji, but emoji joined with zero-width joiners, like families, and keycaps like 1️⃣ don't.
 
-Sources: [`reference/lib/rails_ext/string.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/string.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/models/client_message.js)
+Sources: [`reference/lib/rails_ext/string.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/string.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js)
 
 ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message_test.rb) · [`reference/test/system/sending_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/sending_messages_test.rb)
 
 **/play sounds** (`messages.sounds`) ⬜
 
 - A message of exactly `/play <name>`, naming one of 56 sounds, shows a 🔊 button with the sound's picture or caption (bell shows 🔔); anything else is ordinary text.
-- The sound plays for people looking at the newest messages when it arrives, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.
+- The sound plays as the message arrives for everyone whose timeline reaches the newest message, the sender included, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.
+- While it's sending, any text that starts with `/play <name>` shows "Playing &lt;name&gt;…", even `/play tada now`, which is then saved as ordinary text.
 
-Sources: [`reference/app/models/sound.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/sound.rb) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/message.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/messages/presentation.rs)
+Sources: [`reference/app/models/sound.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/sound.rb) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
+
+ember-rust tests: [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs)
+
+**Plain-text version of a message** (`messages.plain-text`) ⬜
+
+- Paragraphs, lists, quotes and top-level headings end with a blank line, and line breaks and divs with a newline. Other headings, code blocks and table cells add no breaks of their own, and trailing newlines are trimmed.
+- Quotes are wrapped in “ ”, list items start with "• " or "1. ", "2. " and so on, nested ones indented two spaces a level, and captions read "[caption]". Scripts and styles are dropped.
+- Mentions read "@Name", images "[caption]" or "[Image]", and link previews add nothing. A message with no text reads as its file's name, and one whose body can't be converted is empty.
+- Search indexes this text, push notifications and webhooks carry it, and emoji-only and /play detection read it.
+
+Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/plain_text.rs) · [`crates/richtext/src/content.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/content.rs) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
+
+ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/reference_tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/reference_tests.rs)
+
+**Links in message text** (`messages.autolink`) ⬜
+
+- Addresses that start with a known scheme and `://` (http, https, ftp, mailto, ssh, file and 18 more) or with `www.`, and email addresses, become links; `www.` addresses get `http://` and email addresses `mailto:`.
+- Trailing punctuation stays out of the link unless it closes a bracket the address opened. Text already in a link isn't linked again, but addresses in code are linked.
+- `javascript:` and unknown schemes stay text, and quotes or angle brackets can't break out of a link.
+- Links to this site open in place; others open in a new tab.
+
+Sources: [`crates/richtext/src/autolink.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/autolink.rs) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js)
+
+ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/hardening.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/hardening.rs)
+
+**Messages that can't be shown** (`messages.unrenderable`) ⬜
+
+- A message whose author no longer exists, or whose body can't be read (markup nested too deep), shows a centered "Failed to load message content" with no avatar, name, time, actions or reactions.
+- A body that can't be read is still delivered, pushed and sent to bots, but as empty text (or its file's name), so search can't find its words.
+- A body that can be read but not shown, such as an image whose address is `javascript:`, shows as an empty message.
+- Attachments in the text that can't be resolved show ☒.
+
+Sources: [`crates/views/templates/messages/_unrenderable.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_unrenderable.html) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs) · [`crates/ember/src/rich_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/rich_text.rs)
+
+ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/hardening.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/hardening.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
 </details>
 
@@ -960,36 +1198,38 @@ Sources: [`reference/app/models/sound.rb`](https://github.com/basecamp/once-camp
 
 **React to a message** (`boosts.add`) 🟡
 
-- Any member can react ("boost"), and the reaction appears for everyone at once. Reactions are listed oldest first, each with its booster's avatar ("&lt;name&gt; boosted &lt;content&gt;").
+- Any member can react ("boost"), and the reaction appears for everyone at once. Reactions are listed oldest first, each its own pill with its booster's avatar ("&lt;name&gt; boosted &lt;content&gt;"), so one person can add the same reaction more than once.
 - The bar's quick reactions are 👍 Thumbs up, 👏 Clapping and 👋 Waving hand; More reactions adds 💪 Muscle, ❤️ Red heart, 😂 Face with tears of joy, 🎉 Party popper, 🔥 Fire and New boost. Reacting closes the bar.
-- Once a message has reactions, an Add a boost link after them opens the same choices.
+- Once a message has reactions, an Add a boost link after them opens its bar with More reactions showing.
 
 Note: Reactions are grouped by emoji with a count and the names of who reacted, and clicking someone else's adds yours, so each person can add each emoji once. There's no New boost in the tray and no Add a boost link.
 
-Sources: [`crates/ember/src/controllers/messages/boosts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/boosts.rs) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html) · [`crates/views/src/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/messages.rs) · [`reference/app/controllers/messages/boosts_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts_controller.rb)
+Sources: [`crates/ember/src/controllers/messages/boosts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/boosts.rs) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/views/src/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages.rs) · [`reference/app/controllers/messages/boosts_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts_controller_test.rb) · [`reference/test/system/boosting_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/boosting_messages_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts_controller_test.rb) · [`reference/test/system/boosting_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/boosting_messages_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Custom reactions** (`boosts.custom`) 🟡
 
-- New boost opens a small form, Custom reaction ("Emoji or a short message", up to 16 characters, not blank), with Add reaction and Cancel; Escape cancels.
+- New boost opens a small form, Custom reaction ("Emoji or a short message", "Up to 16 characters."), with Add reaction and Cancel; Escape cancels. A reaction can't start with a space.
 - The 16-character limit is the browser's; the server takes any length.
+- What you've typed in the form survives someone else editing or reacting to the message.
 - The form fits phones down to 320px wide.
 
 Note: The server takes custom reactions of up to 16 characters, but there's no form for them yet.
 
-Sources: [`crates/views/templates/messages/boosts/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/boosts/new.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/messages/boosts/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/boosts/new.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`reference/test/system/boosting_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/boosting_messages_test.rb)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/system/boosting_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/boosting_messages_test.rb)
 
 **Take back a reaction** (`boosts.remove`) 🟡
 
 - Only the person who reacted can remove a reaction (404 for anyone else, administrators included), and it disappears for everyone.
-- Clicking your own reaction, or pressing Enter on it, reveals Delete this boost; other people's reactions do nothing.
+- Clicking your own reaction, or pressing Enter on it, reveals Delete this boost; other people's reactions do nothing. Only your own reactions take keyboard focus, described as "Press enter to delete this boost".
+- A reaction you delete animates out.
 
-Note: Clicking your reaction removes it straight away.
+Note: Clicking your reaction removes it straight away, without animating it out, and every reaction takes keyboard focus.
 
-Sources: [`crates/ember/src/controllers/messages/boosts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/boosts.rs) · [`reference/app/javascript/controllers/boost_delete_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/boost_delete_controller.js)
+Sources: [`crates/ember/src/controllers/messages/boosts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/boosts.rs) · [`crates/views/templates/messages/boosts/_boost.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/boosts/_boost.html) · [`reference/app/javascript/controllers/boost_delete_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/boost_delete_controller.js)
 
 ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts_controller_test.rb) · [`reference/test/system/boosting_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/boosting_messages_test.rb)
 
@@ -1001,30 +1241,40 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 |---|---|---|---|---|
 | @-mention people | `mentions.autocomplete` | Campfire | ⬜ Not started |  |
 | Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| How mentions look | `mentions.render` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **@-mention people** (`mentions.autocomplete`) ⬜
 
-- Typing @ lists the room's active members whose name contains what follows, 20 at a time, or "No matches"; picking one inserts a mention shown as their avatar and name.
-- The people search answers HTML or JSON (`name`, `value`, `avatar_url`, `sgid`) ordered by name; a room you're not in is 404.
+- Typing @ at the start of a line or after a space, outside code, lists the room's active members whose name contains what follows, bots and you included, or "No matches". Only the first 20 are offered.
+- Up and Down move through the list; Enter, Tab, Space and comma pick; Escape closes it. Picking inserts a mention shown as the person's avatar and name.
+- The people search answers HTML or JSON (`name`, `value`, `avatar_url`, `sgid`) ordered by name, 20 a page; a room you're not in is 404. Names are matched with SQL `LIKE`, so case is ignored only for ASCII letters and `%` and `_` act as wildcards.
 
-Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/autocompletable.rs) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb)
+Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js)
 
 ember-rust tests: [`reference/test/controllers/autocompletable/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/autocompletable/users_controller_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
 **Highlight mentions of you** (`mentions.highlight`) 🟡
 
-- Mentions show inline as the person's avatar and name, and as "@Name" in plain text.
 - Messages that mention you get a 2px left border and a light tint, in rooms and in search results.
-- Only current room members can be mentioned, each once per message.
+- Only a mention picked from the list counts; "@Name" typed out by hand is plain text.
 
-Note: Without mention autocomplete, a message mentions you when it has "@" followed by your name as a whole word, in any case.
+Note: Without mention autocomplete, a message mentions you when it has "@" followed by your name as a whole word, in any case. Unlike ember-rust, this port shows the highlight: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches.
 
-Sources: [`reference/app/models/message/mentionee.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/mentionee.rb) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`reference/app/models/message/mentionee.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/mentionee.rb) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
 ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
+
+**How mentions look** (`mentions.render`) ⬜
+
+- A mention shows the person's avatar, linked to their profile and titled "Name – bio", then their current name, every time they're mentioned. Renaming someone updates every mention of them.
+- A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.
+
+Sources: [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/views/templates/users/_mention.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_mention.html) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs)
+
+ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/reference_tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/reference_tests.rs) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
 </details>
 
@@ -1039,73 +1289,134 @@ ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/b
 | Image viewer | `attachments.lightbox` | Campfire | ⬜ Not started |  |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
 | Download and share files | `attachments.download-share` | Ember | ⬜ Not started |  |
+| File links | `attachments.serving` | Campfire | ⬜ Not started |  |
+| Files leave with their messages | `attachments.purge` | Campfire | ⬜ Not started |  |
+| How files are recognized | `attachments.types` | Campfire | ⬜ Not started |  |
+| Direct uploads | `attachments.direct-uploads` | Campfire | ➖ Not applicable |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Attach files** (`attachments.upload`) ⬜
 
-- Files are attached with the picker (several at once), by pasting, or by dropping them on the messages or the composer. Queued files show as removable chips sorted by name, with thumbnails for images.
-- Sending posts each file as its own message before the text. The server records image and video sizes and makes previews up to 1200×800.
+- Files are attached with Attach files (several at once, of any type), by pasting, or by dropping them on the messages or the composer. Files pasted or dropped onto the text box are queued too, never placed in the text, and the same file can be picked again.
+- Queued files show as chips sorted by name, images as thumbnails and other files as a file icon, captioned with the name up to its last dot, then "." and the extension; clicking a chip removes it.
+- Sending posts the text at once and uploads the files one at a time, each becoming its own message when its upload finishes, so the text usually arrives first.
+- Nothing sends while the app is offline, and leaving the room drops files whose upload hasn't started.
+- Before answering, the server records image and video sizes (turned by EXIF orientation or the video's rotation) and makes a still thumbnail within 1200×800, or a WebP poster for a video. If that fails, the message is kept but not broadcast (it appears on reload), and the upload shows as failed.
+- Uploading into a room that was deleted, or that the sender has left, stores nothing and shows "Upload failed. Please attach the file and try again."
 - A file message's text, for search, push and webhooks, is its file name.
 
-Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/composer_controller.js) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs) · [`reference/app/models/message/attachment.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/attachment.rb)
+Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`reference/app/javascript/controllers/drop_target_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/drop_target_controller.js) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/vips.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/vips.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`reference/app/models/message/attachment.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/attachment.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`reference/test/models/message/attachment_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/attachment_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/models/message/attachment_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/attachment_test.rb)
 
 **250 MB file limit** (`attachments.size-limit`) ⬜
 
-- Files over 250,000,000 bytes are refused before uploading, with "&lt;name&gt; is too large. Choose a file that’s 250 MB or smaller."; other files still queue.
-- The server answers 413 as soon as a larger file arrives, and saves nothing.
+- Files over 250,000,000 bytes aren't queued (exactly 250,000,000 is fine): one alert under the chips lists "&lt;name&gt; is too large. Choose a file that’s 250 MB or smaller." for each, joined by spaces, and other files still queue.
+- The alert stays through sending and removing chips, and clears on the next pick, drop or paste, even a paste of plain text.
+- The server answers 413 as soon as a larger file arrives and saves nothing; the upload's card then says "Files must be 250 MB or smaller."
 
-Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/kit/src/body.rs) · [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/models/file_uploader.js)
+Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs) · [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/file-uploader.test.mjs) · [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/kit/tests/http.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/file-uploader.test.mjs) · [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs)
 
 **Upload progress** (`attachments.progress`) ⬜
 
-- Each upload shows a card with its name, size (KB under 1,000,000 bytes, otherwise MB to one decimal) and progress, "Uploading · 42%", then "Processing…" until the message arrives.
-- Failures say why: "Files must be 250 MB or smaller.", "Upload failed. Please attach the file and try again.", "Connection lost. Please attach the file and try again.", "Upload canceled." or "Upload timed out. Please attach the file and try again." Other files carry on, and typed text is kept.
+- Each upload shows a card ("Upload &lt;name&gt;") with its name, its size ("&lt;n&gt; KB" rounded up, at least 1, under 1,000,000 bytes, otherwise "&lt;n.n&gt; MB"), a progress bar ("Upload progress for &lt;name&gt;") and a status: "Uploading · &lt;n&gt;%" (rounded down), then "Processing…" at 100% until the message arrives and takes the card's place.
+- A failed card turns red and its status reads "Upload failed". Its reason is "Files must be 250 MB or smaller." for a 413, "Connection lost. Please attach the file and try again." when the connection drops, and "Upload failed. Please attach the file and try again." for any other answer, even a success that isn't the expected stream, such as a sign-in page.
+- The uploader also has "Upload canceled." and "Upload timed out. Please attach the file and try again.", but nothing in the app cancels an upload or sets a timeout, so neither appears.
+- Failed cards stay until the page reloads, with no retry or dismiss. The other files carry on, and the composer stays usable while files upload.
+- If the message's broadcast arrives before a lost response, the message is kept and no error shows.
 
-Sources: [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/composer_controller.js)
+Sources: [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/file-uploader.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/file-uploader.test.mjs)
 
 **Image, video and file previews** (`attachments.previews`) ⬜
 
-- Images show as thumbnails at half their scaled size, with 10px corners, at most 640px or 70% of the screen tall. Videos play in place with a poster, and other files show a card with Download.
+- Images (PNG, JPEG, GIF, WebP, TIFF, AVIF, HEIC, HEIF) show their thumbnail, loaded lazily, at half its size scaled into 1200×800, at most 480px wide, and at most 640px or 70% of the screen tall, whichever is smaller. The thumbnail is still, so an animated image shows its first frame until opened.
+- Videos play in place behind a WebP poster and load nothing until played (`preload="none"`).
+- Every other file shows a card with the file icon, its name, Download ("Download &lt;name&gt;") and Share ("Share &lt;name&gt;"). That includes BMP, ICO, PSD, PDF, audio (there's no player), office files and SVGs over 5 MiB.
+- A file card's name isn't a link, so a PDF can be downloaded but not opened in place.
 - Downloads return the original file.
 
-Sources: [`reference/app/helpers/messages/attachment_presentation.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages/attachment_presentation.rb) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/messages/presentation.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`reference/app/helpers/messages/attachment_presentation.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages/attachment_presentation.rb) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
 **Image viewer** (`attachments.lightbox`) ⬜
 
-- Clicking an image opens it full size over a blurred page ("Image Viewer (Press escape to close)") with Close, Download and Share. Closing clears it.
-- QR codes for the join and sign-in links open in the same viewer.
+- Clicking an image opens the original file, not its thumbnail, in a dialog ("Image Viewer (Press escape to close)") over the blurred page, behind the page's own background color at 66% opacity.
+- Close ("Close image viewer") sits at the top right, Download ("Download file", hidden in the iOS home-screen app) at the bottom right and Share ("Share file", only where the browser can share) at the top left; Download and Share use the file's download link.
+- Escape or Close shuts it and clears it; clicking outside does nothing, and there's no zoom or paging.
 
-Sources: [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/_lightbox.html) · [`reference/app/javascript/controllers/lightbox_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/lightbox_controller.js)
+Sources: [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/_lightbox.html) · [`reference/app/javascript/controllers/lightbox_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/lightbox_controller.js) · [`reference/app/assets/stylesheets/lightbox.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/lightbox.css)
 
-ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Safe SVG previews** (`attachments.svg-preview`) ⬜
 
-- SVG files up to 5 MiB preview as an image made from a data URL, fetched from this site as they near the screen, so their scripts and external resources never run.
-- Larger or broken SVGs keep the file card with "Download &lt;name&gt;".
+- SVG files up to 5 MiB (5,242,880 bytes) show an image, with the file name as its alt text, above their file card, which always stays.
+- Once the preview is within 200px of the screen, the page fetches the file from this site, gives up past 5 MiB, and shows it from a data URL only after it decodes, so its scripts and external resources never run. It's never inline SVG, an `<object>`, an `<iframe>` or a blob URL.
+- Larger, broken or cross-origin SVGs, and pages without JavaScript, show only the card, and SVG files always download as `application/octet-stream` attachments.
 
-Sources: [`crates/assets/overrides/controllers/svg_preview_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/svg_preview_controller.js) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters.rs)
+Sources: [`crates/assets/overrides/controllers/svg_preview_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/svg_preview_controller.js) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Download and share files** (`attachments.download-share`) ⬜
 
-- File messages offer Download (hidden in the iPhone home-screen app) and Share in place of Reply; shared files are named `Ember_<random>.<ext>`.
-- Share only appears where the browser can share.
+- A file message's action bar offers Download and Share in place of Reply. Wherever Download appears (the bar, the file card, the image viewer), it's hidden in the iOS home-screen app.
+- Share shows wherever the browser has `navigator.canShare`, without checking the file first. It fetches the whole file and shares it as `Ember_<random>.<MIME subtype>`, such as `.jpeg`, or `.octet-stream` for an SVG.
+- The action bar's Share is titled with the file name; the file card's and the image viewer's share the file untitled.
 
-Sources: [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/web_share_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/messages/_actions.html)
+Sources: [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/_lightbox.html) · [`reference/app/assets/stylesheets/utilities.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/utilities.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**File links** (`attachments.serving`) ⬜
+
+- Links to files, thumbnails and posters are signed, never expire and work without a session; a tampered link is 404 with an empty body.
+- Only images (PNG, JPEG, GIF, WebP, AVIF, TIFF, BMP, PSD, ICO) and PDFs are ever served inline. Every other type, and every download link, comes as an attachment, and HTML, SVG, XML and similar types are always served as `application/octet-stream`.
+- Files are named after their sanitized name, in ASCII and as UTF-8 `filename*`: the right-to-left override, `% $ | : ; / < > ? * "`, tabs, carriage returns, newlines and backslashes become "-".
+- Byte ranges are honored (206 for one, `multipart/byteranges` for several, 416 with `Content-Range: bytes */<size>` when unsatisfiable), so videos can seek. An `If-Modified-Since` that matches gets 304, and a missing file is 404.
+
+Sources: [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/storage/src/paths.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/paths.rs) · [`crates/storage/src/filename.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/filename.rs) · [`crates/storage/src/file_server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/file_server.rs) · [`crates/ruby/src/rack.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ruby/src/rack.rs) · [`reference/config/initializers/active_storage.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/active_storage.rb)
+
+ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/storage/tests/vectors.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/tests/vectors.rs) · [`crates/ruby/src/rack.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ruby/src/rack.rs) · [`crates/storage/src/filename.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/filename.rs)
+
+**Files leave with their messages** (`attachments.purge`) ⬜
+
+- Deleting a file message deletes the file, its thumbnail and its poster once the deletion commits; a link to it then gets 404.
+- Deleting a room, or removing a banned person's messages, deletes their files the same way.
+- A bot replacing or removing a message's file deletes the old one.
+- A file still attached to a message is never deleted.
+
+Sources: [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/ember/src/controllers/presenters/attachments.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/attachments.rs)
+
+ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
+
+**How files are recognized** (`attachments.types`) ⬜
+
+- Any type can be sent, and files of unknown type are `application/octet-stream`.
+- A file's type comes from its magic bytes (within its first 65,555 bytes), then its declared type, then its extension, each later one winning only when it's a more specific kind of the current pick: a `.docx` beats a zip's magic bytes, and when the bytes say nothing, a declared `image/jpeg` beats a `.png` extension.
+- Images record their width and height, swapped for EXIF orientations that turn them by 90°; an image that can't be read records nothing.
+- Videos record width and height (the height from the display aspect ratio, both swapped when rotated by 90° or 270°), duration and angle; audio records duration, bit rate, sample rate and tags.
+
+Sources: [`crates/storage/src/marcel.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/marcel.rs) · [`crates/storage/src/tables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/tables.rs) · [`crates/storage/src/analyze.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/analyze.rs) · [`crates/storage/src/blob.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/blob.rs)
+
+ember-rust tests: [`crates/storage/tests/vectors.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/tests/vectors.rs) · [`crates/storage/src/analyze.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/analyze.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
+
+**Direct uploads** (`attachments.direct-uploads`) ➖
+
+- Signed-in people can create a blob of up to 16 MiB with `POST /rails/active_storage/direct_uploads` (larger is 413) and upload it with the disk `PUT` it hands out, which also needs a session. Nothing in the UI uses them, since the editors refuse files.
+
+Note: Rails Active Storage plumbing that nothing in ember-rust uses: its editors refuse files, and a blob uploaded this way can't be attached to a message, since sending its signed id as `message[attachment]` answers 500.
+
+Sources: [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`reference/config/initializers/active_storage_authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/active_storage_authentication.rb)
+
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
 
 </details>
 
@@ -1123,40 +1434,57 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 **Link previews while writing** (`unfurl.composer`) ⬜
 
-- Pasting a link fetches its preview and adds a card below it (title cut to 280 characters, description to 560), or nothing when there's no preview.
-- A newer link cancels the earlier request, and the card's values are escaped.
+- Pasting a lone URL (`<scheme>://…` or `www.…`) with nothing selected asks for its preview, and so does pasting a single link whose text is its own URL. Pasting over selected text links the selection instead, typed links never preview, and nothing previews inside a code block.
+- When a preview comes back with a title and a URL, a card with a "Remove" button is added below the link's paragraph. `www.` and non-http(s) links are asked about but never get one, and failures add nothing.
+- The card shows the linked title, the description and the image when there is one. Titles over 280 characters keep 279 and "…", and descriptions over 560 keep 559 and "…".
+- A newer paste cancels the pending request, and every pasted link adds its own card, even a repeated one.
+- The server's already-escaped values are escaped again, so "&" shows as "&amp;".
+- Editing a message keeps its cards, which can be removed, but never adds new ones, and drafts keep cards.
 
-Sources: [`reference/app/javascript/controllers/unfurl_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/unfurl_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_composer.html)
+Sources: [`reference/app/javascript/controllers/unfurl_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/unfurl_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`reference/app/javascript/helpers/string_helpers.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/helpers/string_helpers.js) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html)
 
 ember-rust tests: [`reference/test/system/unfurling_links_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unfurling_links_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
 **Link preview lookup** (`unfurl.endpoint`) ⬜
 
-- `POST /unfurl_link` answers a title, URL, image and description when the page has `og:title`, `og:description` and a URL, or 204 otherwise; a missing URL is 400.
-- Titles and descriptions lose their tags. Images are kept only if they're JPEG, PNG, GIF or WebP on a public host. X and Twitter posts are read through fxtwitter.
+- `POST /unfurl_link` needs a session and takes `url` as JSON or a form. A missing or blank `url` is 400, and one sent as a hash or an array is 204.
+- It answers 200 JSON (title, url, image, description) when, after tags are stripped, the page has a title, a description and a URL. Otherwise it answers 204, as it does when the whole lookup, image check included, takes over 10 seconds.
+- A meta counts when its `property` or `name` starts with `og:`, case-sensitively. Its key is `property` when present, else `name`, minus every `og:`; only title, url, image and description are kept, blank values are skipped, the last one wins, and metas in the body count.
+- Pages are read as UTF-8, any invalid byte as Latin-1, whatever they declare; without a meta charset, every non-ASCII character is dropped.
+- Titles and descriptions lose their tags but keep their text, script text included, and come back HTML-escaped (`Tom &amp; Jerry`).
+- `url` is the page's `og:url` when that's a public http(s) URL, else the URL asked for.
+- An image is kept when a HEAD request (following redirects, whatever its status) answers a type that lowercases to exactly `image/jpeg`, `image/png`, `image/gif` or `image/webp`.
+- X and Twitter post URLs are read through fxtwitter.com. When fxtwitter has nothing, the endpoint answers 500, as it does for a URL like `mailto:foo`.
 
-Sources: [`crates/ember/src/controllers/unfurl_links.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/unfurl_links.rs) · [`crates/ember/src/integrations/opengraph/metadata.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/opengraph/metadata.rs) · [`reference/app/controllers/unfurl_links_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/unfurl_links_controller.rb)
+Sources: [`crates/ember/src/controllers/unfurl_links.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/unfurl_links.rs) · [`crates/ember/src/integrations/opengraph.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph.rs) · [`crates/ember/src/integrations/opengraph/metadata.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/metadata.rs) · [`crates/ember/src/integrations/opengraph/document.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/document.rs) · [`crates/ember/src/integrations/opengraph/html.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/html.rs) · [`crates/ember/src/integrations/opengraph/entities.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/entities.rs) · [`reference/app/controllers/unfurl_links_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/unfurl_links_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/unfurl_links_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/unfurl_links_controller_test.rb) · [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/opengraph/tests.rs)
+ember-rust tests: [`reference/test/controllers/unfurl_links_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/unfurl_links_controller_test.rb) · [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/tests.rs) · [`crates/ember/src/controllers/unfurl_links.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/unfurl_links.rs) · [`crates/ember/src/integrations/opengraph/html.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/html.rs) · [`crates/ember/src/integrations/opengraph/document.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/document.rs) · [`crates/ember/src/integrations/opengraph/metadata.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/metadata.rs)
 
 **Link preview safety limits** (`unfurl.guard`) ⬜
 
-- Only http(s) addresses on public IPs are fetched, pinned to the IP they resolved to, through at most 10 redirects that must also stay public; `http://127.0.0.1/secret` gets no preview.
-- Pages must be 200, exactly `text/html` and at most 5 MB. Links to files and media aren't fetched.
-- ember-rust allows 10 seconds per preview, 5 per connect or read, and 16 previews at a time.
+- Only http(s) URLs are fetched, and only when their host is a public address or a plain name (ASCII letters, digits, hyphens and dots, up to 255 bytes) resolving to one. Numeric hosts such as `2130706433` or `0x7f.1` count as addresses, and `http://127.0.0.1/secret` gets no preview.
+- Private, loopback, link-local, CGNAT, documentation, multicast and other reserved addresses are refused in IPv4 and IPv6, as are IPv4-mapped and IPv4-compatible IPv6 addresses (even of public IPv4) and IPv6 outside IANA's allocated unicast space; well-known NAT64 addresses are judged by the IPv4 they carry.
+- A host with more than 256 DNS answers is refused, and one with both public and private answers is fetched at its first public one (IPv4 before IPv6), pinned for the connection.
+- Any 3xx, 304 included, is followed when its Location is an absolute http(s) URL that passes the same checks, for at most 10 responses, so 9 redirects; a relative or missing Location ends the preview.
+- Pages must answer exactly 200 with a media type of exactly `text/html`, compared case-sensitively with parameters allowed, and be at most 5 MiB (5,242,880 bytes) by Content-Length and once decompressed.
+- URLs naming files or media (zip, tar, gz, dmg, exe, jpg, png, mp4, mov, mp3 and the like) aren't fetched. The match is case-sensitive and can fall anywhere in the URL, and redirect targets aren't checked against it.
+- ember-rust allows 10 seconds per preview, 5 per connect or read, and 16 previews at a time, and sends `Accept: */*` with `User-Agent: Ruby`.
 
-Sources: [`crates/ember/src/integrations/opengraph/fetch.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/opengraph/fetch.rs) · [`crates/ember/src/integrations/opengraph/location.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/opengraph/location.rs) · [`reference/lib/restricted_http/private_network_guard.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/restricted_http/private_network_guard.rb)
+Sources: [`crates/ember/src/integrations/net/guard.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/guard.rs) · [`crates/ember/src/integrations/net/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/http.rs) · [`crates/ember/src/integrations/opengraph/fetch.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/fetch.rs) · [`crates/ember/src/integrations/opengraph/location.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/location.rs) · [`reference/lib/restricted_http/private_network_guard.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/restricted_http/private_network_guard.rb)
 
-ember-rust tests: [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/opengraph/tests.rs) · [`reference/test/models/opengraph/fetch_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/opengraph/fetch_test.rb) · [`reference/test/lib/restricted_http/private_network_guard_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/restricted_http/private_network_guard_test.rb)
+ember-rust tests: [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/tests.rs) · [`reference/test/models/opengraph/fetch_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/opengraph/fetch_test.rb) · [`reference/test/lib/restricted_http/private_network_guard_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/restricted_http/private_network_guard_test.rb) · [`crates/ember/src/integrations/net/guard.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/guard.rs)
 
 **Link previews in messages** (`unfurl.render`) ⬜
 
-- A message whose only text is its preview's link shows just the preview.
-- Preview links and images must be absolute http(s) URLs on another named host, and previews add nothing to search or push text.
+- A preview shows as a card: the title linking to the page in a new tab (the link itself when there's no title, plain text when there's no link), the description, and the image kept 16:9 and contained. Titles over 280 characters and descriptions over 560 are cut with "…", and a Twitter avatar is drawn round.
+- The card is redrawn from the stored preview each time it renders, and its link and image must be absolute http(s) URLs on a named host other than this Ember's (one with a dot, whose last label has a letter), or they're left out.
+- A message whose whole text is exactly its only preview's link shows just the card; any difference, such as an `og:url` without the pasted link's tracking parameters, keeps the text.
+- Before that comparison, URLs containing `x.com` or `twitter.com` (case-sensitively, so `box.com` counts and `X.com` doesn't) lose their query and read the host x.com as twitter.com.
+- Previews add nothing to search or push text, and replies drop them.
 
-Sources: [`reference/lib/rails_ext/actiontext_opengraph_embeds.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/actiontext_opengraph_embeds.rb) · [`reference/app/helpers/content_filters/remove_solo_unfurled_link_text.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters/remove_solo_unfurled_link_text.rb)
+Sources: [`reference/lib/rails_ext/actiontext_opengraph_embeds.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/actiontext_opengraph_embeds.rb) · [`reference/app/helpers/content_filters/remove_solo_unfurled_link_text.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters/remove_solo_unfurled_link_text.rb) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`reference/app/assets/stylesheets/embeds.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/embeds.css)
 
-ember-rust tests: [`reference/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb) · [`reference/test/helpers/content_filters_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/helpers/content_filters_test.rb)
+ember-rust tests: [`reference/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb) · [`reference/test/helpers/content_filters_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/helpers/content_filters_test.rb) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs)
 
 </details>
 
@@ -1173,34 +1501,42 @@ ember-rust tests: [`reference/test/lib/rails_ext/actiontext_opengraph_embeds_tes
 
 **Search messages** (`search.messages`) ⬜
 
-- `/searches?q=` finds messages in the rooms you're in now: the newest 100 matches, shown oldest first under the query and a count.
-- Every word has to match: punctuation splits words, and AND, OR and NOT are ordinary words. Words are stemmed ("eel" finds "eels"), files are found by name, and edits and deletions update the results.
-- Results look like messages, mention highlights included, and link to the message in its room.
+- `/searches?q=` searches every room you're a member of, hidden rooms and DMs included, and lists the newest 100 matches, oldest first. The header shows the query in curly quotes, punctuation turned to spaces, and the number of results shown, so never more than 100.
+- Every character other than letters, digits, combining marks and connectors such as `_` becomes a space, so punctuation splits words and emoji drop out. A query with no words left searches nothing and shows "Find a conversation".
+- Every word has to match, and none is special: AND, OR, NOT, NEAR, quotes and `*` are searched as plain words. Words are stemmed ("eel" finds "eels"), and case and accents on Latin letters are ignored.
+- Messages are found by their plain text (`messages.plain-text`): a mention as "@Name", with the name the person had when the message was last written, edited or reacted to; a link preview not at all; a file by its caption, or by its file name when the message has no text. Edits and deletions update the results.
+- Results look like messages without actions, author grouping or day separators. Your own are marked as yours, mentions of you aren't highlighted (the highlight never fires in ember-rust; see `mentions.highlight`), and the list opens scrolled to the newest.
+- Each result names its room as "· &lt;room&gt;", a DM by all its members with you included ("Ann and Bob", "Ann, Bob, and Cat"), and its time and room both link to the message in its room.
 
 Note: The rail shows Search, disabled.
 
-Sources: [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/searches.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/message.rs) · [`crates/ember/src/integrations/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/search.rs) · [`reference/app/controllers/searches_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/searches_controller.rb)
+Sources: [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/ember/src/integrations/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/search.rs) · [`crates/views/templates/searches/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/index.html) · [`reference/app/controllers/searches_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/searches_controller.rb) · [`reference/app/models/message/searchable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/searchable.rb) · [`reference/app/javascript/controllers/search_results_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/search_results_controller.js)
 
-ember-rust tests: [`reference/test/controllers/searches_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/searches_controller_test.rb) · [`reference/test/models/message/searchable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/searchable_test.rb) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/searches.rs)
+ember-rust tests: [`reference/test/controllers/searches_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/searches_controller_test.rb) · [`reference/test/models/message/searchable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/searchable_test.rb) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/ember/src/integrations/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/search.rs) · [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs)
 
 **Search page** (`search.page`) ⬜
 
-- The rail's Search and the header's Search messages open "Search messages", with Search marked current on the rail and the query shown in the header.
+- The rail's Search and the room header's Search messages, placed before the notification bell, open `/searches`, titled "Search" and headed "Search messages", with Search marked current on the rail.
 - Before searching it says "Find a conversation" / "Search messages across your rooms and direct messages.", and with no results "No messages found" / "Try a different word or phrase."
-- The search box (focused) and Exit search sit at the bottom. Escape clears the box, and Exit search returns to the last room visited.
+- The search box sits at the bottom, labeled "search" with the placeholder "Search messages…". It holds the query as typed, focused with its text selected, and the Search button submits it.
+- Clear search field (×), shown only while the box has text, and Escape both go back to `/searches`, dropping the query and its results.
+- Exit search returns to the last room visited, or to your oldest room when you can no longer reach that one.
+- On wide screens and phones, the box and Exit search line up vertically, the box shows no focus ring, and nothing scrolls sideways.
 
-Sources: [`crates/views/templates/searches/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/searches/index.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/searches/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/index.html) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/javascript/controllers/form_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/form_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`crates/views/tests/searches_views.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/searches_views.rs)
 
 **Recent searches** (`search.recent`) ⬜
 
-- Your searches are remembered, the latest 10 shown above the results; repeating one moves it to the top.
-- Clear recent searches, shown only when there are some, asks "Are you sure you want to clear your recent searches?"
+- Submitting a search remembers its query as searched (punctuation turned to spaces), and your latest 10 show newest first above the results, as links reading “&lt;query&gt;” in a strip labeled "Recent searches".
+- Searching for a remembered query again moves it to the top, and queries that differ only in case are kept apart. Following a recent search's link doesn't move it.
+- Clear recent searches, shown only when there are some, asks "Are you sure you want to clear your recent searches?" in the browser's own confirmation, then forgets them all and shows Search without a query.
+- Each person sees only their own. Removing a person deletes theirs; a ban keeps them.
 
-Sources: [`crates/db/src/models/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/search.rs) · [`crates/views/templates/searches/_recents.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/searches/_recents.html) · [`reference/app/models/search.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/search.rb)
+Sources: [`crates/db/src/models/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/search.rs) · [`crates/views/templates/searches/_recents.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/_recents.html) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`reference/app/models/search.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/search.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/searches.rs) · [`reference/test/controllers/searches_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/searches_controller_test.rb)
+ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`reference/test/controllers/searches_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/searches_controller_test.rb)
 
 </details>
 
@@ -1213,21 +1549,23 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 | Typing indicator | `realtime.typing` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Connection sign-in and revocation | `realtime.connection` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts) |
+| Keeping the connection alive | `realtime.keepalive` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Presence** (`realtime.presence`) 🟡
 
-- Opening a room counts your connection (two tabs count twice) and keeps you connected for 60 seconds, clearing the room's unread mark; closing it uncounts you.
-- The page refreshes its presence every 50 seconds, reports itself away 5 seconds after the tab is hidden, and back 5 seconds after it's shown again.
-- Only members are counted, and people connected to a room get no unread marks or push notifications from it.
+- Opening a room counts your connection to it (two tabs count twice), marks you connected, clears the room's unread mark and tells your other tabs the room was read. Closing a tab uncounts it at once.
+- A tab counts as away 5 seconds after it's hidden and back 5 seconds after it's shown, which clears the unread mark again; while it counts, it refreshes its presence every 50 seconds. A tab opened in the background counts until it has been shown and hidden again.
+- A connection that dropped without closing counts for up to 60 seconds, and a server restart clears every count.
+- Only members are counted, and a non-member's attempt changes nothing. Members connected to a room get no unread marks or push notifications from it.
 
-Note: Presence here is who has the room open, each person once however many tabs they have, and everyone in the room hears of changes. Hidden tabs still count, and there are no unread marks or pushes for it to hold back yet.
+Note: Presence here is who has the room open, each person once however many tabs they have, and everyone in the room hears of changes. Hidden tabs still count, a connection that drops without closing counts until its socket is seen to close, and there are no unread marks or pushes for it to hold back.
 
-Sources: [`crates/ember/src/channels/presence.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/presence.rs) · [`reference/app/channels/presence_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/presence_channel.rb) · [`reference/app/models/membership/connectable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/membership/connectable.rb) · [`reference/app/javascript/controllers/presence_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/presence_controller.js)
+Sources: [`crates/ember/src/channels/presence.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/presence.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/channels/presence_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/presence_channel.rb) · [`reference/app/models/membership/connectable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/membership/connectable.rb) · [`reference/app/javascript/controllers/presence_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/presence_controller.js)
 
-ember-rust tests: [`reference/test/channels/presence_channel_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/presence_channel_test.rb) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/channels_test.rs) · [`reference/test/models/membership_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/membership_test.rb)
+ember-rust tests: [`reference/test/channels/presence_channel_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/presence_channel_test.rb) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`reference/test/models/membership_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/membership_test.rb)
 
 **Who's here** (`realtime.who-is-here`) ✅
 
@@ -1236,39 +1574,53 @@ ember-rust tests: [`reference/test/channels/presence_channel_test.rb`](https://g
 
 **Typing indicator** (`realtime.typing`) 🟡
 
-- Typing tells the room at most once a second; emptying the box or sending tells it you've stopped.
-- Others see the typists' names, sorted and comma-separated, with a spinner above the composer and no "is typing". A name goes 5 seconds after their last word, or as soon as they stop.
+- Typing tells the room at most once a second; emptying the box or sending tells it you've stopped, and leaving the box doesn't.
+- Others see the typists' names, sorted and comma-separated, with a spinner above the composer and no "is typing"; nobody sees their own name. A name goes 5 seconds after they last typed, or as soon as they stop.
 - Only room members send or receive typing.
 
-Note: Typing goes out at most every 3 seconds and lasts 6, and the indicator reads "Ada is typing…", "Ada and Grace are typing…" or "Several people are typing…".
+Note: Typing goes out at most every 3 seconds and lasts 6, and leaving the message box stops it. The indicator reads "Ada is typing…", "Ada and Grace are typing…" or "Several people are typing…" in a polite live region, which ember-rust's isn't. Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once.
 
-Sources: [`reference/app/channels/typing_notifications_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/typing_notifications_channel.rb) · [`crates/ember/src/channels/typing_notifications.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/typing_notifications.rs) · [`reference/app/javascript/controllers/typing_notifications_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/typing_notifications_controller.js) · [`reference/app/javascript/models/typing_tracker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/typing_tracker.js)
+Sources: [`reference/app/channels/typing_notifications_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/typing_notifications_channel.rb) · [`crates/ember/src/channels/typing_notifications.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/typing_notifications.rs) · [`reference/app/javascript/controllers/typing_notifications_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/typing_notifications_controller.js) · [`reference/app/javascript/models/typing_tracker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/typing_tracker.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`reference/app/assets/stylesheets/spinner.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/spinner.css)
 
-ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/channels_test.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Catch up after a reconnect** (`realtime.reconnect`) 🟡
 
-- When the connection comes back, the room fetches what it missed since its newest message: up to 40 new messages and the latest edits.
-- Coming back to a tab hidden for more than 60 seconds does the same.
+- Whenever the connection comes up, the first time included, the room fetches what changed since the newest change the page has seen to the room or its messages: up to 40 new messages, appended oldest first, and the newest 40 of the other messages changed since, each replaced whole.
+- A fetch doesn't catch deletions, or new messages past its 40; those wait for a reload.
+- Coming back to a tab hidden for more than 60 seconds fetches the same way.
 - The composer is disabled 5 seconds after the connection drops, until it returns.
 
-Note: The room socket reconnects with back-off (half a second, doubling up to 15 seconds), pings every 25 seconds and reconnects when a ping goes unanswered, and on reconnect reloads the newest page, keeping messages that never got through, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with "Your message was sent. Scroll up to see it.", and if not, it shows as not sent. Sending is disabled as soon as the connection drops, and hidden tabs don't refresh.
+Note: The room sends a fresh welcome on every connection instead: the newest 50 messages replace the timeline, older pages already loaded are dropped, and messages that never got through stay, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with "Your message was sent. Scroll up to see it.", and if not, it shows as not sent. Send is disabled as soon as the connection drops, though the message box stays editable, and hidden tabs don't refresh.
 
-Sources: [`crates/ember/src/controllers/rooms/refreshes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/refreshes.rs) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js) · [`reference/app/controllers/rooms/refreshes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/refreshes_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/refreshes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/refreshes.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/templates/rooms/refreshes/show.turbo_stream.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/refreshes/show.turbo_stream.html) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show.html) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js) · [`reference/app/controllers/rooms/refreshes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/refreshes_controller.rb)
 
-ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/controllers/rooms/refreshes_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/refreshes_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`reference/test/controllers/rooms/refreshes_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/refreshes_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Connection sign-in and revocation** (`realtime.connection`) 🟡
 
-- Live connections need a valid session; a missing, invalid or expired one is refused.
-- Losing access to a room, or signing out, disconnects that person's connections and lets them reconnect; a ban or removal disconnects them for good.
-- Nobody else's connections are touched.
+- Live connections are identified by the signed session cookie and need a valid session; without one, the connection is told it's unauthorized and closed, and the page doesn't retry. A request to the socket's address gets 404 "Page not found" unless it's a WebSocket upgrade from the app's own origin.
+- Losing a room's membership, or signing out, disconnects all of that person's connections once the change is saved and lets them reconnect: the lost room is refused, and their other rooms and sessions carry on. A ban or removal disconnects them for good.
+- Deleting a room or changing someone's role disconnects nobody.
+- Nobody else's connections are touched, and a connection that authenticated just before a disconnection went out checks its session again once it's listening, so it can't slip through.
 
-Note: Room sockets need a valid token, and a refused socket sends the app back to sign-in when the session has expired. Tokens can't be revoked, so nothing disconnects anyone.
+Note: Room sockets need a valid token, passed in the socket's URL, and a refused socket sends the app back to sign-in when the session has expired. Tokens can't be revoked, so nothing disconnects anyone. Nothing checks an upgrade's origin, and a request to the socket's address that isn't an upgrade answers 426.
 
-Sources: [`crates/ember/src/channels/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/connection.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/revocation.rs) · [`reference/app/channels/application_cable/connection.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/application_cable/connection.rb)
+Sources: [`crates/ember/src/channels/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/connection.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/cable/src/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/connection.rs) · [`crates/cable/src/server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/server.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/channels/application_cable/connection.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/application_cable/connection.rb)
 
-ember-rust tests: [`reference/test/channels/application_cable/connection_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/application_cable/connection_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/revocation_test.rs)
+ember-rust tests: [`reference/test/channels/application_cable/connection_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/application_cable/connection_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/tests/protocol.rs)
+
+**Keeping the connection alive** (`realtime.keepalive`) ⬜
+
+- The server pings every connection every 3 seconds. A connection that has heard nothing for 6 seconds is stale and is reopened; the check runs about every 6 seconds, 15% less often with each failed attempt (for up to 10), with jitter.
+- When the tab becomes visible, or the browser comes back online while it's visible, a stale or closed connection is reopened after 200ms.
+- A server restart tells every connection to reconnect, and so does falling more than 256 messages behind.
+
+Note: The room socket pings every 25 seconds, answered by the runtime without waking the room, and reconnects when a ping goes unanswered. Reconnecting waits half a second, doubling up to 15 seconds, give or take a quarter. Nothing reacts to the tab becoming visible or the browser coming back online. A deploy closes every WebSocket, and tabs reconnect within about half a second.
+
+Sources: [`crates/cable/src/protocol.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/protocol.rs) · [`crates/cable/src/server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/server.rs) · [`crates/cable/src/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/connection.rs) · [`crates/assets/vendor/actioncable/app/assets/javascripts/action_cable.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/actioncable/app/assets/javascripts/action_cable.js) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js)
+
+ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/tests/protocol.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs)
 
 </details>
 
@@ -1287,109 +1639,162 @@ ember-rust tests: [`reference/test/channels/application_cable/connection_test.rb
 | Service worker | `notifications.service-worker` | Campfire | ⬜ Not started |  |
 | App icon badge | `notifications.app-badge` | Campfire | ⬜ Not started |  |
 | Install as an app | `notifications.install-instructions` | Campfire | ⬜ Not started |  |
+| Notification setup help | `notifications.setup-help` | Campfire | ⬜ Not started |  |
+| Web Push configuration | `notifications.web-push-keys` | Ember | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Notification levels** (`notifications.levels`) ⬜
 
-- Each room you're in has a level, cycled from the header bell: rooms go @mentions, all messages, off, off and hidden; DMs go all messages and off.
+- Each room you're in has a level, cycled by its button: rooms go @mentions, all messages, off, off and hidden, then @mentions again; DMs go all messages and off.
 - The labels are "Notifying about @ mentions", "Notifying about all messages", "Notifications are off" and "Notifications are off and room invisible in sidebar".
-- Rooms start at mentions and DMs at all messages. Members change only their own level, and non-members get 404.
+- The button has `role="checkbox"` and `aria-checked="true"`, is named by its label, and shows the level's bell icon.
+- The room header shows the button only once this browser has notification permission and a push subscription (`notifications.enable`). Until then, and whenever push is off, levels are changed on your profile (`notifications.profile-list`).
+- Rooms start at @mentions and DMs at all messages. Members change only their own level, non-members get 404, and any other non-blank value is refused without changing anything.
 
-Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/views/src/helpers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/rooms.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/views/src/helpers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/rooms.rs) · [`crates/views/templates/rooms/involvements/_bell.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/involvements/_bell.html) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/rooms/involvements_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/involvements_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`reference/test/controllers/rooms/involvements_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/involvements_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/views/tests/rooms_views.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/rooms_views.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Turn on notifications** (`notifications.enable`) ⬜
 
-- Until this browser has subscribed, the header bell is Enable notifications, pulsing until first used. Clicking it asks for permission at once, subscribes, and then shows the room's level.
-- Problems open "Notification setup": "Notifications aren’t available here", "Notifications aren’t configured", "Notifications are blocked", "Notifications weren’t enabled" or "Couldn’t enable notifications". A subscription that couldn't be saved is undone.
+- Until this browser has notification permission and a push subscription, the room header shows a bell titled "Enable notifications". Once it has both, the bell becomes the room's level button by itself, without asking the server.
+- Clicking asks for permission straight away, registers `/service-worker.js` (or reuses its registration) and waits for it to activate, reuses the browser's push subscription or makes one, saves it, and then shows the level button.
+- While it works the bell is disabled and marked busy, and more clicks are ignored. If saving fails, a subscription that attempt made is unsubscribed again.
+- Problems open a dialog labeled "Notification setup": an alert bell ("Notifications alert"), a heading, a status message, the setup help where noted (`notifications.setup-help`), and Close, which has focus.
+- Without a secure context or push support: "Notifications aren’t available here" / "Open Ember in a browser that supports notifications. On iPhone or iPad, add it to your Home Screen first.", with help. Without a public key: "Notifications aren’t configured" / "Ask your workspace administrator to configure Web Push on this server."
+- Permission already denied: "Notifications are blocked" / "Allow notifications for this site in your browser settings, then try again.", with help. Denied at the prompt: "Notifications weren’t enabled" with that message and help; dismissed: "Notifications weren’t enabled" / "Choose Allow in the browser prompt to receive notifications. You can try again using the bell."
+- Any other failure: "Couldn’t enable notifications" / "Check your connection and try the bell again. Your room’s notification settings haven’t changed."
 
-Sources: [`crates/assets/overrides/controllers/notifications_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/notifications_controller.js) · [`crates/views/templates/rooms/involvements/_bell.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/involvements/_bell.html)
+Sources: [`crates/assets/overrides/controllers/notifications_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/notifications_controller.js) · [`crates/views/templates/rooms/involvements/_bell.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/involvements/_bell.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Hide a room** (`notifications.hide-room`) ⬜
 
-- Setting a room to off and hidden takes it out of your sidebar at once. It's still reachable by link and listed on your profile, and changing the level brings it back.
-- Hidden rooms get no unread marks or pushes and can't be starred.
+- Setting a room to off and hidden takes it out of your sidebar in every tab you have open, and changing its level again puts it back in your rooms list the same way.
+- A hidden room is still reachable by link and searchable, and your profile lists it, dimmed.
+- Hidden rooms get no new unread marks or pushes, and starring one is refused (403). An unread mark from before hiding stays, and still counts in a push's badge.
 
-Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/broadcasts.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
+Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
 
-ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/channels/tests/broadcasts_test.rs) · [`reference/test/controllers/rooms/involvements_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/involvements_controller_test.rb)
+ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs) · [`reference/test/controllers/rooms/involvements_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/involvements_controller_test.rb)
 
 **Levels on your profile** (`notifications.profile-list`) ⬜
 
-- Your profile's Conversation notifications lists every room you're in, hidden ones too, then your DMs, each with its level button.
+- Your profile's "Conversation notifications" lists every room you're in by name (case ignored for ASCII letters only), hidden ones dimmed, then your DMs, with a separator only when there are both.
+- Each row links to its conversation, named in bold (a DM by its other members, "Ann and Bob" or "Ann, Bob, and Cat", or by your own name when you're alone in it), followed by its level button, which cycles in place.
+- The buttons are there whether or not this browser has turned on notifications, so levels can always be changed here.
 
-Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/show.html) · [`crates/views/templates/users/profiles/_membership.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/profiles/_membership.html)
+Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`crates/views/templates/users/profiles/_membership.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_membership.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 
-ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Who gets a push** (`notifications.push`) ⬜
 
-- Each new message, bots' included, is pushed to active room members other than its sender who haven't had the room open in the last 60 seconds: everyone at all messages, and those mentioned at @mentions.
-- Nobody at off or hidden is pushed, nor anyone mentioned who isn't a member.
-- Subscriptions the push service reports gone (404 or 410), or with bad keys, are deleted.
+- Each new message, bots' and webhooks' included, is pushed to the room's active members other than its sender who aren't connected to the room: everyone at all messages, and at @mentions only those it mentions. Nobody at off or hidden is pushed, nor anyone mentioned who isn't a member.
+- Being connected means having the room open in a tab that hasn't been hidden for 5 seconds; a connection that stops refreshing lapses after 60 seconds.
+- Banned and deactivated people get no pushes, although a ban keeps their subscriptions.
+- A recipient gets one push per saved subscription, so on every browser they turned on. Edits, reactions and deletions aren't pushed, and neither is a message deleted before its push goes out.
+- Subscriptions the push service reports gone (404 or 410), or whose keys are invalid, are deleted. Other failures are logged and the subscription kept, and nothing is retried.
+- An endpoint that's no longer at a permitted push service, or no longer resolves to a public address, is skipped. Nothing is pushed while Web Push is off (`notifications.web-push-keys`).
 
-Sources: [`reference/app/models/room/message_pusher.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/room/message_pusher.rb) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/push_subscription.rs) · [`crates/ember/src/integrations/web_push.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push.rs)
+Sources: [`reference/app/models/room/message_pusher.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/room/message_pusher.rb) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/push_subscription.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/ember/src/integrations/web_push.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push.rs) · [`crates/ember/src/integrations/web_push/pool.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/pool.rs)
 
-ember-rust tests: [`reference/test/models/room/push_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/room/push_test.rb) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push/tests.rs)
+ember-rust tests: [`reference/test/models/room/push_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/room/push_test.rb) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs) · [`crates/db/src/tests/push_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/push_test.rs)
 
 **What a push says** (`notifications.payload`) ⬜
 
-- A room message is titled with the room's name and reads "&lt;sender&gt;: &lt;text&gt;"; a DM is titled with the sender and reads the text. Files read as their name, and mentions as "@Name".
-- Opening the push opens the room, and its badge is your count of unread rooms. Titles stop at 256 bytes and text at 3,072, ending "…".
-- Pushes are urgent and kept by the push service for up to 28 days.
+- A room message is titled with the room's name and reads "&lt;sender&gt;: &lt;text&gt;"; a DM is titled with the sender's name and reads the text.
+- The text is the message's plain text (`messages.plain-text`): mentions read "@Name", a file reads its caption or else its file name, and a message without text leaves it empty ("&lt;sender&gt;: " in a room).
+- Opening the push opens the room at `/rooms/<id>`, not the message. Its icon is the workspace logo, and its badge counts your conversations marked unread, hidden rooms and DMs included, after this message's marks.
+- Titles stop at 256 bytes and text at 3,072, counted as escaped JSON and cut between characters, ending in "…" within the limit.
+- The push is the JSON `{ title, options: { body, icon, data: { path, badge } } }`, which the service worker shows as it is.
+- It's encrypted (`aes128gcm`), sent urgent (`Urgency: high`), and kept by the push service for up to 28 days (`TTL: 2419200`).
 
-Sources: [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/push_subscription.rs) · [`crates/ember/src/integrations/web_push.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push.rs) · [`reference/lib/web_push/notification.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/web_push/notification.rb)
+Sources: [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/push_subscription.rs) · [`crates/ember/src/integrations/web_push.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push.rs) · [`crates/ember/src/integrations/web_push/encryption.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/encryption.rs) · [`reference/lib/web_push/notification.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/web_push/notification.rb)
 
-ember-rust tests: [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push/tests.rs)
+ember-rust tests: [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs) · [`crates/db/src/tests/push_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/push_test.rs)
 
 **Save push subscriptions** (`notifications.subscriptions`) ⬜
 
-- A browser's push endpoint and keys are saved for you, and saving them again refreshes them.
+- A browser's push endpoint and keys are saved for the signed-in person, whatever user the URL names, along with the browser's user agent. Saving the same three values again checks them again and refreshes the row; a changed key adds a new row.
 - Endpoints must be HTTPS on the standard port at a known push service (fcm.googleapis.com, jmt17.google.com, updates.push.services.mozilla.com, web.push.apple.com, notify.windows.com, or their subdomains) on a public address; anything else is 422.
-- A browser's subscription is deleted when it signs out or its person is removed; a ban keeps it.
+- The endpoint's errors are "can't be blank" (which comes with "is not a valid URL"), "is not a valid URL", "must use HTTPS", "must use the default HTTPS port", "is not a permitted push service" and "resolves to a private or invalid IP address".
+- You can delete only your own subscriptions; asking to delete someone else's does nothing.
+- Signing out unsubscribes the browser and deletes your subscriptions with its endpoint. Removing a person deletes all of theirs; a ban keeps them.
 
-Sources: [`crates/ember/src/controllers/users/push_subscriptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/push_subscriptions.rs) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/models/push_subscription.rs) · [`reference/app/models/push/subscription.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/push/subscription.rb)
+Sources: [`crates/ember/src/controllers/users/push_subscriptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/push_subscriptions.rs) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/push_subscription.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`reference/app/models/push/subscription.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/push/subscription.rb) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
-ember-rust tests: [`reference/test/controllers/users/push_subscriptions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/push_subscriptions_controller_test.rb) · [`reference/test/models/push/subscription_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/push/subscription_test.rb) · [`crates/db/src/tests/push_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/db/src/tests/push_test.rs)
+ember-rust tests: [`reference/test/controllers/users/push_subscriptions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/push_subscriptions_controller_test.rb) · [`reference/test/models/push/subscription_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/push/subscription_test.rb) · [`crates/db/src/tests/push_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/push_test.rs)
 
 **Push subscriptions page** (`notifications.test-page`) ⬜
 
-- `/users/me/push_subscriptions` lists your subscriptions by browser and platform, each with Send test notification and Delete subscription.
-- A test push is titled "Ember Test" with a random message and opens this page; another person's subscription is 404.
+- `/users/me/push_subscriptions` is titled "Push notification subscriptions" and headed "Push Notification Subscriptions", with "Go Back" to the last room visited. Nothing in the app links to it.
+- It lists your subscriptions as "&lt;browser&gt; &lt;version&gt; on &lt;platform&gt;" with the endpoint, each with Send test notification and Delete subscription.
+- A test push is titled "Ember Test" with a random message, opens this page, and carries your unread count as its badge; another person's subscription is 404.
+- It's sent straight away: with push off, or when the push service refuses it, the request fails, and a dead subscription isn't deleted.
 
-Sources: [`crates/views/templates/users/push_subscriptions/_push_subscription.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/push_subscriptions/_push_subscription.html) · [`crates/ember/src/controllers/users/push_subscriptions/test_notifications.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/users/push_subscriptions/test_notifications.rs)
+Sources: [`crates/views/templates/users/push_subscriptions/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/push_subscriptions/index.html) · [`crates/views/templates/users/push_subscriptions/_push_subscription.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/push_subscriptions/_push_subscription.html) · [`crates/ember/src/controllers/users/push_subscriptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/push_subscriptions.rs) · [`crates/ember/src/controllers/users/push_subscriptions/test_notifications.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/push_subscriptions/test_notifications.rs)
 
-ember-rust tests: [`reference/test/controllers/users/push_subscriptions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/push_subscriptions_controller_test.rb) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push/tests.rs)
+ember-rust tests: [`reference/test/controllers/users/push_subscriptions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/push_subscriptions_controller_test.rb) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs)
 
 **Service worker** (`notifications.service-worker`) ⬜
 
-- `/service-worker.js` is public. It shows each push, sets the app badge to the push's count (clearing it at 0), and on a click sends the focused window, or a new one, to the push's page.
+- `/service-worker.js` is public and sent as `text/javascript; charset=utf-8`; it's the worker the page registers.
+- On a push it shows a notification with the push's title and options, and sets the app badge to the push's count, clearing it when that's 0 or missing.
+- A click closes the notification and sends the focused window to the push's page, or opens a new window when none is focused.
+- It has no install, activate or fetch handlers, so it caches nothing and the app doesn't work offline.
 
-Sources: [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/pwa/service_worker.js) · [`reference/app/views/pwa/service_worker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/service_worker.js)
+Sources: [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/service_worker.js) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`reference/app/views/pwa/service_worker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/service_worker.js)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
 **App icon badge** (`notifications.app-badge`) ⬜
 
-- In the installed app, the icon's badge counts unread conversations, updating as rooms are read or receive messages, and clears at 0.
+- Where the browser supports app badges (installed apps), the page sets the badge to the number of conversations marked unread in the sidebar, rooms and DMs, on load and whenever one is marked unread or read, and clears it at 0.
+- Hidden rooms aren't in the sidebar, so the page doesn't count them, but a push sets the badge to its own count, which does (`notifications.payload`).
 
-Sources: [`reference/app/javascript/controllers/badge_dot_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/badge_dot_controller.js) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/users/sidebars/show.html)
+Sources: [`reference/app/javascript/controllers/badge_dot_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/badge_dot_controller.js) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/src/helpers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/rooms.rs) · [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/service_worker.js)
 
-ember-rust tests: [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/web_push/tests.rs)
+ember-rust tests: [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs)
 
 **Install as an app** (`notifications.install-instructions`) ⬜
 
-- A collapsible "Install Ember as a web app." gives steps for the platform (Safari's Add to Dock or Add to Home Screen, Edge, Firefox on Android) on the profile and in the notification help, and hides inside the installed app.
-- Install now appears where the browser offers to install.
+- A collapsible "Install Ember as a web app." sits on your profile and in the notification setup help, and is hidden inside the installed app.
+- Browsers the user agent reports as Chrome (Chrome, Chromium Edge, Brave, Chrome on iPhone and iPad) and Firefox on a computer don't get it at all.
+- EdgeHTML gets "Click [the app available - install Ember chat button] in the address bar." and "Click Install."; Firefox on Android gets "Tap the [More options] menu button." and "Tap Install in the menu."
+- Safari on a Mac, as iPadOS Safari reports itself, gets "Click File in the top left." and "Click Add to Dock…."; Safari on iPhone and iPad gets "To receive push notifications in Safari for &lt;iPhone or iPad&gt;, you must install Ember as a web app.", "Tap [the share button]" and "Tap Add to Home Screen."
+- Anything else gets "Some platforms require you to install Ember as a web app to receive push notifications."
+- Install now appears only after the browser offers to install the app, opens the browser's install prompt, and hides once the app is installed.
 
-Sources: [`crates/views/templates/pwa/_install_instructions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/pwa/_install_instructions.html) · [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns/platform.rs)
+Sources: [`crates/views/templates/pwa/_install_instructions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/_install_instructions.html) · [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/concerns/user_agent.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/user_agent.rs) · [`reference/app/javascript/controllers/pwa_install_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/pwa_install_controller.js)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs)
+
+**Notification setup help** (`notifications.setup-help`) ⬜
+
+- The setup dialog's help has up to three collapsible sections chosen from the browser's user agent: "Check your &lt;Browser&gt; settings" (not for Safari or Chrome on iPhone and iPad), "Check your &lt;OS&gt; settings" (only inside the installed app) and "Install Ember as a web app." (`notifications.install-instructions`). When only one is visible, it opens by itself.
+- On a computer, Chrome, Firefox and EdgeHTML get "Turn on notifications for this website." with that browser's site-permission steps, then "Turn on notifications for &lt;Browser&gt;." with the steps in Windows Settings or macOS System Settings (starting from the Apple menu, labeled "the Apple menu").
+- Safari on a Mac gets "Click Safari in the top left.", "Click Settings….", "Click the Websites tab.", "Click Notifications in the sidebar.", "Click &lt;site address&gt; in the list." and "Select Allow."; Firefox and Chrome on Android get their own steps; any other browser gets "Ensure notifications are enabled for &lt;site address&gt; in your web browser settings."
+- The system section has steps for Windows, macOS, the iPhone and iPad Settings app, and Android with Firefox or Chrome, always calling the app "Ember"; anything else gets "Ensure notifications are allowed for &lt;Browser&gt; in your system settings."
+- Platforms are read as the `useragent` gem reads them: Chromium Edge, Brave and Chrome on iPhone and iPad count as Chrome, Firefox and Edge on iPhone and iPad as Safari, and iPadOS Safari, which reports a Mac, as Safari on a Mac.
+
+Sources: [`crates/views/templates/pwa/_browser_settings.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/_browser_settings.html) · [`crates/views/templates/pwa/_system_settings.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/_system_settings.html) · [`crates/assets/overrides/controllers/notifications_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/notifications_controller.js) · [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/concerns/user_agent.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/user_agent.rs) · [`reference/app/views/pwa/_browser_settings.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/_browser_settings.html.erb) · [`reference/app/views/pwa/_system_settings.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/_system_settings.html.erb)
+
+ember-rust tests: [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs) · [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**Web Push configuration** (`notifications.web-push-keys`) ⬜
+
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, a P-256 key pair in URL-safe Base64, turn Web Push on. Without them (a blank value counts as unset) push is off, and "Web Push is off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY aren't set" is logged.
+- A pair that doesn't parse or doesn't match also turns push off, logging "Web Push is off: " followed by "VAPID_PUBLIC_KEY isn't a Base64 P-256 public key", "VAPID_PRIVATE_KEY isn't a Base64 P-256 private key" or "VAPID_PUBLIC_KEY isn't the public key of VAPID_PRIVATE_KEY".
+- With push off, nothing is pushed, pages carry no public key, the bell explains "Notifications aren’t configured", and test pushes fail.
+- Each push carries a VAPID token signed with the key pair (ES256, valid for 12 hours) whose contact is `VAPID_SUBJECT`, by default `https://` and the deployment's domain, or the project's own URL when it has none.
+
+Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/integrations/web_push/vapid.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/vapid.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/config/initializers/vapid.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/vapid.rb)
+
+ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs)
 
 </details>
 
@@ -1408,109 +1813,196 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 | Bots boost messages | `bots.api-boosts` | Campfire | ⬜ Not started |  |
 | Webhooks | `bots.webhook-delivery` | Campfire | ⬜ Not started |  |
 | Webhook replies | `bots.webhook-reply` | Campfire | ⬜ Not started |  |
+| Where bots show up | `bots.membership` | Campfire | ⬜ Not started |  |
+| A bot's profile | `bots.profile` | Campfire | ⬜ Not started |  |
+| Bot keys in logs | `bots.log-redaction` | Campfire | ⬜ Not started |  |
+| Webhooks run in the background | `bots.webhook-jobs` | Ember | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Chat bots page** (`bots.list`) ⬜
 
-- Administrators manage bots at `/account/bots`: "Chat bots", "With Chat bots, other sites and services can post updates directly to Ember." and Add a chat bot. Members get 403.
-- Each active bot shows its avatar, its name and an edit link, and for every room it's in (by name, DMs left out) two commands to copy: `curl -d 'Hello!' <url>` for text and `curl -F "attachment=@/path/to/file" <url>` for files, where the URL is `/rooms/<room id>/<bot key>/messages`.
+- Administrators open `/account/bots` (titled "Chat bots") from the "Chat bots" button in Workspace settings, and its back link returns there. Members get 403.
+- The page shows "Chat bots" and "With Chat bots, other sites and services can post updates directly to Ember." with a translation globe, and "Add a chat bot", which opens `/account/bots/new`.
+- Active bots are listed by name, ignoring case, each with its avatar (linking to its profile), its name and an edit link ("Edit &lt;name&gt;" to screen readers). With no bots the list is simply empty.
+- Under each bot, every room it's in (open or private, not DMs, by name ignoring case) offers two read-only commands: `curl -d 'Hello!' <url>` ("curl command for posting messages") and `curl -F "attachment=@/path/to/file" <url>` ("curl command for posting attachments").
+- `<url>` is absolute, on the host the page was requested from: `<origin>/rooms/<room id>/<bot key>/messages`.
+- "Copy message command" and "Copy attachment command" copy their line to the clipboard and flash the button for a second; if the clipboard refuses, nothing shows.
 
-Sources: [`crates/views/templates/accounts/bots/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/bots/index.html) · [`crates/views/templates/accounts/bots/_bot.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/bots/_bot.html) · [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/helpers/users.rs)
+Sources: [`crates/views/templates/accounts/bots/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/index.html) · [`crates/views/templates/accounts/bots/_bot.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_bot.html) · [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/views/accounts/bots/index.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/index.html.erb) · [`reference/app/views/accounts/bots/_bot.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/_bot.html.erb)
 
-ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Add and edit a bot** (`bots.create-edit`) ⬜
 
-- "Chat bot setup" takes an optional avatar, a Bot name (required) and a Webhook URL; Save changes returns to the bots page.
-- A new bot gets a random 12-character token and joins every open room, like a new person.
-- Clearing the webhook URL removes the webhook; filling it in adds or changes it. Unknown or deleted bots are 404, and members get 403.
+- `/account/bots/new` ("New chat bot") and `/account/bots/<id>/edit` ("Edit bot") show "Chat bot setup" and "Connect a bot to your workspace and choose where updates are delivered." above the bot form, and link back to the bots page.
+- The form has an avatar picker ("Upload bot avatar", images only), Bot name (placeholder "Name the bot", required, autofocused) and Webhook URL (placeholder "Webhook URL", a URL field), each label with a translation globe, and Save changes.
+- A chosen picture previews at once ("Bot avatar"); without one the default bot picture shows, and an avatar can't be removed.
+- Saving returns to the bots page with no confirmation message. A new bot gets a token of 12 random letters and digits and joins every open room, like a new person.
+- Only the browser checks the fields: the server saves whatever webhook text and name it gets, even an empty name.
+- Creating a bot with Webhook URL left empty still saves an empty webhook, whose deliveries fail without a reply. When editing, a blank URL removes the webhook, and a filled one adds or changes it.
+- Unknown or deleted bots are 404, and members get 403.
 
-Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/bots/_form.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb)
+Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_form.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`crates/views/templates/accounts/bots/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/new.html) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/webhook.rs) · [`reference/app/controllers/accounts/bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots_controller.rb)
 
-ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Delete a bot** (`bots.delete`) ⬜
 
-- Delete bot asks "Are you sure you want to permanently remove this bot from the account? This can’t be undone." and deactivates the bot: it leaves the bots page and its key stops working at once.
-- Its messages stay, and its page reads "&lt;name&gt; is no longer on this account".
+- The edit page's red "Delete bot" button ("Delete this chat bot") asks "Are you sure you want to permanently remove this bot from the account? This can’t be undone." and then returns to the bots page.
+- Deleting deactivates the bot: it leaves the bots page and every room but its DMs, and its key stops working at once.
+- Its messages and boosts stay, and its page reads "&lt;name&gt; is no longer on this account".
+- Its token and webhook are kept, so deliveries already queued still go out and their replies still post.
+- Members get 403, and unknown or already deleted bots 404.
 
-Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/bots/edit.html)
+Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
-ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
 **Generate a new bot key** (`bots.reset-key`) ⬜
 
-- Generate a new key asks "Are you sure you want to change the bot key? All usage of this bot must be updated." The old key stops working at once, and the bots page shows the new one.
+- The edit page's red "Generate a new key" button asks "Are you sure you want to change the bot key? All usage of this bot must be updated." and gives the bot a new token of 12 random letters and digits.
+- The old key stops working at once, and the bots page it returns to shows the new key in its commands.
+- Webhook deliveries made after the reset carry the new key in `room.path`.
+- Members get 403, and unknown or deleted bots 404.
 
-Sources: [`crates/ember/src/controllers/accounts/bots/keys.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/accounts/bots/keys.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/bots/edit.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb)
+Sources: [`crates/ember/src/controllers/accounts/bots/keys.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots/keys.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/accounts/bots/keys_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots/keys_controller.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
-ember-rust tests: [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/bots/keys_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots/keys_controller_test.rb)
 
 **Bot keys** (`bots.api-auth`) ⬜
 
-- Bots call `/rooms/<room id>/<bot key>/messages`, where the key is `<bot id>-<token>` (surrounding spaces ignored), with no cookie or CSRF token. Only active bots match.
-- A bot can only use rooms it's in; others are 404. A wrong key gets the sign-in redirect and posts nothing, and a valid key used anywhere else gets 403.
+- Bots call `/rooms/<room id>/<bot key>/messages` and the paths under it, optionally ending in `.json`. The key is `<bot id>-<token>`: surrounding spaces are ignored, as is anything after a second `-`, and only active bots match.
+- A key with an empty token matches nothing, so `<person id>-` can't post or edit as that person.
+- A wrong key answers 302 to `/session/new` and changes nothing. A room the bot isn't in is an empty 404.
+- Requests authenticated by a key skip forgery protection. A request carrying a session cookie acts as that person instead, with the usual checks.
+- A valid key sent to any other page that needs signing in (as a `bot_key` parameter) gets an empty 403.
+- Writes from banned IP addresses get 429.
 
-Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns.rs) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb)
+Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 
-ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb)
+ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`reference/test/controllers/messages/boosts/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
 **Bots post messages** (`bots.api-post`) ⬜
 
-- POSTing text (UTF-8, emoji included) to a room's bot URL posts it as the bot, answering 201 with the message's address in Location. A multipart `attachment` posts a file instead.
-- A blank body with no file is 422. The message reaches the room like any other and triggers other bots' webhooks, never the sender's own.
+- POSTing to a room's bot URL posts the raw request body, whatever its Content-Type, as the bot's message: `curl -d 'Hello!'` posts "Hello!" and a JSON body posts its JSON text. UTF-8 is kept, emoji included; ember-rust replaces invalid bytes with U+FFFD.
+- The body is rich text: HTML renders, and mention attachments mention people and reach mentioned bots' webhooks.
+- It answers 201 with an empty body and `Location: <origin>/messages/<id>`, a URL that answers 404 because it names no room.
+- A multipart `attachment` posts a file message instead, processed like an upload, whose text for search, push and webhooks is the file name.
+- A blank body (empty or only whitespace) with no file is 422, as is a multipart body without `attachment` in ember-rust, and a room the bot isn't in is 404; none of them posts anything.
+- A text body over 16 MiB, or a file over 250,000,000 bytes, gets 413.
+- The message reaches the room like anyone's (live, unread, pushed, searchable) and triggers other bots' webhooks, never the sender's own, even when it mentions itself or is in its own DM.
 
-Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb)
+Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/concerns/raw_request_body.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/raw_request_body.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs)
 
-ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/tests.rs)
+ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
 **Bots read messages** (`bots.api-list`) ⬜
 
-- GET on the bot URL returns the room's latest 40 messages as JSON, oldest first, each with id, created_at, body (plain_text and html), creator (id, name, role, avatar_url), room id and url.
-- X-Total-Count gives the room's message count, a Link header points to older messages (`?before=<id>`), and `?after=<id>` pages forward. An empty room returns [] with no Link.
+- GET on a room's bot URL answers `application/json; charset=utf-8` with its newest 40 messages, oldest first; `?before=<id>` gives the 40 created before that message and `?after=<id>` the 40 after it, and `before` wins when both are given. An empty room gives `[]`.
+- Each message has, in order, `id`, `created_at` (UTC ISO 8601 with milliseconds), `body` (`plain_text`, `html`), `creator` (`id`, `name`, `role`, `avatar_url`), `room` (`id`) and `url`. `role` is "member", "administrator" or "bot".
+- `html` is the rendered rich text inside `<div class="lexxy-content">`. A file message has its file name as `plain_text`, `""` as `html` and no file URL.
+- `<`, `>` and `&` are escaped as `\u003c`, `\u003e` and `\u0026`; emoji are written as they are.
+- `avatar_url` and `url` (`<origin>/rooms/<room id>/messages/<id>`) are absolute, built from each request's host; a forged `X-Forwarded-Host` never shows up in another request's response.
+- `X-Total-Count` gives the room's message count on every page ("0" when empty). `Link: <<origin>/rooms/<room id>/<bot key>/messages?before=<first id>>; rel="next"` appears only when older messages exist, or with `?after` as `?after=<last id>` when newer ones do.
+- A cursor that isn't a message in this room is 404 `{"status":404,"error":"Not Found"}`. HEAD gives the same headers without a body.
 
-Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/by_bots.rs) · [`crates/views/src/messages/json.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/src/messages/json.rs) · [`reference/app/views/messages/_message.json.jbuilder`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/messages/_message.json.jbuilder)
+Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/by_bots.rs) · [`crates/views/src/messages/json.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/json.rs) · [`reference/app/views/messages/_message.json.jbuilder`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/messages/_message.json.jbuilder) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs)
 
-ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb)
+ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Bots edit and delete their messages** (`bots.api-edit-delete`) ⬜
 
-- PUT with new text changes the bot's own message and returns it as JSON; DELETE removes it with 204. Anyone else's message is 403.
-- Edits and deletions reach the room live.
+- PUT or PATCH on `…/messages/<id>` replaces the bot's own message with the raw body and answers 200 with the message's JSON, shaped as in the list. The body isn't checked for blank, so an empty one empties the message.
+- A multipart `attachment` replaces the message's file and keeps its text, and an empty `attachment=` field removes the file.
+- DELETE removes the bot's own message and its boosts and answers 204.
+- Someone else's message is an empty 403, a message outside the room is 404 `{"status":404,"error":"Not Found"}`, and a room the bot isn't in is an empty 404. None of them changes anything.
+- Edits and deletions reach the room live, and edits never trigger webhooks.
 
-Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb)
+Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs)
 
-ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb)
+ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Bots boost messages** (`bots.api-boosts`) ⬜
 
-- POSTing text to `…/messages/<id>/boosts` boosts the message with it and returns the boost as JSON with 201. A blank body is 422, and a message outside the room is 404.
-- DELETE removes the bot's own boost with 204; anyone else's is 404. Both reach the room live.
+- POSTing to `…/messages/<id>/boosts` boosts the message with the raw body as its content, untrimmed and of any length, and answers 201 with the boost's JSON. A bot may boost any message in the room, its own included, and add the same boost again.
+- Boost JSON has, in order, `id`, `content`, `created_at`, `booster` (`id`, `name`, `role`, `avatar_url`) and `message` (`id`, `url`).
+- A room the bot isn't in, or a message outside the room, is an empty 404, checked before a blank body's 422.
+- DELETE on `…/boosts/<boost id>` removes the bot's own boost on that message with 204; anyone else's, or one already removed, is an empty 404.
+- New and removed boosts reach the room live.
 
-Sources: [`crates/ember/src/controllers/messages/boosts/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages/boosts/by_bots.rs) · [`reference/app/controllers/messages/boosts/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts/by_bots_controller.rb)
+Sources: [`crates/ember/src/controllers/messages/boosts/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/boosts/by_bots.rs) · [`reference/app/controllers/messages/boosts/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts/by_bots_controller.rb) · [`reference/app/views/messages/boosts/_boost.json.jbuilder`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/messages/boosts/_boost.json.jbuilder) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs)
 
-ember-rust tests: [`reference/test/controllers/messages/boosts/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts/by_bots_controller_test.rb)
+ember-rust tests: [`reference/test/controllers/messages/boosts/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Webhooks** (`bots.webhook-delivery`) ⬜
 
-- A message in a DM with a bot, or one mentioning a bot elsewhere, is POSTed as JSON to the bot's webhook: user (id, name), room (id, name, and its bot URL as path) and message (id, html and plain body, path). A bot never triggers itself.
-- The plain body drops mentions of the bot and surrounding whitespace. Bots without a webhook get nothing, and webhooks may point at internal hosts, since only administrators set them.
+- Creating a message, in the app or through the bot API, notifies bots: in a DM, every active bot in it; elsewhere, every active bot it mentions who is a member of the room. The sender and bots without a webhook are skipped, each bot gets one delivery, and a typed "@Name" that isn't a real mention doesn't count.
+- Edits, boosts and webhook replies never trigger deliveries.
+- The POST is JSON with, in order, `user` (`id`, `name`: the sender), `room` (`id`, `name`, `path`) and `message` (`id`, `body` with `html` and `plain`, `path`). `room.name` is null in a DM, `room.path` is the receiving bot's own `/rooms/<room id>/<bot key>/messages`, and `message.path` is `/rooms/<room id>/@<message id>`.
+- `html` is the stored rich text without its layout, and `plain` the plain text with every `@<bot name>` of the receiving bot removed and surrounding Unicode whitespace trimmed. A file message has a null `html` and its file name as `plain`, and never a file URL.
+- Requests send `Content-Type: application/json`, `Accept: */*` and `User-Agent: Ruby`, accept gzip and deflate, and escape `<`, `>` and `&` in the JSON as `\u003c`, `\u003e` and `\u0026`.
+- Any http or https URL and port is accepted, redirects aren't followed and nothing is retried. An invalid URL, such as the empty one a bot created without a URL has, fails without a reply.
+- Webhooks may point at internal hosts: there's no private-network guard, since only administrators set them.
 
-Sources: [`reference/app/models/webhook.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/webhook.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/webhook.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/messages.rs)
+Sources: [`reference/app/models/webhook.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/webhook.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`crates/db/src/models/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/webhook.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
-ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/webhook_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/jobs/tests.rs)
+ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/webhook_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs)
 
 **Webhook replies** (`bots.webhook-reply`) ⬜
 
-- A 200 reply typed text/plain or text/html is posted by the bot in the room. Any other typed reply becomes a file named `attachment.<ext>`, and a reply with no type posts nothing.
-- If connecting or reading takes over 7 seconds, the bot posts "Failed to respond within 7 seconds". ember-rust also gives up after 60 seconds in all, or on replies over 100 MB.
-- Replies reach the room like other messages but never trigger further webhooks.
+- A reply with status exactly 200 and media type exactly `text/plain` or `text/html` (parameters ignored, case-sensitive) is posted by the bot as a rich-text message in the message's room, even if the bot has left it. An empty one posts an empty message, and ember-rust replaces invalid UTF-8.
+- Any other reply with a Content-Type, whatever its status, becomes a file message processed like an upload: a 500 `text/html` page is `attachment.html` and a 201 `text/plain` reply `attachment.text`. Redirects aren't followed, so a 3xx with a type becomes a file too.
+- File names and types come from Rails' MIME table: `image/jpeg` gives `attachment.jpeg`, `audio/mp4` gives `attachment.m4a` typed `audio/aac`, and unregistered types such as `application/x-foo` or `Text/Plain` give `attachment.` typed as sent.
+- Nothing is posted when the reply has no Content-Type, an empty one or one without `/`, or when the connection is refused or fails on DNS or TLS. gzip and deflate replies are decoded first.
+- If connecting or reading takes over 7 seconds, the bot posts "Failed to respond within 7 seconds". ember-rust also gives up after 60 seconds in all ("Failed to respond within 60 seconds") and posts nothing for replies over 100 MiB.
+- Replies reach the room like other messages (live, unread, pushed) but never trigger further webhooks.
 
-Sources: [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/webhook.rs) · [`reference/app/models/webhook.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/webhook.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/integrations/jobs.rs)
+Sources: [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs) · [`reference/app/models/webhook.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/webhook.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
-ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/webhook_test.rb) · [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/jobs/tests.rs)
+ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/webhook_test.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs)
+
+**Where bots show up** (`bots.membership`) ⬜
+
+- A new bot joins every open room at the `mentions` level, and rooms made open later add it too; deleting a bot takes it out of every room but its DMs.
+- Private rooms' member pickers list active bots with everyone else, and anyone can start a DM with an active bot.
+- Bots are offered in @-mention suggestions for rooms they're in, and in the DM picker's search and suggested people.
+- Bots never appear in Workspace settings' people list and never get the administrator crown.
+
+Sources: [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/controllers/rooms/closeds_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/closeds_controller.rb) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs)
+
+ember-rust tests: [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**A bot's profile** (`bots.profile`) ⬜
+
+- `/users/<bot id>` shows the bot's avatar ("Profile avatar", the default bot picture without an upload) and, while the bot is active, a button that starts a DM with it. There's no name heading, bio, email, sign-in link or ban button, even for administrators.
+- A deleted bot's page shows only its avatar and "&lt;name&gt; is no longer on this account".
+
+Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`reference/app/views/users/show.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/users/show.html.erb) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/avatars.rs) · [`reference/app/controllers/users/avatars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/avatars_controller.rb)
+
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**Bot keys in logs** (`bots.log-redaction`) ⬜
+
+- Campfire's Rails log shows the key in every bot URL on a line as `[FILTERED]` (`/rooms/1/[FILTERED]/messages`, also inside a logged `Link` header) and filters a `bot_key` parameter, leaving other room paths alone.
+- ember-rust's request log, which follows Thruster's, records each request's path and query in full, bot keys included, unless `LOG_REQUESTS` turns it off.
+
+Sources: [`reference/lib/rails_ext/log_scrubbing_formatter.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/log_scrubbing_formatter.rb) · [`reference/config/initializers/filter_parameter_logging.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/filter_parameter_logging.rb) · [`reference/config/environments/production.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/environments/production.rb) · [`crates/kit/src/front/handler.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/front/handler.rs)
+
+ember-rust tests: [`reference/test/lib/rails_ext/log_scrubbing_formatter_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/rails_ext/log_scrubbing_formatter_test.rb)
+
+**Webhooks run in the background** (`bots.webhook-jobs`) ⬜
+
+- Deliveries are queued once the message is saved and run in the background on their own queue, so a slow webhook never holds up the message's request, pushes or other jobs.
+- `JOB_CONCURRENCY` deliveries (2 by default) run at a time and up to 1,024 more wait; beyond that a delivery is dropped and logged as "job queue is full, dropping job".
+- Nothing is retried. The bot, message and webhook are read when the delivery runs: a message deleted or a webhook removed by then fails it with nothing sent, an edit made by then is delivered, and a bot deleted by then still gets it.
+- Each delivery logs "performed", or "job failed" with its cause.
+- On shutdown, queued deliveries still run for up to 10 seconds; a crash loses them.
+
+Sources: [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/jobs/bot/webhook_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/bot/webhook_job.rb) · [`reference/app/jobs/application_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/application_job.rb)
+
+ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs/tests.rs)
 
 </details>
 
@@ -1521,39 +2013,65 @@ ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/b
 | Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Keep drafts | `composer.draft` | Campfire | ⬜ Not started |  |
+| Formatting toolbar | `composer.formatting-toolbar` | Campfire | ⬜ Not started |  |
+| Pasting into the composer | `composer.paste` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
 **Send from the keyboard** (`composer.send`) 🟡
 
-- On a computer, Enter sends and Shift+Enter starts a new line. With the formatting toolbar open, Enter starts a new line and Cmd or Ctrl+Enter sends.
-- On touch devices Enter never sends; only the Send button does.
-- Enter with the mention list open picks a mention. Blank messages aren't sent, and after sending the toolbar closes and focus stays in the composer.
+- On a computer, Enter sends, Shift+Enter starts a new line and Cmd or Ctrl+Enter sends too. With the formatting toolbar open, Enter starts a new line instead, and Enter never sends while an input method is composing.
+- On any device with a touchscreen the keyboard never sends, Cmd or Ctrl+Enter included; only the Send button does.
+- With the mention list open, Enter picks a mention instead of sending.
+- Blank messages aren't sent, though one holding only a mention is. After sending, the toolbar closes and the composer keeps focus, on touch screens too.
 
 Note: There's no formatting toolbar or mention list. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too.
 
-Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
+Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
 
-ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Composer** (`composer.layout`) 🟡
 
-- The composer is a rounded card at least 108px tall (100px on phones), with the text on top and Attach files, Formatting options and a round Send button below.
+- The composer is a rounded card at least 108px tall (100px on phones), with the text on top and Attach files, Formatting options and a round Send button below, on phones too.
+- The buttons are titled "Attach files", "Formatting options" and "Send message", and screen readers call them "Attach a file", "Rich text" and "Send Message".
 - The text box is named "Write a message", with the placeholder "Message #general" ("Message Ada" in a DM). It grows up to min(32dvh, 300px) and is focused on load, except on touch devices.
 
 Note: The text box is named after its placeholder, the button is called "Send", a "Shift + Enter for a new line" hint (hidden on touch screens) sits where Attach files and Formatting options would be, and nothing is focused on load.
 
-Sources: [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/composer_controller.js)
+Sources: [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Keep drafts** (`composer.draft`) ⬜
 
-- Whatever you've typed in a room is kept in this browser (`composer-draft-<room id>`) and restored, cursor at the end, when you come back.
+- Whatever you've typed in a room, formatting and mentions included, is kept in this browser (`composer-draft-<room id>`) and restored, cursor at the end, when you come back.
 - Sending, or emptying the box, clears it.
 
-Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
+Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
+
+**Formatting toolbar** (`composer.formatting-toolbar`) ⬜
+
+- Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit go under "Show more toolbar buttons", and its menus open upward.
+- Link, or Cmd or Ctrl+K, asks for an address ("Enter a URL…") with Link and Unlink buttons.
+- There's no underline, highlight color, table, divider, undo, redo or upload button, though Cmd or Ctrl+U still underlines.
+- Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~`, `==highlight==` and `[text](url)`.
+
+Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`reference/app/javascript/initializers/rich_text.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/rich_text.js) · [`reference/app/assets/stylesheets/actiontext.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/actiontext.css) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
+
+ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
+
+**Pasting into the composer** (`composer.paste`) ⬜
+
+- Pasted files join the files waiting to be sent rather than going into the text.
+- A pasted address goes in as a link and asks for its preview (see `unfurl.composer`); pasted over selected text, it only turns the selection into a link.
+- Pasted text that looks like Markdown is converted, keeping its line breaks; other text goes in as it is, and anything pasted into a code block stays raw.
+- Pasted formatting, tables included, is kept as far as messages allow.
+
+Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
+
+ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
 </details>
 
@@ -1584,69 +2102,72 @@ Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://
 
 Note: The sidebar stays 280px down to 900px wide, and the drawer takes over below 900px rather than at 900px.
 
-Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Rail** (`ui.rail`) 🟡
 
-- From the top: the workspace logo (going home), Home, DMs, Activity, Search, a divider, Admin (Workspace for members), Appearance, and your avatar, which opens your profile.
-- Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked, Home in any room, and none while Activity is on.
+- From the top: the workspace logo (going home, titled with the workspace name), Home, DMs, Activity (a toggle button, `sidebar.activity-filter`), Search, a divider, Admin (Workspace for members), Appearance, and your avatar, a link to your profile named "Your profile" and titled with your name.
+- Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.
 - DMs opens the new direct message dialog without leaving the page.
 
-Note: Only Home works. DMs, Activity, Search and Workspace are disabled, and your avatar opens a menu with Sign out rather than your profile.
+Note: Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Sign out rather than your profile.
 
-Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Room header** (`ui.room-header`) 🟡
 
-- The header shows the room's icon (`#` by default) and its name (17px, bold, cut off with …). DM names read as "Direct message with …" to screen readers.
-- Rooms have a star to favorite them, and on the right Search messages, the notification bell and Conversation settings.
+- The header shows the room's icon (`#` by default, the outlined messages icon for DMs) and its name (17px, bold, cut off with …). DM names read as "Direct message with …" to screen readers.
+- Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as "Settings for this room", or "Settings for this Ping" in a DM.
 - On phones the header is 56px tall and its buttons are 44px squares.
 
-Note: The header has the `#` and the name but no star, search, bell or settings. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" while offline.
+Note: The header has the `#` and the name but no star, search, bell or settings. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open.
 
-Sources: [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show/_nav.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Conversations drawer on phones** (`ui.mobile-drawer`) 🟡
 
-- At 900px wide and below, the rail and conversations become a drawer opened by the header's 44px Open conversations button, which turns into Close conversations (aria-expanded true) while it's open.
-- Opening it dims the page behind and focuses its Close conversations button, and Tab stays inside it. Escape, the close button or the backdrop closes it and returns focus to whatever opened it. Choosing a conversation, or widening the window past 900px, closes it too.
+- At 900px wide and below, the rail and conversations become a drawer opened by the header's 44px Open conversations button, which turns into Close conversations (aria-expanded true) while it's open. It leaves at least 16px of the page showing, and slides in over 180ms unless reduced motion is preferred.
+- Opening it dims the page behind, makes the rest of the page inert and focuses its Close conversations button. Tab and Shift+Tab cycle through the rail's and sidebar's controls, and nothing in the drawer can be reached while it's closed.
+- Escape, the close button or the backdrop closes it and returns focus to whatever opened it; while a dialog or the appearance menu is open, Escape and Tab are left to them. Following any link in the rail or sidebar closes it, and so does widening the window past 900px.
 - Rows and buttons in it are at least 44px tall.
 
-Note: The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations.
+Note: The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations, and it slides in over half a second and out over 0.3 seconds, reduced motion or not.
 
-Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html)
+Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Light, dark or system appearance** (`ui.appearance`) 🟡
 
-- The rail's appearance button, above your avatar, shows a sun, moon or monitor and is named "Appearance: Light", "Appearance: Dark" or "Appearance: System". It opens a small Appearance menu with Light, Dark and System radio buttons.
-- A choice applies at once and is kept in this browser (`ember:appearance`). It's applied before the page paints, so dark never flashes light, and other open tabs follow. System follows the device as it changes.
+- The rail's appearance button, above your avatar, shows a sun, moon or monitor and is named and titled "Appearance: Light", "Appearance: Dark" or "Appearance: System". It opens a small menu, a dialog named Appearance, with Light, Dark and System radio buttons under the legend "Appearance", the current one checked.
+- A choice applies at once and is kept in this browser (`ember:appearance`, System as `system`). It's applied before the page paints, so dark never flashes light, and other open tabs follow, also when the site's storage is cleared. System follows the device as it changes.
+- `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form.
+Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance` or theme color.
 
-Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/appearance.js)
+Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/first-run.test.mjs) · [`crates/assets/overrides/basecoat/test/lifecycle.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/basecoat/test/lifecycle.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/assets/overrides/basecoat/test/lifecycle.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/test/lifecycle.test.mjs)
 
 **Stay at the newest message** (`ui.scroll`) 🟡
 
-- Rooms open at the newest message. New messages scroll into view only if you're within 100px of the bottom; otherwise Jump to newest message appears, and clicking it scrolls down.
-- Sending always scrolls to the bottom, loading the newest messages first if you were reading history.
-- At most 320 messages stay on the page; the far end is trimmed.
+- Rooms open at the newest message. A new message scrolls into view only if you were within 100px of the bottom; otherwise, or whenever one arrives while you're reading older history, a centered Jump to newest message button appears. It hides once the newest message comes into view.
+- Clicking it, or sending, scrolls to the bottom, loading the newest messages first if you were reading history.
+- An edit or a new reaction keeps your place.
+- Past 320 messages the page is cut back to 300, dropping the end you're furthest from; scrolling back to a cut end loads it again.
 
-Note: The button is "Return to latest messages" and shows whenever you're more than 120px from the bottom, new messages or not. Sending while scrolled up doesn't scroll down, and nothing is trimmed.
+Note: The button is "Return to latest messages", at the bottom right, and shows whenever you're more than 120px from the bottom, new messages or not. Sending while scrolled up doesn't scroll down, nothing is trimmed, and only loading older history keeps your place on purpose: edits and reactions are left to the browser's scroll anchoring.
 
-Sources: [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/javascript/models/scroll_manager.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/scroll_manager.js) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/rooms/show.html)
+Sources: [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/javascript/models/scroll_manager.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/scroll_manager.js) · [`reference/app/javascript/models/message_paginator.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_paginator.js) · [`reference/app/javascript/controllers/maintain_scroll_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/maintain_scroll_controller.js) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show.html)
 
-ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Empty room** (`ui.empty-room`) ✅
 
@@ -1654,33 +2175,37 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 
 **Select a field's text on entry** (`ui.select-on-entry`) ⬜
 
-- Tabbing or clicking into a text field selects what's in it, so typing replaces it; a second click places the cursor.
-- Disabled and read-only fields, and a few marked ones (the workspace name, people search, icon search), keep the usual cursor.
+- Tabbing or clicking into a text, search, email, URL, phone or password field selects what's in it, so typing replaces it. A second click, or a drag, places the cursor as usual.
+- Text areas and the message box are never selected, nor are disabled or read-only fields and three marked ones: the workspace name, direct-message search and icon search.
+- It works on every page but first-run setup, signed in or not.
 
-Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js)
+Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/components/direct_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/direct_message.html) · [`crates/views/templates/rooms/layouts/_icon_picker.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_icon_picker.html) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Saved notices** (`ui.flash`) ⬜
 
-- Saving shows a toast below the header, centered on the content, that fades away after 3 seconds: a check read as "Changes saved", or the notice's text. Alerts are red.
-- Switches that save as you flip them show none.
+- A notice shows as a toast below the header, centered over the content (over the whole window when signed out, or at 900px wide and below): a check and the text, in white on green. An alert is red, with an alert sign.
+- It fades in after 0.3 seconds and fades out again, leaving the page 3.3 seconds after it loaded. Screen readers hear it as an alert, and a notice of just "✓" shows only the check, read as "Changes saved".
+- Saving the workspace's name or logo says "Changes saved.", saving custom styles or your profile "✓", and a new profile photo "It may take up to 30 minutes to change everywhere." The settings switches, which save as you flip them, show none.
+- Opening a room that's gone or isn't yours goes home with the alert "Room not found or inaccessible", and a refused sign-in shows "Too many requests or unauthorized."
 
-Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css) · [`reference/app/javascript/controllers/element_removal_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/element_removal_controller.js)
+Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/assets/stylesheets/flash.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/flash.css) · [`reference/app/assets/stylesheets/animation.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/animation.css) · [`reference/app/javascript/controllers/element_removal_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/element_removal_controller.js) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/accounts/custom_styles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/custom_styles.rs) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/screens.yml)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Landmarks and names** (`ui.accessibility`) 🟡
 
-- Skip to main content is the first thing Tab reaches.
+- Skip to main content is the first thing Tab reaches. It's hidden until focused, and moves focus to the main content.
 - Landmarks are named: navigation "Workspace" (the rail) and "Page" (the header), "Conversations" (the sidebar) with Rooms and DMs, and the main content.
-- Icon-only buttons have names ("Send Message", "Attach a file", "Jump to newest message", "Open conversations"), focus shows a 2px outline, and status changes and errors are announced.
+- Controls without visible text have names: the message box "Write a message", "Attach a file", "Rich text", "Send Message", "Jump to newest message", "Open conversations" or "Close conversations", and "Your profile".
+- The current room and rail link are marked `aria-current="page"`, toggles such as Activity and the star are `aria-pressed`, focus shows a 2px outline, and status changes and errors are announced.
 
-Note: There's no skip link, and the header and sidebar aren't named landmarks. The rail, Rooms, the message log ("Messages in general") and the composer are named, and so are the icon-only buttons.
+Note: There's no skip link, and the header and sidebar aren't named landmarks. The rail, Rooms, the message log ("Messages in general") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is "Message #&lt;room&gt;", Send is "Send", and the jump button is "Return to latest messages".
 
-Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/zz-ember.css)
+Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/assets/stylesheets/nav.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/nav.css)
 
-ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Ember's icons** (`ui.icons`) 🟡
 
@@ -1690,9 +2215,9 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 Note: Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in card. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.
 
-Sources: [`crates/views/templates/components/icons.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/components/icons.html) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/lucide/catalog.json) · [`crates/assets/overrides/logos`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/logos)
+Sources: [`crates/views/templates/components/icons.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/icons.html) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/assets/overrides/logos`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/logos)
 
-ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/basecoat/test/lucide.test.mjs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/test/lucide.test.mjs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 </details>
 
@@ -1701,12 +2226,18 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Health check | `platform.health` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts) |
+| Error pages | `platform.error-pages` | Campfire | ⬜ Not started |  |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts) |
+| One live connection per tab outside the open room | `platform.live-socket` | This port | ⬜ Not started |  |
 | Version | `platform.version` | Ember | ⬜ Not started |  |
 | Supported browsers | `platform.browser-support` | Campfire | ⬜ Not started |  |
+| Security headers and HTTPS | `platform.security-headers` | Campfire | ⬜ Not started |  |
+| Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ⬜ Not started |  |
 | Web app manifest | `platform.manifest` | Ember | ⬜ Not started |  |
+| Installable page head | `platform.head-tags` | Campfire | ⬜ Not started |  |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
+| Install commands and the private setup link | `platform.install-commands` | Ember | ➖ Not applicable |  |
 | Runs on a Campfire install | `platform.rails-compat` | Campfire | ➖ Not applicable |  |
 | Old Matchbox and Campfire names | `platform.rename-compat` | Ember | ➖ Not applicable |  |
 
@@ -1715,14 +2246,27 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 
 **Health check** (`platform.health`) 🟡
 
-- `GET /up` answers 200 with a green page, and `/up.json` answers `{"status":"up","timestamp":…}`.
-- It skips sign-in, browser and ban checks.
+- `GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style="background-color: green"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{"status":"up","timestamp":…}` with the time to the second.
+- It skips sign-in, ban and browser checks, and carries no version headers.
 
 Note: The health check is `GET /api/health`, answering `{ ok: true, storage }` with the storage backend in use.
 
-Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers.rs)
+Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 
-ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/app/tests.rs)
+ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
+
+**Error pages** (`platform.error-pages`) ⬜
+
+- A missing page answers 404, a write refused as cross-site 422 and a server failure 500, each with a standalone page titled "We can’t find that (404)", "That didn’t work (422)" or "Something went wrong (500)": an illustration and a Go back button to `/`, plus Try again, which reloads, on the 422 page.
+- A request for JSON gets `{"status":404,"error":"Not Found"}` instead, with the matching status and reason.
+- The 502 page says "Starting Ember…" with the logo and reloads itself every 10 seconds.
+- `/robots.txt` is served, and allows everything.
+
+Note: Unknown page paths get the app's page with status 200, which shows the first room once you're signed in, and unknown `/api/` paths answer 404 with `{ "error": "Not found" }`. An exception in the Worker reaches Cloudflare's own error page, and there's no `/robots.txt`.
+
+Sources: [`reference/public/404.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/404.html) · [`reference/public/422.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/422.html) · [`reference/public/500.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/500.html) · [`crates/assets/overrides/public/502.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/public/502.html) · [`reference/public/robots.txt`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/robots.txt) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs)
+
+ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
 **Durable Object SQLite or D1** (`platform.storage`) ✅
 
@@ -1733,43 +2277,103 @@ ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SO
 
 - Room Durable Objects hibernate between messages without dropping sockets: who's connected survives a wake-up, and pings are answered without waking the room.
 
+**One live connection per tab outside the open room** (`platform.live-socket`) ⬜
+
+- Each signed-in tab keeps one socket besides the room's. It carries unread and read marks, DM activity, sidebar and star changes, and requests to reload the sidebar, for every room the person is in.
+- It reconnects with the room socket's back-off and heartbeat, and the sidebar is fetched again once it's back.
+- Nobody hears about a room they aren't in, and an event reaches only the members whose sidebar it changes.
+- Signing out or losing access to a room closes it as `realtime.connection` describes, and nothing more about a room you've left reaches you.
+
+Sources: [`crates/ember/src/channels.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels.rs) · [`crates/ember/src/channels/unread_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/unread_rooms.rs) · [`crates/ember/src/channels/read_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/read_rooms.rs) · [`reference/app/channels/unread_rooms_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/unread_rooms_channel.rb)
+
+ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs)
+
 **Version** (`platform.version`) ⬜
 
-- Responses carry X-Version: `APP_VERSION` if set, else `GIT_REVISION`, else the release ("1.1"). X-Rev carries `GIT_REVISION` when it's set.
-- Workspace settings and the sign-in help show "Ember™ version &lt;same value&gt;".
+- Pages and the app's other responses carry X-Version: `APP_VERSION` if set, else `GIT_REVISION`, else the release ("1.1", the package version without a trailing ".0"); blank values count as unset. X-Rev carries `GIT_REVISION` whenever it's set, even blank.
+- `/up`, static files and the live connection carry neither header.
+- Workspace settings show "Ember™ version &lt;same value&gt;" at the bottom, and so do the sign-in and join pages under the help contact, when there's an administrator to contact.
 
-Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/config.rs) · [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/accounts/_help_contact.html) · [`reference/config/initializers/version.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/version.rb)
+Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`reference/config/initializers/version.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/version.rb)
 
-ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/config.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
+ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
 **Supported browsers** (`platform.browser-support`) ⬜
 
-- Safari before 17.2, Chrome before 120, Firefox before 121, Opera before 104 and Internet Explorer get "Upgrade to a supported web browser" (titled "Unsupported browser"), which lists the supported browsers and versions.
-- Unknown browsers, bots and requests without a user agent get through, and `/up` is never checked.
+- Safari before 17.2, Chrome before 120, Firefox before 121, Opera before 104, and Internet Explorer get "Upgrade to a supported web browser" with status 200, whatever was asked for, the manifest and JSON requests included. Signed out, it shows in place of the sign-in page.
+- Chromium Edge, Chrome on iOS and Samsung Internet count as Chrome, by their Chrome version; Firefox on iOS counts as Safari at the iOS version, and Edge on iOS by its Safari version.
+- Legacy Edge, other browsers, bots, user agents without a version and requests without a user agent get through, and `/up` is never checked.
+- The page is titled "Unsupported browser" ("Ember" for Apple Messages' link previews), says "Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled." and lists Safari 17.2+, Chrome 120+, Firefox 121+ and Opera 104+ with their icons.
 
-Sources: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns/platform.rs) · [`crates/views/templates/sessions/incompatible_browser.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/sessions/incompatible_browser.html) · [`reference/app/controllers/concerns/allow_browser.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/allow_browser.rb)
+Sources: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/concerns/user_agent.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/user_agent.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/sessions/incompatible_browser.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/sessions/incompatible_browser.html) · [`crates/views/src/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/sessions.rs) · [`reference/app/controllers/concerns/allow_browser.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/allow_browser.rb)
 
-ember-rust tests: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/app/tests.rs)
+ember-rust tests: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`vectors/campfire_user_agents.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/vectors/campfire_user_agents.json) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**Security headers and HTTPS** (`platform.security-headers`) ⬜
+
+- Pages and other responses the app renders (not static files, streamed files or error pages) carry `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 0`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none` and `Referrer-Policy: strict-origin-when-cross-origin`.
+- Unless `DISABLE_SSL` is set, plain HTTP redirects to the same URL over HTTPS, every HTTPS response carries `Strict-Transport-Security: max-age=63072000; includeSubDomains`, and every cookie is `Secure`.
+
+Sources: [`crates/kit/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/app.rs) · [`crates/kit/src/ctx.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/ctx.rs) · [`crates/kit/src/adapter.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/adapter.rs) · [`crates/kit/src/front/tls.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/front/tls.rs) · [`reference/config/environments/production.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/environments/production.rb)
+
+ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs) · [`crates/kit/src/cookies.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/cookies.rs)
+
+**Deploy secrets and the private setup link** (`platform.deploy-secrets`) ⬜
+
+- A deploy without `SESSION_SECRET` generates one, and later deploys keep it; a failed lookup of the Worker's secrets stops the deploy rather than replacing one.
+- `EMBER_SETUP_TOKEN` comes from the repository secret when one is set. Otherwise the first deploy stores a random one that nobody sees, so setup stays locked rather than open.
+- Secrets go live with the code in a single deploy, and neither the token nor the setup link appears in logs or the run summary.
+- The deploy check fails when setup is pending and unprotected.
+
+Note: The preview workflow already generates `SESSION_SECRET` on the first deploy and keeps it, stopping if it can't list the Worker's secrets, but it sets the secret only after the code is live, and there's no setup token.
+
+Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py) · [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs)
+
+ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py) · [`deploy/installer/tests/test_install_recovery.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_install_recovery.py)
 
 **Web app manifest** (`platform.manifest`) ⬜
 
-- `/webmanifest.json` is public and names the app after the workspace ("Ember" before setup), with the logo at 192 and 512px (also maskable), start URL `/`, standalone display and a white theme.
-- Its shortcuts are New chat room and My profile.
+- `/webmanifest.json` answers JSON without sign-in. It names the app after the workspace ("Ember" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.
+- It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description "A chat app from the makers of Basecamp and HEY." and the categories social, business and productivity.
+- Its shortcuts are New chat room (`rooms/opens/new`, "Open Ember and start a new chat room") and My profile (`/users/me/profile`, "Open Ember and view your profile"), each with an icon.
+- It lists three 1080×2400 narrow screenshots labelled "Ember is an installable, self-hosted group chat system.", "Easily invite people. Make rooms. @mentions, DMs, and mobile support." and "Full support for dark mode, customizable to your brand."
 
-Sources: [`crates/views/templates/pwa/manifest.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/pwa/manifest.json) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/pwa.rs) · [`reference/app/views/pwa/manifest.json.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/manifest.json.erb)
+Sources: [`crates/views/templates/pwa/manifest.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/manifest.json) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/views/pwa/manifest.json.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/manifest.json.erb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
+
+**Installable page head** (`platform.head-tags`) ⬜
+
+- Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.
+- `theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.
+
+Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original.
+
+Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/app/views/layouts/application.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/layouts/application.html.erb)
 
 **Request and connection limits** (`platform.limits`) ➖
 
 - Request bodies are capped at 16 MiB and files at 250 MB, and a form may carry at most 128 files or 4,096 parts.
 - Each live connection may hold 64 subscriptions, 4 KiB identifiers and 1 MiB messages, and is dropped if it stops reading for 30 seconds.
 
-Note: Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over.
+Note: Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 50 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.
 
-Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/kit/src/body.rs) · [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/README.md)
+Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs) · [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md)
 
-ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/kit/tests/http.rs)
+ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs)
+
+**Install commands and the private setup link** (`platform.install-commands`) ➖
+
+- `ember generate-secrets` prints four shell-safe lines, different on every run and needing no configuration: SECRET_KEY_BASE (128 hex characters), VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (a P-256 key pair, unpadded base64url) and EMBER_SETUP_TOKEN (64 hex characters).
+- `ember setup-status` opens the existing database read-only and prints `pending` or `initialized`, failing with "could not open the existing Ember database" rather than creating one.
+- While setup is pending, the installer ends by printing "Ember &lt;version&gt; is ready. Open this private link to create the first administrator:", the link `https://<domain>/first_run/access#token=<token>` and "Keep the link private. It stops granting setup access once an administrator exists." Afterwards it prints "Ember &lt;version&gt; is ready; initial administrator setup is already complete."
+- Once setup is complete, `emberctl setup-link` refuses with "Initial administrator setup is complete; the private setup link no longer grants access." and never prints the token.
+
+Note: These commands run on ember-rust's own host, beside its SQLite database, and drive its Docker installer. A Worker has no shell beside its data; its secrets are set with `wrangler secret put` or by the deploy workflow, as the README describes. The Cloudflare counterpart is `platform.deploy-secrets`.
+
+Sources: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py)
+
+ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py)
 
 **Runs on a Campfire install** (`platform.rails-compat`) ➖
 
@@ -1777,7 +2381,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 
 Note: This port starts from its own storage, so there's no Campfire data to stay compatible with.
 
-Sources: [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/README.md)
+Sources: [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md)
 
 **Old Matchbox and Campfire names** (`platform.rename-compat`) ➖
 
@@ -1786,6 +2390,8 @@ Sources: [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946
 
 Note: This port never shipped under those names.
 
-Sources: [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/README.md) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/ember/shell.js)
+Sources: [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md) · [`crates/rails_compat/src/env.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/rails_compat/src/env.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js)
+
+ember-rust tests: [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs) · [`crates/rails_compat/src/env.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/rails_compat/src/env.rs) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs)
 
 </details>
