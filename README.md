@@ -60,6 +60,13 @@ screen it checks that nothing overflows sideways or sits under the notch, that e
 44px tap target, and that text fields are 16px so iOS doesn't zoom in on focus. Where a browser is
 already installed, point Playwright at it with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome`.
 
+## Performance
+
+`pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,
+throughput, fan-out, room size, history paging) and measures how the web app loads and renders a
+busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
+suite started with are in `perf/baseline/report.md`.
+
 ## Storage: Durable Object SQLite or D1
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks where messages live.

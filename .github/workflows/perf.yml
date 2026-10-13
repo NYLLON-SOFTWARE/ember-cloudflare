@@ -1,0 +1,40 @@
+name: Performance
+
+# Runs on demand: by hand from the Actions tab, or on a pull request labeled "perf".
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Which profile to run
+        type: choice
+        options: [quick, full]
+        default: quick
+  pull_request:
+    types: [labeled, synchronize]
+
+# A newer push or label replaces a run still in progress on the same pull request.
+concurrency:
+  group: perf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm perf ${{ inputs.profile != 'full' && '--quick' || '' }} --out perf-results
+      - if: always() && hashFiles('perf-results/report.md') != ''
+        run: cat perf-results/report.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf-results/
