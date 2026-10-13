@@ -107,8 +107,22 @@ compares them with ember-rust's database.
 
 ```sh
 pnpm --filter @ember/worker exec wrangler secret put SESSION_SECRET
-pnpm deploy
+pnpm run deploy     # not `pnpm deploy`, which is pnpm's own command
 ```
+
+### A preview from GitHub Actions
+
+The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
+`ember-preview` on your workers.dev subdomain after every push, or when run by hand from the Actions
+tab. It needs two repository secrets, and skips without them:
+
+- `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
+- `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
+
+The first deploy makes the Worker's `SESSION_SECRET`, and later ones keep it. After each deploy,
+`node apps/worker/scripts/check-deploy.ts <url>` checks that the page loads, sign-in works and a
+room's Durable Object answers its socket. The link is on the run's summary and under the
+repository's Deployments.
 
 ## Status
 

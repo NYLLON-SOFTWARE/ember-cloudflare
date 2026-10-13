@@ -100,6 +100,9 @@ importers:
       '@ember/web':
         specifier: workspace:*
         version: link:../web
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
       vitest:
         specifier: ^4.1.0
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0))
