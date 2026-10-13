@@ -1,6 +1,6 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
 import type { Env } from "./env";
-import schema from "../migrations/0001_messages.sql";
+import { migrate } from "./migrations";
 
 // Messages for one room. The same SQL runs against the room's Durable Object SQLite
 // storage or against D1, chosen by STORAGE_BACKEND; only the driver differs.
@@ -40,7 +40,7 @@ export function openStore(env: Env, state: DurableObjectState, roomId: RoomId): 
     if (!env.DB) throw new Error('STORAGE_BACKEND is "d1" but no D1 database is bound as DB in wrangler.jsonc.');
     return new MessageStore(d1Driver(env.DB), roomId);
   }
-  state.storage.sql.exec(schema);
+  migrate(state.storage);
   return new MessageStore(durableObjectDriver(state.storage.sql), roomId);
 }
 

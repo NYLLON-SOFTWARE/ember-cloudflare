@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
+import { MIGRATIONS, migrate } from "../src/migrations";
 import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 
 const origin = "https://ember.test";
@@ -291,6 +292,38 @@ describe("ChatRoom", () => {
     await until(() => ada.log.filter((f) => f.type === "message.created").length === 2);
     expect(ada.log.filter((f) => f.type === "boost.created")).toHaveLength(1);
     ada.ws.close(1000);
+  });
+
+  it("applies every migration file to a room's storage, once", async () => {
+    // vitest.config.ts reads TEST_MIGRATIONS from the migrations directory.
+    const files = (env as unknown as { TEST_MIGRATIONS: Array<{ name: string }> }).TEST_MIGRATIONS.map((m) => m.name);
+    expect(MIGRATIONS.map((m) => m.name)).toEqual(files);
+
+    const ada = await connect("migrated", await signIn("Ada"));
+    await ada.next("welcome");
+    const recorded = files.map((name) => ({ name }));
+    expect(await roomSql("migrated", "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+    if (!(env as { DB?: D1Database }).DB) {
+      await runInDurableObject(roomStub("migrated"), (_room, state: DurableObjectState) => migrate(state.storage));
+      expect(await roomSql("migrated", "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+    }
+    ada.ws.close(1000);
+  });
+
+  it("records the first migration in rooms that ran it before migrations were tracked", async () => {
+    if ((env as { DB?: D1Database }).DB) return;
+    const messages = await runInDurableObject(roomStub("untracked"), (_room, state: DurableObjectState) => {
+      // What every room did on opening before migrate() existed.
+      state.storage.sql.exec(MIGRATIONS[0]!.sql);
+      state.storage.sql.exec(
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
+         VALUES ('m1', 'untracked', 'c1', 'u1', 'Ada', 'from before', 'now', 'now')`,
+      );
+      migrate(state.storage);
+      return state.storage.sql.exec("SELECT body FROM messages").toArray();
+    });
+    expect(messages).toEqual([{ body: "from before" }]);
+    expect(await roomSql("untracked", "SELECT name FROM d1_migrations")).toEqual([{ name: MIGRATIONS[0]!.name }]);
   });
 
   it("writes to the configured backend", async () => {
