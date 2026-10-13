@@ -71,11 +71,11 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       return { ...state, loadingOlder: true };
     case "dismiss-notice":
       return { ...state, notice: null };
-    case "expire-typing":
-      return {
-        ...state,
-        typing: Object.fromEntries(Object.entries(state.typing).filter(([, t]) => t.at >= action.before)),
-      };
+    case "expire-typing": {
+      const fresh = Object.entries(state.typing).filter(([, t]) => t.at >= action.before);
+      // This comes every second, so a room where nothing expired keeps its state and doesn't re-render.
+      return fresh.length === Object.keys(state.typing).length ? state : { ...state, typing: Object.fromEntries(fresh) };
+    }
     case "frame":
       return applyFrame(state, action.frame, action.now);
   }
@@ -120,8 +120,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         ...state,
         messages: replace(state.messages, frame.messageId, (m) => ({ ...m, boosts: m.boosts.filter((b) => b.id !== frame.boostId) })),
       };
-    case "presence":
-      return { ...state, present: frame.present };
+    case "presence.joined":
+      // Someone reopening the room while their last tab is still closing arrives before that tab leaves.
+      return state.present.some((u) => u.id === frame.user.id) ? state : { ...state, present: [...state.present, frame.user] };
+    case "presence.left":
+      return { ...state, present: state.present.filter((u) => u.id !== frame.userId), typing: withoutTyping(state.typing, frame.userId) };
     case "typing":
       return {
         ...state,
