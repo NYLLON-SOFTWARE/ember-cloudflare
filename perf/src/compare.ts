@@ -77,7 +77,9 @@ function collect({ backend, web }: Results): Map<string, Metric> {
       const page = `lighthouse ${l.page} ${l.formFactor}`;
       add(`${page}: score`, l.score, { better: "higher", floor: 3, noise: 0 });
       add(`${page}: LCP ms`, l.lcpMs, { floor: 100 });
-      add(`${page}: TBT ms`, l.tbtMs, { floor: 50, noise: 35 });
+      // Single Lighthouse runs of one commit put the room page's mobile TBT anywhere from 128 to
+      // 265 ms, so a smaller jump than 200 ms says nothing about the code.
+      add(`${page}: TBT ms`, l.tbtMs, { floor: 200, noise: 35 });
       add(`${page}: CLS`, l.cls, { floor: 0.02 });
     }
     for (const r of web.render) {

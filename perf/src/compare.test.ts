@@ -32,11 +32,14 @@ const verdicts = (before: Results, after: Results) =>
 
 describe("compareResults", () => {
   it("reports nothing for swings as large as two runs of the same commit show", () => {
+    const before = baseline();
+    before.web!.lighthouse[0]!.tbtMs = 128;
     const after = baseline();
     after.backend["do-sqlite"]!.throughput!.messagesPerSecond = 820;
     after.backend["do-sqlite"]!.fanout![0]!.delivery = summary(22.5);
     after.backend["do-sqlite"]!.connections!.steps[1] = step(200, 160);
-    expect(verdicts(baseline(), after)).toEqual({});
+    after.web!.lighthouse[0]!.tbtMs = 265;
+    expect(verdicts(before, after)).toEqual({});
   });
 
   it("ignores changes smaller than a metric's floor", () => {
@@ -54,8 +57,8 @@ describe("compareResults", () => {
 
   it("counts a new delay where there was none", () => {
     const after = baseline();
-    after.web!.lighthouse[0]!.tbtMs = 200;
-    expect(compareResults(baseline(), after, 10)).toContainEqual({ metric: "lighthouse room mobile: TBT ms", before: 0, after: 200, change: Infinity, verdict: "worse" });
+    after.web!.lighthouse[0]!.tbtMs = 300;
+    expect(compareResults(baseline(), after, 10)).toContainEqual({ metric: "lighthouse room mobile: TBT ms", before: 0, after: 300, change: Infinity, verdict: "worse" });
   });
 
   it("counts any lost message", () => {
