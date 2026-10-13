@@ -6,6 +6,7 @@ import {
   type RoomId,
   type ServerFrame,
   type User,
+  type UserId,
 } from "@ember/protocol";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -55,7 +56,8 @@ export class ChatRoom extends DurableObject<Env> {
       server.serializeAttachment({ user, roomId } satisfies Attachment);
 
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
-      this.broadcast({ type: "presence", present: this.present() }, server);
+      // Everyone else has the list from their own welcome, so they only hear who's new.
+      if (!this.isPresent(user.id, server)) this.broadcast({ type: "presence.joined", user }, server);
       return new Response(null, { status: 101, webSocket: client });
     });
   }
@@ -103,7 +105,6 @@ export class ChatRoom extends DurableObject<Env> {
     switch (frame.type) {
       case "message.create": {
         const message = await store.create(sortableId(), frame.clientMessageId, user, frame.body, now);
-        this.broadcast({ type: "typing", user, typing: false }, ws);
         return this.broadcast({ type: "message.created", message });
       }
       case "message.update": {
@@ -155,20 +156,26 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /** Everyone with at least one open socket, once each. */
-  private present(except?: WebSocket): User[] {
+  private present(): User[] {
     const users = new Map<string, User>();
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket === except || socket.readyState !== WebSocket.OPEN) continue;
+      if (socket.readyState !== WebSocket.OPEN) continue;
       const { user } = socket.deserializeAttachment() as Attachment;
       users.set(user.id, user);
     }
     return [...users.values()];
   }
 
+  /** Whether someone has the room open in a socket other than `except`. */
+  private isPresent(userId: UserId, except: WebSocket): boolean {
+    return this.ctx.getWebSockets(userId).some((socket) => socket !== except && socket.readyState === WebSocket.OPEN);
+  }
+
   private leave(ws: WebSocket): void {
     const { user } = ws.deserializeAttachment() as Attachment;
-    this.broadcast({ type: "typing", user, typing: false }, ws);
-    this.broadcast({ type: "presence", present: this.present(ws) }, ws);
+    // Closing one of several tabs only stops the typing it may have been doing.
+    if (this.isPresent(user.id, ws)) this.broadcast({ type: "typing", user, typing: false }, ws);
+    else this.broadcast({ type: "presence.left", userId: user.id }, ws);
   }
 
   private refuse(ws: WebSocket, message: string): void {

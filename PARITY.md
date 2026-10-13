@@ -1208,7 +1208,7 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Presence | `realtime.presence` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
+| Presence | `realtime.presence` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Who's here | `realtime.who-is-here` | This port | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Typing indicator | `realtime.typing` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |

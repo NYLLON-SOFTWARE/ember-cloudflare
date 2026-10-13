@@ -5,6 +5,7 @@ import { timeline } from "./messages";
 import { initialRoomState, isPending, roomReducer, type RoomState } from "./room-state";
 
 const ada: User = { id: "u1", name: "Ada" };
+const grace: User = { id: "u2", name: "Grace" };
 const message = (overrides: Partial<Message> = {}): Message => ({
   id: "m1",
   clientMessageId: "c1",
@@ -175,11 +176,37 @@ describe(feature("boosts.add"), () => {
   });
 });
 
+describe(feature("realtime.presence"), () => {
+  it("adds who arrives and drops who leaves, listing each person once", () => {
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "presence.joined", user: grace }, now: 0 });
+    expect(state.present).toEqual([ada, grace]);
+    expect(frame(state, { type: "frame", frame: { type: "presence.joined", user: grace }, now: 0 })).toBe(state);
+    state = frame(state, { type: "frame", frame: { type: "presence.left", userId: "u2" }, now: 0 });
+    expect(state.present).toEqual([ada]);
+  });
+});
+
 describe(feature("realtime.typing"), () => {
   it("expires stale typing indicators", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 1_000 });
     expect(Object.keys(state.typing)).toEqual(["u1"]);
     state = roomReducer(state, { type: "expire-typing", before: 2_000 });
+    expect(state.typing).toEqual({});
+  });
+
+  it("keeps the same state when no indicator expired, so an idle room doesn't re-render", () => {
+    expect(roomReducer(initialRoomState, { type: "expire-typing", before: 2_000 })).toBe(initialRoomState);
+    const typing = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 1_000 });
+    expect(roomReducer(typing, { type: "expire-typing", before: 1_000 })).toBe(typing);
+  });
+
+  it("stops showing someone as typing when their message arrives or they leave", () => {
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    expect(Object.keys(state.typing)).toEqual(["u2"]);
+    state = frame(state, { type: "frame", frame: { type: "presence.left", userId: "u2" }, now: 0 });
     expect(state.typing).toEqual({});
   });
 });

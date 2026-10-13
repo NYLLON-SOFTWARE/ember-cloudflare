@@ -44,13 +44,18 @@ export type ClientFrame =
   | { type: "ping" };
 
 export type ServerFrame =
+  /** Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. */
   | { type: "welcome"; you: User; messages: Message[]; present: User[]; hasMore: boolean }
+  /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message }
   | { type: "message.updated"; message: Message }
   | { type: "message.deleted"; messageId: string }
   | { type: "boost.created"; boost: Boost }
   | { type: "boost.deleted"; boostId: string; messageId: string }
-  | { type: "presence"; present: User[] }
+  /** Someone opened the room who didn't have it open already, in another tab. */
+  | { type: "presence.joined"; user: User }
+  /** Someone closed the last tab they had the room open in, which stops their typing, too. */
+  | { type: "presence.left"; userId: UserId }
   | { type: "typing"; user: User; typing: boolean }
   | { type: "history"; messages: Message[]; hasMore: boolean }
   /** Answers message.check: which of the sender's messages the room stored, and which it never received. */

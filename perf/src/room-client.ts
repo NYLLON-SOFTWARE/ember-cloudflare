@@ -33,7 +33,7 @@ export function socketUrl(baseUrl: string, room: string, token: string): string 
 export class RoomClient {
   /** Called with each message.created frame and the time it arrived. */
   onMessage: ((message: Message, at: number) => void) | null = null;
-  /** Bytes of presence frames received. They grow with the room, so they're counted, not parsed. */
+  /** Bytes of presence frames received. */
   presenceBytes = 0;
   /** Messages that arrived with an id lower than one already seen. */
   outOfOrder = 0;
@@ -111,7 +111,8 @@ export class RoomClient {
   private receive(data: string): void {
     const at = performance.now();
     this.lastFrameAt = at;
-    if (data.startsWith('{"type":"presence"')) {
+    // presence.joined and presence.left, or the whole list older rooms sent on every join and leave.
+    if (data.startsWith('{"type":"presence')) {
       this.presenceBytes += data.length;
       return;
     }
