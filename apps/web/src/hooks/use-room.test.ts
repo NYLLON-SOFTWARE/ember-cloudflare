@@ -74,8 +74,8 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
 });
 
 /** Ada in #general, connected unless asked not to be. */
-function joinGeneral({ connect = true, messages = [] as Message[], hasMore = false, onSessionExpired = () => {} } = {}) {
-  const hook = renderHook(() => useRoom("general", ada, onSessionExpired));
+function joinGeneral({ connect = true, messages = [] as Message[], hasMore = false, onSessionChanged = () => {} } = {}) {
+  const hook = renderHook(() => useRoom("general", ada, onSessionChanged));
   if (connect) {
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages, present: [ada], hasMore });
@@ -245,12 +245,12 @@ describe(feature("realtime.reconnect"), () => {
   });
 
   it("keeps retrying when the network, not the session, is the problem", async () => {
-    const onSessionExpired = vi.fn();
-    joinGeneral({ connect: false, onSessionExpired });
+    const onSessionChanged = vi.fn();
+    joinGeneral({ connect: false, onSessionChanged });
     await act(async () => socket().onclose?.());
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     wait(500);
-    expect(onSessionExpired).not.toHaveBeenCalled();
+    expect(onSessionChanged).not.toHaveBeenCalled();
     expect(FakeSocket.all).toHaveLength(2);
   });
 
@@ -267,11 +267,26 @@ describe(feature("realtime.connection"), () => {
   it("signs out when the room refuses the socket because the session expired", async () => {
     const fetch = vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
-    const onSessionExpired = vi.fn();
-    joinGeneral({ connect: false, onSessionExpired });
+    const onSessionChanged = vi.fn();
+    joinGeneral({ connect: false, onSessionChanged });
     await act(async () => socket().onclose?.());
-    await vi.waitFor(() => expect(onSessionExpired).toHaveBeenCalled());
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     expect(fetch).toHaveBeenCalledWith("/api/me", expect.objectContaining({ headers: expect.any(Headers) }));
+  });
+
+  it("hands over to whoever another tab signed this browser in as, without showing them this room", () => {
+    const onSessionChanged = vi.fn();
+    const { result } = joinGeneral({ connect: false, onSessionChanged });
+    socket().open();
+    socket().receive({ type: "welcome", you: grace, messages: [message("m1", { creator: grace })], present: [grace], hasMore: false });
+
+    expect(onSessionChanged).toHaveBeenCalledWith(grace);
+    expect(result.current.state).toMatchObject({ status: "connecting", messages: [], present: [] });
+    expect(socket().closedWith).toBe(1000);
+    expect(socket().sentOfType("message.check")).toEqual([]);
+    // Nor does it come back, as a dropped socket would.
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
   });
 
   it("ignores a session check that answers after its room has closed", async () => {

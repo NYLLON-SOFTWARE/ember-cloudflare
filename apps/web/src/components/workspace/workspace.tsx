@@ -15,11 +15,14 @@ import { Sidebar } from "./sidebar";
 interface Props {
   me: User;
   onSignOut: () => void;
-  /** Called when the server no longer accepts this browser's session. */
-  onSessionExpired: () => void;
+  /**
+   * Called when this browser's session stops signing in `me`: with null once it has expired, or with
+   * whoever another tab signed in as.
+   */
+  onSessionChanged: (me: User | null) => void;
 }
 
-export function Workspace({ me, onSignOut, onSessionExpired }: Props) {
+export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const routeRoomId = useRoomRoute();
@@ -27,8 +30,8 @@ export function Workspace({ me, onSignOut, onSessionExpired }: Props) {
   useEffect(() => {
     fetchRooms()
       .then(setRooms)
-      .catch((error) => (error instanceof ApiError && error.status === 401 ? onSessionExpired() : setRooms([])));
-  }, [onSessionExpired]);
+      .catch((error) => (error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : setRooms([])));
+  }, [onSessionChanged]);
 
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -77,7 +80,7 @@ export function Workspace({ me, onSignOut, onSessionExpired }: Props) {
         </SheetContent>
 
         {room ? (
-          <RoomView key={room.id} room={room} me={me} onSessionExpired={onSessionExpired} />
+          <RoomView key={room.id} room={room} me={me} onSessionChanged={onSessionChanged} />
         ) : (
           <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">
             {rooms ? "No rooms yet." : "Loading…"}

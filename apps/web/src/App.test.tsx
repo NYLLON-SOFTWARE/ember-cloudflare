@@ -1,16 +1,36 @@
 import { feature } from "@ember/parity";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 const ada = { id: "u1", name: "Ada" };
+const grace = { id: "u2", name: "Grace" };
 
 class QuietSocket {
   static readonly OPEN = 1;
   readyState = 0;
   send() {}
   close() {}
+}
+
+/** A room socket the test answers as the room. */
+class RoomSocket extends QuietSocket {
+  static all: RoomSocket[] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+
+  constructor() {
+    super();
+    RoomSocket.all.push(this);
+  }
+
+  welcome(you: typeof ada) {
+    this.readyState = RoomSocket.OPEN;
+    this.onopen?.();
+    this.onmessage?.({ data: JSON.stringify({ type: "welcome", you, messages: [], present: [you], hasMore: false }) });
+  }
 }
 
 /** Plays the server, whose session cookie this browser starts out with or without. */
@@ -73,6 +93,20 @@ describe(feature("auth.sessions"), () => {
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(await roomHeading()).toBeInTheDocument();
+  });
+
+  it("follows another tab that signs this browser in as someone else", async () => {
+    RoomSocket.all = [];
+    vi.stubGlobal("WebSocket", RoomSocket);
+    serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+
+    // The other tab's cookie reaches the room when this tab's socket reconnects.
+    act(() => RoomSocket.all[0]!.welcome(grace));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace"));
+    // Grace's workspace opens its own socket to the room.
+    await waitFor(() => expect(RoomSocket.all).toHaveLength(2));
   });
 
   it("forgets the session earlier versions kept in localStorage", async () => {

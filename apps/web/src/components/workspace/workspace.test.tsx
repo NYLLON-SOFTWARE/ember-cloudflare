@@ -19,10 +19,10 @@ class QuietSocket {
 }
 
 function showWorkspace(path = "/") {
-  const [onSignOut, onSessionExpired] = [vi.fn(), vi.fn()];
+  const [onSignOut, onSessionChanged] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  render(<Workspace me={ada} onSignOut={onSignOut} onSessionExpired={onSessionExpired} />);
-  return { onSignOut, onSessionExpired, user: userEvent.setup() };
+  render(<Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
+  return { onSignOut, onSessionChanged, user: userEvent.setup() };
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
@@ -64,8 +64,8 @@ describe(feature("sidebar.rooms"), () => {
 describe(feature("auth.sessions"), () => {
   it("goes back to sign-in when the server no longer accepts the session", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
-    const { onSignOut, onSessionExpired } = showWorkspace();
-    await waitFor(() => expect(onSessionExpired).toHaveBeenCalled());
+    const { onSignOut, onSessionChanged } = showWorkspace();
+    await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     // The session is already gone, so there's nothing to sign out of.
     expect(onSignOut).not.toHaveBeenCalled();
   });

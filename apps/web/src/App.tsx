@@ -36,5 +36,6 @@ export function App() {
   const signOutHere = useCallback(() => void signOut().then(signedOut, () => {}), [signedOut]);
 
   if (me === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
-  return me ? <Workspace me={me} onSignOut={signOutHere} onSessionExpired={signedOut} /> : <SignIn onSignedIn={setMe} />;
+  // Someone else's workspace starts afresh, with their own rooms and sockets.
+  return me ? <Workspace key={me.id} me={me} onSignOut={signOutHere} onSessionChanged={setMe} /> : <SignIn onSignedIn={setMe} />;
 }
