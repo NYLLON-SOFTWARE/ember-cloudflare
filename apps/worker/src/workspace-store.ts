@@ -17,6 +17,7 @@ interface SessionRow {
   last_active_at: string;
   user_id: string;
   name: string;
+  guest: number;
 }
 
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
@@ -28,7 +29,7 @@ export class WorkspaceStore {
   /** Adds a guest, who has a name but no way to sign in again, together with their session. */
   async createGuest(user: User, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
-      statement(`INSERT INTO users (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`, user.id, user.name, now, now),
+      statement(`INSERT INTO users (id, name, guest, created_at, updated_at) VALUES (?, ?, 1, ?, ?)`, user.id, user.name, now, now),
       statement(INSERT_SESSION, sessionId, user.id, tokenDigest, client.ip, client.userAgent, now, now, now),
     ]);
   }
@@ -36,7 +37,7 @@ export class WorkspaceStore {
   /** The session a token's digest names, if its person is still active. */
   async findSession(tokenDigest: string): Promise<SessionRow | null> {
     const [row] = await this.db.all<SessionRow>(
-      `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name
+      `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name, users.guest
        FROM sessions JOIN users ON users.id = sessions.user_id
        WHERE sessions.token_digest = ? AND users.status = ?`,
       tokenDigest,

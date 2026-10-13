@@ -73,7 +73,7 @@ export const features = [
     behaviors: [
       "The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.",
       "`POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.",
-      "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`. The tests and load tests turn it on, and so does the preview until email sign-in is ported.",
+      "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on, and so does the preview until email sign-in is ported.",
       "This stands in for accounts until `auth.first-run`, `auth.sign-in` and `auth.sign-up` are ported.",
     ],
     sources: [],

@@ -96,6 +96,8 @@ search index. On top of that schema it adds indexes and query changes for speed.
   signs the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a
   leaked database or backup holds no live sessions; changing the secret still signs everyone out, as
   it does there.
+- **Guests are marked.** `users.guest` is 1 for people who signed in with just a name, which only this
+  port allows, so turning `EMBER_GUEST_SIGN_IN` off keeps them out without deleting anyone.
 
 - **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
   HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which

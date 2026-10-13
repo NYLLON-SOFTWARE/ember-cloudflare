@@ -1,5 +1,5 @@
 import { isRoomSlug } from "@ember/protocol";
-import { authenticate, clientOf, expiredSessionCookie, isCrossSite, isSameOriginUpgrade, newSessionToken, sessionCookie, signOut, tokenDigest } from "./auth";
+import { authenticate, clientOf, expiredSessionCookie, guestSignIn, isCrossSite, isSameOriginUpgrade, newSessionToken, sessionCookie, signOut, tokenDigest } from "./auth";
 import { ROOM_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { workspace } from "./workspace";
@@ -32,7 +32,7 @@ async function health(env: Env): Promise<Response> {
 
 /** Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it. */
 async function signInGuest(request: Request, env: Env): Promise<Response> {
-  if (env.EMBER_GUEST_SIGN_IN !== "true") return problem(403, "Signing in with just a name is turned off");
+  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   // Any JSON value parses, null included, so don't assume an object.
   const body = (await request.json().catch(() => null)) as { name?: unknown } | null;
   const name = typeof body?.name === "string" ? body.name.trim() : "";

@@ -62,6 +62,9 @@ export async function tokenDigest(token: string, secret: string): Promise<string
   return base64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token))));
 }
 
+/** Whether people may sign in with just a name, and guests who did may stay signed in. */
+export const guestSignIn = (env: Env) => env.EMBER_GUEST_SIGN_IN === "true";
+
 /** The browser and IP a session records, as ember-rust's does. */
 export const clientOf = (request: Request): Client => ({
   ip: request.headers.get("CF-Connecting-IP"),
@@ -72,7 +75,7 @@ export const clientOf = (request: Request): Client => ({
 export async function authenticate(request: Request, env: Env): Promise<(Authenticated & { token: string }) | null> {
   const token = sessionToken(request);
   if (!token) return null;
-  const session = await workspace(env).authenticate(await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  const session = await workspace(env).authenticate(await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
   return session && { ...session, token };
 }
 

@@ -41,10 +41,13 @@ export class Workspace extends DurableObject<Env> {
     return user;
   }
 
-  /** The person a session token's digest signs in, refreshing the session at most once an hour. */
-  async authenticate(tokenDigest: string, client: Client): Promise<Authenticated | null> {
+  /**
+   * The person a session token's digest signs in, refreshing the session at most once an hour.
+   * Guests' sessions only count while `guests` says signing in with just a name is allowed.
+   */
+  async authenticate(tokenDigest: string, client: Client, guests: boolean): Promise<Authenticated | null> {
     const session = await this.store.findSession(tokenDigest);
-    if (!session) return null;
+    if (!session || (session.guest && !guests)) return null;
     const now = Date.now();
     const refreshed = now - Date.parse(session.last_active_at) >= SESSION_REFRESH_MS;
     if (refreshed) await this.store.touchSession(session.session_id, client, new Date(now).toISOString());

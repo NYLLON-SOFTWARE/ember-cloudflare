@@ -55,6 +55,13 @@ describe(feature("auth.guest-sign-in"), () => {
       expect(response.headers.has("Set-Cookie")).toBe(false);
     }
   });
+
+  it("keeps guests out while it's off, and lets them back in once it's on", async () => {
+    const { cookie } = await signIn("Ada");
+    expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/me", withCookie(cookie))).status).toBe(401);
+    expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/rooms/general/socket", upgrade(cookie))).status).toBe(401);
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
+  });
 });
 
 describe(feature("auth.require-sign-in"), () => {

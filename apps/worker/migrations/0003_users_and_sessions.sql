@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   role INTEGER NOT NULL DEFAULT 0,
   -- 0 active, 1 deactivated, 2 banned.
   status INTEGER NOT NULL DEFAULT 0,
+  -- 1 for people who signed in with just a name, who are kept out while EMBER_GUEST_SIGN_IN is off.
+  guest INTEGER NOT NULL DEFAULT 0,
   bio TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
