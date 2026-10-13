@@ -1,5 +1,7 @@
+import { feature } from "@ember/parity";
 import type { Message, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
+import { timeline } from "./messages";
 import { initialRoomState, isPending, roomReducer, type RoomState } from "./room-state";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -17,13 +19,42 @@ const message = (overrides: Partial<Message> = {}): Message => ({
 
 const frame = (state: RoomState, f: Parameters<typeof roomReducer>[1] & { type: "frame" }) => roomReducer(state, f);
 
-describe("roomReducer", () => {
+describe(feature("messages.optimistic"), () => {
   it("replaces an optimistic message with the stored one", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
     state = frame(state, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
     expect(state.messages).toHaveLength(1);
     expect(isPending(state.messages[0]!)).toBe(false);
     expect(state.messages[0]!.id).toBe("m1");
+  });
+
+  it("ends quick sends in the order they were sent, under one header", () => {
+    let state = initialRoomState;
+    for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
+    for (const id of ["c1", "c2", "c3"]) {
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
+    }
+    expect(state.messages.map((m) => [m.body, isPending(m)])).toEqual([
+      ["c1", false],
+      ["c2", false],
+      ["c3", false],
+    ]);
+    expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
+  });
+
+  it("keeps quick sends under one header when the room confirms them out of order", () => {
+    let state = initialRoomState;
+    for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
+    for (const id of ["c3", "c1", "c2"]) {
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
+      expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
+    }
+    // Each stored copy replaces its own pending one, in the order the room stored them, as everyone else sees them.
+    expect(state.messages.map((m) => [m.body, isPending(m)])).toEqual([
+      ["c3", false],
+      ["c1", false],
+      ["c2", false],
+    ]);
   });
 
   it("puts a confirmed message after the ones the room stored before it", () => {
@@ -38,6 +69,36 @@ describe("roomReducer", () => {
     ]);
   });
 
+  it("only reconciles a stored message with its own sender's optimistic copy", () => {
+    const grace: User = { id: "u2", name: "Grace" };
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2", body: "mine" }), pending: true } });
+
+    // Grace reuses the clientMessageIds she can see: neither Ada's stored nor her pending message is replaced.
+    for (const clientMessageId of ["c1", "c2"]) {
+      const copy = message({ id: `g-${clientMessageId}`, clientMessageId, creator: grace, body: "spoof" });
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: copy }, now: 0 });
+    }
+    expect(state.messages.map((m) => [m.creator.name, m.body])).toEqual([
+      ["Ada", "hi"],
+      ["Ada", "mine"],
+      ["Grace", "spoof"],
+      ["Grace", "spoof"],
+    ]);
+
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false }, now: 0 });
+    expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true });
+  });
+
+  it("marks a refused message as failed", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message(), pending: true } });
+    state = frame(state, { type: "frame", frame: { type: "error", message: "nope", clientMessageId: "c1" }, now: 0 });
+    expect(state.messages[0]).toMatchObject({ failed: true });
+    expect(state.notice).toBe("nope");
+  });
+});
+
+describe(feature("realtime.reconnect"), () => {
   it("keeps unconfirmed messages across a reconnect, the sent ones as sending until the room answers", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true } });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true, failed: true } });
@@ -87,25 +148,47 @@ describe("roomReducer", () => {
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2", "c4"]);
   });
 
-  it("only reconciles a stored message with its own sender's optimistic copy", () => {
-    const grace: User = { id: "u2", name: "Grace" };
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
-    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2", body: "mine" }), pending: true } });
+  it("drops a copy marked unsent once older history turns up the stored message", () => {
+    // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect, and the
+    // room couldn't check it.
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: ["c1"] }, now: 0 });
+    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
 
-    // Grace reuses the clientMessageIds she can see: neither Ada's stored nor her pending message is replaced.
-    for (const clientMessageId of ["c1", "c2"]) {
-      const copy = message({ id: `g-${clientMessageId}`, clientMessageId, creator: grace, body: "spoof" });
-      state = frame(state, { type: "frame", frame: { type: "message.created", message: copy }, now: 0 });
-    }
-    expect(state.messages.map((m) => [m.creator.name, m.body])).toEqual([
-      ["Ada", "hi"],
-      ["Ada", "mine"],
-      ["Grace", "spoof"],
-      ["Grace", "spoof"],
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.messages.map((m) => [m.id, isPending(m)])).toEqual([
+      ["m1", false],
+      ["m2", false],
     ]);
+  });
+});
 
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false }, now: 0 });
-    expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true });
+describe(feature("boosts.add"), () => {
+  it("adds and removes boosts", () => {
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    const boost = { id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" };
+    state = frame(state, { type: "frame", frame: { type: "boost.created", boost }, now: 0 });
+    expect(state.messages[0]!.boosts).toEqual([boost]);
+    state = frame(state, { type: "frame", frame: { type: "boost.deleted", boostId: "b1", messageId: "m1" }, now: 0 });
+    expect(state.messages[0]!.boosts).toEqual([]);
+  });
+});
+
+describe(feature("realtime.typing"), () => {
+  it("expires stale typing indicators", () => {
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 1_000 });
+    expect(Object.keys(state.typing)).toEqual(["u1"]);
+    state = roomReducer(state, { type: "expire-typing", before: 2_000 });
+    expect(state.typing).toEqual({});
+  });
+});
+
+describe(feature("messages.history"), () => {
+  it("stops waiting for older history after a reconnect", () => {
+    let state = roomReducer(initialRoomState, { type: "loading-older" });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
+    expect(state.loadingOlder).toBe(false);
   });
 
   it("lets paging retry after a failed history request", () => {
@@ -120,50 +203,6 @@ describe("roomReducer", () => {
     const state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
     const failed = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "history.before" }, now: 0 });
     expect(failed.messages).toBe(state.messages);
-  });
-
-  it("marks a refused message as failed", () => {
-    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message(), pending: true } });
-    state = frame(state, { type: "frame", frame: { type: "error", message: "nope", clientMessageId: "c1" }, now: 0 });
-    expect(state.messages[0]).toMatchObject({ failed: true });
-    expect(state.notice).toBe("nope");
-  });
-
-  it("adds and removes boosts", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
-    const boost = { id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" };
-    state = frame(state, { type: "frame", frame: { type: "boost.created", boost }, now: 0 });
-    expect(state.messages[0]!.boosts).toEqual([boost]);
-    state = frame(state, { type: "frame", frame: { type: "boost.deleted", boostId: "b1", messageId: "m1" }, now: 0 });
-    expect(state.messages[0]!.boosts).toEqual([]);
-  });
-
-  it("expires stale typing indicators", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 1_000 });
-    expect(Object.keys(state.typing)).toEqual(["u1"]);
-    state = roomReducer(state, { type: "expire-typing", before: 2_000 });
-    expect(state.typing).toEqual({});
-  });
-
-  it("stops waiting for older history after a reconnect", () => {
-    let state = roomReducer(initialRoomState, { type: "loading-older" });
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
-    expect(state.loadingOlder).toBe(false);
-  });
-
-  it("drops a copy marked unsent once older history turns up the stored message", () => {
-    // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect, and the
-    // room couldn't check it.
-    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
-    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: ["c1"] }, now: 0 });
-    expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
-
-    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
-    expect(state.messages.map((m) => [m.id, isPending(m)])).toEqual([
-      ["m1", false],
-      ["m2", false],
-    ]);
   });
 
   it("prepends older history", () => {

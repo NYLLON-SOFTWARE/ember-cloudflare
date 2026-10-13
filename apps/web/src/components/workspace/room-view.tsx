@@ -10,11 +10,10 @@ interface Props {
   room: Room;
   token: string;
   me: User;
-  onOpenMenu: () => void;
   onSessionExpired: () => void;
 }
 
-export function RoomView({ room, token, me, onOpenMenu, onSessionExpired }: Props) {
+export function RoomView({ room, token, me, onSessionExpired }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, token, me, onSessionExpired);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
@@ -22,12 +21,13 @@ export function RoomView({ room, token, me, onOpenMenu, onSessionExpired }: Prop
 
   return (
     <>
-      <RoomHeader name={room.name} present={state.present} status={state.status} onOpenMenu={onOpenMenu} />
-      <main className="flex min-h-0 min-w-0 flex-col bg-background">
+      <RoomHeader name={room.name} present={state.present} status={state.status} />
+      {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
+      <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (
-          <div role="alert" className="mx-auto mt-3 flex items-center gap-2 rounded-[10px] bg-foreground px-3 py-2 text-sm text-background">
+          <div role="alert" className="mx-auto mt-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-[10px] bg-foreground py-2 pr-1 pl-3 text-sm text-background touch:py-0.5">
             {state.notice}
-            <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="rounded p-0.5 hover:opacity-80">
+            <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="flex size-6 shrink-0 items-center justify-center rounded hover:opacity-80 touch:size-11">
               <Close className="size-4" />
             </button>
           </div>

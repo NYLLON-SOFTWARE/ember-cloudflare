@@ -1,5 +1,7 @@
+import { feature } from "@ember/parity";
 import type { Message, User } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
 import { MessageList } from "./message-list";
@@ -21,6 +23,19 @@ class FakeIntersectionObserver {
   }
 }
 
+/** jsdom has no ResizeObserver either. Like the real thing, it reports when it starts observing and when the size changes. */
+class FakeResizeObserver {
+  static observers = new Set<FakeResizeObserver>();
+  constructor(readonly callback: () => void) {}
+  observe() {
+    FakeResizeObserver.observers.add(this);
+    this.callback();
+  }
+  disconnect() {
+    FakeResizeObserver.observers.delete(this);
+  }
+}
+
 const scrollTopIntoView = () =>
   act(() => {
     FakeIntersectionObserver.topVisible = true;
@@ -32,6 +47,7 @@ function layOut(log: HTMLElement, height: number) {
   const layout = { height };
   Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => layout.height });
   Object.defineProperty(log, "clientHeight", { configurable: true, value: 400 });
+  FakeResizeObserver.observers.forEach((o) => o.callback());
   return layout;
 }
 
@@ -41,28 +57,57 @@ const scrollTo = (log: HTMLElement, top: number) => {
 };
 
 const ada: User = { id: "u1", name: "Ada" };
-const message = (id: string): Message => ({
+const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+
+/** A message from Ada, named by its id. */
+const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message => ({
   id,
   clientMessageId: id,
   roomId: "general",
   creator: ada,
   body: id,
-  createdAt: "2026-10-12T10:00:00.000Z",
-  updatedAt: "2026-10-12T10:00:00.000Z",
+  createdAt,
+  updatedAt: createdAt,
   boosts: [],
 });
-const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
-const list = (state: Partial<RoomState>, onLoadOlder: () => void) => (
+
+const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn()) => (
   <MessageList roomName="general" state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} onLoadOlder={onLoadOlder} />
 );
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-12T18:00:00"));
   FakeIntersectionObserver.topVisible = false;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
-describe("MessageList", () => {
+describe(feature("ui.empty-room"), () => {
+  it("welcomes people to a room with no messages yet", () => {
+    render(list({ messages: [] }));
+    expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
+  });
+
+  it("doesn't claim the room is empty before it has loaded", () => {
+    render(list({ status: "connecting", messages: [] }));
+    expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("messages.day-separators"), () => {
+  it("separates days, naming today and yesterday", () => {
+    render(list({ messages: [message("Saturday", "2026-10-10T09:00:00"), message("Sunday", "2026-10-11T09:00:00"), message("Monday", "2026-10-12T09:00:00")] }));
+    const separators = screen.getAllByRole("separator").map((s) => s.textContent);
+    expect(separators).toEqual([expect.stringMatching(/Saturday, October 10/), "Yesterday", "Today"]);
+  });
+});
+
+describe(feature("messages.history"), () => {
   it("loads earlier messages when the top of the timeline comes into view", () => {
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m2")], hasMore: true }, onLoadOlder));
@@ -86,6 +131,14 @@ describe("MessageList", () => {
     // A page arrived and the top is still in view, so it asks for the next one.
     rerender(list({ messages: [message("m2"), ...messages], hasMore: true }, onLoadOlder));
     expect(onLoadOlder).toHaveBeenCalledTimes(2);
+  });
+
+  it("says when it's loading earlier messages, and doesn't ask again meanwhile", () => {
+    const onLoadOlder = vi.fn();
+    render(list({ messages: [message("m2")], hasMore: true, loadingOlder: true }, onLoadOlder));
+    expect(screen.getByText("Loading earlier messages…")).toBeInTheDocument();
+    scrollTopIntoView();
+    expect(onLoadOlder).not.toHaveBeenCalled();
   });
 
   it("keeps a scrolled-up reader's place when older messages arrive, whether or not the browser kept it already", () => {
@@ -132,5 +185,23 @@ describe("MessageList", () => {
     render(list({ messages: [message("m1")], hasMore: false }, onLoadOlder));
     scrollTopIntoView();
     expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("ui.scroll"), () => {
+  it("offers a way back to the latest messages after scrolling up", async () => {
+    render(list({ messages: [message("first")] }));
+    const log = screen.getByRole("log", { name: "Messages in general" });
+    expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
+
+    layOut(log, 2000);
+    scrollTo(log, 600);
+    const button = screen.getByRole("button", { name: "Return to latest messages" });
+    log.scrollTo = vi.fn();
+    await userEvent.click(button);
+    expect(log.scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: "smooth" });
+
+    scrollTo(log, 1550);
+    expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
   });
 });

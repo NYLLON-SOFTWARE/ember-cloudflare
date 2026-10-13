@@ -25,6 +25,9 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   its choices to adopt as features land.
 - Tests live beside the code (`*.test.ts`), except the worker's, which run inside workerd from
   `apps/worker/test/`. Run `pnpm typecheck && pnpm test && pnpm build` before committing.
+- Every feature of ember-rust is in `packages/parity/src/features.ts`, and `PARITY.md` is generated
+  from it. Tag tests with the feature they cover (`describe(feature("messages.edit"), ...)`). When
+  you port or change a feature, update its status and notes, then run `pnpm parity`.
 - `pnpm perf` load-tests the Worker and the web app (`perf/README.md`). When a change touches
   broadcasts, presence, storage queries or the message timeline, run `pnpm perf --quick` before and
   after it and check the two with `pnpm perf compare`.

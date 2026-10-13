@@ -1,10 +1,32 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { installMatchMedia, setPrefersDark } from "./test-media";
 
-// Testing Library only unmounts between tests by itself when Vitest's globals are on.
-afterEach(cleanup);
+// jsdom has no matchMedia, so this one says every query is false (a mouse, light mode) unless a
+// test sets the color scheme or stubs it.
+installMatchMedia();
 
-// jsdom has no matchMedia. Matching nothing lays components out as they are with a mouse.
-window.matchMedia = (media: string) =>
-  ({ matches: false, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }) as MediaQueryList;
+// jsdom doesn't lay anything out, so nothing ever resizes or scrolls into view. The message list
+// only needs to be able to start observing; its own tests say what's in view.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+globalThis.IntersectionObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+} as unknown as typeof IntersectionObserver;
+
+afterEach(() => {
+  // Testing Library only unmounts between tests by itself when Vitest's globals are on.
+  cleanup();
+  localStorage.clear();
+  setPrefersDark(false);
+  document.documentElement.className = "";
+});
