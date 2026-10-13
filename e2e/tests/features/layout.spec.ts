@@ -83,6 +83,9 @@ test.describe(feature("ui.mobile-drawer"), () => {
 
     await open.click();
     await expect(drawer).toBeVisible();
+    // Radix starts listening for presses outside a moment after the drawer appears, so press once it
+    // has slid in, as a person would.
+    await drawer.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
     await ada.page.mouse.click(380, 400);
     await expect(drawer).toHaveCount(0);
   });
