@@ -1,5 +1,6 @@
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
+import { featureProjects } from "./projects/features";
 import { mobileProjects } from "./projects/mobile";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
@@ -25,7 +26,7 @@ export default defineConfig<MobileOptions>({
     // Chromium point at it instead: PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined },
   },
-  projects: [...mobileProjects],
+  projects: [...featureProjects, ...mobileProjects],
   // The production build and the API on one origin, served by `wrangler dev` the way the deployed
   // Worker serves them. State lives in e2e/.wrangler so tests never touch your local dev data.
   webServer: {
