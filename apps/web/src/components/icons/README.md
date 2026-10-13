@@ -13,7 +13,8 @@ other file does, and it checks every Lucide icon here against ember-rust's catal
 The brand images live in `apps/web/public`. `logos/app-icon.png` is ember-rust's
 `crates/assets/overrides/logos/app-icon.png`, used as the home-screen icon. The favicon,
 `logos/app-icon-48.png`, is the same image scaled from 512px down to 48px: browsers fetch the favicon
-while the page loads, and the 121 KB original made desktop page loads about 75 ms slower.
+while the page loads, and in Lighthouse the 121 KB original delayed a room's largest paint by about
+390 ms on mobile and 80 ms on desktop.
 `ember-icon.png` is ember-rust's `crates/assets/overrides/ember-icon.png` (the flame on the rail and the
 sign-in card) scaled from 1254px down to 192px, so the page doesn't load 595 KB for a 44px mark.
 
