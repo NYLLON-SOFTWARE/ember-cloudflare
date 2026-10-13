@@ -4,4 +4,6 @@ dist/
 .dev.vars
 *.log
 .DS_Store
+playwright-report/
+test-results/
 perf/results/

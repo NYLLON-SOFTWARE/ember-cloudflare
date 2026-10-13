@@ -21,6 +21,19 @@ class FakeIntersectionObserver {
   }
 }
 
+/** jsdom has no ResizeObserver either. Like the real thing, it reports when it starts observing and when the size changes. */
+class FakeResizeObserver {
+  static observers = new Set<FakeResizeObserver>();
+  constructor(readonly callback: () => void) {}
+  observe() {
+    FakeResizeObserver.observers.add(this);
+    this.callback();
+  }
+  disconnect() {
+    FakeResizeObserver.observers.delete(this);
+  }
+}
+
 const scrollTopIntoView = () =>
   act(() => {
     FakeIntersectionObserver.topVisible = true;
@@ -32,6 +45,7 @@ function layOut(log: HTMLElement, height: number) {
   const layout = { height };
   Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => layout.height });
   Object.defineProperty(log, "clientHeight", { configurable: true, value: 400 });
+  FakeResizeObserver.observers.forEach((o) => o.callback());
   return layout;
 }
 
@@ -59,6 +73,7 @@ const list = (state: Partial<RoomState>, onLoadOlder: () => void) => (
 beforeEach(() => {
   FakeIntersectionObserver.topVisible = false;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
 afterEach(() => vi.unstubAllGlobals());
 

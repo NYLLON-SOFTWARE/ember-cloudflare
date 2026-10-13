@@ -20,7 +20,8 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
-  // Where the reader was after the last render or scroll.
+  const viewHeight = useRef(0);
+  // Where the reader was after the last render, resize or scroll.
   const position = useRef({ top: 0, height: 0 });
   const firstId = useRef<string | undefined>(undefined);
   const [showLatest, setShowLatest] = useState(false);
@@ -40,6 +41,19 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
     position.current = { top: el.scrollTop, height: el.scrollHeight };
   }, [state.messages]);
 
+  // When the timeline gets shorter, as it does when a phone's keyboard opens, stay on the newest
+  // message rather than leaving it hidden below the fold.
+  useEffect(() => {
+    const el = scroller.current!;
+    const observer = new ResizeObserver(() => {
+      viewHeight.current = el.clientHeight;
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+      position.current = { top: el.scrollTop, height: el.scrollHeight };
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
   useEffect(() => {
     // Load the previous page whenever the top of the timeline comes into view, whether by
@@ -56,6 +70,9 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
 
   const onScroll = () => {
     const el = scroller.current!;
+    // A scroll can arrive after the timeline has resized but before the resize observer has caught
+    // up. The reader didn't move, so it mustn't unpin them from the newest message.
+    if (el.clientHeight !== viewHeight.current) return;
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     setShowLatest(!pinned.current);
     position.current = { top: el.scrollTop, height: el.scrollHeight };
@@ -99,7 +116,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
             scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
           }}
           aria-label="Return to latest messages"
-          className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover"
+          className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover touch:size-11"
         >
           <ArrowDown className="size-[18px]" />
         </button>

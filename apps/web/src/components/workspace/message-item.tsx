@@ -2,10 +2,12 @@ import { memo, useEffect, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
 import { Trash } from "@/components/icons/campfire";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
+import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { sendsMessage } from "@/lib/keyboard";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
@@ -19,7 +21,7 @@ export interface MessageActions {
   remove: (messageId: string) => void;
 }
 
-const actionButton = "flex size-8 items-center justify-center rounded-md text-message-muted hover:bg-hover max-md:h-10 max-md:w-[34px] [&_svg]:size-4";
+const actionButton = "flex size-8 items-center justify-center rounded-md text-message-muted hover:bg-hover touch:size-11 [&_svg]:size-4";
 
 interface Props {
   message: Message | PendingMessage;
@@ -119,7 +121,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
       ref={actionBar}
       role="group"
       aria-label="Message actions"
-      className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:max-md:pr-[38px]"
+      className="flex items-center rounded-[11px] border border-message-border bg-background p-1 shadow-[0_1px_3px_#0000001a] [@media(hover:hover)]:pr-9 [@media(hover:hover)]:touch:pr-12"
     >
       {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
         <button key={emoji} type="button" title={title} aria-label={title} className={actionButton} onClick={() => boost(emoji)}>
@@ -161,7 +163,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
                 key={emoji}
                 title={title}
                 aria-label={title}
-                className="size-8 justify-center p-0 text-base"
+                className="size-8 justify-center p-0 text-base touch:size-11"
                 onSelect={() => {
                   moreReactions.current = "chosen";
                   actions.boost(message.id, emoji);
@@ -202,6 +204,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
       aria-busy={pending || undefined}
       className={cn(
         "group/message relative grid grid-cols-[36px_minmax(0,1fr)] gap-x-2 px-5 hover:bg-message-hover max-md:grid-cols-[30px_minmax(0,1fr)] max-md:gap-x-2.5 max-md:px-3",
+        // Where the options button shows, each message is at least as tall as it, as in ember-rust,
+        // so the buttons of short messages in a row don't overlap.
+        "[@media(hover:none)]:min-h-11",
         threaded ? "pt-0" : "pt-2",
         pending && "opacity-60",
       )}
@@ -212,7 +217,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         <UserAvatar user={message.creator} square className="mt-0 size-9 max-md:size-[30px]" />
       )}
 
-      <div className={cn("min-w-0 py-1", mentioned && "border-l-2 border-mention bg-mention/10 pl-2")}>
+      <div className={cn("min-w-0 py-1", threaded && "[@media(hover:none)]:pr-8", mentioned && "border-l-2 border-mention bg-mention/10 pl-2")}>
         {!threaded && (
           <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
             <strong className="font-bold text-message-ink">{message.creator.name}</strong>
@@ -231,19 +236,29 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           >
             <Textarea
               autoFocus
+              aria-label="Edit message"
               value={draft}
               maxLength={MAX_MESSAGE_LENGTH}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setEditing(false);
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                if (sendsMessage(event)) {
                   event.preventDefault();
                   saveEdit();
                 }
               }}
-              className="min-h-10 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className="min-h-10 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 touch:min-h-11 touch:text-base dark:bg-transparent"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Escape to cancel, Enter to save</p>
+            {/* Phones have no Escape key and use Enter for new lines, so editing needs buttons. */}
+            <div className="mt-1 flex items-center justify-end gap-1">
+              <p className="mr-auto text-xs text-muted-foreground touch:hidden">Escape to cancel, Enter to save</p>
+              <Button type="button" variant="ghost" size="sm" className="touch:h-11" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="touch:h-11">
+                Save
+              </Button>
+            </div>
           </form>
         ) : (
           <p className="text-[15px] leading-[22px] break-words whitespace-pre-wrap text-message-ink">

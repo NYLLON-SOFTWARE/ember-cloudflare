@@ -18,7 +18,7 @@ export function AppearanceMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="mt-auto flex size-9 items-center justify-center rounded-full border text-muted-foreground hover:bg-hover hover:text-foreground data-[state=open]:bg-hover data-[state=open]:text-foreground max-md:size-11"
+        className="mt-auto flex size-9 shrink-0 items-center justify-center rounded-full border text-muted-foreground hover:bg-hover hover:text-foreground data-[state=open]:bg-hover data-[state=open]:text-foreground touch:size-11"
         aria-label="Appearance"
         title="Appearance"
       >
@@ -37,7 +37,7 @@ export function AppearanceMenu() {
             <DropdownMenuRadioItem
               key={value}
               value={value}
-              className="group min-h-10 gap-2.5 rounded-[7px] p-2 data-[state=checked]:bg-hover [&>span:first-child]:hidden"
+              className="group min-h-10 gap-2.5 rounded-[7px] p-2 data-[state=checked]:bg-hover touch:min-h-11 [&>span:first-child]:hidden"
             >
               <Icon className="size-[18px]" />
               {label}
