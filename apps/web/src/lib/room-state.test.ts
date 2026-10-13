@@ -42,6 +42,21 @@ describe(feature("messages.optimistic"), () => {
     expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
   });
 
+  it("keeps quick sends under one header when the room confirms them out of order", () => {
+    let state = initialRoomState;
+    for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
+    for (const id of ["c3", "c1", "c2"]) {
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
+      expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
+    }
+    // Each stored copy replaces its own pending one, in the order the room stored them, as everyone else sees them.
+    expect(state.messages.map((m) => [m.body, isPending(m)])).toEqual([
+      ["c3", false],
+      ["c1", false],
+      ["c2", false],
+    ]);
+  });
+
   it("puts a confirmed message after the ones the room stored before it", () => {
     const grace: User = { id: "u2", name: "Grace" };
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
