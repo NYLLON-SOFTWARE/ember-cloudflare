@@ -1,5 +1,5 @@
--- Used only when STORAGE_BACKEND is "d1". The ChatRoom Durable Object creates the same
--- tables in its own SQLite storage otherwise (see src/store.ts), so keep the two in step.
+-- `wrangler d1 migrations apply` applies this when STORAGE_BACKEND is "d1"; otherwise each room's
+-- Durable Object applies it to its own SQLite storage when it opens (see src/migrations.ts).
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   room_id TEXT NOT NULL,

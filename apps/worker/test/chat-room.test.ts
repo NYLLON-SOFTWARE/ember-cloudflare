@@ -4,6 +4,8 @@ import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
+import { MIGRATIONS, migrate } from "../src/migrations";
+import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 
 const origin = "https://ember.test";
 
@@ -57,7 +59,7 @@ async function until(condition: () => boolean, timeoutMs = 3_000): Promise<void>
 const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace<ChatRoom> }).CHAT_ROOM.getByName(room);
 
 /** Runs SQL against a room's storage, whichever backend this suite is using. */
-async function roomSql(room: string, query: string, ...params: string[]): Promise<unknown[]> {
+async function roomSql(room: string, query: string, ...params: Array<string | number>): Promise<unknown[]> {
   const db = (env as { DB?: D1Database }).DB;
   if (db) return (await db.prepare(query).bind(...params).all()).results;
   return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
@@ -210,6 +212,45 @@ describe("ChatRoom", () => {
     second.ws.close(1000);
   });
 
+  it("hands out the largest history page a client may ask for", async () => {
+    const ada = await connect("long-history", await signIn("Ada"));
+    await ada.next("welcome");
+    const bodies = Array.from({ length: 101 }, (_, i) => `long ${i}`);
+    const ids: string[] = [];
+    for (const [i, body] of bodies.entries()) {
+      ada.send({ type: "message.create", clientMessageId: `l${i}`, body });
+      ids.push((await ada.next("message.created")).message.id);
+    }
+    for (const content of ["👍", "🎉"]) {
+      ada.send({ type: "boost.create", messageId: ids[0], content });
+      await ada.next("boost.created");
+    }
+
+    // 100 is the most parseClientFrame lets through, and both backends bind at most 100 values a
+    // statement, so a page can't bind its message ids to look up their boosts.
+    ada.send({ type: "history.before", before: ids[100], limit: 100 });
+    const page = await ada.next("history");
+    expect(page.messages.map((m) => m.body)).toEqual(bodies.slice(0, 100));
+    expect(page.messages[0]!.boosts.map((b) => b.content)).toEqual(["👍", "🎉"]);
+    expect(page.hasMore).toBe(false);
+    ada.ws.close(1000);
+  });
+
+  it("pages history by seeking the room's index from the cursor", async () => {
+    const ada = await connect("paging-plan", await signIn("Ada"));
+    await ada.next("welcome");
+    const plan = async (query: string, ...params: Array<string | number>) =>
+      (await roomSql("paging-plan", `EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
+
+    const before = await plan(MESSAGES_BEFORE, "paging-plan", "cursor", 51);
+    const newest = await plan(NEWEST_MESSAGES, "paging-plan", 51);
+
+    // Seeking (room_id=?) alone would walk the room from its newest message down to the cursor.
+    expect(before).toContain("index_messages_on_room_id_and_id (room_id=? AND id<?)");
+    expect(`${before}; ${newest}`).not.toContain("TEMP B-TREE");
+    ada.ws.close(1000);
+  });
+
   it("sends a joining socket its snapshot before any live frames", async () => {
     const ada = await connect("joining", await signIn("Ada"));
     await ada.next("welcome");
@@ -298,6 +339,38 @@ describe("ChatRoom", () => {
     await until(() => ada.log.filter((f) => f.type === "message.created").length === 2);
     expect(ada.log.filter((f) => f.type === "boost.created")).toHaveLength(1);
     ada.ws.close(1000);
+  });
+
+  it("applies every migration file to a room's storage, once", async () => {
+    // vitest.config.ts reads TEST_MIGRATIONS from the migrations directory.
+    const files = (env as unknown as { TEST_MIGRATIONS: Array<{ name: string }> }).TEST_MIGRATIONS.map((m) => m.name);
+    expect(MIGRATIONS.map((m) => m.name)).toEqual(files);
+
+    const ada = await connect("migrated", await signIn("Ada"));
+    await ada.next("welcome");
+    const recorded = files.map((name) => ({ name }));
+    expect(await roomSql("migrated", "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+    if (!(env as { DB?: D1Database }).DB) {
+      await runInDurableObject(roomStub("migrated"), (_room, state: DurableObjectState) => migrate(state.storage));
+      expect(await roomSql("migrated", "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+    }
+    ada.ws.close(1000);
+  });
+
+  it("records the first migration in rooms that ran it before migrations were tracked", async () => {
+    if ((env as { DB?: D1Database }).DB) return;
+    const messages = await runInDurableObject(roomStub("untracked"), (_room, state: DurableObjectState) => {
+      // What every room did on opening before migrate() existed.
+      state.storage.sql.exec(MIGRATIONS[0]!.sql);
+      state.storage.sql.exec(
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
+         VALUES ('m1', 'untracked', 'c1', 'u1', 'Ada', 'from before', 'now', 'now')`,
+      );
+      migrate(state.storage);
+      return state.storage.sql.exec("SELECT body FROM messages").toArray();
+    });
+    expect(messages).toEqual([{ body: "from before" }]);
+    expect(await roomSql("untracked", "SELECT name FROM d1_migrations ORDER BY id")).toEqual(MIGRATIONS.map(({ name }) => ({ name })));
   });
 
   it("writes to the configured backend", async () => {

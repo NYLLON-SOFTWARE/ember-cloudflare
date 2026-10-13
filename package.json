@@ -11,7 +11,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "deploy": "pnpm build && pnpm --filter @ember/worker run deploy"
+    "deploy": "pnpm build && pnpm --filter @ember/worker run deploy",
+    "perf": "pnpm --filter @ember/perf start"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

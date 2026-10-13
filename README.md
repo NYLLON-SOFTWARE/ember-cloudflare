@@ -41,6 +41,13 @@ pnpm test           # protocol + web unit tests; worker tests run in workerd, on
 pnpm build
 ```
 
+## Performance
+
+`pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,
+throughput, fan-out, room size, history paging) and measures how the web app loads and renders a
+busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
+suite started with are in `perf/baseline/report.md`.
+
 ## Storage: Durable Object SQLite or D1
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks where messages live.
@@ -52,8 +59,9 @@ pnpm build
   uncomment the `d1_databases` block, set `STORAGE_BACKEND` to `"d1"`, and apply
   `apps/worker/migrations/` with `pnpm --filter @ember/worker d1:migrate:local` (or `--remote`).
 
-Both use the same schema (`apps/worker/migrations/0001_messages.sql`) and the same queries
-(`apps/worker/src/store.ts`); only the driver differs.
+Both use the same schema (`apps/worker/migrations/`) and the same queries
+(`apps/worker/src/store.ts`); only the driver differs. [`docs/database.md`](docs/database.md)
+compares them with ember-rust's database.
 
 ## Deploying
 
