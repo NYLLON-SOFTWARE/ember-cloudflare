@@ -97,4 +97,4 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - Never bind a list whose length depends on the data. Both backends bind at most 100 values a
   statement; use a subquery, or JSON built in SQL, instead.
 - When a query has to stay fast as a room grows, check its plan with `EXPLAIN QUERY PLAN` in a test,
-  as `apps/worker/test/chat-room.test.ts` does for history pages.
+  as `apps/worker/test/messages.test.ts` does for history pages.

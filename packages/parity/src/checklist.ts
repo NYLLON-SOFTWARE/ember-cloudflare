@@ -5,7 +5,7 @@ import { AREAS, type Area, type FeatureSpec, type Origin, type Status } from "./
 // Renders PARITY.md from the inventory and the tests that name its features.
 
 /** The commits the inventory was taken from. Bump these when re-surveying ember-rust. */
-export const EMBER_RUST_COMMIT = "873946ef5610ac0598e23875cbb0e9b53f8c9532";
+export const EMBER_RUST_COMMIT = "cfeb4c289f9ab3042248777f29a103294ff3de87";
 export const CAMPFIRE_COMMIT = "90b330024dec3e757c79b6a7e6568f93da8e3148";
 
 const EMBER_RUST = `https://github.com/NYLLON-SOFTWARE/ember-rust/blob/${EMBER_RUST_COMMIT}/`;
