@@ -8,25 +8,20 @@ import type { ServerFrame } from "@ember/protocol";
 
 /** A room of the check's own, so it never shows up in anyone's #general. */
 const ROOM = "deploy-check";
-/** A Worker's new workers.dev hostname can take a little while to start answering. */
+/**
+ * A new Worker's workers.dev hostname, and a secret set just after its deploy, can take a little
+ * while to reach every location, so each check is retried until then.
+ */
 const STARTUP_TIMEOUT_MS = 120_000;
 const RETRY_DELAY_MS = 5_000;
 const WELCOME_TIMEOUT_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitForHealth(baseUrl: string): Promise<{ storage: string }> {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  for (;;) {
-    try {
-      const response = await fetch(new URL("/api/health", baseUrl));
-      if (response.ok) return (await response.json()) as { storage: string };
-      throw new Error(`it answered ${response.status}`);
-    } catch (error) {
-      if (Date.now() > deadline) throw new Error(`/api/health wasn't up after ${STARTUP_TIMEOUT_MS / 1000}s`, { cause: error });
-      await sleep(RETRY_DELAY_MS);
-    }
-  }
+async function health(baseUrl: string): Promise<{ storage: string }> {
+  const response = await fetch(new URL("/api/health", baseUrl));
+  if (!response.ok) throw new Error(`/api/health answered ${response.status}`);
+  return (await response.json()) as { storage: string };
 }
 
 async function checkPage(baseUrl: string): Promise<void> {
@@ -74,13 +69,25 @@ function waitForWelcome(baseUrl: string, token: string): Promise<void> {
 }
 
 async function check(baseUrl: string): Promise<void> {
-  const { storage } = await waitForHealth(baseUrl);
+  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  const eventually = async <T>(attempt: () => Promise<T>): Promise<T> => {
+    for (;;) {
+      try {
+        return await attempt();
+      } catch (error) {
+        if (Date.now() >= deadline) throw new Error(`Still failing after ${STARTUP_TIMEOUT_MS / 1000}s`, { cause: error });
+        await sleep(RETRY_DELAY_MS);
+      }
+    }
+  };
+
+  const { storage } = await eventually(() => health(baseUrl));
   console.log(`✓ /api/health answers, storing messages in ${storage}`);
-  await checkPage(baseUrl);
+  await eventually(() => checkPage(baseUrl));
   console.log("✓ The app's page loads");
-  const token = await signIn(baseUrl);
+  const token = await eventually(() => signIn(baseUrl));
   console.log("✓ Sign-in issues a session");
-  await waitForWelcome(baseUrl, token);
+  await eventually(() => waitForWelcome(baseUrl, token));
   console.log(`✓ #${ROOM} welcomes a socket`);
 }
 

@@ -62,16 +62,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
         run: |
-          # Sessions are signed with SESSION_SECRET, so the first deploy makes one and later ones keep it.
-          args=(--name "$WORKER_NAME")
-          if ! pnpm exec wrangler secret list --name "$WORKER_NAME" | jq -e 'any(.[]; .name == "SESSION_SECRET")' > /dev/null; then
-            secret=$(openssl rand -hex 32)
-            echo "::add-mask::$secret"
-            echo "SESSION_SECRET=$secret" > "$RUNNER_TEMP/secrets.env"
-            args+=(--secrets-file "$RUNNER_TEMP/secrets.env")
-          fi
-          pnpm exec wrangler deploy "${args[@]}"
-
+          pnpm exec wrangler deploy --name "$WORKER_NAME"
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"
@@ -79,6 +70,15 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
+
+          # Sessions are signed with SESSION_SECRET, so the first deploy makes one and later ones keep
+          # it. The Worker exists by now, so failing to list its secrets stops here rather than
+          # replacing a secret that may be there.
+          secrets=$(pnpm exec wrangler secret list --name "$WORKER_NAME")
+          has_secret=$(jq 'any(.[]; .name == "SESSION_SECRET")' <<< "$secrets")
+          if [ "$has_secret" = false ]; then
+            openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --name "$WORKER_NAME"
+          fi
       - name: Check the preview
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
