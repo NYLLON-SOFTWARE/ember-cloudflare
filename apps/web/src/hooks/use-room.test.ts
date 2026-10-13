@@ -1,4 +1,4 @@
-import type { User } from "@ember/protocol";
+import { MAX_CHECKED_MESSAGES, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRoom } from "./use-room";
@@ -33,6 +33,12 @@ class FakeSocket {
 
   receive(frame: object) {
     this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+
+  /** The connection drops: the socket is closed by the time its handler hears about it. */
+  drop() {
+    this.readyState = 3;
+    this.onclose?.();
   }
 }
 
@@ -108,6 +114,56 @@ describe("useRoom", () => {
     });
     expect(sent).toBe(true);
     expect(socket.sent).toContain(JSON.stringify({ type: "message.update", messageId: "m1", body: "hello" }));
+  });
+
+  it("asks the room about the messages a closed socket never confirmed", () => {
+    const { result } = renderHook(() => useRoom("general", "token", ada, () => {}));
+    const first = FakeSocket.sockets[0]!;
+    act(() => {
+      first.open();
+      first.receive(welcome);
+    });
+    act(() => result.current.postMessage("are you there?"));
+    const { clientMessageId } = JSON.parse(first.sent.at(-1)!) as { clientMessageId: string };
+
+    // The socket closes before the room's confirmation comes back, and the next message can't go at all.
+    act(() => first.drop());
+    act(() => result.current.postMessage("hello?"));
+    act(() => vi.advanceTimersByTime(1_000));
+    const second = FakeSocket.sockets[1]!;
+    act(() => {
+      second.open();
+      second.receive(welcome);
+    });
+    expect(second.sent).toEqual([JSON.stringify({ type: "message.check", clientMessageIds: [clientMessageId] })]);
+    const [unconfirmed, unsent] = result.current.state.messages;
+    expect(unconfirmed).toMatchObject({ body: "are you there?", checking: true });
+    expect(unsent).toMatchObject({ body: "hello?", failed: true });
+
+    act(() => second.receive({ type: "message.checked", stored: [clientMessageId], missing: [] }));
+    expect(result.current.state.messages.map((m) => m.body)).toEqual(["hello?"]);
+  });
+
+  it("asks in batches the room accepts", () => {
+    const { result } = renderHook(() => useRoom("general", "token", ada, () => {}));
+    const first = FakeSocket.sockets[0]!;
+    act(() => {
+      first.open();
+      first.receive(welcome);
+    });
+    act(() => {
+      for (let i = 0; i <= MAX_CHECKED_MESSAGES; i++) result.current.postMessage(`message ${i}`);
+    });
+
+    act(() => first.drop());
+    act(() => vi.advanceTimersByTime(1_000));
+    const second = FakeSocket.sockets[1]!;
+    act(() => {
+      second.open();
+      second.receive(welcome);
+    });
+    const checks = second.sent.map((frame) => (JSON.parse(frame) as { clientMessageIds: string[] }).clientMessageIds.length);
+    expect(checks).toEqual([MAX_CHECKED_MESSAGES, 1]);
   });
 
   it("signs out when a socket is refused because the session expired", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRoomSlug, MAX_BOOST_LENGTH, parseClientFrame } from "./index";
+import { isRoomSlug, MAX_BOOST_LENGTH, MAX_CHECKED_MESSAGES, parseClientFrame } from "./index";
 
 describe("parseClientFrame", () => {
   it("accepts a well-formed message and trims its body", () => {
@@ -28,6 +28,16 @@ describe("parseClientFrame", () => {
       before: "m1",
       limit: 100,
     });
+  });
+
+  it("checks a bounded list of client message ids", () => {
+    const check = (clientMessageIds: unknown) => parseClientFrame(JSON.stringify({ type: "message.check", clientMessageIds }));
+    expect(check(["c1", "c2"])).toEqual({ type: "message.check", clientMessageIds: ["c1", "c2"] });
+    expect(check(Array.from({ length: MAX_CHECKED_MESSAGES }, (_, i) => `c${i}`))).not.toBeNull();
+
+    for (const clientMessageIds of [[], "c1", ["c1", 2], ["c1", ""], ["x".repeat(65)], Array.from({ length: MAX_CHECKED_MESSAGES + 1 }, (_, i) => `c${i}`)]) {
+      expect(check(clientMessageIds), JSON.stringify(clientMessageIds)).toBeNull();
+    }
   });
 });
 

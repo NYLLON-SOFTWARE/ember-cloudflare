@@ -138,6 +138,11 @@ export class ChatRoom extends DurableObject<Env> {
         const { messages, hasMore } = await store.page(frame.limit ?? HISTORY_PAGE_SIZE, frame.before);
         return this.send(ws, { type: "history", messages, hasMore });
       }
+      case "message.check": {
+        const stored = await store.storedClientMessageIds(user.id, frame.clientMessageIds);
+        const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
+        return this.send(ws, { type: "message.checked", stored, missing });
+      }
       case "ping":
         return this.send(ws, { type: "pong" });
     }

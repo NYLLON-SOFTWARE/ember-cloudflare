@@ -1,4 +1,4 @@
-import type { Boost, Message, RoomId, User } from "@ember/protocol";
+import type { Boost, Message, RoomId, User, UserId } from "@ember/protocol";
 import type { Env } from "./env";
 import schema from "../migrations/0001_messages.sql";
 
@@ -95,6 +95,19 @@ export class MessageStore {
     const rows = await this.db.all<MessageRow>(`SELECT * FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id);
     const [message] = await this.withBoosts(rows);
     return message ?? null;
+  }
+
+  /** Which of `clientMessageIds` the room has stored from `creatorId`. */
+  async storedClientMessageIds(creatorId: UserId, clientMessageIds: string[]): Promise<string[]> {
+    if (clientMessageIds.length === 0) return [];
+    const rows = await this.db.all<Pick<MessageRow, "client_message_id">>(
+      `SELECT client_message_id FROM messages
+       WHERE room_id = ? AND creator_id = ? AND client_message_id IN (${clientMessageIds.map(() => "?").join(", ")})`,
+      this.roomId,
+      creatorId,
+      ...clientMessageIds,
+    );
+    return rows.map((row) => row.client_message_id);
   }
 
   async create(id: string, clientMessageId: string, creator: User, body: string, now: string): Promise<Message> {

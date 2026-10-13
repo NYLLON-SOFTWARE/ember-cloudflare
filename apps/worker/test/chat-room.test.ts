@@ -163,6 +163,28 @@ describe("ChatRoom", () => {
     second.ws.close(1000);
   });
 
+  it("tells a sender which of their messages it stored", async () => {
+    const token = await signIn("Ada");
+    const ada = await connect("checking", token);
+    await ada.next("welcome");
+    const grace = await connect("checking", await signIn("Grace"));
+    await grace.next("welcome");
+    ada.send({ type: "message.create", clientMessageId: "a1", body: "stored" });
+    await ada.next("message.created");
+    grace.send({ type: "message.create", clientMessageId: "g1", body: "not Ada's" });
+    await ada.next("message.created");
+
+    ada.send({ type: "message.check", clientMessageIds: ["a1", "g1", "lost"] });
+    expect(await ada.next("message.checked")).toEqual({ type: "message.checked", stored: ["a1"], missing: ["g1", "lost"] });
+
+    // On D1 every room's messages share one table, so the lookup has to stay in its own room.
+    const elsewhere = await connect("checking-elsewhere", token);
+    await elsewhere.next("welcome");
+    elsewhere.send({ type: "message.check", clientMessageIds: ["a1"] });
+    expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
+    for (const socket of [ada, grace, elsewhere]) socket.ws.close(1000);
+  });
+
   it("sends a joining socket its snapshot before any live frames", async () => {
     const ada = await connect("joining", await signIn("Ada"));
     await ada.next("welcome");
