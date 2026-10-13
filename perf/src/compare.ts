@@ -51,7 +51,9 @@ function collect({ backend, web }: Results): Map<string, Metric> {
     }
     for (const f of r.fanout ?? []) {
       add(`${storage} fan-out ${f.members}: delivery p50 ms`, f.delivery?.p50, { noise: 15 });
-      add(`${storage} fan-out ${f.members}: delivery p95 ms`, f.delivery?.p95, SWINGY);
+      // Runs of the same code have put a 10-member room's tail anywhere from 5.44 to 7.92 ms, so a
+      // smaller move than 4 ms says nothing about the code.
+      add(`${storage} fan-out ${f.members}: delivery p95 ms`, f.delivery?.p95, { floor: 4, ...SWINGY });
       add(`${storage} fan-out ${f.members}: lost`, f.lost, NEVER);
       add(`${storage} fan-out ${f.members}: out of order`, f.outOfOrder, NEVER);
     }
@@ -65,9 +67,10 @@ function collect({ backend, web }: Results): Map<string, Metric> {
       }
     }
     if (r.history) {
-      // The quick profile pages through only ten pages, so these medians rest on few samples.
-      add(`${storage} history: welcome p50 ms`, r.history.welcome?.p50, { floor: 2, noise: 30 });
-      add(`${storage} history: page p50 ms`, r.history.page?.p50, { floor: 2, noise: 40 });
+      // The quick profile times ten welcomes and nine pages, so these medians rest on few samples, and
+      // runs of the same code have moved them by a third.
+      add(`${storage} history: welcome p50 ms`, r.history.welcome?.p50, { floor: 2, ...SWINGY });
+      add(`${storage} history: page p50 ms`, r.history.page?.p50, { floor: 2, ...SWINGY });
     }
   }
 
@@ -76,7 +79,8 @@ function collect({ backend, web }: Results): Map<string, Metric> {
     for (const l of web.lighthouse) {
       const page = `lighthouse ${l.page} ${l.formFactor}`;
       add(`${page}: score`, l.score, { better: "higher", floor: 3, noise: 0 });
-      add(`${page}: LCP ms`, l.lcpMs, { floor: 100 });
+      // Six single runs of one commit put the room page's mobile LCP anywhere from 1,719 to 1,995 ms.
+      add(`${page}: LCP ms`, l.lcpMs, { floor: 100, noise: l.formFactor === "mobile" ? 20 : 10 });
       // Single Lighthouse runs of one commit put the room page's mobile TBT anywhere from 128 to
       // 265 ms, so a smaller jump than 200 ms says nothing about the code.
       add(`${page}: TBT ms`, l.tbtMs, { floor: 200, noise: 35 });
@@ -89,7 +93,8 @@ function collect({ backend, web }: Results): Map<string, Metric> {
         const label = `render ${r.cpuSlowdown}x ${i === 0 ? "short" : "long"} timeline`;
         add(`${label}: frame to paint p50 ms`, b.frameToPaint?.p50, { floor: FRAME_MS });
         add(`${label}: frame to paint p95 ms`, b.frameToPaint?.p95, { floor: FRAME_MS, ...SWINGY });
-        add(`${label}: main thread ms per message`, b.mainThreadMsPerMessage, { floor: 0.5, noise: 15 });
+        // Four runs of one build put the short timeline's anywhere from 6.09 to 7.07 ms.
+        add(`${label}: main thread ms per message`, b.mainThreadMsPerMessage, { floor: 0.5, noise: 20 });
         add(`${label}: missing messages`, b.missing, NEVER);
       });
     }
