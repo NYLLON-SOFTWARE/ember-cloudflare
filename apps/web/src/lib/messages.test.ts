@@ -1,3 +1,4 @@
+import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { avatarColor, crc32, initials } from "./avatar";
@@ -14,7 +15,7 @@ const at = (iso: string, creatorId = "u1"): Message => ({
   boosts: [],
 });
 
-describe("timeline", () => {
+describe(feature("messages.grouping"), () => {
   it("threads quick follow-ups from the same person and separates days", () => {
     const items = timeline(
       [
@@ -29,13 +30,15 @@ describe("timeline", () => {
     expect(items.map((i) => i.daySeparator)).toEqual(["Yesterday", "Today", null, null, null]);
     expect(items.map((i) => i.threaded)).toEqual([false, false, true, false, false]);
   });
+});
 
+describe(feature("messages.day-separators"), () => {
   it("names older days", () => {
     expect(dayLabel(new Date("2026-10-01T12:00:00"), new Date("2026-10-12T12:00:00"))).toMatch(/October/);
   });
 });
 
-describe("mentions", () => {
+describe(feature("mentions.highlight"), () => {
   it("matches the whole name, ignoring case", () => {
     expect(mentions("thanks @ada!", "Ada")).toBe(true);
     expect(mentions("ask @Adam", "Ada")).toBe(false);
@@ -56,7 +59,7 @@ describe("mentions", () => {
   });
 });
 
-describe("avatars", () => {
+describe(feature("users.avatars"), () => {
   it("matches zlib's CRC32, which ember-rust uses to pick colors", () => {
     expect(crc32("1")).toBe(0x83dcefb7);
     expect(avatarColor("1")).toBe(avatarColor("1"));

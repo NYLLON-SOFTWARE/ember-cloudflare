@@ -8,6 +8,7 @@
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
+    "@ember/parity": "workspace:*",
     "@ember/protocol": "workspace:*",
     "@playwright/test": "1.64.0",
     "@types/node": "^26.6.5"

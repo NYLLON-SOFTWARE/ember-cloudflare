@@ -1,3 +1,4 @@
+import { feature } from "@ember/parity";
 import { render } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { describe, expect, it } from "vitest";
@@ -27,32 +28,34 @@ function drawing(svg: Element) {
   return { stroke, shapes: shapes.sort() };
 }
 
-describe("Lucide icons", () => {
-  it.each(Object.entries(catalog))("draws %s exactly as ember-rust's catalog does", (name, shapes) => {
-    const Icon = lucide[name as keyof typeof lucide] as ComponentType;
-    const { container } = render(<Icon />);
-    expect(drawing(container.querySelector("svg")!)).toEqual(drawing(catalogSvg(shapes)));
-  });
-});
-
-describe("icon imports", () => {
-  const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!/src/components/icons/**"], { query: "?raw", import: "default", eager: true });
-  // The package or any of its subpaths, in either quote style, so dynamic imports and re-exports count too.
-  const lucideReact = /["']lucide-react(\/[^"']*)?["']/;
-
-  it.each([
-    `import { Trash2 } from "lucide-react";`,
-    `import { Trash2 } from 'lucide-react';`,
-    `const icons = await import("lucide-react");`,
-    `export { DynamicIcon } from "lucide-react/dynamic";`,
-  ])("treat %s as importing lucide-react", (code) => {
-    expect(code).toMatch(lucideReact);
+describe(feature("ui.icons"), () => {
+  describe("Lucide icons", () => {
+    it.each(Object.entries(catalog))("draws %s exactly as ember-rust's catalog does", (name, shapes) => {
+      const Icon = lucide[name as keyof typeof lucide] as ComponentType;
+      const { container } = render(<Icon />);
+      expect(drawing(container.querySelector("svg")!)).toEqual(drawing(catalogSvg(shapes)));
+    });
   });
 
-  it("take every icon from ember-rust's sets in this folder, never straight from lucide-react", () => {
-    const strays = Object.entries(sources)
-      .filter(([, code]) => lucideReact.test(code))
-      .map(([file]) => file);
-    expect(strays).toEqual([]);
+  describe("icon imports", () => {
+    const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!/src/components/icons/**"], { query: "?raw", import: "default", eager: true });
+    // The package or any of its subpaths, in either quote style, so dynamic imports and re-exports count too.
+    const lucideReact = /["']lucide-react(\/[^"']*)?["']/;
+
+    it.each([
+      `import { Trash2 } from "lucide-react";`,
+      `import { Trash2 } from 'lucide-react';`,
+      `const icons = await import("lucide-react");`,
+      `export { DynamicIcon } from "lucide-react/dynamic";`,
+    ])("treat %s as importing lucide-react", (code) => {
+      expect(code).toMatch(lucideReact);
+    });
+
+    it("take every icon from ember-rust's sets in this folder, never straight from lucide-react", () => {
+      const strays = Object.entries(sources)
+        .filter(([, code]) => lucideReact.test(code))
+        .map(([file]) => file);
+      expect(strays).toEqual([]);
+    });
   });
 });
