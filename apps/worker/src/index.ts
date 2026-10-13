@@ -3,10 +3,14 @@ import { ROOM_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { issueToken, verifyToken } from "./session";
+import { workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
+export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
+/** The room object /api/health reads from. No room can have this name, since slugs can't hold "_". */
+const HEALTH_ROOM = "_health";
 
 const json = (data: unknown, init?: ResponseInit) => Response.json(data, init);
 const problem = (status: number, message: string) => json({ error: message }, { status });
@@ -16,6 +20,22 @@ async function currentUser(request: Request, env: Env): Promise<User | null> {
   // Browsers can't set headers on a WebSocket handshake, so sockets pass the token as a query param.
   const token = request.headers.get("Authorization")?.replace(/^Bearer /, "") ?? url.searchParams.get("token");
   return token ? verifyToken(token, env.SESSION_SECRET) : null;
+}
+
+/**
+ * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
+ * their storage, so a deploy can be checked without signing in.
+ */
+async function health(env: Env): Promise<Response> {
+  const storage = env.STORAGE_BACKEND;
+  if (!env.SESSION_SECRET) return json({ ok: false, storage, error: "SESSION_SECRET isn't set" }, { status: 503 });
+  try {
+    await Promise.all([workspace(env).health(), env.CHAT_ROOM.getByName(HEALTH_ROOM).health(HEALTH_ROOM)]);
+  } catch (error) {
+    console.error("Health check failed", error);
+    return json({ ok: false, storage, error: "Storage isn't answering" }, { status: 503 });
+  }
+  return json({ ok: true, storage });
 }
 
 async function createSession(request: Request, env: Env): Promise<Response> {
@@ -51,7 +71,7 @@ export default {
   async fetch(request, env): Promise<Response> {
     const { pathname } = new URL(request.url);
 
-    if (pathname === "/api/health") return json({ ok: true, storage: env.STORAGE_BACKEND });
+    if (pathname === "/api/health") return health(env);
     if (pathname === "/api/session" && request.method === "POST") return createSession(request, env);
 
     if (pathname === "/api/me") {

@@ -2363,7 +2363,8 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs"],
-    notes: "The health check is `GET /api/health`, answering `{ ok: true, storage }` with the storage backend in use.",
+    notes:
+      "`/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.",
   },
   {
     id: "platform.error-pages",

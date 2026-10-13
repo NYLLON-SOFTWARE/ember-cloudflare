@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
 import { MIGRATIONS, migrate, type Scope } from "../src/migrations";
-import { api, connect, freshRoom, post, roomSql, roomStub } from "./support";
+import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, workspaceStub } from "./support";
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Scope, string[]> = {
@@ -44,19 +44,19 @@ describe(feature("platform.storage"), () => {
   });
 
   it("gives each kind of object only its own tables, and D1 every kind's", async () => {
-    for (const scope of Object.keys(TABLES) as Scope[]) {
-      // A fresh object's storage stands in for an object of each kind.
-      const tables = await runInDurableObject(roomStub(freshRoom(scope)), (_room, state: DurableObjectState) => {
-        migrate(state.storage, scope);
-        return state.storage.sql.exec(MIGRATED_TABLES).toArray();
-      });
-      expect(tables).toEqual(TABLES[scope].map((name) => ({ name })));
-    }
+    const names = (tables: string[]) => tables.map((name) => ({ name }));
     const db = (env as { DB?: D1Database }).DB;
-    if (db) expect((await db.prepare(MIGRATED_TABLES).all()).results).toEqual(Object.values(TABLES).flat().sort().map((name) => ({ name })));
+    if (db) {
+      expect((await db.prepare(MIGRATED_TABLES).all()).results).toEqual(names(Object.values(TABLES).flat().sort()));
+      return;
+    }
+    const room = freshRoom("tables");
+    await connect(room, "Ada");
+    expect(await objectSql(roomStub(room), MIGRATED_TABLES)).toEqual(names(TABLES.room));
+    expect(await objectSql(workspaceStub(), MIGRATED_TABLES)).toEqual(names(TABLES.workspace));
   });
 
-  it("applies each migration once: all of them to D1, a room's to its own storage", async () => {
+  it("applies each migration once: all of them to D1, and each object's own to its storage", async () => {
     const room = freshRoom("migrated");
     await connect(room, "Ada");
     const db = (env as { DB?: D1Database }).DB;
@@ -65,6 +65,8 @@ describe(feature("platform.storage"), () => {
     if (!db) {
       await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => migrate(state.storage, "room"));
       expect(await roomSql(room, "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+      const workspaceMigrations = MIGRATIONS.filter((migration) => migration.scope === "workspace").map(({ name }) => ({ name }));
+      expect(await objectSql(workspaceStub(), "SELECT name FROM d1_migrations ORDER BY id")).toEqual(workspaceMigrations);
     }
   });
 
