@@ -1,4 +1,4 @@
-import { MessageSquarePlus } from "lucide-react";
+import { MessagesAdd } from "@/components/icons/campfire";
 import type { Room } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +43,7 @@ export function Sidebar({ rooms, currentRoomId, onSelect }: { rooms: Room[]; cur
             aria-label="New direct message"
             className="ml-auto flex size-7 items-center justify-center rounded-lg hover:bg-hover disabled:opacity-50 touch:size-11"
           >
-            <MessageSquarePlus className="size-[18px]" />
+            <MessagesAdd className="size-[15px]" />
           </button>
         </div>
         <p className="px-[9px] text-[13px] text-muted-foreground">No direct messages yet.</p>

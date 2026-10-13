@@ -1772,7 +1772,7 @@ export const features = [
     id: "ui.icons",
     title: "Ember's icons",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Rail, drawer and dialog icons are ember-rust's own inline SVGs (24×24, stroke 1.7): home, messages, bell, search, settings, menu, close and a few more.",
       "Room icons and message actions come from a pinned catalog of 1,869 Lucide icons, and Campfire's SVGs remain for bell levels, boosts, attachments, copy, trash and similar.",
@@ -1780,7 +1780,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/icons.html", "crates/assets/overrides/lucide/catalog.json", "crates/assets/overrides/logos"],
     upstreamTests: ["crates/assets/overrides/basecoat/test/lucide.test.mjs", "parity/kro/workspace.test.mjs"],
-    notes: "Icons here come from lucide-react. The \"Match original Ember icons\" thread is replacing them with ember-rust's.",
+    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in card. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.",
   },
 
   // Platform
@@ -1805,6 +1805,7 @@ export const features = [
     status: "ported",
     behaviors: [
       "Messages and boosts live in each room's Durable Object SQLite by default, or in D1 when `STORAGE_BACKEND` is `d1`, and behave the same either way.",
+      "Both get every file in `apps/worker/migrations/`: wrangler applies them to D1, and each room's Durable Object applies the ones it's missing when it opens, recording each so it runs once.",
     ],
     sources: [],
   },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Sun } from "@/components/icons/lucide";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type Appearance, saveAppearance, savedAppearance, watchAppearance } from "@/lib/appearance";
 

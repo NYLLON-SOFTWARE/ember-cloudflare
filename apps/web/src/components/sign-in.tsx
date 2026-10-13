@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LogIn, UserRound } from "lucide-react";
+import { ArrowRight, User } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signIn, type Session } from "@/lib/api";
@@ -38,7 +38,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
               Your name
             </label>
             <div className="relative">
-              <UserRound className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
+              <User className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="name"
                 autoFocus
@@ -59,7 +59,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
             )}
           </div>
           <Button type="submit" disabled={busy || !name.trim()} className="h-[42px] w-full rounded-[9px] font-[550] touch:h-11">
-            <LogIn className="size-[18px]" /> Join
+            Join <ArrowRight className="size-[18px]" />
           </Button>
         </form>
       </div>

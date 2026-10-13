@@ -15,12 +15,14 @@ export async function signIn(name: string): Promise<{ user: User; token: string 
   return response.json();
 }
 
+/** The room's Durable Object. */
+export const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
+
 /** Runs SQL against a room's storage, whichever backend this suite is using. */
-export async function roomSql(room: string, query: string, ...params: string[]): Promise<unknown[]> {
+export async function roomSql(room: string, query: string, ...params: Array<string | number>): Promise<unknown[]> {
   const db = (env as { DB?: D1Database }).DB;
   if (db) return (await db.prepare(query).bind(...params).all()).results;
-  const stub = (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
-  return runInDurableObject(stub, (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
+  return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
 }
 
 /** A unique room name, so tests never share a ChatRoom. */

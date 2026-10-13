@@ -7,3 +7,7 @@ indent_style = space
 indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
+
+# Byte-for-byte copies of once-campfire's icons, which end without a newline.
+[apps/web/src/components/icons/campfire/*.svg]
+insert_final_newline = false

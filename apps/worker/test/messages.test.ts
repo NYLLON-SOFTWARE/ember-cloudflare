@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
+import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 import { connect, freshRoom, post, roomSql, settle, signIn } from "./support";
 
 describe(feature("messages.create"), () => {
@@ -222,6 +223,40 @@ describe(feature("messages.history"), () => {
 
     await settle(ada, grace);
     expect(grace.pending("history")).toEqual([]);
+  });
+
+  it("hands out the largest history page a client may ask for", async () => {
+    const room = freshRoom("long-history");
+    const ada = await connect(room, "Ada");
+    const bodies = Array.from({ length: 101 }, (_, i) => `long ${i}`);
+    const ids: string[] = [];
+    for (const body of bodies) ids.push((await post(ada, body)).id);
+    for (const content of ["👍", "🎉"]) {
+      ada.send({ type: "boost.create", messageId: ids[0]!, content });
+      await ada.next("boost.created");
+    }
+
+    // 100 is the most parseClientFrame lets through, and both backends bind at most 100 values a
+    // statement, so a page can't bind its message ids to look up their boosts.
+    ada.send({ type: "history.before", before: ids[100]!, limit: 100 });
+    const page = await ada.next("history");
+    expect(page.messages.map((m) => m.body)).toEqual(bodies.slice(0, 100));
+    expect(page.messages[0]!.boosts.map((b) => b.content)).toEqual(["👍", "🎉"]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it("pages history by seeking the room's index from the cursor", async () => {
+    const room = freshRoom("paging-plan");
+    await connect(room, "Ada");
+    const plan = async (query: string, ...params: Array<string | number>) =>
+      (await roomSql(room, `EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
+
+    const before = await plan(MESSAGES_BEFORE, room, "cursor", 51);
+    const newest = await plan(NEWEST_MESSAGES, room, 51);
+
+    // Seeking (room_id=?) alone would walk the room from its newest message down to the cursor.
+    expect(before).toContain("index_messages_on_room_id_and_id (room_id=? AND id<?)");
+    expect(`${before}; ${newest}`).not.toContain("TEMP B-TREE");
   });
 
   it("gives someone joining mid-conversation every message exactly once, snapshot first", async () => {

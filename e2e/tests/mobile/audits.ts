@@ -202,8 +202,9 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   // make sure every point lands on the control. That catches small controls, controls crowded
   // together and controls partly covered or cut off, and credits hit areas enlarged with padding or
   // pseudo-elements. Controls partly scrolled out of view are judged when they're scrolled in, a
-  // control under something floating over its list passes if the list can scroll it clear, and
-  // controls that can't take a tap right now (behind an open menu or dialog) are skipped.
+  // control under something floating over its list passes if it's big enough under the cover and the
+  // list can scroll it clear, and controls that can't take a tap right now (behind an open menu or
+  // dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
   for (const element of elements(INTERACTIVE)) {
@@ -221,6 +222,7 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const reach = size / 2 - 1;
     const [x, y] = [(shown.left + shown.right) / 2, (shown.top + shown.bottom) / 2];
     const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
+    const isOnControl = (hit: Element) => element.contains(hit) || labels.some((label) => label.contains(hit));
     const axis = scrollerOf(element, "y") ? "y" : "x";
     const list = scrollerOf(element, axis);
     const floatsOver = (hit: Element) => list !== null && list !== document.scrollingElement && !list.contains(hit);
@@ -230,8 +232,15 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const [misses, floating] = [new Set<string>(), new Set<string>()];
     for (const [pointX, pointY] of points) {
       const hit = document.elementFromPoint(pointX, pointY);
+      if (hit && isOnControl(hit)) continue;
       if (!hit) misses.add("the edge of the screen");
-      else if (!element.contains(hit) && !labels.some((label) => label.contains(hit))) (floatsOver(hit) ? floating : misses).add(describe(hit));
+      else if (!floatsOver(hit)) misses.add(describe(hit));
+      else {
+        // Scrolling the cover away only helps if the fingertip would then land on the control under it.
+        const under = document.elementsFromPoint(pointX, pointY).find((beneath) => list!.contains(beneath));
+        if (under && isOnControl(under)) floating.add(describe(hit));
+        else misses.add(describe(under ?? hit));
+      }
     }
     if (floating.size > 0 && !scrollsClear(list!, axis, points)) floating.forEach((what) => misses.add(what));
     if (misses.size > 0) {

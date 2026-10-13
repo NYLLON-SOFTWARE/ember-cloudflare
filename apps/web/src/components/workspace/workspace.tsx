@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Close } from "@/components/icons/ember";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ApiError, fetchRooms, type Room, type Session } from "@/lib/api";
 import { navigate, useRoomRoute } from "@/hooks/use-route";
@@ -62,7 +62,7 @@ export function Workspace({ session, onSignOut }: { session: Session; onSignOut:
             <Sidebar rooms={rooms ?? []} currentRoomId={room?.id ?? null} onSelect={select} />
             {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar. */}
             <SheetClose className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover">
-              <X className="size-5" />
+              <Close className="size-5" />
               <span className="sr-only">Close conversations</span>
             </SheetClose>
           </div>

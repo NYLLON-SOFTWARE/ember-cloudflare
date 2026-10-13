@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "@ember/protocol";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown } from "@/components/icons/campfire";
 import { timeline } from "@/lib/messages";
 import type { RoomState } from "@/lib/room-state";
 import { MessageItem, type MessageActions } from "./message-item";
@@ -118,7 +118,7 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
           aria-label="Return to latest messages"
           className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover touch:size-11"
         >
-          <ArrowDown className="size-4" />
+          <ArrowDown className="size-[18px]" />
         </button>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
-import { Ellipsis, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import { Trash } from "@/components/icons/campfire";
+import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -137,7 +138,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         }}
       >
         <DropdownMenuTrigger className={actionButton} title="More reactions" aria-label="More reactions">
-          <SmilePlus />
+          <FaceSlightlySmilingPlus />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -190,7 +191,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             <Pencil />
           </button>
           <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions.remove(message.id)}>
-            <Trash2 />
+            <Trash className="size-4" />
           </button>
         </>
       )}

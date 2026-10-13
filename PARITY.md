@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 8 ported and 32 partial of 143 features; 100 not started, 3 not applicable.
+**Overall:** 8 ported and 33 partial of 143 features; 99 not started, 3 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 11 | 0 | 11 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 11 | 0 | 11 |
 | [Composer](#composer) | 0 | 2 | 1 | 0 | 3 |
-| [Workspace interface](#workspace-interface) | 1 | 7 | 3 | 0 | 11 |
+| [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
 | [Platform](#platform) | 2 | 1 | 3 | 3 | 9 |
-| **Total** | **8** | **32** | **100** | **3** | **143** |
+| **Total** | **8** | **33** | **99** | **3** | **143** |
 
 ## Sign-in and sessions
 
@@ -1571,7 +1571,7 @@ Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://
 | Select a field's text on entry | `ui.select-on-entry` | Ember | ⬜ Not started |  |
 | Saved notices | `ui.flash` | Ember | ⬜ Not started |  |
 | Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
-| Ember's icons | `ui.icons` | Ember | ⬜ Not started |  |
+| Ember's icons | `ui.icons` | Ember | 🟡 Partial | Web: [icons](apps/web/src/components/icons/icons.test.tsx) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1682,13 +1682,13 @@ Sources: [`crates/views/templates/layouts/application.html`](https://github.com/
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/parity/kro/workspace.test.mjs)
 
-**Ember's icons** (`ui.icons`) ⬜
+**Ember's icons** (`ui.icons`) 🟡
 
 - Rail, drawer and dialog icons are ember-rust's own inline SVGs (24×24, stroke 1.7): home, messages, bell, search, settings, menu, close and a few more.
 - Room icons and message actions come from a pinned catalog of 1,869 Lucide icons, and Campfire's SVGs remain for bell levels, boosts, attachments, copy, trash and similar.
 - The rail shows the Ember flame, or the workspace's logo.
 
-Note: Icons here come from lucide-react. The "Match original Ember icons" thread is replacing them with ember-rust's.
+Note: Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in card. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.
 
 Sources: [`crates/views/templates/components/icons.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/views/templates/components/icons.html) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/lucide/catalog.json) · [`crates/assets/overrides/logos`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/873946ef5610ac0598e23875cbb0e9b53f8c9532/crates/assets/overrides/logos)
 
@@ -1727,6 +1727,7 @@ ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SO
 **Durable Object SQLite or D1** (`platform.storage`) ✅
 
 - Messages and boosts live in each room's Durable Object SQLite by default, or in D1 when `STORAGE_BACKEND` is `d1`, and behave the same either way.
+- Both get every file in `apps/worker/migrations/`: wrangler applies them to D1, and each room's Durable Object applies the ones it's missing when it opens, recording each so it runs once.
 
 **Hibernating rooms** (`platform.hibernation`) ✅
 

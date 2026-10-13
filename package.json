@@ -15,7 +15,8 @@
     "test:features": "pnpm --filter @ember/e2e test:e2e --project features",
     "test:mobile": "pnpm --filter @ember/e2e test:e2e --project 'mobile *'",
     "parity": "pnpm --filter @ember/parity regenerate",
-    "deploy": "pnpm build && pnpm --filter @ember/worker run deploy"
+    "deploy": "pnpm build && pnpm --filter @ember/worker run deploy",
+    "perf": "pnpm --filter @ember/perf start"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
