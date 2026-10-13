@@ -63,10 +63,7 @@ export const MAX_MESSAGE_LENGTH = 10_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
 export const MAX_BOOST_LENGTH = 16;
 export const HISTORY_PAGE_SIZE = 50;
-/**
- * How many messages one message.check can ask about: more than anyone sends before a dead socket is
- * noticed, and well under the 100 parameters D1 binds in one query.
- */
+/** How many messages one message.check can ask about: more than anyone sends before a dead socket is noticed. */
 export const MAX_CHECKED_MESSAGES = 50;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */

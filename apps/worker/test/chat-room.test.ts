@@ -142,27 +142,6 @@ describe("ChatRoom", () => {
     ada.ws.close(1000);
   });
 
-  it("keeps history and pages backwards through it", async () => {
-    const token = await signIn("Ada");
-    const first = await connect("history", token);
-    await first.next("welcome");
-    for (let i = 0; i < 3; i++) {
-      first.send({ type: "message.create", clientMessageId: `c${i}`, body: `message ${i}` });
-      await first.next("message.created");
-    }
-    first.ws.close(1000);
-
-    const second = await connect("history", token);
-    const welcome = await second.next("welcome");
-    expect(welcome.messages.map((m) => m.body)).toEqual(["message 0", "message 1", "message 2"]);
-
-    second.send({ type: "history.before", before: welcome.messages[2]!.id, limit: 1 });
-    const page = await second.next("history");
-    expect(page.messages.map((m) => m.body)).toEqual(["message 1"]);
-    expect(page.hasMore).toBe(true);
-    second.ws.close(1000);
-  });
-
   it("tells a sender which of their messages it stored", async () => {
     const token = await signIn("Ada");
     const ada = await connect("checking", token);
@@ -183,6 +162,27 @@ describe("ChatRoom", () => {
     elsewhere.send({ type: "message.check", clientMessageIds: ["a1"] });
     expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
     for (const socket of [ada, grace, elsewhere]) socket.ws.close(1000);
+  });
+
+  it("keeps history and pages backwards through it", async () => {
+    const token = await signIn("Ada");
+    const first = await connect("history", token);
+    await first.next("welcome");
+    for (let i = 0; i < 3; i++) {
+      first.send({ type: "message.create", clientMessageId: `c${i}`, body: `message ${i}` });
+      await first.next("message.created");
+    }
+    first.ws.close(1000);
+
+    const second = await connect("history", token);
+    const welcome = await second.next("welcome");
+    expect(welcome.messages.map((m) => m.body)).toEqual(["message 0", "message 1", "message 2"]);
+
+    second.send({ type: "history.before", before: welcome.messages[2]!.id, limit: 1 });
+    const page = await second.next("history");
+    expect(page.messages.map((m) => m.body)).toEqual(["message 1"]);
+    expect(page.hasMore).toBe(true);
+    second.ws.close(1000);
   });
 
   it("sends a joining socket its snapshot before any live frames", async () => {

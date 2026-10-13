@@ -139,7 +139,7 @@ export class ChatRoom extends DurableObject<Env> {
         return this.send(ws, { type: "history", messages, hasMore });
       }
       case "message.check": {
-        const stored = await store.storedClientMessageIds(user.id, frame.clientMessageIds);
+        const stored = await store.storedClientMessageIds(user, frame.clientMessageIds);
         const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
         return this.send(ws, { type: "message.checked", stored, missing });
       }

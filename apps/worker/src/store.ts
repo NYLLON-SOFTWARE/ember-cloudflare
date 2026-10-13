@@ -1,4 +1,4 @@
-import type { Boost, Message, RoomId, User, UserId } from "@ember/protocol";
+import type { Boost, Message, RoomId, User } from "@ember/protocol";
 import type { Env } from "./env";
 import schema from "../migrations/0001_messages.sql";
 
@@ -97,19 +97,6 @@ export class MessageStore {
     return message ?? null;
   }
 
-  /** Which of `clientMessageIds` the room has stored from `creatorId`. */
-  async storedClientMessageIds(creatorId: UserId, clientMessageIds: string[]): Promise<string[]> {
-    if (clientMessageIds.length === 0) return [];
-    const rows = await this.db.all<Pick<MessageRow, "client_message_id">>(
-      `SELECT client_message_id FROM messages
-       WHERE room_id = ? AND creator_id = ? AND client_message_id IN (${clientMessageIds.map(() => "?").join(", ")})`,
-      this.roomId,
-      creatorId,
-      ...clientMessageIds,
-    );
-    return rows.map((row) => row.client_message_id);
-  }
-
   async create(id: string, clientMessageId: string, creator: User, body: string, now: string): Promise<Message> {
     await this.db.run(
       `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
@@ -124,6 +111,21 @@ export class MessageStore {
       now,
     );
     return { id, clientMessageId, roomId: this.roomId, creator, body, createdAt: now, updatedAt: now, boosts: [] };
+  }
+
+  /**
+   * Which of `clientMessageIds` the room has stored from `creator`. The ids go as one JSON value, since
+   * both backends bind at most 100 values a statement.
+   */
+  async storedClientMessageIds(creator: User, clientMessageIds: string[]): Promise<string[]> {
+    const rows = await this.db.all<Pick<MessageRow, "client_message_id">>(
+      `SELECT client_message_id FROM messages
+       WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`,
+      this.roomId,
+      creator.id,
+      JSON.stringify(clientMessageIds),
+    );
+    return rows.map((row) => row.client_message_id);
   }
 
   async updateBody(id: string, body: string, now: string): Promise<void> {
