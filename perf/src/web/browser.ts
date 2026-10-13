@@ -22,5 +22,7 @@ export function launchChrome(): Promise<Browser> {
 /** Signs the page in by giving its browser the session's cookie, without loading the app. */
 export async function signInPage(page: Page, origin: string, session: Session): Promise<void> {
   const [name, value] = session.cookie.split("=") as [string, string];
-  await page.browserContext().setCookie({ name, value, domain: new URL(origin).hostname, path: "/", httpOnly: true, sameSite: "Lax" });
+  const { hostname, protocol } = new URL(origin);
+  // Over HTTPS the cookie is `__Host-session_token`, which Chrome only takes when it's Secure.
+  await page.browserContext().setCookie({ name, value, domain: hostname, path: "/", secure: protocol === "https:", httpOnly: true, sameSite: "Lax" });
 }

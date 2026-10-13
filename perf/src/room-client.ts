@@ -20,7 +20,8 @@ type HistoryFrame = Extract<ServerFrame, { type: "history" }>;
 export async function signIn(baseUrl: string, name: string): Promise<Session> {
   const response = await fetch(new URL("/api/session", baseUrl), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // As the app's own pages send it: over HTTPS the Worker refuses writes that don't say so.
+    headers: { "Content-Type": "application/json", Origin: new URL(baseUrl).origin, "Sec-Fetch-Site": "same-origin" },
     body: JSON.stringify({ name }),
   });
   if (response.status !== 201) throw new Error(`Sign-in failed (${response.status}): ${await response.text()}`);
