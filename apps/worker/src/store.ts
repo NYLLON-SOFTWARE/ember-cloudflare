@@ -1,6 +1,6 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
 import type { Env } from "./env";
-import schema from "../migrations/0001_messages.sql";
+import { migrate } from "./migrations";
 
 // Messages for one room. The same SQL runs against the room's Durable Object SQLite
 // storage or against D1, chosen by STORAGE_BACKEND; only the driver differs.
@@ -40,7 +40,7 @@ export function openStore(env: Env, state: DurableObjectState, roomId: RoomId): 
     if (!env.DB) throw new Error('STORAGE_BACKEND is "d1" but no D1 database is bound as DB in wrangler.jsonc.');
     return new MessageStore(d1Driver(env.DB), roomId);
   }
-  state.storage.sql.exec(schema);
+  migrate(state.storage);
   return new MessageStore(durableObjectDriver(state.storage.sql), roomId);
 }
 
@@ -52,6 +52,8 @@ interface MessageRow {
   body: string;
   created_at: string;
   updated_at: string;
+  /** The message's boosts, a JSON array of `BoostRow`s. */
+  boosts: string;
 }
 
 interface BoostRow {
@@ -71,6 +73,24 @@ const toBoost = (row: BoostRow): Boost => ({
   createdAt: row.created_at,
 });
 
+const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * Messages with their boosts gathered by a subquery, so a page is one statement: one round trip to
+ * D1, and no list of message ids to bind (both backends bind at most 100 values a statement).
+ */
+const SELECT_MESSAGES = `SELECT messages.*, (
+    SELECT json_group_array(json_object('id', boosts.id, 'message_id', boosts.message_id, 'booster_id', boosts.booster_id,
+      'booster_name', boosts.booster_name, 'content', boosts.content, 'created_at', boosts.created_at))
+    FROM boosts WHERE boosts.message_id = messages.id
+  ) AS boosts FROM messages`;
+
+// The newest page and the page before a message are separate statements, as ember-rust's
+// `last_page` and `page_before` are: SQLite can't seek an index through `? IS NULL OR id < ?`, so a
+// single statement walked the room from its newest message down to the cursor.
+export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id DESC LIMIT ?`;
+export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
+
 export class MessageStore {
   constructor(
     private readonly db: Driver,
@@ -79,22 +99,17 @@ export class MessageStore {
 
   /** The newest `limit` messages older than `before` (or the newest overall), oldest first. */
   async page(limit: number, before?: string): Promise<{ messages: Message[]; hasMore: boolean }> {
-    const rows = await this.db.all<MessageRow>(
-      `SELECT * FROM messages WHERE room_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?`,
-      this.roomId,
-      before ?? null,
-      before ?? null,
-      limit + 1,
-    );
+    const rows =
+      before === undefined
+        ? await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1)
+        : await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1);
     const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit).reverse();
-    return { messages: await this.withBoosts(page), hasMore };
+    return { messages: rows.slice(0, limit).reverse().map((row) => this.toMessage(row)), hasMore };
   }
 
   async find(id: string): Promise<Message | null> {
-    const rows = await this.db.all<MessageRow>(`SELECT * FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id);
-    const [message] = await this.withBoosts(rows);
-    return message ?? null;
+    const [row] = await this.db.all<MessageRow>(`${SELECT_MESSAGES} WHERE room_id = ? AND id = ?`, this.roomId, id);
+    return row ? this.toMessage(row) : null;
   }
 
   async create(id: string, clientMessageId: string, creator: User, body: string, now: string): Promise<Message> {
@@ -145,16 +160,8 @@ export class MessageStore {
     await this.db.run(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, id);
   }
 
-  private async withBoosts(rows: MessageRow[]): Promise<Message[]> {
-    if (rows.length === 0) return [];
-    const ids = rows.map((r) => r.id);
-    const boosts = await this.db.all<BoostRow>(
-      `SELECT * FROM boosts WHERE room_id = ? AND message_id IN (${ids.map(() => "?").join(", ")}) ORDER BY id`,
-      this.roomId,
-      ...ids,
-    );
-    const byMessage = Map.groupBy(boosts.map(toBoost), (b) => b.messageId);
-    return rows.map((row) => ({
+  private toMessage(row: MessageRow): Message {
+    return {
       id: row.id,
       clientMessageId: row.client_message_id,
       roomId: this.roomId,
@@ -162,7 +169,8 @@ export class MessageStore {
       body: row.body,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      boosts: byMessage.get(row.id) ?? [],
-    }));
+      // json_group_array doesn't promise an order, so sort here rather than in the subquery.
+      boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
+    };
   }
 }
