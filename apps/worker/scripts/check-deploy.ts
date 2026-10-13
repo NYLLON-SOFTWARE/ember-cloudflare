@@ -14,18 +14,19 @@ const ROOM = "deploy-check";
  */
 const STARTUP_TIMEOUT_MS = 120_000;
 const RETRY_DELAY_MS = 5_000;
-const WELCOME_TIMEOUT_MS = 30_000;
+/** How long one request or socket may take, so one that stalls fails and is retried like any other. */
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function health(baseUrl: string): Promise<{ storage: string }> {
-  const response = await fetch(new URL("/api/health", baseUrl));
+  const response = await fetch(new URL("/api/health", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`/api/health answered ${response.status}`);
   return (await response.json()) as { storage: string };
 }
 
 async function checkPage(baseUrl: string): Promise<void> {
-  const response = await fetch(baseUrl);
+  const response = await fetch(baseUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   const html = await response.text();
   if (!response.ok || !html.includes('<div id="root">')) throw new Error(`The app's page answered ${response.status} without the app`);
 }
@@ -35,6 +36,7 @@ async function signIn(baseUrl: string): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "Deploy check" }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (response.status !== 201) {
     // Signing the token throws without a secret, and the error page says nothing more.
@@ -51,7 +53,7 @@ function waitForWelcome(baseUrl: string, token: string): Promise<void> {
   const socket = new WebSocket(url);
 
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error(`No welcome from #${ROOM} after ${WELCOME_TIMEOUT_MS}ms`)), WELCOME_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(new Error(`No welcome from #${ROOM} after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS);
     const finish = (error?: Error) => {
       clearTimeout(timer);
       // Closing fires the close event, so stop listening first.
