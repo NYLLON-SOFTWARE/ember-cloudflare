@@ -1,6 +1,10 @@
 import { feature } from "@ember/parity";
-import { describe, expect, it } from "vitest";
-import { api, signIn } from "./support";
+import { listDurableObjectIds } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { describe, expect, it, vi } from "vitest";
+import type { Env } from "../src/env";
+import worker from "../src/index";
+import { api, origin, signIn } from "./support";
 
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
@@ -93,10 +97,37 @@ describe(feature("realtime.connection"), () => {
 });
 
 describe(feature("platform.health"), () => {
+  const bindings = env as unknown as Env;
+  /** /api/health from a Worker whose bindings differ from this suite's by `changes`. */
+  const healthWith = (changes: Partial<Env>) => worker.fetch(new Request(`${origin}/api/health`), { ...bindings, ...changes });
+
   it("reports that the Worker is up and which storage it uses", async () => {
     const response = await api("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, storage: expect.stringMatching(/^(do-sqlite|d1)$/) });
+    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND });
+  });
+
+  it("reaches the Workspace and a room's object, so a deploy can be checked without signing in", async () => {
+    expect((await api("/api/health")).status).toBe(200);
+    const workspaces = await listDurableObjectIds(bindings.WORKSPACE);
+    expect(workspaces.some((id) => id.equals(bindings.WORKSPACE.idFromName("workspace")))).toBe(true);
+    const rooms = await listDurableObjectIds(bindings.CHAT_ROOM);
+    expect(rooms.some((id) => id.equals(bindings.CHAT_ROOM.idFromName("_health")))).toBe(true);
+  });
+
+  it("answers 503 and says so when SESSION_SECRET isn't set", async () => {
+    const response = await healthWith({ SESSION_SECRET: "" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "SESSION_SECRET isn't set" });
+  });
+
+  it("answers 503 when the Workspace can't read its storage", async () => {
+    const failing = { getByName: () => ({ health: () => Promise.reject(new Error("No such table")) }) };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] });
+    logged.mockRestore();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "Storage isn't answering" });
   });
 
   it("answers unknown API paths with a JSON 404", async () => {

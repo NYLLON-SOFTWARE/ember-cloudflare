@@ -2249,7 +2249,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 - `GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style="background-color: green"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{"status":"up","timestamp":…}` with the time to the second.
 - It skips sign-in, ban and browser checks, and carries no version headers.
 
-Note: The health check is `GET /api/health`, answering `{ ok: true, storage }` with the storage backend in use.
+Note: `/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.
 
 Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 

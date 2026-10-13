@@ -2,6 +2,8 @@ import type { ClientFrame, ServerFrame, User } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
+import type { Env } from "../src/env";
+import { workspace } from "../src/workspace";
 
 export const origin = "https://ember.test";
 
@@ -18,11 +20,19 @@ export async function signIn(name: string): Promise<{ user: User; token: string 
 /** The room's Durable Object. */
 export const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
 
+/** The Workspace's Durable Object. */
+export const workspaceStub = () => workspace(env as unknown as Env);
+
+/** Runs SQL against a Durable Object's own SQLite storage, whichever backend this suite is using. */
+export function objectSql(stub: DurableObjectStub, query: string, ...params: Array<string | number>): Promise<unknown[]> {
+  return runInDurableObject(stub, (_object, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
+}
+
 /** Runs SQL against a room's storage, whichever backend this suite is using. */
 export async function roomSql(room: string, query: string, ...params: Array<string | number>): Promise<unknown[]> {
   const db = (env as { DB?: D1Database }).DB;
   if (db) return (await db.prepare(query).bind(...params).all()).results;
-  return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
+  return objectSql(roomStub(room), query, ...params);
 }
 
 /** A unique room name, so tests never share a ChatRoom. */

@@ -12,11 +12,12 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, static assets) and the `ChatRoom` Durable Object. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, static assets) and the `ChatRoom` and `Workspace` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
 
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
+   │                ├─────▶ Workspace Durable Object (one, shared by every room)
    │                │
    └──WebSocket─────┴──▶ ChatRoom Durable Object (one per room, by name)
                             ├─ sockets, presence, typing (hibernation API)
@@ -100,8 +101,9 @@ suite started with are in `perf/baseline/report.md`.
   `apps/worker/migrations/` with `pnpm --filter @ember/worker d1:migrate:local` (or `--remote`).
 
 Both use the same schema (`apps/worker/migrations/`) and the same queries
-(`apps/worker/src/store.ts`); only the driver differs. [`docs/database.md`](docs/database.md)
-compares them with ember-rust's database.
+(`apps/worker/src/store.ts`); only the driver (`apps/worker/src/db.ts`) differs. The Workspace
+object's tables follow the same setting. [`docs/database.md`](docs/database.md) compares them with
+ember-rust's database.
 
 ## Deploying
 
@@ -120,9 +122,10 @@ tab. It needs two repository secrets, and skips without them:
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
 
 The first deploy makes the Worker's `SESSION_SECRET`, and later ones keep it. After each deploy,
-`node apps/worker/scripts/check-deploy.ts <url>` checks that the page loads, sign-in works and a
-room's Durable Object answers its socket. The link is on the run's summary and under the
-repository's Deployments.
+`node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
+answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
+storage), that the page loads, and that the API asks for sign-in. The link is on the run's summary
+and under the repository's Deployments.
 
 ## Status
 

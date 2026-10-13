@@ -1,10 +1,12 @@
 import type { ChatRoom } from "./chat-room";
+import type { Workspace } from "./workspace";
 
 export type StorageBackend = "do-sqlite" | "d1";
 
 export interface Env {
   ASSETS: Fetcher;
   CHAT_ROOM: DurableObjectNamespace<ChatRoom>;
+  WORKSPACE: DurableObjectNamespace<Workspace>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   STORAGE_BACKEND: StorageBackend;

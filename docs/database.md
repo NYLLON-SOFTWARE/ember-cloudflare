@@ -18,8 +18,9 @@ applies only its own scope's files, so a room's storage never holds workspace ta
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
-So far only messages and boosts are stored. People sign in by display name, rooms come from
-`DEFAULT_ROOMS`, and presence and typing live in each room object's memory.
+So far only messages and boosts are stored; the Workspace object has no tables yet. People sign in
+by display name, rooms come from `DEFAULT_ROOMS`, and presence and typing live in each room
+object's memory.
 
 ## Compared with ember-rust
 

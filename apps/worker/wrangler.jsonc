@@ -16,11 +16,18 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // One ChatRoom object per room. Each owns its sockets, presence and (by default) its messages.
+  // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,
+  // and one Workspace object for what the rooms share.
   "durable_objects": {
-    "bindings": [{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }]
+    "bindings": [
+      { "name": "CHAT_ROOM", "class_name": "ChatRoom" },
+      { "name": "WORKSPACE", "class_name": "Workspace" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ChatRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["Workspace"] }
+  ],
 
   "vars": {
     // "do-sqlite" keeps each room's messages in its Durable Object's SQLite storage.

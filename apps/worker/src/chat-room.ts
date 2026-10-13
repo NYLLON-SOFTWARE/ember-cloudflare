@@ -62,6 +62,11 @@ export class ChatRoom extends DurableObject<Env> {
     });
   }
 
+  /** Resolves once the room's messages can be read. */
+  async health(roomId: RoomId): Promise<void> {
+    await this.serially(() => this.storeFor(roomId).page(1));
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const frame = typeof raw === "string" ? parseClientFrame(raw) : null;
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });
