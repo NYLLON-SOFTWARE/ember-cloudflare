@@ -17,12 +17,13 @@ function baseline(): Results {
         throughput: { messagesPerSecond: 1000, outOfOrder: 0, errors: 0, timedOut: false },
         fanout: [{ members: 100, delivery: summary(20), lost: 0, outOfOrder: 0 }],
         connections: { maxConnectP95Ms: 2000, steps: [step(100, 50), step(200, 120)] },
+        history: { welcome: summary(6), page: summary(1.7) },
       },
     } as unknown as Results["backend"],
     web: {
       bundle: { code: { gzipKb: 125 } },
       lighthouse: [{ page: "room", formFactor: "mobile", score: 96, lcpMs: 1950, tbtMs: 0, cls: 0 }],
-      render: [],
+      render: [{ cpuSlowdown: 1, roomReadyMs: 250, bursts: [{ frameToPaint: summary(6), mainThreadMsPerMessage: 6.5, missing: 0 }] }],
     } as unknown as Results["web"],
   };
 }
@@ -33,12 +34,17 @@ const verdicts = (before: Results, after: Results) =>
 describe("compareResults", () => {
   it("reports nothing for swings as large as two runs of the same commit show", () => {
     const before = baseline();
+    before.web!.lighthouse[0]!.lcpMs = 1719;
     before.web!.lighthouse[0]!.tbtMs = 128;
+    before.web!.render[0]!.bursts[0]!.mainThreadMsPerMessage = 6.09;
     const after = baseline();
     after.backend["do-sqlite"]!.throughput!.messagesPerSecond = 820;
     after.backend["do-sqlite"]!.fanout![0]!.delivery = summary(22.5);
     after.backend["do-sqlite"]!.connections!.steps[1] = step(200, 160);
+    after.backend["do-sqlite"]!.history!.welcome = summary(8);
+    after.web!.lighthouse[0]!.lcpMs = 1995;
     after.web!.lighthouse[0]!.tbtMs = 265;
+    after.web!.render[0]!.bursts[0]!.mainThreadMsPerMessage = 7.07;
     expect(verdicts(before, after)).toEqual({});
   });
 
@@ -46,6 +52,14 @@ describe("compareResults", () => {
     const after = baseline();
     after.backend["do-sqlite"]!.latency!.ack = summary(3.8);
     expect(verdicts(baseline(), after)).toEqual({});
+  });
+
+  it("ignores a few milliseconds' swing in a short delivery tail", () => {
+    const before = baseline();
+    before.backend["do-sqlite"]!.fanout![0]!.delivery = { ...summary(4), p95: 5.44 };
+    const after = baseline();
+    after.backend["do-sqlite"]!.fanout![0]!.delivery = { ...summary(4), p95: 7.92 };
+    expect(verdicts(before, after)).toEqual({});
   });
 
   it("judges a change and its reverse alike", () => {
