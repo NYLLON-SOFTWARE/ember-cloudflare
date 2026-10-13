@@ -1,4 +1,5 @@
 import { openRoom, signInAs } from "../../fixtures";
+import { settle } from "./audits";
 import { expect, hasDrawerLayout, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session, room }) => {
@@ -22,6 +23,9 @@ test("the conversations drawer opens from the header and fits", async ({ page, s
 test("tapping outside the drawer closes it", async ({ page }) => {
   await page.getByRole("button", { name: "Open conversations" }).tap();
   await expect(page.getByRole("dialog")).toBeVisible();
+  // Radix starts listening for presses outside the drawer a timer tick after it opens, and a raw
+  // tap sent the moment it shows can beat that. Wait for it to finish sliding in, as a person would.
+  await settle(page);
   const { width, height } = page.viewportSize()!;
   await page.touchscreen.tap(width - 6, height / 2);
   await expect(page.getByRole("dialog")).toBeHidden();
