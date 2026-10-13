@@ -40,6 +40,23 @@ test("a control covered for good by something floating over its list fails, but 
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Covered" is')]);
 });
 
+test("a control under something floating over its list must still be big enough once it's scrolled clear", async ({ page, safeArea }) => {
+  // Both lists can scroll their button out from under the notice, but only one button fits a fingertip.
+  const list = (label: string, size: number) => `
+    <div style="position: relative; flex: 1; height: 200px">
+      <div class="list" style="height: 100%; overflow-y: auto">
+        <div style="height: 200px"></div>
+        <button aria-label="${label}" style="display: block; margin: 0 auto; width: ${size}px; height: ${size}px"></button>
+        <div style="height: 100px"></div>
+      </div>
+      <div style="position: absolute; inset: auto 0 0; height: 60px; background: Canvas">Floating notice</div>
+    </div>`;
+  await page.setContent(phonePage(`<div style="display: flex; gap: 8px">${list("Small", 32)}${list("Big", 44)}</div>`));
+  await page.evaluate(() => document.querySelectorAll(".list").forEach((list) => (list.scrollTop = 48)));
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
+});
+
 test("text cut off for good fails, but not text clamped on purpose", async ({ page, safeArea }) => {
   await page.setContent(
     phonePage(`
