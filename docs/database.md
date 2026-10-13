@@ -6,22 +6,23 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages and boosts live in that room's Durable Object SQLite storage, and people, their
-sessions, rooms and memberships in the Workspace object's. With `d1`, all of them live in one D1
-database. Both backends use the schema in `apps/worker/migrations/` and the queries in
+each room's messages and boosts live in that room's Durable Object SQLite storage, and the account,
+people, their sessions, rooms and memberships in the Workspace object's. With `d1`, all of them live
+in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
 `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages and boosts, and `workspace`
-for the workspace-wide tables (people, sessions, rooms and memberships). On DO SQLite, an object
-applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
+for the workspace-wide tables (the account, people, sessions, rooms and memberships). On DO SQLite,
+an object applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
-So far rooms keep messages and boosts, and the Workspace keeps `users`, `sessions`, `rooms` and
-`memberships`. A room's id also names its Durable Object, and the Worker asks the Workspace whether
-someone is a member before it wakes the room for their socket. People still sign in by display name,
-and presence and typing live in each room object's memory.
+So far rooms keep messages and boosts, and the Workspace keeps `accounts`, `users`, `sessions`,
+`rooms` and `memberships`. A room's id also names its Durable Object, and the Worker asks the
+Workspace whether someone is a member before it wakes the room for their socket. First run creates
+the account and its administrator, who has an email address and a password; everyone else still
+signs in by display name, and presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -50,6 +51,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   in this room?", and its `user_id` index is ours with `room_id` added, so listing someone's rooms
   reads only the index for their memberships. Its `room_id` index repeats the key's first column, and
   `(room_id, created_at)` orders a room's members, which nothing lists yet, so neither is here.
+- **One account, kept to one by the database.** ember-rust's `accounts` has a `singleton_guard`
+  column with a unique index, so a second account can't be inserted. Ours has it too: the Workspace
+  runs one first run at a time on DO SQLite, but on D1 two can overlap, and the index refuses the
+  second. The account's columns are ember-rust's: its name, its join code, its settings as JSON and
+  its custom styles.
 - **No unbounded lists of bound values**
   ([`a8b713a`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/a8b713a) batches inserts under
   SQLite's limit). Our limit is lower: Durable Object SQLite and D1 bind at most 100 values a
@@ -102,6 +108,12 @@ search index. On top of that schema it adds indexes and query changes for speed.
   signs the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a
   leaked database or backup holds no live sessions; changing the secret still signs everyone out, as
   it does there.
+- **Passwords are PBKDF2-SHA256 digests.** ember-rust keeps bcrypt digests, which Workers could only
+  make with bcrypt compiled to WebAssembly. Web Crypto has PBKDF2 built in, up to 100,000 iterations,
+  so `users.password_digest` holds `$pbkdf2-sha256$i=100000$<salt>$<hash>` (the PHC string format):
+  since it names its scheme and cost, a stronger one can take over by rehashing at sign-in. A hash
+  takes tens of milliseconds of CPU, and a request on Workers Free gets 10 ms, so it runs in a
+  `PasswordHasher` Durable Object made for it, whose requests get 30 seconds.
 - **Guests are marked.** `users.guest` is 1 for people who signed in with just a name, which only this
   port allows, so turning `EMBER_GUEST_SIGN_IN` off keeps them out without deleting anyone.
 - **Sessions are kept in memory.** ember-rust looks up each request's session in its database. Ours

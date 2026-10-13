@@ -1,5 +1,5 @@
 import type { ClientFrame, Room, RoomId, ServerFrame, User, UserId } from "@ember/protocol";
-import { runInDurableObject } from "cloudflare:test";
+import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
 import type { Env } from "../src/env";
@@ -19,9 +19,25 @@ function fromOwnPages<Cf>(init: RequestInit<Cf>): RequestInit<Cf> {
 /** A request from the app's own pages. */
 export const api = (path: string, init: RequestInit = {}) => exports.default.fetch(`${origin}${path}`, fromOwnPages(init));
 
-/** The same request, to a Worker whose bindings differ from this suite's by `changes`. */
+/** The same request, to a Worker whose bindings differ from this suite's by `changes`. `path` may be a whole URL. */
 export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<IncomingRequestCfProperties> = {}) =>
-  worker.fetch(new Request(`${origin}${path}`, fromOwnPages(init)), { ...(env as unknown as Env), ...changes });
+  worker.fetch(new Request(new URL(path, origin), fromOwnPages(init)), { ...(env as unknown as Env), ...changes });
+
+/** Stands in for the built app's pages, which the worker tests run without: each answers with its path. */
+export const builtPages = {
+  fetch: async (input: Request | string) => new Response(`page ${new URL(input instanceof Request ? input.url : input).pathname}`, { headers: { "Content-Type": "text/html" } }),
+} as unknown as Fetcher;
+
+/**
+ * Empties every Durable Object and the D1 database, which then gets its tables back, so a test starts
+ * as a fresh deploy does: no account, people or rooms.
+ */
+export async function freshDeploy(): Promise<void> {
+  await reset();
+  const { DB, TEST_MIGRATIONS } = env as unknown as { DB?: D1Database; TEST_MIGRATIONS: D1Migration[] };
+  if (DB) await applyD1Migrations(DB, TEST_MIGRATIONS);
+  host = undefined;
+}
 
 export interface Session {
   user: User;

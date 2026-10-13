@@ -6,6 +6,7 @@ import ts from "typescript";
 export const LAYERS = [
   { name: "Protocol", dir: "packages/protocol/src", files: /\.test\.ts$/ },
   { name: "Worker", dir: "apps/worker/test", files: /\.test\.ts$/ },
+  { name: "Scripts", dir: "apps/worker/scripts", files: /\.test\.ts$/ },
   { name: "Web", dir: "apps/web/src", files: /\.test\.tsx?$/ },
   { name: "E2E", dir: "e2e/tests", files: /\.spec\.ts$/ },
 ] as const;

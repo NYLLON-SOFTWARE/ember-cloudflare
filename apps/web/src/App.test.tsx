@@ -2,10 +2,15 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadPage } from "@/lib/page";
 import { App } from "./App";
+
+vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
 const ada = { id: "u1", name: "Ada" };
 const grace = { id: "u2", name: "Grace" };
+const general = { id: "general", name: "general", kind: "open" };
+const allTalk = { id: "r1", name: "All Talk", kind: "open" };
 
 class QuietSocket {
   static readonly OPEN = 1;
@@ -33,10 +38,18 @@ class RoomSocket extends QuietSocket {
   }
 }
 
-/** Plays the server, whose session cookie this browser starts out with or without. */
-function serve({ signedIn }: { signedIn: boolean }) {
+/** Plays the server, which may be waiting to be set up, and whose session cookie this browser starts out with or without. */
+function serve({ signedIn, setup = "complete" }: { signedIn: boolean; setup?: "pending" | "complete" }) {
+  let rooms = [general];
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
+    if (route === "GET /api/bootstrap") {
+      return Response.json({ setup, setupProtected: false, guestSignIn: true, account: { name: "Ember" }, user: signedIn ? ada : null });
+    }
+    if (route === "POST /api/first_run") {
+      [setup, signedIn, rooms] = ["complete", true, [allTalk]];
+      return Response.json({ user: ada, room: allTalk }, { status: 201 });
+    }
     if (route === "POST /api/session") {
       signedIn = true;
       return Response.json({ user: ada }, { status: 201 });
@@ -47,7 +60,7 @@ function serve({ signedIn }: { signedIn: boolean }) {
     }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: ada });
-    return Response.json({ rooms: [{ id: "general", name: "general", kind: "open" }] });
+    return Response.json({ rooms });
   });
 }
 
@@ -68,6 +81,42 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.mocked(loadPage).mockClear();
+  history.replaceState(null, "", "/");
+});
+
+describe(feature("auth.first-run"), () => {
+  it("sends every page to Set up Ember until Ember is set up", async () => {
+    history.replaceState(null, "", "/rooms/general");
+    serve({ signedIn: false, setup: "pending" });
+    render(<App />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/first_run"));
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  });
+
+  it("sets up Ember at /first_run, then opens All Talk signed in as its administrator", async () => {
+    history.replaceState(null, "", "/first_run");
+    serve({ signedIn: false, setup: "pending" });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Email address"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse{Enter}");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "All Talk" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/r1");
+    expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Ada");
+    expect(loadPage).not.toHaveBeenCalled();
+  });
+
+  it("leaves /first_run for the workspace once Ember is set up", async () => {
+    history.replaceState(null, "", "/first_run");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/");
+    expect(loadPage).not.toHaveBeenCalled();
+  });
 });
 
 describe(feature("auth.sessions"), () => {

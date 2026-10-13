@@ -1,4 +1,5 @@
 import type { User } from "@ember/protocol";
+import { toBase64url } from "./encoding";
 import type { Env } from "./env";
 import { workspace, type Credentials } from "./workspace";
 import type { Client } from "./workspace-store";
@@ -14,7 +15,7 @@ const SESSION_TOKEN = /^[\w-]{43}$/;
 
 const encoder = new TextEncoder();
 
-const isHttps = (request: Request) => new URL(request.url).protocol === "https:";
+export const isHttps = (request: Request) => new URL(request.url).protocol === "https:";
 
 /**
  * Over HTTPS the `__Host-` prefix makes browsers refuse the cookie from any other origin, such as
@@ -34,24 +35,20 @@ export const sessionCookie = (request: Request, token: string) => setCookie(requ
 /** The `Set-Cookie` that makes this browser forget its session. */
 export const expiredSessionCookie = (request: Request) => setCookie(request, "", 0);
 
-/** The session token the request's cookie carries, if it looks like one. */
-function sessionToken(request: Request): string | null {
-  const name = sessionCookieName(request);
+/** The values of the request's cookies named `name`, in the order it sent them. */
+export function cookieValues(request: Request, name: string): string[] {
+  const values: string[] = [];
   for (const pair of request.headers.get("Cookie")?.split(";") ?? []) {
     const separator = pair.indexOf("=");
-    const value = pair.slice(separator + 1).trim();
-    if (separator > 0 && pair.slice(0, separator).trim() === name && SESSION_TOKEN.test(value)) return value;
+    if (separator > 0 && pair.slice(0, separator).trim() === name) values.push(pair.slice(separator + 1).trim());
   }
-  return null;
+  return values;
 }
 
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+/** The session token the request's cookie carries, if it looks like one. */
+export const sessionToken = (request: Request) => cookieValues(request, sessionCookieName(request)).find((value) => SESSION_TOKEN.test(value)) ?? null;
 
-export const newSessionToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+export const newSessionToken = () => toBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 /**
  * What the Workspace stores in place of a token: its HMAC under SESSION_SECRET. A leaked database
@@ -60,7 +57,7 @@ export const newSessionToken = () => base64url(crypto.getRandomValues(new Uint8A
 export async function tokenDigest(token: string, secret: string): Promise<string> {
   if (!secret) throw new Error("SESSION_SECRET isn't set. Copy apps/worker/.dev.vars.example to .dev.vars.");
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return base64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token))));
+  return toBase64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token))));
 }
 
 /** Whether people may sign in with just a name, and guests who did may stay signed in. */
@@ -72,7 +69,8 @@ export const clientOf = (request: Request): Client => ({
   userAgent: request.headers.get("User-Agent"),
 });
 
-const credentialsFor = async (token: string, request: Request, env: Env): Promise<Credentials> => ({
+/** What a request whose cookie carries `token` brings to say who it's from. */
+export const credentialsFor = async (token: string, request: Request, env: Env): Promise<Credentials> => ({
   tokenDigest: await tokenDigest(token, env.SESSION_SECRET),
   client: clientOf(request),
   guests: guestSignIn(env),

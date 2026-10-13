@@ -12,12 +12,12 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, static assets) and the `ChatRoom` and `Workspace` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, setup's pages, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
 
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
-   │                ├─────▶ Workspace Durable Object (one: people, sessions, rooms, memberships)
+   │                ├─────▶ Workspace Durable Object (one: the account, people, sessions, rooms, memberships)
    │                │
    └──WebSocket─────┴──▶ ChatRoom Durable Object (one per room, by id)
                             ├─ sockets, presence, typing (hibernation API)
@@ -34,9 +34,8 @@ cp apps/worker/.dev.vars.example apps/worker/.dev.vars
 pnpm dev            # wrangler dev on :8787 and Vite on :5173 (proxies /api)
 ```
 
-Open http://localhost:5173, pick a name, and open a second browser to chat with yourself. Until
-first-run setup lands to make the first room, `pnpm dev` registers two, general and random, through
-`LEGACY_ROOMS`.
+Open http://localhost:5173 and set up Ember: the first visitor creates the workspace's administrator
+and its first room, All Talk. Then open a second browser, pick a name, and chat with yourself.
 
 ```sh
 pnpm typecheck
@@ -57,6 +56,10 @@ pnpm test:e2e       # every suite
 pnpm test:features  # just the feature-by-feature suite, on a desktop browser
 pnpm test:mobile    # just the phones
 ```
+
+Before the other suites start, the `first-run` project sets up the test server through the Set up
+Ember page, as its first visitor would. The `protected-setup` project gets a second server, over
+HTTPS with `EMBER_SETUP_TOKEN` set, and opens setup with its private link.
 
 The features suite (`e2e/tests/features/`) has a spec per area of [PARITY.md](PARITY.md). Each test gets
 rooms of its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
@@ -110,14 +113,21 @@ ember-rust's database.
 ## Deploying
 
 ```sh
+openssl rand -hex 32   # your setup token: keep it until you've set up Ember
+pnpm --filter @ember/worker exec wrangler secret put EMBER_SETUP_TOKEN
 pnpm --filter @ember/worker exec wrangler secret put SESSION_SECRET
-pnpm run deploy     # not `pnpm deploy`, which is pnpm's own command
+pnpm run deploy        # not `pnpm deploy`, which is pnpm's own command
 ```
 
+Then open `https://<your Worker>/first_run/access#token=<your setup token>`. The private link
+unlocks setup in that browser for 15 minutes, and whoever sets Ember up becomes its administrator,
+so keep the link to yourself. Without `EMBER_SETUP_TOKEN`, setup is open to whoever visits first,
+as in Campfire: fine on your own machine, but not on the internet.
+
 Signing in with just a name is off unless the Worker's `EMBER_GUEST_SIGN_IN` variable is `"true"`,
-and email sign-in hasn't landed yet, so for now a deploy that people should be able to use needs it
-in `vars` in `apps/worker/wrangler.jsonc`. Anyone with the link can then join. Until first-run setup
-lands, it also needs `LEGACY_ROOMS` there, naming the rooms to start with (`"general,random"`).
+and email sign-in hasn't landed yet, so for now a deploy that people besides its administrator
+should be able to use needs it in `vars` in `apps/worker/wrangler.jsonc`. Anyone with the link can
+then join.
 
 ### A preview from GitHub Actions
 
@@ -128,22 +138,30 @@ tab. It needs two repository secrets, and skips without them:
 - `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
 
-The first deploy makes the Worker's `SESSION_SECRET`, and later ones keep it. Until email sign-in
-lands, the preview lets anyone sign in with just a name. Its `LEGACY_ROOMS` keeps the general and
-random rooms it had before the Workspace kept a list of rooms. After each deploy,
-`node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
-answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
-storage), that the page loads, and that the API asks for sign-in. The link is on the run's summary
-and under the repository's Deployments.
+A third, `EMBER_SETUP_TOKEN` (`openssl rand -hex 32`), becomes the preview's setup token: once it's
+deployed, open `<preview link>/first_run/access#token=<your token>` to set up Ember. Without it, the
+first deploy gives the preview a token nobody knows, so setup stays locked until you add the secret
+and run the workflow again. The secrets go up with each deploy, never in its logs. The first deploy
+makes the Worker's `SESSION_SECRET`, and later ones keep it.
+
+Until email sign-in lands, the preview lets anyone sign in with just a name. Its `LEGACY_ROOMS`
+keeps the general and random rooms it had before the Workspace kept a list of rooms. After each
+deploy, `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that
+`/api/health` answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object
+reading their storage), that the page loads, that the API asks for sign-in, and that setup, until
+it's done, takes the private link. The link is on the run's summary and under the repository's
+Deployments.
 
 ## Status
 
-This is the starter. Working now: sign-in by display name (when `EMBER_GUEST_SIGN_IN` allows it)
-with a session cookie the Workspace keeps, sign-out, open and private rooms that only their members
-can open (made through the API until the New room page lands), live messages with optimistic sends,
-edit and delete your own messages, Ember's quick and tray reactions, presence, typing indicators,
-history paging, reconnects, and the Light / Dark / System appearance picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
+This is the starter. Working now: first-run setup, which creates the administrator and All Talk
+and can be kept to whoever has the private setup link, sign-in by display name (when
+`EMBER_GUEST_SIGN_IN` allows it) with a session cookie the Workspace keeps, sign-out, open and private
+rooms that only their members can open (made through the API until the New room page lands), live
+messages with optimistic sends, edit and delete your own messages, Ember's quick and tray reactions,
+presence, typing indicators, history paging, reconnects, and the Light / Dark / System appearance
+picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 
-Next, roughly in order: real accounts (first-run setup, email sign-in and the join link), a workspace directory for
+Next, roughly in order: email sign-in and the join link, a workspace directory for
 creating rooms and private rooms, direct messages, unread state and the Activity filter, starred
 rooms and room order, rich text and attachments (R2), search, and Web Push.

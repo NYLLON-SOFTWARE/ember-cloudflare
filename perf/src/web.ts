@@ -3,7 +3,7 @@ import { once } from "node:events";
 import path from "node:path";
 import { closeAll, joinMany, newRoom, seedRoom } from "./load.ts";
 import type { Profile } from "./profiles.ts";
-import { signIn } from "./room-client.ts";
+import { setUp, signIn } from "./room-client.ts";
 import { startServer } from "./server.ts";
 import { launchChrome } from "./web/browser.ts";
 import { bundleSizes, type BundleResult } from "./web/bundle.ts";
@@ -33,6 +33,7 @@ export async function runWeb(profile: Profile, log: (line: string) => void): Pro
 
   const server = await startServer("do-sqlite", webDist);
   try {
+    await setUp(server.url);
     log(`web · seeding #general with ${profile.web.backlog} messages`);
     // The room the browser opens. Everyone signed in after it's made is in it.
     const room = await newRoom(server, "general");

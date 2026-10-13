@@ -1,4 +1,5 @@
 import type { ChatRoom } from "./chat-room";
+import type { PasswordHasher } from "./passwords";
 import type { Workspace } from "./workspace";
 
 export type StorageBackend = "do-sqlite" | "d1";
@@ -7,6 +8,7 @@ export interface Env {
   ASSETS: Fetcher;
   CHAT_ROOM: DurableObjectNamespace<ChatRoom>;
   WORKSPACE: DurableObjectNamespace<Workspace>;
+  PASSWORD_HASHER: DurableObjectNamespace<PasswordHasher>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   STORAGE_BACKEND: StorageBackend;
@@ -18,4 +20,9 @@ export interface Env {
   SESSION_SECRET: string;
   /** "true" lets anyone sign in with just a name, for tests and demos. Leave it unset otherwise. */
   EMBER_GUEST_SIGN_IN?: string;
+  /**
+   * 64 lowercase hex characters (`openssl rand -hex 32`) that keep setup to whoever opens the private
+   * link `/first_run/access#token=<token>`. Unset, the first visitor sets up the workspace.
+   */
+  EMBER_SETUP_TOKEN?: string;
 }

@@ -22,6 +22,43 @@ export interface Room {
 /** A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names. */
 export type NewRoom = { kind: "open"; name: string } | { kind: "closed"; name: string; memberIds: UserId[] };
 
+/** The workspace, which first run creates. */
+export interface Account {
+  name: string;
+}
+
+/** What the app asks first (`GET /api/bootstrap`): whether Ember is set up, and who this browser is signed in as. */
+export interface Bootstrap {
+  /** "pending" until first run creates the workspace and its first administrator. */
+  setup: "pending" | "complete";
+  /** Whether setup takes the deployment's private link, because `EMBER_SETUP_TOKEN` is set. */
+  setupProtected: boolean;
+  /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */
+  guestSignIn: boolean;
+  /** "Ember" before setup, as in ember-rust. */
+  account: Account;
+  user: User | null;
+}
+
+/** The workspace's first administrator, as the Set up Ember form sends them to `POST /api/first_run`. */
+export interface FirstRun {
+  name: string;
+  emailAddress: string;
+  password: string;
+}
+
+/** What `POST /api/first_run` answers: the administrator it signed in, and All Talk, which opens first. */
+export interface NewWorkspace {
+  user: User;
+  room: Room;
+}
+
+/** The shortest password first run takes, in characters rather than bytes, as ember-rust counts them. */
+export const MIN_PASSWORD_LENGTH = 8;
+/** The password fields' `maxlength`, which ember-rust's forms keep from bcrypt's 72-byte limit. */
+export const MAX_PASSWORD_LENGTH = 72;
+export const PASSWORD_TOO_SHORT = "Password must be at least 8 characters.";
+
 export interface Boost {
   id: string;
   messageId: string;
@@ -181,6 +218,23 @@ export function parseNewRoom(data: unknown): NewRoom | string {
     ? { kind: r.kind, name, memberIds }
     : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
+
+/**
+ * Parses an untrusted first run. Returns why it's refused instead, when a field is missing; the
+ * password's length is checked apart from this, since a short one gets its own answer.
+ */
+export function parseFirstRun(data: unknown): FirstRun | string {
+  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  const f = data as Record<string, unknown>;
+  const name = typeof f.name === "string" ? f.name.trim() : "";
+  // Like ember-rust, take the address as typed: the browser checks its shape and trims it.
+  const emailAddress = typeof f.emailAddress === "string" ? f.emailAddress : "";
+  if (!name || !emailAddress || typeof f.password !== "string") return "Name, email address and password are required";
+  return { name, emailAddress, password: f.password };
+}
+
+/** Whether a password is shorter than first run takes, counting an emoji as one character. */
+export const isPasswordTooShort = (password: string) => [...password].length < MIN_PASSWORD_LENGTH;
 
 /** Parses a frame from the server. The server is trusted, so this only guards against garbage. */
 export function parseServerFrame(raw: string): ServerFrame | null {

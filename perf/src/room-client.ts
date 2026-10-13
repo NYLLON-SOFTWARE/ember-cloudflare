@@ -24,6 +24,13 @@ const write = (baseUrl: string, body: unknown, cookie?: string): RequestInit => 
   body: JSON.stringify(body),
 });
 
+/** Sets up a new deployment's workspace, as its first visitor would, so the app opens to sign-in rather than Set up Ember. */
+export async function setUp(baseUrl: string): Promise<void> {
+  const administrator = { name: "Perf Admin", emailAddress: "admin@perf.test", password: "perf-only-password" };
+  const response = await fetch(new URL("/api/first_run", baseUrl), write(baseUrl, administrator));
+  if (response.status !== 201) throw new Error(`Setup failed (${response.status}): ${await response.text()}`);
+}
+
 export async function signIn(baseUrl: string, name: string): Promise<Session> {
   const response = await fetch(new URL("/api/session", baseUrl), write(baseUrl, { name }));
   if (response.status !== 201) throw new Error(`Sign-in failed (${response.status}): ${await response.text()}`);

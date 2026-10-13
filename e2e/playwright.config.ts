@@ -1,7 +1,9 @@
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
 import { featureProjects } from "./projects/features";
+import { FIRST_RUN, firstRunProjects } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
+import { PROTECTED_SETUP_PORT, PROTECTED_SETUP_TOKEN, protectedSetupProjects } from "./projects/protected-setup";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
 /**
@@ -26,20 +28,41 @@ export default defineConfig<MobileOptions>({
     // Chromium point at it instead: PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined },
   },
-  projects: [...featureProjects, ...mobileProjects],
+  // Every suite finds the server set up: the first-run project sets it up before the others start.
+  projects: [
+    ...firstRunProjects,
+    ...protectedSetupProjects,
+    ...[...featureProjects, ...mobileProjects].map((project) => ({ ...project, dependencies: [FIRST_RUN] })),
+  ],
   // The production build and the API on one origin, served by `wrangler dev` the way the deployed
   // Worker serves them. State lives in e2e/.wrangler so tests never touch your local dev data, and
   // starts empty, since every open room a test makes takes in everyone who signs in after it.
-  webServer: {
-    command: [
-      `node -e "require('node:fs').rmSync('e2e/.wrangler/state', { recursive: true, force: true })"`,
-      "pnpm --filter @ember/web build",
-      `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --persist-to ../../e2e/.wrangler/state`,
-    ].join(" && "),
-    cwd: path.resolve(import.meta.dirname, ".."),
-    url: `${baseURL}/api/health`,
-    env: { WRANGLER_SEND_METRICS: "false" },
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-  },
+  webServer: [
+    {
+      command: [
+        `node -e "require('node:fs').rmSync('e2e/.wrangler/state', { recursive: true, force: true })"`,
+        "pnpm --filter @ember/web build",
+        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --persist-to ../../e2e/.wrangler/state`,
+      ].join(" && "),
+      cwd: path.resolve(import.meta.dirname, ".."),
+      url: `${baseURL}/api/health`,
+      env: { WRANGLER_SEND_METRICS: "false" },
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+    // The same build again, over HTTPS with a setup token, for the protected-setup project. Servers
+    // start in turn, so the app is built by then.
+    {
+      command: [
+        `node -e "require('node:fs').rmSync('e2e/.wrangler/protected-state', { recursive: true, force: true })"`,
+        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${PROTECTED_SETUP_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_SETUP_TOKEN:${PROTECTED_SETUP_TOKEN} --persist-to ../../e2e/.wrangler/protected-state`,
+      ].join(" && "),
+      cwd: path.resolve(import.meta.dirname, ".."),
+      url: `https://127.0.0.1:${PROTECTED_SETUP_PORT}/api/health`,
+      ignoreHTTPSErrors: true,
+      env: { WRANGLER_SEND_METRICS: "false" },
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });
