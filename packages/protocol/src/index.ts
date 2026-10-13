@@ -55,8 +55,11 @@ export type ServerFrame =
   | { type: "history"; messages: Message[]; hasMore: boolean }
   /** Answers message.check: which of the sender's messages the room stored, and which it never received. */
   | { type: "message.checked"; stored: string[]; missing: string[] }
-  /** `failed` names the request that went wrong, when the error answers one. */
-  | { type: "error"; message: string; clientMessageId?: string; failed?: ClientFrame["type"] }
+  /**
+   * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
+   * `clientMessageIds` the messages it was about.
+   */
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 export const MAX_MESSAGE_LENGTH = 10_000;

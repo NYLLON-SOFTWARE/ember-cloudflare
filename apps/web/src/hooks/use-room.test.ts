@@ -137,7 +137,8 @@ describe("useRoom", () => {
     });
     expect(second.sent).toEqual([JSON.stringify({ type: "message.check", clientMessageIds: [clientMessageId] })]);
     const [unconfirmed, unsent] = result.current.state.messages;
-    expect(unconfirmed).toMatchObject({ body: "are you there?", checking: true });
+    expect(unconfirmed).toMatchObject({ body: "are you there?", pending: true });
+    expect(unconfirmed).not.toHaveProperty("failed");
     expect(unsent).toMatchObject({ body: "hello?", failed: true });
 
     act(() => second.receive({ type: "message.checked", stored: [clientMessageId], missing: [] }));

@@ -38,15 +38,14 @@ describe("roomReducer", () => {
     ]);
   });
 
-  it("keeps unconfirmed messages across a reconnect, the sent ones as sending while the room checks them", () => {
+  it("keeps unconfirmed messages across a reconnect, the sent ones as sending until the room answers", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true } });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true, failed: true } });
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: false }, now: 0 });
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2", "c3"]);
-    expect(state.messages[1]).toMatchObject({ pending: true, checking: true });
+    expect(state.messages[1]).toMatchObject({ pending: true });
     expect(state.messages[1]).not.toHaveProperty("failed");
     expect(state.messages[2]).toMatchObject({ pending: true, failed: true });
-    expect(state.messages[2]).not.toHaveProperty("checking");
     expect(state.status).toBe("open");
   });
 
@@ -68,17 +67,24 @@ describe("roomReducer", () => {
     expect(state.notice).toBe("Your messages were sent. Scroll up to see them.");
   });
 
-  it("shows the messages it was checking as not sent when the check fails", () => {
-    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true } });
+  it("shows the messages a failed check was about as not sent, and no others", () => {
+    let state = initialRoomState;
+    for (const id of ["c2", "c3"]) {
+      state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
+    }
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
-    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true } });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c4", clientMessageId: "c4" }), pending: true } });
 
-    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check" }, now: 0 });
+    // c2 and c3 went in separate checks, and only c2's failed.
+    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: ["c2"] }, now: 0 });
     expect(state.messages.map((m) => [m.clientMessageId, isPending(m) && m.failed === true])).toEqual([
       ["c1", false],
       ["c2", true],
       ["c3", false],
+      ["c4", false],
     ]);
+    state = frame(state, { type: "frame", frame: { type: "message.checked", stored: ["c3"], missing: [] }, now: 0 });
+    expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2", "c4"]);
   });
 
   it("only reconciles a stored message with its own sender's optimistic copy", () => {
@@ -99,7 +105,7 @@ describe("roomReducer", () => {
     ]);
 
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false }, now: 0 });
-    expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true, checking: true });
+    expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true });
   });
 
   it("lets paging retry after a failed history request", () => {
@@ -144,7 +150,7 @@ describe("roomReducer", () => {
     // room couldn't check it.
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
-    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check" }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: ["c1"] }, now: 0 });
     expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
 
     state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });

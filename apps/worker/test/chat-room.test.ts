@@ -176,6 +176,19 @@ describe("ChatRoom", () => {
     ada.ws.close(1000);
   });
 
+  it("names the messages it couldn't check", async () => {
+    // Only a Durable Object's storage can be broken for one room without breaking the tests beside it.
+    if ((env as { DB?: D1Database }).DB) return;
+    const ada = await connect("check-fails", await signIn("Ada"));
+    await ada.next("welcome");
+    await runInDurableObject(roomStub("check-fails"), (_room, state: DurableObjectState) => {
+      state.storage.sql.exec("ALTER TABLE messages RENAME TO messages_gone");
+    });
+    ada.send({ type: "message.check", clientMessageIds: ["a1", "a2"] });
+    expect(await ada.next("error")).toMatchObject({ failed: "message.check", clientMessageIds: ["a1", "a2"] });
+    ada.ws.close(1000);
+  });
+
   it("keeps history and pages backwards through it", async () => {
     const token = await signIn("Ada");
     const first = await connect("history", token);

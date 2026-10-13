@@ -71,7 +71,8 @@ export class ChatRoom extends DurableObject<Env> {
       } catch (error) {
         console.error("ChatRoom frame failed", frame.type, error);
         const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
-        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, failed: frame.type });
+        const clientMessageIds = frame.type === "message.check" ? frame.clientMessageIds : undefined;
+        this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, failed: frame.type });
       }
     });
   }
