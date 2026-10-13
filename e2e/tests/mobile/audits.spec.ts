@@ -35,6 +35,26 @@ test("a control scrolled partly out of view must still be big enough", async ({ 
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
 });
 
+test("a small control scrolled partly out of view fails with a small label, but not wrapped in a big one", async ({ page, safeArea }) => {
+  // Neither list is scrolled far enough to show all of its checkbox. A label only helps where a
+  // fingertip on the checkbox would land on it.
+  const list = (row: string) => `
+    <div style="height: 100px; overflow-y: auto">
+      <div style="height: 76px"></div>
+      ${row}
+      <div style="height: 80px"></div>
+    </div>`;
+  const checkbox = (id: string) => `<input type="checkbox" id="${id}" aria-label="${id}" style="margin: 0 0 0 14px; width: 16px; height: 16px">`;
+  await page.setContent(
+    phonePage(`
+      ${list(`<div style="display: flex; align-items: center; height: 44px">${checkbox("Small")}<label for="Small" style="width: 12px; height: 16px"></label></div>`)}
+      ${list(`<label style="display: flex; align-items: center; height: 44px">${checkbox("Wrapped")}Notify me</label>`)}
+    `),
+  );
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringContaining('<input> "Small" is 16px×16px and partly scrolled out of view')]);
+});
+
 test("a control covered for good by something floating over its list fails, but not one the list can scroll clear", async ({ page, safeArea }) => {
   // The last button in each list sits under a floating notice; only the second list has room to
   // scroll it out from under.
