@@ -3,7 +3,10 @@
   "name": "ember",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
-  "observability": { "enabled": true },
+  // `enabled` alone turns on logs; traces time each fetch, RPC and Durable Object SQL statement.
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+  // Lets production CPU and heap profiles and exception stacks name our source files.
+  "upload_source_maps": true,
 
   // The Worker serves the built React app and answers /api/* itself.
   "assets": {
