@@ -9,6 +9,9 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
 - Ember's palette lives in `apps/web/src/index.css` as shadcn/ui tokens. Use the tokens
   (`bg-surface`, `bg-hover`, `text-muted-foreground`, `text-message-ink`, ...) rather than raw colors.
 - Add shadcn/ui components with `pnpm dlx shadcn@latest add <name>` from `apps/web`.
+- Icons are ember-rust's, exactly. Import them from `apps/web/src/components/icons/` (Ember's line
+  icons, Lucide pinned to ember-rust's release, Campfire's SVGs), never from `lucide-react`; its
+  README says how to add one. shadcn/ui components arrive with `lucide-react` icons, so swap those.
 - Every WebSocket frame is typed in `packages/protocol`. Change the types there first, validate
   anything from a client in `parseClientFrame`, and keep the worker and web app in step.
 - Messages are stored through `apps/worker/src/store.ts`, which must work on both Durable Object

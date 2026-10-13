@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { User } from "@ember/protocol";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp } from "@/components/icons/campfire";
 
 function typingSentence(users: User[]): string {
   const names = users.map((u) => u.name);
@@ -76,7 +76,7 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
               title="Send"
               className="ml-auto flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40 max-md:size-11"
             >
-              <ArrowUp className="size-[18px]" />
+              <ArrowUp tone="reversed" className="size-[18px]" />
             </button>
           </div>
         </div>

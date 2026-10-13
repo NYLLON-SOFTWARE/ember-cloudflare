@@ -1,0 +1,149 @@
+import type { SVGProps } from "react";
+
+// Ember's own line icons, copied from ember-rust's crates/views/templates/components/icons.html.
+// The paths and the 1.7 stroke are the design: copy new ones from there verbatim.
+
+export type EmberIconProps = SVGProps<SVGSVGElement>;
+
+function EmberIcon(props: EmberIconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      {...props}
+    />
+  );
+}
+
+export function Flame(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M12 3c-3 3-1.5 5.5.5 7.5 1.5 1.5 1 3-1 3.5-1.5.4-3-1-3.5-2.5C5 15 6.5 21 12 21c4.4 0 7-3 7-6.5C19 9.5 13 7.5 12 3Z" />
+    </EmberIcon>
+  );
+}
+
+export function User(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+    </EmberIcon>
+  );
+}
+
+export function Mail(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m3 6 9 7 9-7" />
+    </EmberIcon>
+  );
+}
+
+export function Lock(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <rect x="4" y="10" width="16" height="11" rx="2" />
+      <path d="M7 10V7a5 5 0 0 1 10 0v3" />
+    </EmberIcon>
+  );
+}
+
+export function Eye(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </EmberIcon>
+  );
+}
+
+export function Camera(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M4 6h4l2-3h4l2 3h4a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
+      <circle cx="12" cy="13" r="4" />
+    </EmberIcon>
+  );
+}
+
+export function ArrowRight(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M5 12h14m-6-6 6 6-6 6" />
+    </EmberIcon>
+  );
+}
+
+export function Home(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
+      <path d="M9 21v-9h6v9" />
+    </EmberIcon>
+  );
+}
+
+export function Messages(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M15 13H7l-4 4V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1Z" />
+      <path d="M8 17h9l4 4V9" />
+    </EmberIcon>
+  );
+}
+
+export function Bell(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+    </EmberIcon>
+  );
+}
+
+export function Search(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m16 16 5 5" />
+    </EmberIcon>
+  );
+}
+
+export function Settings(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path
+        d="m9 3-.5 3-2 1.2L3.6 7l-2 3.5 2.5 1.7v2.3l-2.5 1.7 2 3.5 2.9-.2 2 1.2L9 23h4l.5-2.3 2-1.2 2.9.2 2-3.5-2.5-1.7v-2.3l2.5-1.7-2-3.5-2.9.2-2-1.2L13 3Z"
+        transform="translate(1 -1) scale(.95)"
+      />
+      <circle cx="12" cy="12" r="3" />
+    </EmberIcon>
+  );
+}
+
+export function Menu(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </EmberIcon>
+  );
+}
+
+export function Close(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="m6 6 12 12M6 18 18 6" />
+    </EmberIcon>
+  );
+}
