@@ -8,12 +8,17 @@ const TYPING_TTL_MS = 6_000;
 const TYPING_RESEND_MS = 3_000;
 const MAX_BACKOFF_MS = 15_000;
 
-/** One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object. */
-export function useRoom(roomId: string, token: string, me: User, onSessionExpired: () => void) {
+/**
+ * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
+ * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
+ * or whoever another tab signed in as.
+ */
+export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | null) => void) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const socket = useRef<WebSocket | null>(null);
   const lastTypingSent = useRef(0);
-  const sessionExpired = useEffectEvent(onSessionExpired);
+  const sessionChanged = useEffectEvent(onSessionChanged);
+  const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
 
   // ember-rust posts each message over HTTP, and shows it as failed only when that request fails
   // (composer_controller.js). A socket can lose the answer instead: it can close after the room stored a
@@ -43,7 +48,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
 
     const open = () => {
       dispatch({ type: "status", status: attempt === 0 ? "connecting" : "reconnecting" });
-      const ws = new WebSocket(roomSocketUrl(roomId, token));
+      const ws = new WebSocket(roomSocketUrl(roomId));
       socket.current = ws;
       let opened = false;
       let unanswered = false;
@@ -66,6 +71,14 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
         unanswered = false;
         const frame = parseServerFrame(String(event.data));
         if (!frame) return;
+        if (frame.type === "welcome" && isSomeoneElse(frame.you)) {
+          // Another tab signed this browser out and in as someone else, and the cookie went with it. Leave
+          // the room rather than show them this person's, or send as them.
+          clearInterval(heartbeat);
+          ws.onclose = null;
+          ws.close(1000);
+          return sessionChanged(frame.you);
+        }
         dispatch({ type: "frame", frame, now: Date.now() });
         if (frame.type === "welcome") checkUnconfirmed(ws, frame.messages);
       };
@@ -74,7 +87,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
         if (closed) return;
         // A refused upgrade looks like any other failure, so ask whether the session has expired. An
         // answer that comes after the room closed may be about a session that has since been replaced.
-        if (!opened) void fetchMe(token).catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionExpired());
+        if (!opened) void fetchMe().catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionChanged(null));
         reconnect();
       };
     };
@@ -91,7 +104,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
       socket.current?.close(1000);
       socket.current = null;
     };
-  }, [roomId, token]);
+  }, [roomId]);
 
   const send = useCallback((frame: ClientFrame) => {
     const ws = socket.current;

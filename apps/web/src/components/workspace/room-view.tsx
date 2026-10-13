@@ -8,13 +8,12 @@ import { RoomHeader } from "./room-header";
 
 interface Props {
   room: Room;
-  token: string;
   me: User;
-  onSessionExpired: () => void;
+  onSessionChanged: (me: User | null) => void;
 }
 
-export function RoomView({ room, token, me, onSessionExpired }: Props) {
-  const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, token, me, onSessionExpired);
+export function RoomView({ room, me, onSessionChanged }: Props) {
+  const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);

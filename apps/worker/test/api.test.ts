@@ -3,20 +3,22 @@ import { listDurableObjectIds } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
-import worker from "../src/index";
-import { api, origin, signIn } from "./support";
+import { api, apiWith, cookieOf, signIn, upgrade } from "./support";
 
-const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+const bindings = env as unknown as Env;
+const withCookie = (cookie: string) => ({ headers: { Cookie: cookie } });
+/** A well-formed token that no session has. */
+const unknownSession = `__Host-session_token=${"A".repeat(43)}`;
 
 describe(feature("auth.guest-sign-in"), () => {
-  it("signs in with a trimmed display name and returns a token for it", async () => {
+  it("signs in with a trimmed display name and a session cookie", async () => {
     const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "  Ada Lovelace  " }) });
     expect(response.status).toBe(201);
-    const { user, token } = (await response.json()) as { user: { id: string; name: string }; token: string };
+    const { user } = (await response.json()) as { user: { id: string; name: string } };
     expect(user.name).toBe("Ada Lovelace");
     expect(user.id).toMatch(/^[0-9a-z]{16}$/);
 
-    const me = await api("/api/me", bearer(token));
+    const me = await api("/api/me", withCookie(cookieOf(response)));
     expect(await me.json()).toEqual({ user });
   });
 
@@ -45,20 +47,38 @@ describe(feature("auth.guest-sign-in"), () => {
   it("refuses a body that isn't JSON", async () => {
     expect((await api("/api/session", { method: "POST", body: "name=Ada" })).status).toBe(422);
   });
+
+  it('is turned off unless EMBER_GUEST_SIGN_IN is "true"', async () => {
+    for (const setting of [undefined, "", "false", "1"]) {
+      const response = await apiWith({ EMBER_GUEST_SIGN_IN: setting }, "/api/session", { method: "POST", body: JSON.stringify({ name: "Ada" }) });
+      expect(response.status, setting).toBe(403);
+      expect(response.headers.has("Set-Cookie")).toBe(false);
+    }
+  });
+
+  it("keeps guests out while it's off, and lets them back in once it's on", async () => {
+    const { cookie } = await signIn("Ada");
+    expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/me", withCookie(cookie))).status).toBe(401);
+    expect((await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/rooms/general/socket", upgrade(cookie))).status).toBe(401);
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
+  });
 });
 
 describe(feature("auth.require-sign-in"), () => {
-  it("answers 401 to requests without a valid token", async () => {
+  it("answers 401 to requests without a valid session", async () => {
     expect((await api("/api/me")).status).toBe(401);
-    expect((await api("/api/me", bearer("forged.token"))).status).toBe(401);
     expect((await api("/api/rooms")).status).toBe(401);
+    for (const cookie of ["__Host-session_token=forged", unknownSession, "__Host-session_token="]) {
+      expect((await api("/api/me", withCookie(cookie))).status, cookie).toBe(401);
+      expect((await api("/api/rooms", withCookie(cookie))).status, cookie).toBe(401);
+    }
   });
 });
 
 describe(feature("rooms.open"), () => {
   it("lists the workspace's open rooms to everyone signed in", async () => {
-    const { token } = await signIn("Ada");
-    const response = await api("/api/rooms", bearer(token));
+    const { cookie } = await signIn("Ada");
+    const response = await api("/api/rooms", withCookie(cookie));
     expect(await response.json()).toEqual({
       rooms: [
         { id: "general", name: "general", kind: "open" },
@@ -68,38 +88,42 @@ describe(feature("rooms.open"), () => {
   });
 
   it("lets anyone signed in join any open room", async () => {
-    const { token } = await signIn("Grace");
-    const response = await api(`/api/rooms/general/socket?token=${token}`, { headers: { Upgrade: "websocket" } });
+    const { cookie } = await signIn("Grace");
+    const response = await api("/api/rooms/general/socket", upgrade(cookie));
     expect(response.status).toBe(101);
     response.webSocket!.accept();
     response.webSocket!.close(1000);
   });
 
   it("answers 404 for room names that can't exist", async () => {
-    const { token } = await signIn("Ada");
+    const { cookie } = await signIn("Ada");
     for (const room of ["General", "-general", "a%2Fb", "%FF", "x".repeat(64)]) {
-      const response = await api(`/api/rooms/${room}/socket?token=${token}`, { headers: { Upgrade: "websocket" } });
+      const response = await api(`/api/rooms/${room}/socket`, upgrade(cookie));
       expect(response.status, room).toBe(404);
     }
   });
 });
 
 describe(feature("realtime.connection"), () => {
-  it("refuses room sockets without a valid token", async () => {
-    const response = await api("/api/rooms/general/socket?token=forged.token", { headers: { Upgrade: "websocket" } });
-    expect(response.status).toBe(401);
+  it("refuses room sockets without a valid session", async () => {
+    expect((await api("/api/rooms/general/socket", upgrade())).status).toBe(401);
+    expect((await api("/api/rooms/general/socket", upgrade(unknownSession))).status).toBe(401);
   });
 
-  it("expects a WebSocket upgrade on the room socket", async () => {
-    const { token } = await signIn("Ada");
-    expect((await api(`/api/rooms/general/socket?token=${token}`)).status).toBe(426);
+  it("answers 404 at the socket's address unless it's an upgrade from the app's own pages", async () => {
+    const { cookie } = await signIn("Ada");
+    expect((await api("/api/rooms/general/socket", withCookie(cookie))).status).toBe(404);
+    // Another site, a sandboxed page, and something that isn't a browser.
+    for (const from of ["https://evil.test", "null", undefined]) {
+      const headers = { Upgrade: "websocket", Cookie: cookie, ...(from ? { Origin: from } : {}) };
+      expect((await api("/api/rooms/general/socket", { headers })).status, from).toBe(404);
+    }
   });
 });
 
 describe(feature("platform.health"), () => {
-  const bindings = env as unknown as Env;
   /** /api/health from a Worker whose bindings differ from this suite's by `changes`. */
-  const healthWith = (changes: Partial<Env>) => worker.fetch(new Request(`${origin}/api/health`), { ...bindings, ...changes });
+  const healthWith = (changes: Partial<Env>) => apiWith(changes, "/api/health");
 
   it("reports that the Worker is up and which storage it uses", async () => {
     const response = await api("/api/health");

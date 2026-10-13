@@ -1,5 +1,6 @@
 import messages from "../migrations/0001_messages.sql";
 import clientMessageIds from "../migrations/0002_client_message_ids.sql";
+import usersAndSessions from "../migrations/0003_users_and_sessions.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -22,6 +23,7 @@ export interface Migration {
 export const MIGRATIONS: Migration[] = [
   { name: "0001_messages.sql", scope: "room", sql: messages },
   { name: "0002_client_message_ids.sql", scope: "room", sql: clientMessageIds },
+  { name: "0003_users_and_sessions.sql", scope: "workspace", sql: usersAndSessions },
 ];
 
 /**

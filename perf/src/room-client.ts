@@ -5,8 +5,12 @@ import type { ClientFrame, Message, ServerFrame, User } from "@ember/protocol";
 
 export interface Session {
   user: User;
-  token: string;
+  /** The `Cookie` header that carries the session, `name=value`. */
+  cookie: string;
 }
+
+/** Node's WebSocket, which, unlike a browser's, can send a handshake's headers. */
+const NodeWebSocket = WebSocket as unknown as new (url: string, init: { headers: Record<string, string> }) => WebSocket;
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 30_000;
@@ -16,17 +20,18 @@ type HistoryFrame = Extract<ServerFrame, { type: "history" }>;
 export async function signIn(baseUrl: string, name: string): Promise<Session> {
   const response = await fetch(new URL("/api/session", baseUrl), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // As the app's own pages send it: over HTTPS the Worker refuses writes that don't say so.
+    headers: { "Content-Type": "application/json", Origin: new URL(baseUrl).origin, "Sec-Fetch-Site": "same-origin" },
     body: JSON.stringify({ name }),
   });
   if (response.status !== 201) throw new Error(`Sign-in failed (${response.status}): ${await response.text()}`);
-  return (await response.json()) as Session;
+  const { user } = (await response.json()) as { user: User };
+  return { user, cookie: response.headers.getSetCookie()[0]!.split(";")[0]! };
 }
 
-export function socketUrl(baseUrl: string, room: string, token: string): string {
+export function socketUrl(baseUrl: string, room: string): string {
   const url = new URL(`/api/rooms/${encodeURIComponent(room)}/socket`, baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("token", token);
   return url.toString();
 }
 
@@ -55,7 +60,8 @@ export class RoomClient {
   /** Opens a socket and resolves once the room's welcome frame arrives. */
   static connect(baseUrl: string, room: string, session: Session): Promise<{ client: RoomClient; welcome: Extract<ServerFrame, { type: "welcome" }>; ms: number }> {
     const started = performance.now();
-    const ws = new WebSocket(socketUrl(baseUrl, room, session.token));
+    // The room only takes upgrades from the app's own pages, with a session cookie.
+    const ws = new NodeWebSocket(socketUrl(baseUrl, room), { headers: { Cookie: session.cookie, Origin: new URL(baseUrl).origin } });
     const client = new RoomClient(session, ws);
 
     return new Promise((resolve, reject) => {

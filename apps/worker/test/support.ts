@@ -3,19 +3,45 @@ import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
 import type { Env } from "../src/env";
+import worker from "../src/index";
 import { workspace } from "../src/workspace";
 
 export const origin = "https://ember.test";
 
-export function api(path: string, init?: RequestInit): Promise<Response> {
-  return exports.default.fetch(`${origin}${path}`, init);
+/** `init` as the app's own pages send it: writes carry the `Sec-Fetch-Site` browsers add. */
+function fromOwnPages<Cf>(init: RequestInit<Cf>): RequestInit<Cf> {
+  const headers = new Headers(init.headers);
+  const write = init.method !== undefined && init.method !== "GET" && init.method !== "HEAD";
+  if (write && !headers.has("Sec-Fetch-Site")) headers.set("Sec-Fetch-Site", "same-origin");
+  return { ...init, headers };
 }
 
-export async function signIn(name: string): Promise<{ user: User; token: string }> {
+/** A request from the app's own pages. */
+export const api = (path: string, init: RequestInit = {}) => exports.default.fetch(`${origin}${path}`, fromOwnPages(init));
+
+/** The same request, to a Worker whose bindings differ from this suite's by `changes`. */
+export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<IncomingRequestCfProperties> = {}) =>
+  worker.fetch(new Request(`${origin}${path}`, fromOwnPages(init)), { ...(env as unknown as Env), ...changes });
+
+export interface Session {
+  user: User;
+  /** The `Cookie` header that carries the session, `name=value`. */
+  cookie: string;
+}
+
+/** The `name=value` a response's `Set-Cookie` sets. */
+export const cookieOf = (response: Response) => response.headers.get("Set-Cookie")!.split(";")[0]!;
+
+/** Signs in as a guest named `name`. */
+export async function signIn(name: string): Promise<Session> {
   const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name }) });
   expect(response.status).toBe(201);
-  return response.json();
+  const { user } = (await response.json()) as { user: User };
+  return { user, cookie: cookieOf(response) };
 }
+
+/** A room socket's upgrade request from the app's own pages, signed in with `cookie` if given. */
+export const upgrade = (cookie?: string) => ({ headers: { Upgrade: "websocket", Origin: origin, ...(cookie ? { Cookie: cookie } : {}) } });
 
 /** The room's Durable Object. */
 export const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
@@ -28,22 +54,28 @@ export function objectSql(stub: DurableObjectStub, query: string, ...params: Arr
   return runInDurableObject(stub, (_object, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
 }
 
-/** Runs SQL against a room's storage, whichever backend this suite is using. */
-export async function roomSql(room: string, query: string, ...params: Array<string | number>): Promise<unknown[]> {
+/** Runs SQL against the tables `stub` keeps: in D1 when this suite uses it, else in the object's own storage. */
+async function tablesSql(stub: DurableObjectStub, query: string, ...params: Array<string | number>): Promise<unknown[]> {
   const db = (env as { DB?: D1Database }).DB;
   if (db) return (await db.prepare(query).bind(...params).all()).results;
-  return objectSql(roomStub(room), query, ...params);
+  return objectSql(stub, query, ...params);
 }
+
+/** Runs SQL against a room's tables, whichever backend this suite is using. */
+export const roomSql = (room: string, query: string, ...params: Array<string | number>) => tablesSql(roomStub(room), query, ...params);
+
+/** Runs SQL against the Workspace's tables, whichever backend this suite is using. */
+export const workspaceSql = (query: string, ...params: Array<string | number>) => tablesSql(workspaceStub(), query, ...params);
 
 /** A unique room name, so tests never share a ChatRoom. */
 export const freshRoom = (label: string) => `${label}-${crypto.randomUUID().slice(0, 8)}`;
 
 export type Client = Awaited<ReturnType<typeof connect>>;
 
-/** Opens a room socket as `name` (or with an existing token) and queues every frame it receives. */
-export async function connect(room: string, as: string | { token: string }) {
-  const { token } = typeof as === "string" ? await signIn(as) : as;
-  const response = await api(`/api/rooms/${room}/socket?token=${token}`, { headers: { Upgrade: "websocket" } });
+/** Opens a room socket as `name` (or in an existing session) and queues every frame it receives. */
+export async function connect(room: string, as: string | Session) {
+  const session = typeof as === "string" ? await signIn(as) : as;
+  const response = await api(`/api/rooms/${room}/socket`, upgrade(session.cookie));
   const ws = response.webSocket;
   if (!ws) throw new Error(`No socket: ${response.status} ${await response.text()}`);
   ws.accept();
@@ -74,7 +106,7 @@ export async function connect(room: string, as: string | { token: string }) {
   const welcome = await next("welcome");
   return {
     ws,
-    token,
+    session,
     welcome,
     me: welcome.you,
     next,

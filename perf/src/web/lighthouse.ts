@@ -48,7 +48,7 @@ export async function lighthouseRuns(url: string, page: string, formFactor: Form
       if (session) await signInPage(tab, url, session);
       const result = await lighthouse(
         url,
-        // Keep the session that signInPage stored; the HTTP cache is still cold.
+        // Keep the session cookie that signInPage set; the HTTP cache is still cold.
         { logLevel: "error", onlyCategories: ["performance"], disableStorageReset: Boolean(session) },
         formFactor === "desktop" ? desktopConfig : undefined,
         tab,

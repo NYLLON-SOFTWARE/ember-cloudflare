@@ -4,9 +4,13 @@ import type { ClientFrame, Message, ServerFrame, User } from "@ember/protocol";
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
 // that the config's webServer runs; nothing here mocks the backend except the room list.
 
+/** Node's WebSocket, which, unlike a browser's, can send a handshake's headers. */
+const NodeWebSocket = WebSocket as unknown as new (url: URL, init: { headers: Record<string, string> }) => WebSocket;
+
 export interface Session {
   user: User;
-  token: string;
+  /** The session's cookie, ready for `BrowserContext.addCookies`. */
+  cookie: { name: string; value: string; url: string; httpOnly: true; sameSite: "Lax" };
 }
 
 export interface TestRoom {
@@ -14,16 +18,22 @@ export interface TestRoom {
   name: string;
 }
 
-/** Signs a user up through the API, as the sign-in form does. */
+/** Signs someone in through the API, as the sign-in form does. */
 export async function createSession(request: APIRequestContext, name: string): Promise<Session> {
   const response = await request.post("/api/session", { data: { name } });
   expect(response.status(), await response.text()).toBe(201);
-  return (await response.json()) as Session;
+  const { user } = (await response.json()) as { user: User };
+  const [pair] = response.headers()["set-cookie"]!.split(";");
+  const [cookieName, value] = pair!.split("=") as [string, string];
+  return { user, cookie: { name: cookieName, value, url: new URL(response.url()).origin, httpOnly: true, sameSite: "Lax" } };
 }
 
-/** Starts the app already signed in, by storing the session where the app looks for it. */
+/** The `Cookie` header that carries a session, for clients other than the test's browsers. */
+export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.value}`;
+
+/** Starts the app already signed in, by giving the browser the session's cookie. */
 export async function signInAs(page: Page, session: Session): Promise<void> {
-  await page.addInitScript((value) => localStorage.setItem("ember:session", value), JSON.stringify(session));
+  await page.context().addCookies([session.cookie]);
 }
 
 /** A room slug no other test uses. The Worker opens a fresh ChatRoom for any valid slug. */
@@ -66,8 +76,9 @@ export class Participant {
   static async join(baseURL: string, session: Session, roomId: string): Promise<Participant> {
     const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, baseURL);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.searchParams.set("token", session.token);
-    const participant = new Participant(session, new WebSocket(url));
+    // The room only takes upgrades from the app's own pages, with a session cookie.
+    const headers = { Cookie: cookieHeader(session), Origin: new URL(baseURL).origin };
+    const participant = new Participant(session, new NodeWebSocket(url, { headers }));
     await participant.next((frame) => frame.type === "welcome");
     return participant;
   }

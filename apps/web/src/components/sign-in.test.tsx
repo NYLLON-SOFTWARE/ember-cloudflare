@@ -10,8 +10,8 @@ afterEach(() => vi.restoreAllMocks());
 
 describe(feature("auth.guest-sign-in"), () => {
   it("asks for the name people will see, and joins with it", async () => {
-    const session = { user: { id: "u1", name: "Ada" }, token: "t" };
-    const fetch = respond(201, session);
+    const ada = { id: "u1", name: "Ada" };
+    const fetch = respond(201, { user: ada });
     const onSignedIn = vi.fn();
     const user = userEvent.setup();
     render(<SignIn onSignedIn={onSignedIn} />);
@@ -23,7 +23,7 @@ describe(feature("auth.guest-sign-in"), () => {
 
     await user.type(name, "Ada{Enter}");
     expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Ada" }) }));
-    expect(onSignedIn).toHaveBeenCalledWith(session);
+    expect(onSignedIn).toHaveBeenCalledWith(ada);
   });
 
   it("won't join with a blank name and caps names at 48 characters", async () => {
