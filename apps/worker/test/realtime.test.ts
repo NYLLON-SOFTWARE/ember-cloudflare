@@ -123,7 +123,7 @@ describe(feature("realtime.reconnect"), () => {
     grace.close();
     const missed = await post(ada, "While you were away");
 
-    const back = await connect(room, { token: grace.token });
+    const back = await connect(room, grace.session);
     expect(back.welcome.messages).toContainEqual(missed);
     expect(back.me).toEqual(grace.me);
   });
@@ -139,7 +139,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(await ada.next("message.checked")).toEqual({ type: "message.checked", stored: ["a1"], missing: ["g1", "lost"] });
 
     // On D1 every room's messages share one table, so the lookup has to stay in its own room.
-    const elsewhere = await connect(freshRoom("checking-elsewhere"), { token: ada.token });
+    const elsewhere = await connect(freshRoom("checking-elsewhere"), ada.session);
     elsewhere.send({ type: "message.check", clientMessageIds: ["a1"] });
     expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
   });

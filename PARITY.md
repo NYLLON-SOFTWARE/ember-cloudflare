@@ -13,11 +13,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 7 ported and 34 partial of 172 features; 126 not started, 5 not applicable.
+**Overall:** 7 ported and 35 partial of 172 features; 125 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 1 | 3 | 8 | 0 | 12 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 1 | 4 | 7 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 0 | 2 | 16 | 0 | 18 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
 | [Platform](#platform) | 2 | 1 | 8 | 4 | 15 |
-| **Total** | **7** | **34** | **126** | **5** | **172** |
+| **Total** | **7** | **35** | **125** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -47,12 +47,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | Sign in with a display name | `auth.guest-sign-in` | This port | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [sign-in](apps/web/src/components/sign-in.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Sign-in attempt limit | `auth.rate-limit` | Campfire | ⬜ Not started |  |
 | Pages need a signed-in person | `auth.require-sign-in` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts) |
-| Stay signed in, per device | `auth.sessions` | Campfire | 🟡 Partial | Worker: [session](apps/worker/test/session.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
-| Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Stay signed in, per device | `auth.sessions` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Private sign-in link | `auth.sign-in-link` | Campfire | ⬜ Not started |  |
 | Sign up with the join link | `auth.sign-up` | Ember | ⬜ Not started |  |
 | Help contact on sign-in pages | `auth.help-contact` | Campfire | ⬜ Not started |  |
-| Forgery protection without tokens | `auth.csrf` | Ember | ⬜ Not started |  |
+| Forgery protection without tokens | `auth.csrf` | Ember | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -105,7 +105,8 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 **Sign in with a display name** (`auth.guest-sign-in`) ✅
 
 - The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.
-- `POST /api/session` answers 201 with a new person and a signed token, or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.
+- `POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.
+- It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `"true"`. The tests and load tests turn it on, and so does the preview until email sign-in is ported.
 - This stands in for accounts until `auth.first-run`, `auth.sign-in` and `auth.sign-up` are ported.
 
 **Sign-in attempt limit** (`auth.rate-limit`) ⬜
@@ -125,7 +126,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - A missing, tampered or forged session cookie counts as signed out, and so does one whose session was deleted by signing out, removal, a ban or a password reset.
 - Signed-in people who open a join link, or post to one, go to `/` instead.
 
-Note: The API answers 401 without a valid token, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. Nothing can revoke a token, so only a missing, forged or expired one counts as signed out, and there are no join links.
+Note: The API answers 401 without a valid session cookie, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -137,7 +138,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The session cookie lasts 20 years, so the session survives browser restarts. At most once an hour, a request refreshes the session's last activity, browser and IP and extends the cookie.
 - Signing out ends only this device's session. Removing or banning a person, or resetting their password, ends all of theirs.
 
-Note: Sessions here are signed tokens kept in localStorage, which expire 30 days after sign-in however active the person is. The server keeps no record of them, or of the browser and IP, so nothing can end one early, and signing in again makes a new person rather than a second session.
+Note: The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. Each guest sign-in is someone new, so nobody has sessions on two devices yet, and nobody can be removed or banned or reset a password yet.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/db/src/models/session.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/session.rs) · [`reference/app/models/session.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/session.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -149,7 +150,7 @@ ember-rust tests: [`reference/test/controllers/sessions_controller_test.rb`](htt
 - Before submitting, the page unsubscribes this browser from push and sends the subscription's endpoint, and the server deletes that subscription if it's the person's own.
 - The person's open connections are told to reconnect, so their other devices carry on with their own sessions; signing out still completes if they can't be disconnected.
 
-Note: "Sign out" is an item in the rail's profile menu rather than a "Log out" button on the profile page. It only makes this browser forget its token, which stays valid until it expires; other tabs stay signed in until they reload, and there's no push subscription to remove.
+Note: "Sign out" is an item in the rail's profile menu rather than a "Log out" button on the profile page, and the app shows the sign-in card rather than loading `/`. If the server can't be reached, the browser stays signed in. Open connections aren't told to reconnect yet, so the browser's other tabs carry on until they next reconnect and are sent to sign-in, and there's no push subscription to remove.
 
 Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
@@ -188,7 +189,7 @@ Sources: [`crates/views/templates/accounts/_help_contact.html`](https://github.c
 
 ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Forgery protection without tokens** (`auth.csrf`) ⬜
+**Forgery protection without tokens** (`auth.csrf`) 🟡
 
 - Writes (requests other than GET and HEAD) with `Sec-Fetch-Site: same-origin` or `same-site` are accepted; `cross-site`, `none` or any other value answers 422, changing nothing and setting no cookies.
 - Without `Sec-Fetch-Site`, a write answers 422 over HTTPS or when the app requires HTTPS; on plain HTTP it's accepted, with the `SameSite=Lax` session cookie as the protection.
@@ -196,7 +197,7 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 - Pages carry no forgery tokens, so pages left open keep working.
 - Requests authenticated with a bot key skip the check.
 
-Note: Requests here carry the session token from localStorage, in a header or the socket URL, rather than a cookie, and nothing checks `Sec-Fetch-Site` or `Origin`.
+Note: API writes are checked this way, but `Sec-Fetch-Site: same-site` is refused too: every Worker on an account's workers.dev subdomain is the same site as ours. There are no bot keys yet.
 
 Sources: [`crates/kit/src/ctx.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/ctx.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/src/helpers/forms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/forms.rs) · [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -1547,8 +1548,8 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 | Presence | `realtime.presence` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Who's here | `realtime.who-is-here` | This port | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Typing indicator | `realtime.typing` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
-| Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
-| Connection sign-in and revocation | `realtime.connection` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts) |
+| Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
+| Connection sign-in and revocation | `realtime.connection` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts) |
 | Keeping the connection alive | `realtime.keepalive` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -1604,7 +1605,7 @@ ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github
 - Deleting a room or changing someone's role disconnects nobody.
 - Nobody else's connections are touched, and a connection that authenticated just before a disconnection went out checks its session again once it's listening, so it can't slip through.
 
-Note: Room sockets need a valid token, passed in the socket's URL, and a refused socket sends the app back to sign-in when the session has expired. Tokens can't be revoked, so nothing disconnects anyone. Nothing checks an upgrade's origin, and a request to the socket's address that isn't an upgrade answers 426.
+Note: Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. Signing out disconnects nobody yet, and there's no membership, removal or ban to lose.
 
 Sources: [`crates/ember/src/channels/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/connection.rs) · [`crates/ember/src/channels/revocation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/revocation.rs) · [`crates/cable/src/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/connection.rs) · [`crates/cable/src/server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/server.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/channels/application_cable/connection.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/application_cable/connection.rb)
 

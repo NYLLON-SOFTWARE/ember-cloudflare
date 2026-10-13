@@ -32,7 +32,7 @@ export default defineConfig<MobileOptions>({
   webServer: {
     command: [
       "pnpm --filter @ember/web build",
-      `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --persist-to ../../e2e/.wrangler/state`,
+      `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --persist-to ../../e2e/.wrangler/state`,
     ].join(" && "),
     cwd: path.resolve(import.meta.dirname, ".."),
     url: `${baseURL}/api/health`,

@@ -112,6 +112,10 @@ pnpm --filter @ember/worker exec wrangler secret put SESSION_SECRET
 pnpm run deploy     # not `pnpm deploy`, which is pnpm's own command
 ```
 
+Signing in with just a name is off unless the Worker's `EMBER_GUEST_SIGN_IN` variable is `"true"`,
+and email sign-in hasn't landed yet, so for now a deploy that people should be able to use needs it
+in `vars` in `apps/worker/wrangler.jsonc`. Anyone with the link can then join.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
@@ -121,7 +125,8 @@ tab. It needs two repository secrets, and skips without them:
 - `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
 
-The first deploy makes the Worker's `SESSION_SECRET`, and later ones keep it. After each deploy,
+The first deploy makes the Worker's `SESSION_SECRET`, and later ones keep it. Until email sign-in
+lands, the preview lets anyone sign in with just a name. After each deploy,
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads, and that the API asks for sign-in. The link is on the run's summary
@@ -129,11 +134,12 @@ and under the repository's Deployments.
 
 ## Status
 
-This is the starter. Working now: sign-in by display name, open rooms from `DEFAULT_ROOMS`, live
+This is the starter. Working now: sign-in by display name (when `EMBER_GUEST_SIGN_IN` allows it)
+with a session cookie the Workspace keeps, sign-out, open rooms from `DEFAULT_ROOMS`, live
 messages with optimistic sends, edit and delete your own messages, Ember's quick and tray
 reactions, presence, typing indicators, history paging, reconnects, and the Light / Dark / System
 appearance picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 
-Next, roughly in order: real accounts and sessions (Workers + D1), a workspace directory for
+Next, roughly in order: real accounts (first-run setup, email sign-in and the join link), a workspace directory for
 creating rooms and private rooms, direct messages, unread state and the Activity filter, starred
 rooms and room order, rich text and attachments (R2), search, and Web Push.

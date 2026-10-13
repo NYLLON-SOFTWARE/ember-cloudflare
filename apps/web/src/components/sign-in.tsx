@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ArrowRight, User } from "@/components/icons/ember";
+import type { User } from "@ember/protocol";
+import { ArrowRight, User as UserIcon } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signIn, type Session } from "@/lib/api";
+import { signIn } from "@/lib/api";
 
 /** ember-rust's restrained auth card. Accounts come later; for now a name is enough. */
-export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void }) {
+export function SignIn({ onSignedIn }: { onSignedIn: (me: User) => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,7 +39,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
               Your name
             </label>
             <div className="relative">
-              <User className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
+              <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="name"
                 autoFocus

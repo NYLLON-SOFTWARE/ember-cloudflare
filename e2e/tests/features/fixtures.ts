@@ -115,12 +115,9 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
     await use({
       signIn: async (name, { path = `/rooms/${rooms.general.id}`, context: options, beforeOpen, serverRooms = false } = {}) => {
         const session = await createSession(request, name);
-        // Saved the way the app saves a session, so signing out and reloading stays signed out.
-        const context = await browser.newContext({
-          baseURL,
-          ...options,
-          storageState: { cookies: [], origins: [{ origin: baseURL!, localStorage: [{ name: "ember:session", value: JSON.stringify(session) }] }] },
-        });
+        // Given the cookie signing in gives a browser, so signing out and reloading stays signed out.
+        const context = await browser.newContext({ baseURL, ...options });
+        await context.addCookies([session.cookie]);
         contexts.push(context);
         if (!serverRooms) await showRooms(context, rooms);
         const page = await context.newPage();

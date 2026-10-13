@@ -11,6 +11,9 @@ test.describe(feature("auth.guest-sign-in"), () => {
     await page.getByRole("button", { name: "Join" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Ada Lovelace");
+    // The session's cookie is out of the page's reach, and nothing else holds it.
+    expect(await page.evaluate(() => document.cookie)).not.toContain("session_token");
+    expect(await page.evaluate(() => localStorage.getItem("ember:session"))).toBeNull();
   });
 });
 
@@ -22,8 +25,8 @@ test.describe(feature("auth.sessions"), () => {
     await expect(ada.page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Ada");
   });
 
-  test("goes back to sign-in when the saved session is no good", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("ember:session", JSON.stringify({ user: { id: "x", name: "Mallory" }, token: "forged.token" })));
+  test("goes back to sign-in when the session cookie is no good", async ({ page, baseURL }) => {
+    await page.context().addCookies([{ name: "session_token", value: "A".repeat(43), url: baseURL! }]);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Welcome to Ember" })).toBeVisible();
   });

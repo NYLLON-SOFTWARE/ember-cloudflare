@@ -6,20 +6,20 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages and boosts live in that room's Durable Object SQLite storage. With `d1`, every
-room's messages and boosts live in one D1 database. Both backends use the schema in
+each room's messages and boosts live in that room's Durable Object SQLite storage, and people and their
+sessions in the Workspace object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
 `apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
 `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages and boosts, and `workspace`
-for the workspace-wide tables to come (people, sessions, the room list). On DO SQLite, an object
+for the workspace-wide tables (people and sessions, and the room list to come). On DO SQLite, an object
 applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
-So far only messages and boosts are stored; the Workspace object has no tables yet. People sign in
-by display name, rooms come from `DEFAULT_ROOMS`, and presence and typing live in each room
+So far rooms keep messages and boosts, and the Workspace keeps `users` and `sessions`. People still
+sign in by display name, rooms come from `DEFAULT_ROOMS`, and presence and typing live in each room
 object's memory.
 
 ## Compared with ember-rust
@@ -41,6 +41,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **One round trip where there were two**
   ([`6bfee19`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/6bfee19)). A page's boosts come
   from a subquery in the same statement, so a page or a message lookup is one D1 round trip, not two.
+- **Stored sessions, refreshed hourly.** Each sign-in adds a `sessions` row with the browser and IP,
+  and a request rewrites its `last_active_at`, browser and IP at most once an hour rather than every
+  time, as ember-rust's `resume` does (`crates/ember/src/concerns.rs`). Signing out deletes the row.
 - **No unbounded lists of bound values**
   ([`a8b713a`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/a8b713a) batches inserts under
   SQLite's limit). Our limit is lower: Durable Object SQLite and D1 bind at most 100 values a
@@ -70,12 +73,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   message's `updated_at`, so a client asks for what changed since it left
   ([`57a44a9`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/57a44a9)). Our "(edited)" label
   reads `updated_at`, so it would need its own edit time first.
-- **Users in their own table, with real accounts.** We copy the sender's name into each message and
-  boost. That's fine while names can't change, but renaming someone would leave the old name on their
-  messages.
-- **Stored sessions:** a `sessions` table whose `last_active_at` is written at most once an hour,
-  not on every request. Our session tokens are signed and stored nowhere, so signing one person out
-  means changing the secret for everyone.
+- **Names from the users table.** People have their own table now, but we still copy the sender's
+  name into each message and boost. That's fine while names can't change, but renaming someone would
+  leave the old name on their messages.
 - **Unread rooms:** `memberships.unread_at`, set by one `UPDATE` per message for members who aren't
   connected. ember-rust records who's connected in `memberships.connections` and `connected_at`;
   each of our rooms is one object that already knows who's connected, so we can skip those two
@@ -91,6 +91,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   mapping. Cloudflare runs SQLite for both backends, so there's nothing for us to set.
 
 ### Ours alone
+
+- **Sessions keep a digest of their token.** ember-rust stores each session's token as it is and
+  signs the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a
+  leaked database or backup holds no live sessions; changing the secret still signs everyone out, as
+  it does there.
 
 - **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
   HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which

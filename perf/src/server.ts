@@ -142,7 +142,7 @@ export async function startServer(storage: Storage, assetsDir?: string): Promise
 
   const port = await freePort();
   const child = wrangler(
-    ["dev", "--config", config, "--port", String(port), "--ip", "127.0.0.1", "--persist-to", state, "--var", "SESSION_SECRET:perf-secret", "--log-level", "warn", "--show-interactive-dev-session=false"],
+    ["dev", "--config", config, "--port", String(port), "--ip", "127.0.0.1", "--persist-to", state, "--var", "SESSION_SECRET:perf-secret", "--var", "EMBER_GUEST_SIGN_IN:true", "--log-level", "warn", "--show-interactive-dev-session=false"],
     dir,
   );
   const output = captureOutput(child);

@@ -1,8 +1,7 @@
-import { isRoomSlug, type User } from "@ember/protocol";
+import { isRoomSlug } from "@ember/protocol";
+import { authenticate, clientOf, expiredSessionCookie, isCrossSite, isSameOriginUpgrade, newSessionToken, sessionCookie, signOut, tokenDigest } from "./auth";
 import { ROOM_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
-import { sortableId } from "./ids";
-import { issueToken, verifyToken } from "./session";
 import { workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
@@ -14,13 +13,6 @@ const HEALTH_ROOM = "_health";
 
 const json = (data: unknown, init?: ResponseInit) => Response.json(data, init);
 const problem = (status: number, message: string) => json({ error: message }, { status });
-
-async function currentUser(request: Request, env: Env): Promise<User | null> {
-  const url = new URL(request.url);
-  // Browsers can't set headers on a WebSocket handshake, so sockets pass the token as a query param.
-  const token = request.headers.get("Authorization")?.replace(/^Bearer /, "") ?? url.searchParams.get("token");
-  return token ? verifyToken(token, env.SESSION_SECRET) : null;
-}
 
 /**
  * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
@@ -38,14 +30,30 @@ async function health(env: Env): Promise<Response> {
   return json({ ok: true, storage });
 }
 
-async function createSession(request: Request, env: Env): Promise<Response> {
+/** Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it. */
+async function signInGuest(request: Request, env: Env): Promise<Response> {
+  if (env.EMBER_GUEST_SIGN_IN !== "true") return problem(403, "Signing in with just a name is turned off");
   // Any JSON value parses, null included, so don't assume an object.
   const body = (await request.json().catch(() => null)) as { name?: unknown } | null;
-  const trimmed = typeof body?.name === "string" ? body.name.trim() : "";
-  if (!trimmed || trimmed.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
 
-  const user: User = { id: sortableId(), name: trimmed };
-  return json({ user, token: await issueToken(user, env.SESSION_SECRET) }, { status: 201 });
+  const token = newSessionToken();
+  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
+}
+
+async function me(request: Request, env: Env): Promise<Response> {
+  const session = await authenticate(request, env);
+  if (!session) return problem(401, "Not signed in");
+  // Sending the cookie again whenever the session refreshes keeps it from expiring while it's in use.
+  const headers: HeadersInit = session.refreshed ? { "Set-Cookie": sessionCookie(request, session.token) } : {};
+  return json({ user: session.user }, { headers });
+}
+
+async function endSession(request: Request, env: Env): Promise<Response> {
+  await signOut(request, env);
+  return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
 function listRooms(env: Env): Response {
@@ -57,12 +65,13 @@ function listRooms(env: Env): Response {
 }
 
 async function connectToRoom(request: Request, env: Env, slug: string): Promise<Response> {
-  if (request.headers.get("Upgrade") !== "websocket") return problem(426, "Expected a WebSocket upgrade");
-  const user = await currentUser(request, env);
-  if (!user) return problem(401, "Sign in first");
+  // As with Action Cable, the address is only there for upgrades from the app's own pages.
+  if (request.headers.get("Upgrade") !== "websocket" || !isSameOriginUpgrade(request)) return problem(404, "Not found");
+  const session = await authenticate(request, env);
+  if (!session) return problem(401, "Sign in first");
 
   const headers = new Headers(request.headers);
-  headers.set(USER_HEADER, JSON.stringify(user));
+  headers.set(USER_HEADER, JSON.stringify(session.user));
   headers.set(ROOM_HEADER, slug);
   return env.CHAT_ROOM.getByName(slug).fetch(new Request(request, { headers }));
 }
@@ -72,14 +81,14 @@ export default {
     const { pathname } = new URL(request.url);
 
     if (pathname === "/api/health") return health(env);
-    if (pathname === "/api/session" && request.method === "POST") return createSession(request, env);
+    const write = request.method !== "GET" && request.method !== "HEAD";
+    if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
 
-    if (pathname === "/api/me") {
-      const user = await currentUser(request, env);
-      return user ? json({ user }) : problem(401, "Not signed in");
-    }
+    if (pathname === "/api/session" && request.method === "POST") return signInGuest(request, env);
+    if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
+    if (pathname === "/api/me") return me(request, env);
     if (pathname === "/api/rooms" && request.method === "GET") {
-      if (!(await currentUser(request, env))) return problem(401, "Not signed in");
+      if (!(await authenticate(request, env))) return problem(401, "Not signed in");
       return listRooms(env);
     }
 

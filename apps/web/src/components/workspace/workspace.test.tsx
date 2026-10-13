@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "./workspace";
 
-const session = { user: { id: "u1", name: "Ada" }, token: "t" };
+const ada = { id: "u1", name: "Ada" };
 const rooms = [
   { id: "general", name: "general", kind: "open" },
   { id: "random", name: "random", kind: "open" },
@@ -18,10 +18,11 @@ class QuietSocket {
   close() {}
 }
 
-function showWorkspace(path = "/", onSignOut = vi.fn()) {
+function showWorkspace(path = "/") {
+  const [onSignOut, onSessionExpired] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  render(<Workspace session={session} onSignOut={onSignOut} />);
-  return { onSignOut, user: userEvent.setup() };
+  render(<Workspace me={ada} onSignOut={onSignOut} onSessionExpired={onSessionExpired} />);
+  return { onSignOut, onSessionExpired, user: userEvent.setup() };
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
@@ -61,10 +62,12 @@ describe(feature("sidebar.rooms"), () => {
 });
 
 describe(feature("auth.sessions"), () => {
-  it("signs out when the server no longer accepts the session", async () => {
+  it("goes back to sign-in when the server no longer accepts the session", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
-    const { onSignOut } = showWorkspace();
-    await waitFor(() => expect(onSignOut).toHaveBeenCalled());
+    const { onSignOut, onSessionExpired } = showWorkspace();
+    await waitFor(() => expect(onSessionExpired).toHaveBeenCalled());
+    // The session is already gone, so there's nothing to sign out of.
+    expect(onSignOut).not.toHaveBeenCalled();
   });
 });
 

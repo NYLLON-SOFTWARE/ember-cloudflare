@@ -1,16 +1,40 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { User } from "@ember/protocol";
 import { SignIn } from "@/components/sign-in";
 import { Workspace } from "@/components/workspace/workspace";
-import { loadSession, saveSession, type Session } from "@/lib/api";
+import { ApiError, fetchMe, forgetStoredSession, signOut } from "@/lib/api";
+
+const MAX_RETRY_MS = 15_000;
 
 export function App() {
-  const [session, setSession] = useState<Session | null>(loadSession);
+  // Undefined until the server says who this browser is signed in as, if anyone.
+  const [me, setMe] = useState<User | null>();
 
-  const update = useCallback((next: Session | null) => {
-    saveSession(next);
-    setSession(next);
+  useEffect(() => {
+    forgetStoredSession();
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const ask = (attempt: number) =>
+      fetchMe().then(
+        (user) => !stopped && setMe(user),
+        (error) => {
+          if (stopped) return;
+          if (error instanceof ApiError && error.status === 401) return setMe(null);
+          // Being offline, say, tells us nothing about the session, so ask again.
+          retry = setTimeout(() => void ask(attempt + 1), Math.min(MAX_RETRY_MS, 1_000 * 2 ** attempt));
+        },
+      );
+    void ask(0);
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+    };
   }, []);
-  const signOut = useCallback(() => update(null), [update]);
 
-  return session ? <Workspace session={session} onSignOut={signOut} /> : <SignIn onSignedIn={update} />;
+  const signedOut = useCallback(() => setMe(null), []);
+  // As in ember-rust, a sign-out that doesn't reach the server leaves this browser signed in.
+  const signOutHere = useCallback(() => void signOut().then(signedOut, () => {}), [signedOut]);
+
+  if (me === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
+  return me ? <Workspace me={me} onSignOut={signOutHere} onSessionExpired={signedOut} /> : <SignIn onSignedIn={setMe} />;
 }

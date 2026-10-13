@@ -72,7 +72,8 @@ export const features = [
     status: "ported",
     behaviors: [
       "The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.",
-      "`POST /api/session` answers 201 with a new person and a signed token, or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.",
+      "`POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.",
+      "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`. The tests and load tests turn it on, and so does the preview until email sign-in is ported.",
       "This stands in for accounts until `auth.first-run`, `auth.sign-in` and `auth.sign-up` are ported.",
     ],
     sources: [],
@@ -103,7 +104,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/app/tests.rs"],
-    notes: "The API answers 401 without a valid token, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. Nothing can revoke a token, so only a missing, forged or expired one counts as signed out, and there are no join links.",
+    notes: "The API answers 401 without a valid session cookie, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.",
   },
   {
     id: "auth.sessions",
@@ -117,7 +118,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/db/src/models/session.rs", "reference/app/models/session.rb", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["reference/test/controllers/sessions_controller_test.rb", "reference/test/models/user_test.rb", "crates/db/src/tests/callbacks_test.rs", "crates/db/src/tests/user_test.rs"],
-    notes: "Sessions here are signed tokens kept in localStorage, which expire 30 days after sign-in however active the person is. The server keeps no record of them, or of the browser and IP, so nothing can end one early, and signing in again makes a new person rather than a second session.",
+    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. Each guest sign-in is someone new, so nobody has sessions on two devices yet, and nobody can be removed or banned or reset a password yet.",
   },
   {
     id: "auth.sign-out",
@@ -131,7 +132,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions.rs", "crates/ember/src/concerns.rs", "crates/views/templates/users/profiles/show.html", "reference/app/javascript/controllers/sessions_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "\"Sign out\" is an item in the rail's profile menu rather than a \"Log out\" button on the profile page. It only makes this browser forget its token, which stays valid until it expires; other tabs stay signed in until they reload, and there's no push subscription to remove.",
+    notes: "\"Sign out\" is an item in the rail's profile menu rather than a \"Log out\" button on the profile page, and the app shows the sign-in card rather than loading `/`. If the server can't be reached, the browser stays signed in. Open connections aren't told to reconnect yet, so the browser's other tabs carry on until they next reconnect and are sent to sign-in, and there's no push subscription to remove.",
   },
   {
     id: "auth.sign-in-link",
@@ -179,7 +180,7 @@ export const features = [
     id: "auth.csrf",
     title: "Forgery protection without tokens",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Writes (requests other than GET and HEAD) with `Sec-Fetch-Site: same-origin` or `same-site` are accepted; `cross-site`, `none` or any other value answers 422, changing nothing and setting no cookies.",
       "Without `Sec-Fetch-Site`, a write answers 422 over HTTPS or when the app requires HTTPS; on plain HTTP it's accepted, with the `SameSite=Lax` session cookie as the protection.",
@@ -189,7 +190,7 @@ export const features = [
     ],
     sources: ["crates/kit/src/ctx.rs", "crates/ember/src/concerns.rs", "crates/views/src/helpers/forms.rs", "README.md", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/kit/tests/http.rs", "crates/ember/src/app/tests.rs", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "Requests here carry the session token from localStorage, in a header or the socket URL, rather than a cookie, and nothing checks `Sec-Fetch-Site` or `Origin`.",
+    notes: "API writes are checked this way, but `Sec-Fetch-Site: same-site` is refused too: every Worker on an account's workers.dev subdomain is the same site as ours. There are no bot keys yet.",
   },
 
   // Workspace administration
@@ -1684,7 +1685,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/connection.rs", "crates/ember/src/channels/revocation.rs", "crates/cable/src/connection.rs", "crates/cable/src/server.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/user.rs", "crates/ember/src/concerns.rs", "reference/app/channels/application_cable/connection.rb"],
     upstreamTests: ["reference/test/channels/application_cable/connection_test.rb", "crates/ember/src/channels/tests/revocation_test.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/cable/tests/protocol.rs"],
-    notes: "Room sockets need a valid token, passed in the socket's URL, and a refused socket sends the app back to sign-in when the session has expired. Tokens can't be revoked, so nothing disconnects anyone. Nothing checks an upgrade's origin, and a request to the socket's address that isn't an upgrade answers 426.",
+    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. Signing out disconnects nobody yet, and there's no membership, removal or ban to lose.",
   },
   {
     id: "realtime.keepalive",

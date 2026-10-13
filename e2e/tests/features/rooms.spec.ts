@@ -4,7 +4,7 @@ import { expect, test } from "./fixtures";
 test.describe(feature("sidebar.rooms"), () => {
   test("lists the rooms the server has", async ({ members }) => {
     const ada = await members.signIn("Ada", { path: "/", serverRooms: true });
-    const response = await ada.page.request.get("/api/rooms", { headers: { authorization: `Bearer ${ada.session.token}` } });
+    const response = await ada.page.request.get("/api/rooms");
     const { rooms } = (await response.json()) as { rooms: { name: string }[] };
     expect(rooms.length).toBeGreaterThan(0);
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(rooms.map((room) => `#${room.name}`));

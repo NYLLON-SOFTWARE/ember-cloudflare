@@ -19,11 +19,8 @@ export function launchChrome(): Promise<Browser> {
   });
 }
 
-/**
- * Signs the page in the way the app remembers a session, by visiting a JSON endpoint on the same
- * origin rather than the app itself, so the app's assets stay out of the HTTP cache.
- */
+/** Signs the page in by giving its browser the session's cookie, without loading the app. */
 export async function signInPage(page: Page, origin: string, session: Session): Promise<void> {
-  await page.goto(new URL("/api/health", origin).href);
-  await page.evaluate((value) => localStorage.setItem("ember:session", value), JSON.stringify(session));
+  const [name, value] = session.cookie.split("=") as [string, string];
+  await page.browserContext().setCookie({ name, value, domain: new URL(origin).hostname, path: "/", httpOnly: true, sameSite: "Lax" });
 }

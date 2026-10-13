@@ -262,10 +262,10 @@ describe(feature("messages.history"), () => {
   it("gives someone joining mid-conversation every message exactly once, snapshot first", async () => {
     const room = freshRoom("joining");
     const ada = await connect(room, "Ada");
-    const { token } = await signIn("Grace");
+    const session = await signIn("Grace");
 
     // Ada keeps talking while Grace's socket loads its snapshot.
-    const joining = connect(room, { token });
+    const joining = connect(room, session);
     const bodies = Array.from({ length: 10 }, (_, i) => `joining ${i}`);
     for (const [i, body] of bodies.entries()) {
       ada.send({ type: "message.create", clientMessageId: `j${i}`, body });

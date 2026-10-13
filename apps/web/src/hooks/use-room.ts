@@ -9,7 +9,7 @@ const TYPING_RESEND_MS = 3_000;
 const MAX_BACKOFF_MS = 15_000;
 
 /** One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object. */
-export function useRoom(roomId: string, token: string, me: User, onSessionExpired: () => void) {
+export function useRoom(roomId: string, me: User, onSessionExpired: () => void) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const socket = useRef<WebSocket | null>(null);
   const lastTypingSent = useRef(0);
@@ -43,7 +43,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
 
     const open = () => {
       dispatch({ type: "status", status: attempt === 0 ? "connecting" : "reconnecting" });
-      const ws = new WebSocket(roomSocketUrl(roomId, token));
+      const ws = new WebSocket(roomSocketUrl(roomId));
       socket.current = ws;
       let opened = false;
       let unanswered = false;
@@ -74,7 +74,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
         if (closed) return;
         // A refused upgrade looks like any other failure, so ask whether the session has expired. An
         // answer that comes after the room closed may be about a session that has since been replaced.
-        if (!opened) void fetchMe(token).catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionExpired());
+        if (!opened) void fetchMe().catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionExpired());
         reconnect();
       };
     };
@@ -91,7 +91,7 @@ export function useRoom(roomId: string, token: string, me: User, onSessionExpire
       socket.current?.close(1000);
       socket.current = null;
     };
-  }, [roomId, token]);
+  }, [roomId]);
 
   const send = useCallback((frame: ClientFrame) => {
     const ws = socket.current;

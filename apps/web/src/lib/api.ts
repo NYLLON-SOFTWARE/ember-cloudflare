@@ -1,33 +1,12 @@
 import type { User } from "@ember/protocol";
 
+// The session lives in an HttpOnly cookie, which the browser sends with every request and room
+// socket, so nothing here handles a token.
+
 export interface Room {
   id: string;
   name: string;
   kind: "open" | "closed" | "direct";
-}
-
-export interface Session {
-  user: User;
-  token: string;
-}
-
-const SESSION_KEY = "ember:session";
-
-export function loadSession(): Session | null {
-  try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as Session | null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveSession(session: Session | null): void {
-  try {
-    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else localStorage.removeItem(SESSION_KEY);
-  } catch {
-    // Private windows can refuse storage; the session then lasts for this tab only.
-  }
 }
 
 export class ApiError extends Error {
@@ -39,9 +18,8 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.token) headers.set("Authorization", `Bearer ${init.token}`);
   if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { ...init, headers });
   const data = (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -49,21 +27,36 @@ async function request<T>(path: string, init: RequestInit & { token?: string } =
   return data;
 }
 
-export function signIn(name: string): Promise<Session> {
-  return request<Session>("/api/session", { method: "POST", body: JSON.stringify({ name }) });
+/** Signs in with just a name, as someone new. */
+export async function signIn(name: string): Promise<User> {
+  return (await request<{ user: User }>("/api/session", { method: "POST", body: JSON.stringify({ name }) })).user;
 }
 
-export async function fetchMe(token: string): Promise<User> {
-  return (await request<{ user: User }>("/api/me", { token })).user;
+/** Ends this browser's session. */
+export async function signOut(): Promise<void> {
+  await request("/api/session", { method: "DELETE" });
 }
 
-export async function fetchRooms(token: string): Promise<Room[]> {
-  return (await request<{ rooms: Room[] }>("/api/rooms", { token })).rooms;
+/** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
+export async function fetchMe(): Promise<User> {
+  return (await request<{ user: User }>("/api/me")).user;
 }
 
-export function roomSocketUrl(roomId: string, token: string): string {
+export async function fetchRooms(): Promise<Room[]> {
+  return (await request<{ rooms: Room[] }>("/api/rooms")).rooms;
+}
+
+export function roomSocketUrl(roomId: string): string {
   const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("token", token);
   return url.toString();
+}
+
+/** Forgets the session earlier versions of the app kept in localStorage, which nothing reads now. */
+export function forgetStoredSession(): void {
+  try {
+    localStorage.removeItem("ember:session");
+  } catch {
+    // Private windows can refuse storage, and then there's nothing to forget.
+  }
 }

@@ -11,7 +11,7 @@ const backend = (name: "do-sqlite" | "d1") => ({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
-        bindings: { SESSION_SECRET: "test-secret", STORAGE_BACKEND: name, TEST_MIGRATIONS: migrations },
+        bindings: { SESSION_SECRET: "test-secret", STORAGE_BACKEND: name, EMBER_GUEST_SIGN_IN: "true", TEST_MIGRATIONS: migrations },
         d1Databases: name === "d1" ? ["DB"] : [],
       },
     }),

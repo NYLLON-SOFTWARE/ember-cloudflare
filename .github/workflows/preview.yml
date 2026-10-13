@@ -64,7 +64,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
         run: |
-          pnpm exec wrangler deploy --name "$WORKER_NAME"
+          # Until email sign-in lands, the preview lets anyone sign in with just a name.
+          pnpm exec wrangler deploy --name "$WORKER_NAME" --var EMBER_GUEST_SIGN_IN:true
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"
@@ -73,9 +74,9 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
 
-          # Sessions are signed with SESSION_SECRET, so the first deploy makes one and later ones keep
-          # it. The Worker exists by now, so failing to list its secrets stops here rather than
-          # replacing a secret that may be there.
+          # Sessions are stored keyed with SESSION_SECRET, so changing it would sign everyone out: the
+          # first deploy makes one and later ones keep it. The Worker exists by now, so failing to list
+          # its secrets stops here rather than replacing a secret that may be there.
           secrets=$(pnpm exec wrangler secret list --name "$WORKER_NAME")
           has_secret=$(jq 'any(.[]; .name == "SESSION_SECRET")' <<< "$secrets")
           if [ "$has_secret" = false ]; then

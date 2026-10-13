@@ -75,7 +75,7 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
 
 /** Ada in #general, connected unless asked not to be. */
 function joinGeneral({ connect = true, messages = [] as Message[], hasMore = false, onSessionExpired = () => {} } = {}) {
-  const hook = renderHook(() => useRoom("general", "secret-token", ada, onSessionExpired));
+  const hook = renderHook(() => useRoom("general", ada, onSessionExpired));
   if (connect) {
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages, present: [ada], hasMore });
@@ -100,10 +100,9 @@ afterEach(() => {
 });
 
 describe(feature("realtime.reconnect"), () => {
-  it("opens the room's socket with the session token", () => {
+  it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    const url = new URL(socket().url);
-    expect([url.protocol, url.pathname, url.searchParams.get("token")]).toEqual(["ws:", "/api/rooms/general/socket", "secret-token"]);
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -283,10 +282,10 @@ describe(feature("realtime.connection"), () => {
     const live = vi.fn();
 
     // The user signs out and back in while the first check is still waiting.
-    const first = renderHook(() => useRoom("general", "old", ada, stale));
+    const first = renderHook(() => useRoom("general", ada, stale));
     await act(async () => socket().onclose?.());
     first.unmount();
-    renderHook(() => useRoom("general", "new", ada, live));
+    renderHook(() => useRoom("general", ada, live));
     await act(async () => socket().onclose?.());
 
     // Both checks answer, the old one first; only the live room acts on its answer.

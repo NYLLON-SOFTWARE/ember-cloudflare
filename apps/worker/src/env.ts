@@ -13,4 +13,6 @@ export interface Env {
   /** Comma-separated room slugs shown in every sidebar. */
   DEFAULT_ROOMS: string;
   SESSION_SECRET: string;
+  /** "true" lets anyone sign in with just a name, for tests and demos. Leave it unset otherwise. */
+  EMBER_GUEST_SIGN_IN?: string;
 }
