@@ -31,5 +31,9 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
 - `pnpm perf` load-tests the Worker and the web app (`perf/README.md`). When a change touches
   broadcasts, presence, storage queries or the message timeline, run `pnpm perf --quick` before and
   after it and check the two with `pnpm perf compare`.
+- `.claude/skills/` holds Cloudflare's, Vercel's and Addy Osmani's agent skills, copied unmodified:
+  refresh them with the commands in its README rather than editing them.
+  `vercel-react-best-practices` is written for Next.js, so skip its `server-*` rules and SWR advice,
+  and use `React.lazy` where it suggests `next/dynamic`.
 - Write code that reads like the surrounding code: small, clearly named functions, and comments
   only where the behavior is non-obvious.
