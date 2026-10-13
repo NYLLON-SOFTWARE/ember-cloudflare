@@ -78,8 +78,9 @@ suite started with are in `perf/baseline/report.md`.
   uncomment the `d1_databases` block, set `STORAGE_BACKEND` to `"d1"`, and apply
   `apps/worker/migrations/` with `pnpm --filter @ember/worker d1:migrate:local` (or `--remote`).
 
-Both use the same schema (`apps/worker/migrations/0001_messages.sql`) and the same queries
-(`apps/worker/src/store.ts`); only the driver differs.
+Both use the same schema (`apps/worker/migrations/`) and the same queries
+(`apps/worker/src/store.ts`); only the driver differs. [`docs/database.md`](docs/database.md)
+compares them with ember-rust's database.
 
 ## Deploying
 
