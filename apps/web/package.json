@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@ember/protocol": "workspace:*",
+    "@ember/richtext": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "highlight.js": "11.9.0",
     "lucide-react": "1.53.0",
     "radix-ui": "^1.8.0",
     "react": "^19.3.0",

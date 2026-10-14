@@ -1,5 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
+import { bodyFromPlainText, displayBody, isAllEmoji } from "@ember/richtext/dom";
 import { Trash } from "@/components/icons/campfire";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { sendsMessage } from "@/lib/keyboard";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
+import { MessageBody } from "./message-body";
 import { UserAvatar } from "./user-avatar";
 
 export interface MessageActions {
@@ -48,6 +50,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
   const mentioned = !mine && mentions(message.body, me.name);
+  // Messages are still plain text, which shows as the paragraph Lexxy would have sent for it.
+  const shown = useMemo(() => displayBody(bodyFromPlainText(message.body)), [message.body]);
+  const allEmoji = isAllEmoji(message.body);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.updatedAt !== message.createdAt && <span className="text-xs text-message-muted">(edited)</span>;
 
@@ -218,7 +223,14 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         <UserAvatar user={message.creator} square className="mt-0 size-9 max-md:size-[30px]" />
       )}
 
-      <div className={cn("min-w-0 py-1", threaded && "[@media(hover:none)]:pr-8", mentioned && "border-l-2 border-mention bg-mention/10 pl-2")}>
+      <div
+        className={cn(
+          "min-w-0",
+          allEmoji ? "py-0" : "py-1",
+          threaded && "[@media(hover:none)]:pr-8",
+          mentioned && "border-l-2 border-mention bg-mention/10 pl-2",
+        )}
+      >
         {!threaded && (
           <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
             <strong className="font-bold text-message-ink">{message.creator.name}</strong>
@@ -262,11 +274,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             </div>
           </form>
         ) : (
-          <p className="text-[15px] leading-[22px] break-words whitespace-pre-wrap text-message-ink">
-            {message.body}
-            {/* A grouped message has no header, so its mark follows the text. */}
-            {threaded && edited && <>{" "}{edited}</>}
-          </p>
+          // A grouped message has no header, so its mark follows the text.
+          <MessageBody nodes={shown} emoji={allEmoji} trailing={(threaded && edited) || undefined} />
         )}
 
         {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}

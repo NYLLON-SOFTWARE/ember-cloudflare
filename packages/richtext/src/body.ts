@@ -4,10 +4,13 @@
 import { RenderError, type MentionUser, type ResolveMention } from "./attachments";
 import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
+import { displayBody } from "./display";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { mentionedUsers, userIdsIn, usersAttached } from "./mentions";
 import { canonicalize } from "./render";
 import { isBlank } from "./ruby";
+import { toHtml } from "./serialize";
+import { append, createElement, createText } from "./tree";
 
 /**
  * A body as Ember keeps it. Everything but `html` is read from `html`, so it matches what shows,
@@ -48,6 +51,19 @@ export function prepareBody(parse: HtmlParser, markup: string, resolve: ResolveM
   }
 }
 
+/**
+ * The stored form of plain text: one paragraph, its line breaks `<br>`, as Lexxy sends text typed
+ * into it. It's already in the form `prepareBody` stores.
+ */
+export function bodyFromPlainText(text: string): string {
+  const paragraph = createElement("p");
+  text.split(/\r\n?|\n/).forEach((line, index) => {
+    if (index > 0) append(paragraph, createElement("br"));
+    if (line !== "") append(paragraph, createText(line));
+  });
+  return toHtml(paragraph, { escapeAttributeBrackets: true });
+}
+
 /** The package's functions over one parser: parse5 in the Worker, the DOM's in a browser. */
 export function withParser(parse: HtmlParser) {
   return {
@@ -56,5 +72,6 @@ export function withParser(parse: HtmlParser) {
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
     autoLink: (html: string) => autoLink(parse, html),
+    displayBody: (html: string) => displayBody(parse, html),
   };
 }

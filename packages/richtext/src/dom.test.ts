@@ -4,6 +4,7 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { prepareBody } from "./body";
+import { displayBody } from "./display";
 import { parseDom } from "./dom";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { parseHtml } from "./parse";
@@ -15,6 +16,10 @@ import { corpus, corpusUser, railsMentionPartial, railsUser } from "./testing/co
 const readings: Record<string, (parse: HtmlParser, body: string) => unknown> = {
   presentation: (parse, body) => autoLink(parse, presentMessage(parse, body, railsUser, railsMentionPartial)),
   "prepared body": (parse, body) => prepareBody(parse, body, corpusUser),
+  "prepared body as it shows": (parse, body) => {
+    const prepared = prepareBody(parse, body, corpusUser);
+    return prepared && displayBody(parse, prepared.html);
+  },
 };
 
 function outcome(read: () => unknown): string {

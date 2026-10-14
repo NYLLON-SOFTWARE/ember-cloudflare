@@ -138,6 +138,49 @@ test.describe(feature("messages.layout"), () => {
   });
 });
 
+test.describe(feature("messages.rich-text"), () => {
+  test("shows each line of a message on a line of its own", async ({ members, participant }) => {
+    await (await participant("Grace")).say("First line\nSecond line");
+    const ada = await members.signIn("Ada");
+    const paragraph = ada.message("First line").locator(".message-content p");
+    await expect(paragraph).toHaveCount(1);
+    expect(await paragraph.evaluate((p) => (p as HTMLElement).innerText)).toBe("First line\nSecond line");
+    expect((await box(paragraph)).height).toBe(44);
+  });
+});
+
+test.describe(feature("messages.autolink"), () => {
+  test("links addresses, opening other sites in a new tab and this site's pages in place", async ({ members, rooms, baseURL }) => {
+    const ada = await members.signIn("Ada");
+    const random = `${baseURL}/rooms/${rooms.random.id}`;
+    await ada.send(`Read https://example.com/docs, then ${random}`);
+    const message = ada.message("Read https://example.com/docs");
+    const external = message.getByRole("link", { name: "https://example.com/docs" });
+    await expect(external).toHaveAttribute("href", "https://example.com/docs");
+    await expect(external).toHaveAttribute("target", "_blank");
+    await expect(external).toHaveCSS("text-decoration-line", "underline");
+
+    // A page load would forget this.
+    await ada.page.evaluate(() => Object.assign(window, { stayed: true }));
+    await message.getByRole("link", { name: random }).click();
+    await expect(ada.page).toHaveURL(random);
+    await expect(ada.page.getByRole("log", { name: `Messages in ${rooms.random.name}` })).toBeVisible();
+    expect(await ada.page.evaluate(() => "stayed" in window)).toBe(true);
+  });
+});
+
+test.describe(feature("messages.emoji-only"), () => {
+  test("shows a message of nothing but emoji large", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    await grace.say("😄🤘");
+    await grace.say("Haha! 😄🤘");
+    const ada = await members.signIn("Ada");
+    const content = (text: RegExp) => ada.page.locator(".message-content").filter({ hasText: text });
+    await expect(content(/^😄🤘$/)).toHaveCSS("font-size", "33.6px");
+    await expect(content(/^Haha! 😄🤘$/)).toHaveCSS("font-size", "15px");
+  });
+});
+
 test.describe(feature("messages.follow-up-times"), () => {
   test("shows a follow-up's time only on hover or focus, and always shows the first message's", async ({ members, participant }) => {
     const grace = await participant("Grace");
