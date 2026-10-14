@@ -64,3 +64,37 @@ describe(feature("users.avatars"), () => {
     expect(result.current.people).toBe(people);
   });
 });
+
+describe(feature("accounts.roles"), () => {
+  it("changes someone as the workspace socket or a change made here says they are now", async () => {
+    const { result } = renderHook(() => useDirectory());
+    await reload(result);
+    act(() => result.current.update({ ...ada, role: "member" }));
+    expect(result.current.people.get("u1")).toEqual({ ...ada, role: "member" });
+  });
+
+  it("keeps a change that comes while a load is on its way, which may have read them before it", async () => {
+    server.users = [ada, grace];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.mocked(fetch).mockImplementationOnce(async (input, init) => {
+      await held;
+      return answer(input, init);
+    });
+    const { result } = renderHook(() => useDirectory());
+    let loaded!: Promise<void>;
+    act(() => void (loaded = result.current.reload()));
+    act(() => result.current.update({ ...grace, role: "administrator" }));
+    await act(async () => {
+      release();
+      await loaded;
+    });
+    expect(result.current.people.get("u2")).toEqual({ ...grace, role: "administrator" });
+    expect(result.current.people.get("u1")).toEqual(ada);
+
+    // The next load takes them as the server has them.
+    Object.assign(server, { users: [ada, { ...grace, role: "member" }], version: 2 });
+    await reload(result);
+    expect(result.current.people.get("u2")).toEqual(grace);
+  });
+});

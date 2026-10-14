@@ -5,12 +5,14 @@ import {
   parseWorkspaceClientFrame,
   type Account,
   type AccountChanges,
+  type DirectoryUser,
   type HelpContact,
   type Me,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type PersonRole,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -21,6 +23,7 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { directoryOf } from "./avatar-tokens";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -131,8 +134,10 @@ export class Workspace extends DurableObject<Env> {
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
   private accountChanges = 0;
-  /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
+  /** The help contact, the first administrator, once read. First run sets it, and changing a role forgets it. */
   private knownHelpContact: HelpContact | null | undefined;
+  /** Counts the starts and ends of changes to roles, so a help contact read that overlapped one isn't kept. */
+  private roleChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
@@ -187,6 +192,18 @@ export class Workspace extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     ws.close(RESERVED_CLOSE_CODES.has(code) ? 1000 : code, "Closing");
+  }
+
+  /** Sends `frame` on every workspace socket, written out once for them all. */
+  private broadcast(frame: WorkspaceServerFrame): void {
+    const data = JSON.stringify(frame);
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.send(data);
+      } catch {
+        // It has closed since, and its close handler has nothing to clean up.
+      }
+    }
   }
 
   /** Closes the workspace sockets tagged `tag`, with `code`. */
@@ -294,12 +311,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async helpContact(): Promise<HelpContact | null> {
-    if (this.knownHelpContact === undefined) {
-      const contact = await this.store.helpContact();
-      // On D1, first run can finish while this reads, and what it found is newer.
-      this.knownHelpContact ??= contact;
-    }
-    return this.knownHelpContact;
+    if (this.knownHelpContact !== undefined) return this.knownHelpContact;
+    const changes = this.roleChanges;
+    const contact = await this.store.helpContact();
+    // On D1, first run can finish while this reads, and what it found is newer.
+    if (changes === this.roleChanges) this.knownHelpContact ??= contact;
+    return this.knownHelpContact ?? contact;
   }
 
   /**
@@ -474,6 +491,55 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return (await this.store.avatarOwner(userId)) ?? "not found";
+  }
+
+  /**
+   * Makes the active person `userId` an administrator or a member as the person `credentials` signs
+   * in, as ember-rust's `accounts/users#update` does, answering them as the people directory then lists
+   * them: "forbidden" unless that's an administrator, "not found" unless `userId` is someone active, or
+   * null without a valid session. A null `role` changes nothing, once that's checked. Unlike
+   * ember-rust, which leaves it to the page, nobody can change their own role ("own role"), so there's
+   * always an administrator, or a bot's ("bot"). Everyone's workspace sockets hear of a change.
+   */
+  async changeRole(
+    credentials: Credentials,
+    userId: UserId,
+    role: PersonRole | null,
+  ): Promise<DirectoryUser | "forbidden" | "not found" | "own role" | "bot" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const person = await this.store.activePerson(userId);
+      if (!person) return "not found";
+      if (role === null) return this.directoryUser(person);
+      if (userId === user.id) return "own role";
+      if (person.role === "bot") return "bot";
+      // As ember-rust's `User#update` writes only what differs (user.rs).
+      if (role === person.role) return this.directoryUser(person);
+
+      const now = new Date().toISOString();
+      const changed = await this.directoryUser({ ...person, role, updatedAt: now });
+      this.roleChanges++;
+      try {
+        // Their sessions are read again, so their next welcome says what they are now.
+        await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.changeRole(userId, role, now),
+        );
+      } finally {
+        this.roleChanges++;
+        // The first administrator, who may be someone else now.
+        this.knownHelpContact = undefined;
+      }
+      this.broadcast({ type: "user.updated", user: changed });
+      return changed;
+    });
+  }
+
+  /** Someone as the people directory lists them, with their avatar's address. */
+  private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;
   }
 
   /**

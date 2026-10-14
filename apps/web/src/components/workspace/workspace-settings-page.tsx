@@ -1,23 +1,26 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { MAX_ACCOUNT_NAME_LENGTH, type Account, type WorkspaceSettings } from "@ember/protocol";
+import { useCallback, useContext, useEffect, useState, type FormEvent } from "react";
+import { MAX_ACCOUNT_NAME_LENGTH, type Account, type DirectoryUser, type Me, type PersonRole, type WorkspaceSettings } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Add } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { Version } from "@/components/version";
+import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAccount, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
+import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { InviteLink } from "./invite-link";
+import { PeopleList } from "./people-list";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
 export const CHANGES_SAVED = "Changes saved.";
 
 interface Props {
+  me: Me;
   /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
   back: string;
   /** This deployment's version, which the page ends with. */
@@ -26,6 +29,10 @@ interface Props {
   onAccountChanged: (account: Account) => void;
   /** Called with the join link's code as the page loads or regenerates it, for the welcome card to show. */
   onJoinCodeChanged: (joinCode: string) => void;
+  /** Loads the people directory again, which the page lists people from, as the page loads. */
+  reloadPeople: () => void;
+  /** Called with someone as the page changes them, for the people directory to show. */
+  onPersonChanged: (person: DirectoryUser) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -33,17 +40,24 @@ interface Props {
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
  * the workspace and members see its name, then everyone gets the Rooms section with New room, the join
- * link, which administrators can regenerate, and "Ember™ version" at the foot.
+ * link, which administrators can regenerate, the people, whom administrators can make administrators or
+ * members, and "Ember™ version" at the foot.
  */
-export function WorkspaceSettingsPage({ back, version, onAccountChanged, onJoinCodeChanged, onFailed }: Props) {
+export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const people = useContext(PeopleContext);
   const flash = useFlash();
   const mounted = useMounted();
   useTitle("Account settings");
 
+  // As ember-rust lists everyone as the page loads, rather than as the directory last loaded.
+  useEffect(() => void reloadPeople(), [reloadPeople]);
+
+  // Loaded again when someone makes them an administrator or a member, which changes what they can do here.
+  const administrator = me.administrator;
   useEffect(() => {
     let stopped = false;
     fetchWorkspaceSettings().then(
@@ -60,7 +74,7 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onJoinC
       },
     );
     return () => void (stopped = true);
-  }, [onAccountChanged, onJoinCodeChanged, onFailed]);
+  }, [administrator, onAccountChanged, onJoinCodeChanged, onFailed]);
 
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -98,6 +112,15 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onJoinC
       },
     );
   };
+
+  // As ember-rust's crowns do: no notice after.
+  const changeRoleOf = useCallback(
+    (person: DirectoryUser, role: PersonRole) =>
+      changeRole(person.id, role).then(onPersonChanged, (error: unknown) => {
+        if (mounted.current || isSignedOut(error)) onFailed(error);
+      }),
+    [onPersonChanged, onFailed, mounted],
+  );
 
   return (
     <SettingsPage back={back}>
@@ -139,10 +162,15 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onJoinC
             </PageLink>
           </div>
         </section>
-        {/* ember-rust's box holds the people list too, under the link (accounts/edit.html). */}
+        {/* ember-rust's box holds the people too, under the link (accounts/edit.html). */}
         {settings && (
-          <div className="my-4 rounded-[10px] border bg-surface px-[1ch] py-4">
+          <div className="my-4 rounded-[10px] border bg-surface px-[1ch] pt-4">
             <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+            <hr className="my-4 w-full" />
+            <h2 id="people-heading" className="mb-3 text-base font-semibold">
+              People
+            </h2>
+            <PeopleList people={people} myId={me.id} onChangeRole={settings.canAdminister ? changeRoleOf : undefined} aria-labelledby="people-heading" />
           </div>
         )}
       </Panel>

@@ -2,7 +2,8 @@ import type { Room, RoomId, Sidebar, SidebarRoom } from "@ember/protocol";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists them by name, as ember-rust's does (membership.rs), compared as
-// SQLite's NOCASE compares it, folding only ASCII letters, then by id.
+// SQLite's NOCASE compares it, folding only ASCII letters, then by id. Workspace settings list people
+// the same way, as ember-rust's `LOWER(name)` does (presenters/accounts.rs).
 
 const folded = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
@@ -17,12 +18,12 @@ function compare(x: number[], y: number[]): number {
   return x.length - y.length;
 }
 
-/** `rooms` in the sidebar's order, by name, each name and id read once rather than at every comparison. */
-export function byName<T extends Room>(rooms: T[]): T[] {
-  return rooms
-    .map((room) => ({ room, name: codePoints(folded(room.name)), id: codePoints(room.id) }))
+/** Rooms or people in the sidebar's order, by name, each name and id read once rather than at every comparison. */
+export function byName<T extends { id: string; name: string }>(named: T[]): T[] {
+  return named
+    .map((item) => ({ item, name: codePoints(folded(item.name)), id: codePoints(item.id) }))
     .sort((a, b) => compare(a.name, b.name) || compare(a.id, b.id))
-    .map(({ room }) => room);
+    .map(({ item }) => item);
 }
 
 /**

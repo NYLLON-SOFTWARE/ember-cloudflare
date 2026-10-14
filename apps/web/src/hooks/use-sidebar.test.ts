@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
@@ -196,7 +196,7 @@ describe(feature("sidebar.live-updates"), () => {
 
   it("says each time it loads again by itself, for the people directory to load again too", async () => {
     const onReload = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, onReload));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
     await settle();
     expect(onReload).toHaveBeenCalledOnce();
     socket().connect();
@@ -242,6 +242,58 @@ describe(feature("sidebar.unread"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  /** Someone as the directory lists them. */
+  const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
+
+  /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
+  async function connected() {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: () => {}, update }));
+    await settle();
+    socket().connect();
+    await settle();
+    return { onSessionChanged, update };
+  }
+
+  it("changes whoever the workspace socket says has changed in the people directory", async () => {
+    const { onSessionChanged, update } = await connected();
+    const promoted = listed(grace, "administrator");
+    socket().receive({ type: "user.updated", user: promoted });
+    expect(update).toHaveBeenCalledWith(promoted);
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says when the person signed in has been made an administrator, or a member again", async () => {
+    const { onSessionChanged, update } = await connected();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    expect(update).toHaveBeenCalledWith(listed(ada, "administrator"));
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The hook still has Ada as a member, as the page would until it took the change.
+    onSessionChanged.mockClear();
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says when the welcome finds the person signed in has changed since the page loaded", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect({ ...ada, administrator: true });
+    expect(onSessionChanged).toHaveBeenCalledWith({ ...ada, administrator: true });
+    expect(socket().closedWith).toBeUndefined();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+  });
+
+  it("says nothing when the welcome finds them as they were", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    expect(onSessionChanged).not.toHaveBeenCalled();
   });
 });
 

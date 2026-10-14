@@ -1,4 +1,4 @@
-import type { CloseCode, HelpContact, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
+import type { CloseCode, HelpContact, PersonRole, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -97,6 +97,24 @@ const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, user
   FROM sessions JOIN users ON users.id = sessions.user_id
   WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
 
+interface DirectoryRow {
+  id: UserId;
+  name: string;
+  bio: string | null;
+  role: number;
+  status: number;
+  updated_at: string;
+}
+
+const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
+  id: row.id,
+  name: row.name,
+  bio: row.bio,
+  role: ROLES[row.role] ?? "member",
+  status: STATUSES[row.status] ?? "active",
+  updatedAt: row.updated_at,
+});
+
 interface RoomToChangeRow extends Room {
   can_administer: number;
 }
@@ -193,6 +211,12 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
 
 /** Everyone, for the people directory: removed and banned people too, whose messages stay. */
 const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORDER BY id`;
+
+/** Someone active, as the directory lists them, as ember-rust finds whom to change (`User.active.find`, accounts/users.rs). */
+const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status = ${ACTIVE}`;
+
+/** Gives someone a role and records when. */
+const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
@@ -480,15 +504,18 @@ export class WorkspaceStore {
 
   /** Everyone, whatever their status, for the people directory. */
   async directory(): Promise<DirectoryEntry[]> {
-    const rows = await this.db.all<{ id: UserId; name: string; bio: string | null; role: number; status: number; updated_at: string }>(DIRECTORY);
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      bio: row.bio,
-      role: ROLES[row.role] ?? "member",
-      status: STATUSES[row.status] ?? "active",
-      updatedAt: row.updated_at,
-    }));
+    return (await this.db.all<DirectoryRow>(DIRECTORY)).map(directoryEntry);
+  }
+
+  /** Someone active, as the people directory lists them, or null unless `userId` is someone active. */
+  async activePerson(userId: UserId): Promise<DirectoryEntry | null> {
+    const [row] = await this.db.all<DirectoryRow>(ACTIVE_PERSON, userId);
+    return row ? directoryEntry(row) : null;
+  }
+
+  /** Gives someone `role`, recording when. */
+  async changeRole(userId: UserId, role: PersonRole, now: string): Promise<void> {
+    await this.db.run(CHANGE_ROLE, ROLES.indexOf(role), now, userId);
   }
 
   /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */

@@ -1,10 +1,13 @@
 import { feature } from "@ember/parity";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceSettings } from "@ember/protocol";
+import type { DirectoryUser, Me, RoleChange, WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
+import cancel from "@/components/icons/campfire/cancel.svg";
 import { Sheet } from "@/components/ui/sheet";
+import { PeopleContext } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
@@ -13,17 +16,44 @@ const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: JOIN_CODE, canAdminister: true };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
+/** Someone as the people directory lists them. */
+const listed = (id: string, name: string, role: DirectoryUser["role"] = "member", status: DirectoryUser["status"] = "active"): DirectoryUser => ({
+  id,
+  name,
+  bio: null,
+  role,
+  status,
+  avatarUrl: `/users/${id}.token/avatar?v=20261014120000`,
+});
+
+const ada = listed("u1", "Ada Lovelace", "administrator");
+const grace = listed("u2", "Grace Hopper", "administrator");
+// Lowercase, which the list folds, as SQLite's LOWER does.
+const linus = listed("u3", "linus Torvalds");
+const mallory = listed("u4", "Mallory", "member", "banned");
+/** The workspace's people, in no order, with a bot and someone removed, whom the list leaves out. */
+const everyone = [mallory, listed("u5", "Build Bot", "bot"), linus, listed("u6", "Charles Babbage", "member", "deactivated"), grace, ada];
+const asAda: Me = { id: ada.id, name: ada.name, administrator: true };
+const asLinus: Me = { id: linus.id, name: linus.name, administrator: false };
+
 interface Answers {
   /** What saving the name answers, rather than the name sent. */
   saved?: () => Response | Promise<Response>;
   /** What regenerating the join link answers, rather than `NEW_JOIN_CODE`. */
   regenerated?: () => Response | Promise<Response>;
+  /** What changing someone's role answers, rather than them with the role sent. */
+  roleChanged?: () => Response | Promise<Response>;
 }
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
-function serve(settings: WorkspaceSettings, { saved, regenerated }: Answers = {}) {
+function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
+    const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
+    if (person) {
+      const { role } = JSON.parse(String(init?.body)) as RoleChange;
+      return roleChanged ? roleChanged() : Response.json({ user: { ...everyone.find((user) => user.id === person[1]), role } });
+    }
     switch (request) {
       case "GET /api/account":
         return Response.json(settings);
@@ -37,17 +67,32 @@ function serve(settings: WorkspaceSettings, { saved, regenerated }: Answers = {}
   });
 }
 
-function showPage() {
-  const [onAccountChanged, onJoinCodeChanged, onFailed] = [vi.fn(), vi.fn(), vi.fn()];
-  history.replaceState(null, "", "/account/edit");
-  render(
-    <FlashProvider workspace>
-      <Sheet>
-        <WorkspaceSettingsPage back="/rooms/general" version="0.1" onAccountChanged={onAccountChanged} onJoinCodeChanged={onJoinCodeChanged} onFailed={onFailed} />
-      </Sheet>
-    </FlashProvider>,
+const spies = () => ({ onAccountChanged: vi.fn(), onJoinCodeChanged: vi.fn(), reloadPeople: vi.fn(), onPersonChanged: vi.fn(), onFailed: vi.fn() });
+type Callbacks = ReturnType<typeof spies>;
+
+/** The page, with the people directory as the workspace keeps it: changed as the page says. */
+function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; callbacks: Callbacks }) {
+  const [people, setPeople] = useState(() => new Map(listed.map((person) => [person.id, person])));
+  const personChanged = (person: DirectoryUser) => {
+    callbacks.onPersonChanged(person);
+    setPeople((people) => new Map(people).set(person.id, person));
+  };
+  return (
+    <PeopleContext value={people}>
+      <FlashProvider workspace>
+        <Sheet>
+          <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...callbacks} onPersonChanged={personChanged} />
+        </Sheet>
+      </FlashProvider>
+    </PeopleContext>
   );
-  return { onAccountChanged, onJoinCodeChanged, onFailed, user: userEvent.setup() };
+}
+
+function showPage(me = asAda, people = everyone) {
+  const callbacks = spies();
+  history.replaceState(null, "", "/account/edit");
+  const { rerender } = render(<Page me={me} listed={people} callbacks={callbacks} />);
+  return { ...callbacks, rerender: (me: Me) => rerender(<Page me={me} listed={people} callbacks={callbacks} />), user: userEvent.setup() };
 }
 
 const nameField = () => screen.findByRole("textbox", { name: "Workspace name" });
@@ -215,5 +260,136 @@ describe(feature("rooms.create-open"), () => {
     expect(newRoom).toHaveAttribute("href", "/rooms/opens/new");
     await user.click(newRoom);
     expect(location.pathname).toBe("/rooms/opens/new");
+  });
+});
+
+const peopleList = () => screen.findByRole("list", { name: "People" });
+/** The list as it reads: each row's name, and a dash for the rule between administrators and members. */
+const readList = async () => [...(await peopleList()).children].map((item) => (item.tagName === "HR" ? "—" : item.querySelector("strong")!.textContent));
+const rowOf = async (name: string) => within(await peopleList()).getByText(name).closest("li")!;
+const crownOf = async (name: string) => within(await rowOf(name)).getByRole("checkbox");
+/** The roles the page has asked for, by whom. */
+const roleChanges = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.filter(([input, init]) => init?.method === "PATCH" && String(input).startsWith("/api/account/users/"))
+    .map(([input, init]) => [String(input).split("/").at(-1), (JSON.parse(String(init?.body)) as RoleChange).role]);
+
+describe(feature("accounts.people"), () => {
+  it("lists everyone but bots by name, administrators first, then a rule and the members", async () => {
+    showPage();
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory"]);
+    expect(screen.getByRole("heading", { level: 2, name: "People" })).toBeInTheDocument();
+  });
+
+  it("draws the rule only when there are both administrators and members", async () => {
+    showPage(asAda, [grace, ada]);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper"]);
+  });
+
+  it("shows members the people who are active, with no controls", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
+    expect(within(await peopleList()).queryAllByRole("checkbox")).toEqual([]);
+  });
+
+  it("shows administrators who's banned, dimmed under a cancel mark, with no crown", async () => {
+    showPage();
+    const row = await rowOf("Mallory");
+    const [avatar, mark] = row.querySelectorAll("img");
+    expect(avatar).toHaveClass("opacity-50");
+    expect(mark).toHaveAttribute("src", cancel);
+    expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect((await rowOf("linus Torvalds")).querySelector("img")).not.toHaveClass("opacity-50");
+  });
+
+  it("shows each person's avatar from the people directory, loaded as it's scrolled to", async () => {
+    showPage();
+    const avatar = (await rowOf("Grace Hopper")).querySelector("img");
+    expect(avatar).toHaveAttribute("src", grace.avatarUrl);
+    expect(avatar).toHaveAttribute("loading", "lazy");
+  });
+
+  it("loads the people directory again as it shows, as ember-rust lists everyone as its page loads", async () => {
+    const { reloadPeople } = showPage();
+    await peopleList();
+    expect(reloadPeople).toHaveBeenCalledOnce();
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  it("gives administrators a crown on each person's row, pressed for administrators, and their own can't be pressed", async () => {
+    showPage();
+    expect(await crownOf("Ada Lovelace")).toBeDisabled();
+    expect(await crownOf("Ada Lovelace")).toBeChecked();
+    expect(await crownOf("Grace Hopper")).toBeEnabled();
+    expect(await crownOf("Grace Hopper")).toBeChecked();
+    expect(await crownOf("Grace Hopper")).toHaveAccessibleName("Role: Administrator");
+    expect(await crownOf("linus Torvalds")).not.toBeChecked();
+    expect(await crownOf("linus Torvalds")).toHaveAccessibleName("Role: Member");
+  });
+
+  it("makes someone an administrator with their crown, at once, with no notice, as ember-rust does", async () => {
+    const { onPersonChanged, user } = showPage();
+    await user.click(await crownOf("linus Torvalds"));
+    expect(await crownOf("linus Torvalds")).toBeChecked();
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, role: "administrator" }));
+    expect(roleChanges()).toEqual([["u3", "administrator"]]);
+    // Their row joins the administrators.
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "linus Torvalds", "—", "Mallory"]);
+    expect(await crownOf("linus Torvalds")).toHaveAccessibleName("Role: Administrator");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("makes an administrator a member again", async () => {
+    const { onPersonChanged, user } = showPage();
+    await user.click(await crownOf("Grace Hopper"));
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...grace, role: "member" }));
+    expect(roleChanges()).toEqual([["u2", "member"]]);
+    expect(await readList()).toEqual(["Ada Lovelace", "—", "Grace Hopper", "linus Torvalds", "Mallory"]);
+  });
+
+  it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it", async () => {
+    const { onPersonChanged, user } = showPage();
+    (await crownOf("Grace Hopper")).focus();
+    await user.tab();
+    expect(await crownOf("linus Torvalds")).toHaveFocus();
+    await user.keyboard(" ");
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, role: "administrator" }));
+  });
+
+  it("can't be pressed again until the change is answered", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { roleChanged: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const crown = await crownOf("linus Torvalds");
+    await user.click(crown);
+    await user.click(crown);
+    expect(crown).toBeChecked();
+    expect(roleChanges()).toEqual([["u3", "administrator"]]);
+    answer(Response.json({ user: { ...linus, role: "administrator" } }));
+    await waitFor(async () => expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "linus Torvalds", "—", "Mallory"]));
+  });
+
+  it("says why a change was refused, and puts the crown back", async () => {
+    serve(asAdministrator, { roleChanged: () => Response.json({ error: "Only administrators can change people's roles" }, { status: 403 }) });
+    const { onFailed, onPersonChanged, user } = showPage();
+    await user.click(await crownOf("linus Torvalds"));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(await crownOf("linus Torvalds")).not.toBeChecked();
+    expect(onPersonChanged).not.toHaveBeenCalled();
+  });
+
+  it("loads the settings again once the person looking is made an administrator, or a member again", async () => {
+    serve(asMember);
+    const { rerender } = showPage(asLinus);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
+
+    serve(asAdministrator);
+    rerender({ ...asLinus, administrator: true });
+    expect(await nameField()).toBeInTheDocument();
+    expect(await crownOf("linus Torvalds")).toBeDisabled();
+    expect(await readList()).toContain("Mallory");
   });
 });

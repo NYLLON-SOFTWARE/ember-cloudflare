@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useReducer, useState } from "react";
-import { CloseCode, parseServerFrame, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type DirectoryUser, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
@@ -40,6 +40,19 @@ export function oneAtATime(task: () => Promise<void>): () => Promise<void> {
   };
 }
 
+/** The people directory, as far as the workspace socket keeps it current. */
+interface Directory {
+  /** Loads it again, as the sidebar does by itself. */
+  reload: () => void;
+  /** Changes someone in it, as the socket says they are now. */
+  update: (user: DirectoryUser) => void;
+}
+
+const NO_DIRECTORY: Directory = { reload: () => {}, update: () => {} };
+
+/** Whether `you` and `me` are the same person, as they are now. */
+const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && you.administrator === me.administrator;
+
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
@@ -48,11 +61,12 @@ export function oneAtATime(task: () => Promise<void>): () => Promise<void> {
  * it (helpers/users.rs), which ember-rust does on a room's page and this does on every page. `refresh`
  * asks for it again, settling once a list asked for since has come, or failing as that did.
  *
- * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
- * or whoever another tab signed in as. `onReload` hears each time the sidebar loads again by itself,
- * for what else should load again with it.
+ * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
+ * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
+ * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
+ * socket says has changed.
  */
-export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void, onReload: () => void = () => {}) {
+export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, directory: Directory = NO_DIRECTORY) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
@@ -69,15 +83,23 @@ export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void, 
     });
   });
   const sessionChanged = useEffectEvent(onSessionChanged);
-  const reloaded = useEffectEvent(onReload);
+  const reloadPeople = useEffectEvent(() => directory.reload());
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // Who the session signs in, as the socket says each time it connects and whenever they change.
+  const signsIn = useEffectEvent((you: Me) => {
+    if (!isSame(you, me)) sessionChanged(you);
+  });
+  const changed = useEffectEvent((user: DirectoryUser) => {
+    directory.update(user);
+    if (user.id === me.id) signsIn({ id: user.id, name: user.name, administrator: user.role === "administrator" });
+  });
 
   useEffect(() => {
     let closed = false;
     // A session that has expired goes to sign in. Otherwise a list that doesn't come leaves the sidebar
     // as it is, until it loads again.
     const reload = () => {
-      reloaded();
+      reloadPeople();
       void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
     };
 
@@ -91,10 +113,13 @@ export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void, 
             return sessionChanged(frame.you);
           }
           workspace.connected();
+          signsIn(frame.you);
           return reload();
         case "room.unread":
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
+        case "user.updated":
+          return changed(frame.user);
       }
     };
 
