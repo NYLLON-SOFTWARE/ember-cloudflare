@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 33 ported and 54 partial of 172 features; 80 not started, 5 not applicable.
+**Overall:** 33 ported and 55 partial of 172 features; 79 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 2 | 8 | 0 | 10 |
-| [Messages](#messages) | 2 | 12 | 5 | 0 | 19 |
+| [Messages](#messages) | 2 | 13 | 4 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **33** | **54** | **80** | **5** | **172** |
+| **Total** | **33** | **55** | **79** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -997,7 +997,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts) |
 | /play sounds | `messages.sounds` | Campfire | 🟡 Partial | Rich text: [sounds](packages/richtext/src/sounds.test.ts) |
 | Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts) |
-| Links in message text | `messages.autolink` | Campfire | ⬜ Not started |  |
+| Links in message text | `messages.autolink` | Campfire | 🟡 Partial | Rich text: [autolink](packages/richtext/src/autolink.test.ts), [hardening](packages/richtext/src/hardening.test.ts) |
 | Messages that can't be shown | `messages.unrenderable` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -1204,12 +1204,14 @@ Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWAR
 
 ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/reference_tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/reference_tests.rs)
 
-**Links in message text** (`messages.autolink`) ⬜
+**Links in message text** (`messages.autolink`) 🟡
 
 - Addresses that start with a known scheme and `://` (http, https, ftp, mailto, ssh, file and 18 more) or with `www.`, and email addresses, become links; `www.` addresses get `http://` and email addresses `mailto:`.
 - Trailing punctuation stays out of the link unless it closes a bracket the address opened. Text already in a link isn't linked again, but addresses in code are linked.
 - `javascript:` and unknown schemes stay text, and quotes or angle brackets can't break out of a link.
 - Links to this site open in place; others open in a new tab.
+
+Note: `packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus, but messages don't show rich text yet, so nothing is linked, and nothing opens links to this site in place. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.
 
 Sources: [`crates/richtext/src/autolink.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/autolink.rs) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js)
 
@@ -1315,7 +1317,7 @@ ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/b
 - A mention shows the person's avatar, linked to their profile and titled "Name – bio", then their current name, every time they're mentioned. Renaming someone updates every mention of them.
 - A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.
 
-Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="gid://ember/User/<id>">`, which shows the person as they are when it's rendered. The id isn't signed, as any member can list everyone's. A mention of someone who doesn't exist is stored as ☒. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Messages are still plain text, so nothing shows mentions yet.
+Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Messages are still plain text, so nothing shows mentions yet.
 
 Sources: [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/views/templates/users/_mention.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_mention.html) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs)
 

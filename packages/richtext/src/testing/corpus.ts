@@ -5,11 +5,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { MentionUser } from "../attachments";
+import { userIdFromSgid } from "../mentions";
 import { htmlEscape } from "../ruby";
+import { testUserId } from "./users";
 
 export type Outcome<T> = { ok: T } | { error: string; message: string };
 
+/** A corpus user, with the id Ember would know them by, and the id Rails knew them by. */
 export interface CorpusUser extends MentionUser {
+  railsId: number;
   key: string;
   title: string;
   attachable_sgid: string;
@@ -30,7 +34,7 @@ export interface CorpusCase {
 }
 
 interface Corpus {
-  users: CorpusUser[];
+  users: (Omit<CorpusUser, "id" | "railsId"> & { id: number })[];
   rooms: number[];
   signed: { sgid: string; model: string; id: number; exists: boolean }[];
   cases: CorpusCase[];
@@ -38,7 +42,8 @@ interface Corpus {
 
 export const corpus = JSON.parse(readFileSync(path.join(import.meta.dirname, "../../corpus/expected.json"), "utf8")) as Corpus;
 
-const users = new Map(corpus.users.map((user) => [user.id, user]));
+const users = new Map(corpus.users.map((user): [number, CorpusUser] => [user.id, { ...user, id: testUserId(user.id), railsId: user.id }]));
+const usersByEmberId = new Map([...users.values()].map((user) => [user.id, user]));
 
 /** Something Rails raised, which `message_presentation` rescues to show nothing. */
 export class RailsError extends Error {}
@@ -171,7 +176,7 @@ function withoutJsonComments(text: string): string | undefined {
 
 /** reference/app/views/users/_mention.html.erb, with `avatar_tag`, for the user `mention` names. */
 export function railsMentionPartial(mention: MentionUser): string {
-  const user = users.get(mention.id)!;
+  const user = usersByEmberId.get(mention.id)!;
   return (
     `<span class="mention" sgid="${htmlEscape(user.attachable_sgid)}"><a title="${htmlEscape(user.title)}" class="btn avatar" ` +
     `data-turbo-frame="_top" href="${htmlEscape(user.user_path)}"><img aria-hidden="true" src="${htmlEscape(user.avatar_path)}" ` +
@@ -179,16 +184,19 @@ export function railsMentionPartial(mention: MentionUser): string {
   );
 }
 
-/** Ember's mentions name users by their plain global id: the corpus's users, as Ember would know them. */
+/** Ember's mentions name users by their ids: the corpus's users, as Ember would know them. */
 export function emberUser(sgid: string): CorpusUser | undefined {
-  const id = /^gid:\/\/ember\/User\/([0-9]+)$/.exec(sgid)?.[1];
-  return id === undefined ? undefined : users.get(Number(id));
+  const id = userIdFromSgid(sgid);
+  return id === undefined ? undefined : usersByEmberId.get(id);
 }
 
 /** A user named as a corpus body names them (`railsUser`), or as the form Ember stores it in does. */
 export function corpusUser(sgid: string): CorpusUser | undefined {
-  return sgid.startsWith("gid://ember/") ? emberUser(sgid) : railsUser(sgid);
+  return emberUser(sgid) ?? railsUser(sgid);
 }
+
+/** The Ember ids of the users Rails found a body to mention, by their Rails ids. */
+export const emberUserIds = (railsIds: number[]): string[] => railsIds.map((id) => users.get(id)!.id);
 
 const INSERTED_LINK = '<a target="_blank" href="';
 
@@ -223,30 +231,4 @@ export function withPortDivergences(rails: string): string {
     i++;
   }
   return out;
-}
-
-/**
- * What rails_autolink links: a URL with its trailing punctuation left out, unless the bracket it
- * closes was opened in the URL. Ruby's `\p{Word}` is `\w` in Unicode.
- */
-const STRIPPED_PUNCTUATION = String.raw`(?:[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}\/\-=;\s&<"\u00A0]|&#39;)+`;
-
-const INSERTED_LINK_WITH_TRAILING_GT = new RegExp(
-  String.raw`<a target="_blank" href="([^"]*)">([^<]*)<\/a>(?:(${STRIPPED_PUNCTUATION})&gt;)?`,
-  "gu",
-);
-
-/**
- * The presentation as it was before auto_link: each link it inserted in text replaced by its
- * text. Linking a URL, rails_autolink appended the punctuation it left out, escaped (so `'` became
- * `&#39;`, which Nokogiri never writes), before a trailing `&gt;` it had taken off the URL after it;
- * an email address (`mail_to`) is linked whole.
- */
-export function withoutAutolinks(html: string): string {
-  return html
-    .replace(INSERTED_LINK_WITH_TRAILING_GT, (link: string, href: string, text: string, punctuation?: string) => {
-      if (punctuation === undefined) return text;
-      return /^mailto:(?!\/\/)/.test(href) ? `${text}${link.slice(link.indexOf("</a>") + 4)}` : `${text}&gt;${punctuation}`;
-    })
-    .replaceAll("&#39;", "'");
 }

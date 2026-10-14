@@ -69,6 +69,12 @@ export const CONTENT_FILTER: SafeList = {
   attributes: new Set([...ACTION_TEXT.attributes, "class"]),
 };
 
+/** `sanitize(html)` with Rails' defaults, as rails_autolink sanitizes each address it links. */
+export const RAILS_DEFAULTS: SafeList = {
+  tags: new Set(DEFAULT_ALLOWED_TAGS),
+  attributes: new Set(DEFAULT_ALLOWED_ATTRIBUTES),
+};
+
 /** `MessagesHelper::AUTO_LINK_ALLOWED_TAGS` and `_ATTRIBUTES`: the last pass before a message shows. */
 export const AUTO_LINK: SafeList = {
   tags: new Set([...DEFAULT_ALLOWED_TAGS, ...EDITOR_FORMATTING_TAGS]),

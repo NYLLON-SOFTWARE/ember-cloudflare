@@ -1,24 +1,25 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
+import { autoLink } from "./autolink";
 import { plainText, prepareBody } from "./body";
 import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
-import { userGid, userIdsIn } from "./mentions";
+import { mentionSgid, userIdsIn } from "./mentions";
 import { parseHtml } from "./parse";
 import { canonicalize, presentMessage } from "./render";
 import { cgiUnescapeHtml } from "./sanitize";
+import { testUserId, testUsers } from "./testing/users";
 import { descendants, getAttr, isElement } from "./tree";
 
 // Ported from ember-rust's crates/richtext/tests/hardening.rs: where the port deliberately
 // diverges from Rails to close a hole or bound the work a message body can cause. Bodies come
 // from clients, and the Durable Object that prepares them has little CPU time to spare.
 
-const users = new Map([[1, { id: 1, name: "David" }]]);
-const resolve = (sgid: string) => users.get(Number(sgid.slice("gid://ember/User/".length)));
+const { resolve } = testUsers("David");
 const none = () => undefined;
 const mentionPartial = (user: { name: string }) => `<span class="mention">${user.name}</span>\n`;
 const presentation = (body: string) => presentMessage(parseHtml, body, resolve, mentionPartial);
-const mention = (id: number) =>
-  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${userGid(id)}"></action-text-attachment>`;
+const mention = (n: number) =>
+  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(n))}"></action-text-attachment>`;
 const galleryAttachment =
   '<action-text-attachment presentation="gallery" content-type="text/html" content="&lt;p&gt;x&lt;/p&gt;"></action-text-attachment>';
 
@@ -189,4 +190,38 @@ describe(feature("messages.rich-text"), () => {
     expect(html.includes("Hi") && html.includes("☒") && html.includes("welcome"), html).toBe(true);
     expect(canonicalize(parseHtml, body, resolve)).toBe("<p>Hi ☒, welcome</p>");
   });
+});
+
+describe(feature("messages.autolink"), () => {
+  const shown = (body: string) => autoLink(parseHtml, presentation(body));
+
+  it("can't break out of an attribute through an address after a greater-than sign", () => {
+    // Rails serialized the title unescaped (`title="x> http://..."`), so auto_link's "inside a
+    // tag" check missed, the <a href="..."> it inserted closed the attribute, and the <img> after
+    // it became markup.
+    const html = shown('<p title="x> http://evil.test/ <img src=x onerror=alert(1)>">hi</p>');
+    expect(parsedMarkup(html), html).toEqual(["p", "p[title]"]);
+  });
+
+  it("can't break out of an attribute through an email address after a greater-than sign", () => {
+    const html = shown('<p><abbr title="x> me@evil.test <img src=x onerror=alert(1)>">hi</abbr></p>');
+    expect(parsedMarkup(html), html).toEqual(["p", "abbr", "abbr[title]"]);
+  });
+
+  it("still links addresses in the text", () => {
+    expect(shown("<p>see http://example.com/a?b=1&amp;c=2 and me@example.com</p>")).toContain(
+      '<p>see <a target="_blank" href="http://example.com/a?b=1&amp;c=2">http://example.com/a?b=1&amp;c=2</a> and <a target="_blank" href="mailto:me@example.com">me@example.com</a></p>',
+    );
+  });
+
+  it(
+    "links many bare domains in linear time",
+    () => {
+      const domains = (64 * 1024) / 16;
+      let html = "";
+      expectQuick("linking 64 KB of bare domains", () => (html = shown("<p>www.a.com</p>".repeat(domains))));
+      expect(html.split('<a target="_blank" href="http://www.a.com">').length - 1).toBe(domains);
+    },
+    SLOW_TEST_MS,
+  );
 });
