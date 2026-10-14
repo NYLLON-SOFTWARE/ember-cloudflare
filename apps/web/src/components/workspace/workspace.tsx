@@ -9,6 +9,7 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { byName, NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
+import { PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView } from "./room-view";
@@ -159,6 +160,9 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   // saved, leave it where it was made rather than last, as a room just made goes. One list is on its way
   // at a time, so an older one can't take the place of a newer one, which has changes made here since.
   const [askedAgain, setAskedAgain] = useState<Route | null>(null);
+  // A room's address the list couldn't be asked for again for, which stays rather than going home as if
+  // the room weren't theirs, and says why, for reloading to ask again.
+  const [unanswered, setUnanswered] = useState<Route | null>(null);
   const namedId = namedRoomId(route);
   const unlisted = rooms !== null && !goneRoom && namedId !== null && !rooms.some((r) => r.id === namedId);
   const askAgain = unlisted && askedAgain !== route && pending === null;
@@ -171,14 +175,21 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
       (error) => {
         // As with `failed`, a session already replaced hears nothing.
         if (!mounted.current) return;
-        if (isSignedOut(error)) onSessionChanged(null);
-        else changeRooms({ type: "unanswered" });
+        if (isSignedOut(error)) return onSessionChanged(null);
+        changeRooms({ type: "unanswered" });
+        // A room's settings ask the server about the room themselves.
+        if (route.page === "room-settings") return;
+        setUnanswered(route);
+        failed(error);
       },
     );
-  }, [askAgain, route, onSessionChanged, mounted]);
+  }, [askAgain, route, onSessionChanged, mounted, failed]);
 
   // Where the address goes on to, once the list it goes by has come.
-  const goingOn = useMemo(() => (rooms && pending === null && !askAgain && !goneRoom ? redirectOf(route, rooms) : null), [rooms, pending, askAgain, goneRoom, route]);
+  const goingOn = useMemo(
+    () => (rooms && pending === null && !askAgain && !goneRoom && unanswered !== route ? redirectOf(route, rooms) : null),
+    [rooms, pending, askAgain, goneRoom, unanswered, route],
+  );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
     if (goingOn) redirect(goingOn);
@@ -237,6 +248,14 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
             />
           );
         if (route.page === "home" && rooms && pending === null && !goingOn) return <WelcomePage me={me} />;
+        // The alert says why it's empty, and the header keeps the way to the other rooms on a phone.
+        if (unanswered === route)
+          return (
+            <>
+              <PageHeader />
+              <main className="bg-background" />
+            </>
+          );
         // While the rooms load, or before the page goes on to another, which it does before this paints.
         return (
           <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</main>

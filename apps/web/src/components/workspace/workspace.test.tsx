@@ -114,6 +114,16 @@ describe(feature("rooms.show"), () => {
     expect(roomListRequests()).toBe(3);
   });
 
+  it("stays at a room's address, saying Ember can't be reached, when the list can't be asked for again", async () => {
+    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch"))];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    showWorkspace("/rooms/design");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    // For reloading to ask again, and with the header's way to the other rooms.
+    expect(location.pathname).toBe("/rooms/design");
+    expect(screen.getByRole("button", { name: "Open conversations" })).toBeInTheDocument();
+  });
+
   it("asks for the list again only once the list it last asked for has come", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     let answer = (_: Response) => {};
