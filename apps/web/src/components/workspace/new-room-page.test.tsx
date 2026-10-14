@@ -22,6 +22,15 @@ function serve({ created, refusal }: { created?: Room; refusal?: { status: numbe
   });
 }
 
+/** Answers the people for the form, and holds the new room until the returned function answers it. */
+function holdCreation() {
+  let answer = (_: Response) => {};
+  vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+    init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus] })),
+  );
+  return (response: Response) => act(async () => answer(response));
+}
+
 /** The page, at the form its address names, as the workspace shows it. */
 function NewRoomRoute(props: { onCreated: (room: Room) => void; onFailed: (error: unknown) => void }) {
   const route = useRoute();
@@ -87,18 +96,33 @@ describe(feature("rooms.create-open"), () => {
 
   it("lists a room whose answer comes after the page was left, without taking over the page shown then", async () => {
     const created = { id: "design", name: "Design", kind: "open" } satisfies Room;
-    let answer = (_: Response) => {};
-    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
-      init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus] })),
-    );
+    const answer = holdCreation();
     const { onCreated, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Save" }));
     // Leaving for workspace settings, then opening New room again, starts a new form.
     act(() => navigate("/account/edit"));
     act(() => navigate("/rooms/opens/new"));
-    await act(async () => answer(Response.json({ room: created }, { status: 201 })));
+    await answer(Response.json({ room: created }, { status: 201 }));
     expect(onCreated).toHaveBeenCalledWith(created);
     expect(location.pathname).toBe("/rooms/opens/new");
+  });
+
+  it("drops a failure that answers after the page was left", async () => {
+    const answer = holdCreation();
+    const { onFailed, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    act(() => navigate("/account/edit"));
+    await answer(Response.json({ error: "Service unavailable" }, { status: 503 }));
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("still reports a session that's ended, though the page was left before the answer", async () => {
+    const answer = holdCreation();
+    const { onFailed, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    act(() => navigate("/account/edit"));
+    await answer(Response.json({ error: "Sign in to continue" }, { status: 401 }));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
   });
 
   it("says why a room wasn't created, and lets you try again", async () => {
@@ -115,6 +139,19 @@ describe(feature("rooms.create-open"), () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     const { onFailed } = showPage();
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.any(TypeError)));
+  });
+
+  it("reports only a session that's ended when the form answers after the page was left", async () => {
+    const answers: ((response: Response) => void)[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const { onFailed } = showPage();
+    act(() => navigate("/account/edit"));
+    act(() => navigate("/rooms/opens/new"));
+    act(() => navigate("/account/edit"));
+    await act(async () => answers[0]!(Response.json({ error: "Service unavailable" }, { status: 503 })));
+    expect(onFailed).not.toHaveBeenCalled();
+    await act(async () => answers[1]!(Response.json({ error: "Sign in to continue" }, { status: 401 })));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
   });
 });
 

@@ -18,6 +18,9 @@ export class ApiError extends Error {
   }
 }
 
+/** Whether `error` says this browser's session has ended, which matters whatever page is showing. */
+export const isSignedOut = (error: unknown) => error instanceof ApiError && error.status === 401;
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("Content-Type", "application/json");

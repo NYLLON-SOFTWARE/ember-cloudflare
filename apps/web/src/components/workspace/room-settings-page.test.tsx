@@ -38,6 +38,15 @@ function serve(settings: RoomSettings | { status: number; error: string }, { sav
   });
 }
 
+/** Answers `settings` for the page, and holds a change until the returned function answers it. */
+function holdChange(settings: RoomSettings) {
+  let answer = (_: Response) => {};
+  vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+    init?.method === "PATCH" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json(settings)),
+  );
+  return (response: Response) => act(async () => answer(response));
+}
+
 function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`) {
   const [onSaved, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
@@ -105,17 +114,33 @@ describe(feature("rooms.settings-page"), () => {
 
   it("lists a rename whose answer comes after the page was left, without taking over the page shown then", async () => {
     const saved = { ...design, name: "Product design" };
-    let answer = (_: Response) => {};
-    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
-      init?.method === "PATCH" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json(openSettings())),
-    );
+    const answer = holdChange(openSettings());
     const { onSaved, user, unmount } = showPage(design);
     await user.click(await screen.findByRole("button", { name: "Save" }));
     unmount();
     history.replaceState(null, "", "/rooms/random");
-    await act(async () => answer(Response.json({ room: saved })));
+    await answer(Response.json({ room: saved }));
     expect(onSaved).toHaveBeenCalledWith(saved);
     expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("drops a failure that answers after the page was left, even for a room that's gone", async () => {
+    const answer = holdChange(openSettings());
+    const { onMissing, onFailed, user, unmount } = showPage(design);
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    unmount();
+    await answer(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
+    expect(onMissing).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("still reports a session that's ended, though the page was left before the answer", async () => {
+    const answer = holdChange(openSettings());
+    const { onFailed, user, unmount } = showPage(design);
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    unmount();
+    await answer(Response.json({ error: "Sign in to continue" }, { status: 401 }));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
   });
 
   it("says why a change wasn't saved, and lets you try again", async () => {
@@ -169,5 +194,20 @@ describe(feature("rooms.edit-permissions"), () => {
     const { onMissing, onFailed } = showPage(design);
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 503 })));
     expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("reports only a session that's ended when the settings answer after the page was left", async () => {
+    const answers: ((response: Response) => void)[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const first = showPage(design);
+    first.unmount();
+    const second = showPage(design);
+    second.unmount();
+    await act(async () => answers[0]!(Response.json({ error: "Room not found or inaccessible" }, { status: 404 })));
+    expect(first.onMissing).not.toHaveBeenCalled();
+    expect(first.onFailed).not.toHaveBeenCalled();
+    await act(async () => answers[1]!(Response.json({ error: "Sign in to continue" }, { status: 401 })));
+    expect(second.onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
+    expect(second.onMissing).not.toHaveBeenCalled();
   });
 });

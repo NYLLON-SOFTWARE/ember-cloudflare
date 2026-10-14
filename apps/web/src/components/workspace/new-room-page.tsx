@@ -3,7 +3,7 @@ import type { Room, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { createRoom, fetchNewRoomForm } from "@/lib/api";
+import { createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
@@ -36,7 +36,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     let stopped = false;
     fetchNewRoomForm().then(
       (form) => !stopped && setPeople(form.people),
-      (error: unknown) => !stopped && onFailed(error),
+      // A page left before its form loads only reports a session that's ended, which goes to sign in.
+      (error: unknown) => (!stopped || isSignedOut(error)) && onFailed(error),
     );
     return () => void (stopped = true);
   }, [onFailed]);
@@ -60,7 +61,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
         if (mounted.current) navigate(roomPath(room.id));
       },
       (error: unknown) => {
-        if (!mounted.current) return;
+        // Once the page is left, only a session that's ended matters, which goes to sign in from any page.
+        if (!mounted.current && !isSignedOut(error)) return;
         setSaving(false);
         onFailed(error);
       },

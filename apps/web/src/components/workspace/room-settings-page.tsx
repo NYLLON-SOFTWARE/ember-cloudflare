@@ -3,7 +3,7 @@ import type { Room, RoomId, RoomSettings } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, changeRoom, fetchRoomSettings } from "@/lib/api";
+import { ApiError, changeRoom, fetchRoomSettings, isSignedOut } from "@/lib/api";
 import { CheckMark, RoomForm } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
@@ -42,7 +42,12 @@ export function RoomSettingsPage({ roomId, access, onSaved, onMissing, onFailed 
         setSettings(settings);
         setName(settings.room.name);
       },
-      (error: unknown) => !stopped && (isMissing(error) ? onMissing() : onFailed(error)),
+      (error: unknown) => {
+        // A page left before its settings load only reports a session that's ended, which goes to sign in.
+        if (stopped && !isSignedOut(error)) return;
+        if (isMissing(error)) onMissing();
+        else onFailed(error);
+      },
     );
     return () => void (stopped = true);
   }, [roomId, onMissing, onFailed]);
@@ -61,7 +66,8 @@ export function RoomSettingsPage({ roomId, access, onSaved, onMissing, onFailed 
         if (mounted.current) navigate(roomPath(room.id));
       },
       (error: unknown) => {
-        if (!mounted.current) return;
+        // Once the page is left, only a session that's ended matters, which goes to sign in from any page.
+        if (!mounted.current && !isSignedOut(error)) return;
         setSaving(false);
         if (isMissing(error)) onMissing();
         else onFailed(error);
