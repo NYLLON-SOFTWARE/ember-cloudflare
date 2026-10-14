@@ -35,6 +35,8 @@
   --border: #e5e5e5;
   --input: #e5e5e5;
   --ring: #737373;
+  /* Campfire's --color-selected-dark, as ember-rust sets it: the ring round a field with a button or icon in it, while it has focus. */
+  --selected-dark: #a3a3a3;
   --message-ink: #1d1c1d;
   --message-muted: #616061;
   --message-border: #dedede;
@@ -78,6 +80,7 @@
   --border: #343434;
   --input: #343434;
   --ring: #a3a3a3;
+  --selected-dark: #737373;
   --message-ink: #f5f5f5;
   --message-muted: #a3a3a3;
   --message-border: #343434;
@@ -283,6 +286,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-selected-dark: var(--selected-dark);
   --color-message-ink: var(--message-ink);
   --color-message-muted: var(--message-muted);
   --color-message-border: var(--message-border);

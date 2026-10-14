@@ -7,6 +7,7 @@ import {
   type AccountChanges,
   type HelpContact,
   type Me,
+  type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
@@ -123,8 +124,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly store: WorkspaceStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
-   * The account once it exists. Renaming it keeps this current, and nothing deletes it or changes its
-   * join code yet, so once read it needn't be read again.
+   * The account once it exists. Renaming it and regenerating its join code keep this current, and
+   * nothing deletes it, so once read it needn't be read again.
    */
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
@@ -232,8 +233,8 @@ export class Workspace extends DurableObject<Env> {
   async workspaceSettings(credentials: Credentials): Promise<WorkspaceSettings | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [account, canAdminister] = await Promise.all([this.account(), this.store.isAdministrator(user.id)]);
-    return account ? { account, canAdminister } : "not set up";
+    const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
+    return account ? { account: { name: account.name }, joinCode: account.joinCode, canAdminister } : "not set up";
   }
 
   /**
@@ -242,26 +243,53 @@ export class Workspace extends DurableObject<Env> {
    * (accounts.rs), or null without a valid session.
    */
   async changeAccount(credentials: Credentials, changes: AccountChanges): Promise<Account | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (changes.name === undefined) return { name: account.name };
+      const name = changes.name;
+      await this.saveAccount({ ...account, name }, (now) => this.store.renameAccount(name, now));
+      return { name };
+    });
+  }
+
+  /**
+   * Gives the join link a new code as the person `credentials` signs in, answering it, as ember-rust's
+   * `join_codes#create` does: "forbidden" unless they're an administrator, or null without a valid session.
+   */
+  async regenerateJoinCode(credentials: Credentials): Promise<NewJoinCode | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      const joinCode = newJoinCode();
+      await this.saveAccount({ ...account, joinCode }, (now) => this.store.changeJoinCode(joinCode, now));
+      return { joinCode };
+    });
+  }
+
+  /**
+   * Changes the account with `change`, one change at a time, if `credentials` signs in an administrator
+   * as they are then: "forbidden" if it signs in anyone else, or null without a valid session.
+   */
+  private async administerAccount<T>(credentials: Credentials, change: (account: JoinableAccount) => Promise<T>): Promise<T | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       // First run made the account with its first administrator.
-      const account = (await this.joinableAccount())!;
-      if (changes.name === undefined) return { name: account.name };
-      this.accountChanges++;
-      try {
-        await this.store.renameAccount(changes.name, new Date().toISOString());
-      } catch (error) {
-        // On D1 the name can be saved and its answer lost, so it's read again.
-        this.knownAccount = null;
-        throw error;
-      } finally {
-        this.accountChanges++;
-      }
-      this.knownAccount = { ...account, name: changes.name };
-      return { name: changes.name };
+      return change((await this.joinableAccount())!);
     });
+  }
+
+  /** Saves the account as `account` with `save`, remembering it as that once it's saved. */
+  private async saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<void> {
+    this.accountChanges++;
+    try {
+      await save(new Date().toISOString());
+    } catch (error) {
+      // On D1 a change can be saved and its answer lost, so the account is read again.
+      this.knownAccount = null;
+      throw error;
+    } finally {
+      this.accountChanges++;
+    }
+    this.knownAccount = account;
   }
 
   private async helpContact(): Promise<HelpContact | null> {

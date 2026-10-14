@@ -8,35 +8,50 @@ import { Sheet } from "@/components/ui/sheet";
 import { ApiError } from "@/lib/api";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
-const asAdministrator: WorkspaceSettings = { account: { name: "Analytical Engines" }, canAdminister: true };
+const JOIN_CODE = "aB3d-Ef5h-iJ7k";
+const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
+const asAdministrator: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: JOIN_CODE, canAdminister: true };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
-/**
- * Answers the page's requests as the server would for `settings`, saving any name it's sent, or with
- * `saved` when it's given.
- */
-function serve(settings: WorkspaceSettings, saved?: () => Response | Promise<Response>) {
+interface Answers {
+  /** What saving the name answers, rather than the name sent. */
+  saved?: () => Response | Promise<Response>;
+  /** What regenerating the join link answers, rather than `NEW_JOIN_CODE`. */
+  regenerated?: () => Response | Promise<Response>;
+}
+
+/** Answers the page's requests as the server would for `settings`, or as `answers` says. */
+function serve(settings: WorkspaceSettings, { saved, regenerated }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    if (String(input) !== "/api/account") throw new Error(`Unexpected request for ${String(input)}`);
-    if (init?.method !== "PATCH") return Response.json(settings);
-    return saved ? saved() : Response.json({ account: JSON.parse(String(init.body)) });
+    const request = `${init?.method ?? "GET"} ${String(input)}`;
+    switch (request) {
+      case "GET /api/account":
+        return Response.json(settings);
+      case "PATCH /api/account":
+        return saved ? saved() : Response.json({ account: JSON.parse(String(init?.body)) });
+      case "POST /api/account/join_code":
+        return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
+      default:
+        throw new Error(`Unexpected request for ${request}`);
+    }
   });
 }
 
 function showPage() {
-  const [onAccountChanged, onFailed] = [vi.fn(), vi.fn()];
+  const [onAccountChanged, onJoinCodeChanged, onFailed] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", "/account/edit");
   render(
     <FlashProvider workspace>
       <Sheet>
-        <WorkspaceSettingsPage back="/rooms/general" version="0.1" onAccountChanged={onAccountChanged} onFailed={onFailed} />
+        <WorkspaceSettingsPage back="/rooms/general" version="0.1" onAccountChanged={onAccountChanged} onJoinCodeChanged={onJoinCodeChanged} onFailed={onFailed} />
       </Sheet>
     </FlashProvider>,
   );
-  return { onAccountChanged, onFailed, user: userEvent.setup() };
+  return { onAccountChanged, onJoinCodeChanged, onFailed, user: userEvent.setup() };
 }
 
 const nameField = () => screen.findByRole("textbox", { name: "Workspace name" });
+const joinLink = () => screen.findByRole("textbox", { name: "Share to invite more people" });
 /** What the page last asked to save, if anything. */
 const saved = () =>
   vi
@@ -120,7 +135,7 @@ describe(feature("accounts.name"), () => {
 
   it("can't save again until the last save is answered", async () => {
     let answer = (_: Response) => {};
-    serve(asAdministrator, () => new Promise((resolve) => (answer = resolve)));
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
     const { user } = showPage();
     await user.type(await nameField(), "{Enter}");
     const save = screen.getByRole("button", { name: "Save changes" });
@@ -130,7 +145,7 @@ describe(feature("accounts.name"), () => {
   });
 
   it("says why a rename was refused, keeping the name typed", async () => {
-    serve(asAdministrator, () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
+    serve(asAdministrator, { saved: () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }) });
     const { onAccountChanged, onFailed, user } = showPage();
     const name = await nameField();
     await user.type(name, " Ltd{Enter}");
@@ -144,8 +159,51 @@ describe(feature("accounts.name"), () => {
     serve(asMember);
     showPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Workspace name" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.join-link"), () => {
+  it("shows everyone the join link, and tells the welcome card its code", async () => {
+    serve(asMember);
+    const { onJoinCodeChanged } = showPage();
+    expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
+    expect(onJoinCodeChanged).toHaveBeenCalledExactlyOnceWith(JOIN_CODE);
+    expect(screen.getByRole("button", { name: "Copy join link" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate join link" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.regenerate-join-link"), () => {
+  it("lets an administrator regenerate the link at once, with no notice, as ember-rust does", async () => {
+    const { onJoinCodeChanged, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    await waitFor(async () => expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${NEW_JOIN_CODE}`));
+    expect(fetch).toHaveBeenCalledWith("/api/account/join_code", expect.objectContaining({ method: "POST" }));
+    expect(onJoinCodeChanged).toHaveBeenLastCalledWith(NEW_JOIN_CODE);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("can't regenerate it again until the last is answered", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { regenerated: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const regenerate = await screen.findByRole("button", { name: "Regenerate join link" });
+    await user.click(regenerate);
+    expect(regenerate).toBeDisabled();
+    answer(Response.json({ joinCode: NEW_JOIN_CODE }));
+    await waitFor(() => expect(regenerate).toBeEnabled());
+  });
+
+  it("says why it wasn't regenerated, keeping the link it had", async () => {
+    serve(asAdministrator, { regenerated: () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }) });
+    const { onFailed, onJoinCodeChanged, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
+    expect(screen.getByRole("button", { name: "Regenerate join link" })).toBeEnabled();
+    expect(onJoinCodeChanged).toHaveBeenCalledOnce();
   });
 });
 

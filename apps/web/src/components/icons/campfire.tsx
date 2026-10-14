@@ -14,7 +14,9 @@ import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
 import messagesAdd from "./campfire/messages-add.svg";
 import messagesEmpty from "./campfire/messages-empty.svg";
+import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
+import refresh from "./campfire/refresh.svg";
 import remove from "./campfire/remove.svg";
 import share from "./campfire/share.svg";
 import trash from "./campfire/trash.svg";
@@ -94,8 +96,16 @@ export function MessagesEmpty(props: CampfireIconProps) {
   return <CampfireIcon src={messagesEmpty} {...props} />;
 }
 
+export function PersonAdd(props: CampfireIconProps) {
+  return <CampfireIcon src={personAdd} {...props} />;
+}
+
 export function QrCode(props: CampfireIconProps) {
   return <CampfireIcon src={qrCode} {...props} />;
+}
+
+export function Refresh(props: CampfireIconProps) {
+  return <CampfireIcon src={refresh} {...props} />;
 }
 
 export function Remove(props: CampfireIconProps) {

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_ACCOUNT_NAME_LENGTH, type Bootstrap, type NewWorkspace, type WorkspaceSettings } from "@ember/protocol";
+import { MAX_ACCOUNT_NAME_LENGTH, type Bootstrap, type NewJoinCode, type NewWorkspace, type Sidebar, type WorkspaceSettings } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,9 +25,17 @@ const settings = (session?: Session) => api("/api/account", { headers: as(sessio
 const change = (session: Session | null, body: unknown, headers: Record<string, string> = {}) =>
   api("/api/account", { method: "PATCH", headers: { ...as(session), ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
 
+const regenerate = (session: Session | null, headers: Record<string, string> = {}) =>
+  api("/api/account/join_code", { method: "POST", headers: { ...as(session), ...headers } });
+
 const bootstrap = async (session?: Session) => (await (await api("/api/bootstrap", { headers: as(session) })).json()) as Bootstrap;
 
 const storedAccount = async () => ((await workspaceSql("SELECT name, updated_at FROM accounts")) as Array<{ name: string; updated_at: string }>)[0]!;
+
+const storedJoinCode = async () => ((await workspaceSql("SELECT join_code FROM accounts")) as Array<{ join_code: string }>)[0]!.join_code;
+
+/** A join code as ember-rust makes them: 12 letters and digits, in fours. */
+const JOIN_CODE = /^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$/;
 
 /** What the Workspace's store would answer, from inside the Workspace. */
 const storeOf = (workspace: Workspace) => (workspace as unknown as { store: WorkspaceStore }).store;
@@ -35,11 +43,12 @@ const storeOf = (workspace: Workspace) => (workspace as unknown as { store: Work
 beforeEach(freshDeploy);
 
 describe(feature("accounts.settings-page"), () => {
-  it("shows anyone signed in the workspace, and whether they can change it", async () => {
+  it("shows anyone signed in the workspace, its join code, and whether they can change it", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
-    expect(await (await settings(administrator)).json()).toEqual({ account: { name: "Ember" }, canAdminister: true } satisfies WorkspaceSettings);
-    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember" }, canAdminister: false } satisfies WorkspaceSettings);
+    const joinCode = await storedJoinCode();
+    expect(await (await settings(administrator)).json()).toEqual({ account: { name: "Ember" }, joinCode, canAdminister: true } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember" }, joinCode, canAdminister: false } satisfies WorkspaceSettings);
   });
 
   it("asks who's signed in", async () => {
@@ -75,7 +84,7 @@ describe(feature("accounts.name"), () => {
     expect(await response.json()).toEqual({ account: { name: "Ember Studio" } });
     expect((await storedAccount()).name).toBe("Ember Studio");
 
-    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember Studio" }, canAdminister: false });
+    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember Studio" }, joinCode: await storedJoinCode(), canAdminister: false });
     expect((await bootstrap(member)).account).toEqual({ name: "Ember Studio" });
     // "Sign in to <name>", and the installed app's name.
     expect((await bootstrap()).account).toEqual({ name: "Ember Studio" });
@@ -180,5 +189,98 @@ describe(feature("accounts.name"), () => {
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
+  });
+});
+
+describe(feature("accounts.join-link"), () => {
+  it("keeps settings, which hold the join code, out of every cache", async () => {
+    const response = await settings(await setUp());
+    expect((await response.json()) as WorkspaceSettings).toMatchObject({ joinCode: expect.stringMatching(JOIN_CODE) });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+describe(feature("accounts.regenerate-join-link"), () => {
+  it("gives the join link a new code for an administrator, wherever the link shows", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+    const old = await storedJoinCode();
+    const long = "2026-01-01T00:00:00.000Z";
+    await workspaceSql("UPDATE accounts SET updated_at = ?", long);
+
+    const response = await regenerate(administrator);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const { joinCode } = (await response.json()) as NewJoinCode;
+    expect(joinCode).toMatch(JOIN_CODE);
+    expect(joinCode).not.toBe(old);
+    expect(await storedJoinCode()).toBe(joinCode);
+    // As ember-rust's `reset_join_code` does, which changes the logo's address too.
+    expect((await storedAccount()).updated_at > long).toBe(true);
+
+    expect(((await (await settings(member)).json()) as WorkspaceSettings).joinCode).toBe(joinCode);
+    const sidebar = (await (await api("/api/sidebar", { headers: as(administrator) })).json()) as Sidebar;
+    expect(sidebar.invitation?.joinCode).toBe(joinCode);
+  });
+
+  it("lets only administrators regenerate it, as they are when they do", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+    const old = await storedJoinCode();
+    const refused = await regenerate(member);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: "Only administrators can change the workspace" });
+
+    await workspaceSql("UPDATE users SET role = 0 WHERE id = ?", administrator.user.id);
+    expect((await regenerate(administrator)).status).toBe(403);
+    expect(await storedJoinCode()).toBe(old);
+
+    await workspaceSql("UPDATE users SET role = 1 WHERE id = ?", member.user.id);
+    expect((await regenerate(member)).status).toBe(200);
+    expect(await storedJoinCode()).not.toBe(old);
+  });
+
+  it("asks who's signed in, and refuses a request from another site", async () => {
+    const administrator = await setUp();
+    const old = await storedJoinCode();
+    expect((await regenerate(null)).status).toBe(401);
+    expect((await regenerate(administrator, { "Sec-Fetch-Site": "cross-site" })).status).toBe(422);
+    expect(await storedJoinCode()).toBe(old);
+  });
+
+  it("reads the code again after a change whose answer was lost", async () => {
+    const administrator = await setUp();
+    expect(((await (await settings(administrator)).json()) as WorkspaceSettings).joinCode).toBe(await storedJoinCode());
+    // On D1 a write can be saved and its answer lost on the way back.
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = storeOf(workspace);
+      const change = store.changeJoinCode.bind(store);
+      vi.spyOn(store, "changeJoinCode").mockImplementationOnce(async (...args) => {
+        await change(...args);
+        throw new Error("The database's answer was lost");
+      });
+    });
+    expect((await regenerate(administrator)).status).toBe(500);
+    expect(((await (await settings(administrator)).json()) as WorkspaceSettings).joinCode).toBe(await storedJoinCode());
+  });
+
+  it("doesn't keep a code read while it was being regenerated", async () => {
+    const administrator = await setUp();
+    const old = await storedJoinCode();
+    const credentials = await credentialsFor(administrator.cookie.split("=")[1]!, new Request(origin), env as unknown as Env);
+    // Started afresh, the Workspace has to read the account again.
+    await evictDurableObject(workspaceStub());
+    const regenerated = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      // On D1 a read can start before the change and finish after it, with the code from before.
+      let finishReading!: (account: JoinableAccount | null) => void;
+      vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
+      const reading = workspace.bootstrap(null);
+      const regenerated = await workspace.regenerateJoinCode(credentials);
+      finishReading({ name: "Ember", joinCode: old });
+      await reading;
+      return regenerated;
+    });
+    expect(regenerated).toEqual({ joinCode: await storedJoinCode() });
+    expect(((await (await settings(administrator)).json()) as WorkspaceSettings).joinCode).toBe(await storedJoinCode());
   });
 });

@@ -168,6 +168,24 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
+describe(feature("accounts.regenerate-join-link"), () => {
+  it("joins with the new code once it's regenerated, and answers the old one with an empty 404", async () => {
+    const { cookie } = await setUp();
+    const old = await joinCode();
+    const response = await api("/api/account/join_code", { method: "POST", headers: { Cookie: cookie } });
+    const code = ((await response.json()) as { joinCode: string }).joinCode;
+
+    const page404 = await page(`/join/${old}`);
+    expect(page404.status).toBe(404);
+    expect(await page404.text()).toBe("");
+    expect((await join(old, grace)).status).toBe(404);
+    expect(await count("users")).toBe(1);
+
+    expect((await page(`/join/${code}`)).status).toBe(200);
+    expect((await join(code, grace)).status).toBe(201);
+  });
+});
+
 describe(feature("rooms.invitation-card"), () => {
   it("gives everyone in the workspace's first room its invitation, with the join code", async () => {
     const administrator = await setUp();
