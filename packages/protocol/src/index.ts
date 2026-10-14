@@ -95,6 +95,16 @@ export interface PasswordSignIn {
   password: string;
 }
 
+/** What `POST /api/unfurl` answers for a link with a preview. A link without one gets 204. */
+export interface LinkPreview {
+  title: string;
+  /** The page's og:url when that's a public http(s) URL, else the link that was sent. */
+  url: string;
+  /** The page's og:image when a HEAD for it answers a JPEG, PNG, GIF or WebP content type. */
+  image: string | null;
+  description: string;
+}
+
 /** ember-rust's one answer to a sign-in it refuses, for a wrong password and too many attempts alike. */
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
 

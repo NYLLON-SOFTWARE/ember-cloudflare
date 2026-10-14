@@ -24,12 +24,14 @@ import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
+import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
+export { Unfurler } from "./unfurl";
 export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
@@ -175,6 +177,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return join(request, env, joining[1]!);
+  if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
 
   const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
   if (socket) {

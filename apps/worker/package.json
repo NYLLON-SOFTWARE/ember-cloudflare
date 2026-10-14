@@ -13,7 +13,8 @@
     "d1:migrate:local": "wrangler d1 migrations apply ember --local"
   },
   "dependencies": {
-    "@ember/protocol": "workspace:*"
+    "@ember/protocol": "workspace:*",
+    "parse5": "^8.0.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.0",
