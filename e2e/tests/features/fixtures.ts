@@ -24,6 +24,12 @@ async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
   });
 }
 
+/**
+ * Lets a test end while its rooms list is still loading: closing the context mid-request would
+ * otherwise fail the test with "Response has been disposed" or "Test ended" from `showRooms`.
+ */
+const stopShowingRooms = (context: BrowserContext) => context.unrouteAll({ behavior: "ignoreErrors" });
+
 /** One signed-in person with a browser of their own. */
 export class Member {
   constructor(
@@ -110,6 +116,7 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
   context: async ({ context, rooms }, use) => {
     await showRooms(context, rooms);
     await use(context);
+    await stopShowingRooms(context);
   },
 
   members: async ({ browser, baseURL, request, rooms }, use) => {
@@ -131,6 +138,11 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         return member;
       },
     });
-    await Promise.all(contexts.map((context) => context.close()));
+    await Promise.all(
+      contexts.map(async (context) => {
+        await stopShowingRooms(context);
+        await context.close();
+      }),
+    );
   },
 });
