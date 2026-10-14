@@ -13,6 +13,7 @@ import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
 import messagesAdd from "./campfire/messages-add.svg";
+import messagesEmpty from "./campfire/messages-empty.svg";
 import qrCode from "./campfire/qr-code.svg";
 import remove from "./campfire/remove.svg";
 import share from "./campfire/share.svg";
@@ -87,6 +88,10 @@ export function MenuDotsHorizontal(props: CampfireIconProps) {
 
 export function MessagesAdd(props: CampfireIconProps) {
   return <CampfireIcon src={messagesAdd} {...props} />;
+}
+
+export function MessagesEmpty(props: CampfireIconProps) {
+  return <CampfireIcon src={messagesEmpty} {...props} />;
 }
 
 export function QrCode(props: CampfireIconProps) {

@@ -1,54 +1,72 @@
 import { feature } from "@ember/parity";
 import type { Room, RoomList } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
+import { byName, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
 
 const room = (id: string, name: string): Room => ({ id, kind: "open", name, icon: null });
 
 describe(feature("rooms.create-open"), () => {
-  it("puts a new room in its place by name, as the server lists rooms", () => {
-    const rooms = [room("r1", "Design"), room("r2", "general"), room("r3", "Zebra")];
-    expect(withRoom(rooms, room("r4", "Finance")).map((r) => r.name)).toEqual(["Design", "Finance", "general", "Zebra"]);
+  it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
+    const rooms = withRoom([room("r1", "Design"), room("r2", "general"), room("r3", "Zebra")], room("r4", "Finance"));
+    expect(rooms.map((r) => r.name)).toEqual(["Design", "general", "Zebra", "Finance"]);
+    expect(byName(rooms).map((r) => r.name)).toEqual(["Design", "Finance", "general", "Zebra"]);
   });
 
   it("orders names as SQLite's NOCASE does, folding only ASCII letters, then by id", () => {
-    const rooms = [room("r2", "alpha"), room("r3", "Éclair")];
-    expect(withRoom(rooms, room("r1", "ALPHA")).map((r) => r.id)).toEqual(["r1", "r2", "r3"]);
+    expect(byName([room("r2", "alpha"), room("r3", "Éclair"), room("r1", "ALPHA")]).map((r) => r.id)).toEqual(["r1", "r2", "r3"]);
     // NOCASE leaves "É" as it is, which sorts after every ASCII letter.
-    expect(withRoom(rooms, room("r4", "zed")).map((r) => r.name)).toEqual(["alpha", "zed", "Éclair"]);
+    expect(byName([room("r2", "alpha"), room("r3", "Éclair"), room("r4", "zed")]).map((r) => r.name)).toEqual(["alpha", "zed", "Éclair"]);
   });
 
   it("orders names by code point, as SQLite orders UTF-8, which puts an emoji after full-width letters", () => {
-    const rooms = [room("r1", "😀 Team"), room("r2", "Zebra")];
-    expect(withRoom(rooms, room("r3", "Ａ Team")).map((r) => r.name)).toEqual(["Zebra", "Ａ Team", "😀 Team"]);
+    expect(byName([room("r1", "😀 Team"), room("r2", "Zebra"), room("r3", "Ａ Team")]).map((r) => r.name)).toEqual(["Zebra", "Ａ Team", "😀 Team"]);
   });
 
   it("keeps a room saved before the list arrives, and adds it to the list when it does", () => {
     const list: RoomList = { rooms: [room("r2", "general")], invitation: null };
     const saved = roomListReducer(NO_ROOM_LIST, { type: "saved", room: room("r1", "Design") });
     expect(saved.list).toBeNull();
-    expect(roomListReducer(saved, { type: "loaded", list })).toEqual({ list: { ...list, rooms: [room("r1", "Design"), room("r2", "general")] }, pending: [] });
+    expect(roomListReducer(saved, { type: "loaded", list })).toEqual({ list: { ...list, rooms: [room("r2", "general"), room("r1", "Design")] }, pending: null });
   });
 });
 
 describe(feature("rooms.settings-page"), () => {
-  it("moves a renamed room to its new place", () => {
-    const rooms = [room("r1", "Design"), room("r2", "general")];
-    expect(withRoom(rooms, room("r1", "Product design"))).toEqual([room("r2", "general"), room("r1", "Product design")]);
+  it("keeps a renamed room in its place, and the sidebar moves it to its new name's", () => {
+    const rooms = withRoom([room("r1", "Design"), room("r2", "general")], room("r1", "Product design"));
+    expect(rooms).toEqual([room("r1", "Product design"), room("r2", "general")]);
+    expect(byName(rooms)).toEqual([room("r2", "general"), room("r1", "Product design")]);
   });
 
   it("keeps a rename saved before the list arrives over the name the list has", () => {
     const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
     const renamed = roomListReducer(NO_ROOM_LIST, { type: "saved", room: room("r1", "Product design") });
-    expect(roomListReducer(renamed, { type: "loaded", list }).list!.rooms).toEqual([room("r2", "general"), room("r1", "Product design")]);
+    expect(roomListReducer(renamed, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Product design"), room("r2", "general")]);
   });
 
   it("changes the list in place once it has arrived", () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { rooms: [room("r1", "Design")], invitation: null } });
     expect(roomListReducer(loaded, { type: "saved", room: room("r1", "Product design") })).toEqual({
       list: { rooms: [room("r1", "Product design")], invitation: null },
-      pending: [],
+      pending: null,
     });
+  });
+});
+
+describe(feature("rooms.show"), () => {
+  const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { rooms: [room("r1", "Design")], invitation: null } });
+
+  it("keeps the list while it's asked for again, and the changes made meanwhile once the new one arrives", () => {
+    const asked = roomListReducer(loaded, { type: "asked" });
+    expect(asked.list).toEqual(loaded.list);
+    const saved = roomListReducer(asked, { type: "saved", room: room("r3", "Finance") });
+    expect(saved.list!.rooms.map((r) => r.id)).toEqual(["r1", "r3"]);
+    // Asked for before Finance was made, the new list hasn't got it.
+    const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
+    expect(roomListReducer(saved, { type: "loaded", list })).toEqual({ list: { ...list, rooms: [...list.rooms, room("r3", "Finance")] }, pending: null });
+  });
+
+  it("keeps the list it has when asking again fails", () => {
+    expect(roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "unanswered" })).toEqual(loaded);
   });
 });
 

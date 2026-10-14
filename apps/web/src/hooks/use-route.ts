@@ -10,8 +10,14 @@ export type Access = Exclude<RoomKind, "direct">;
 
 /** What a signed-in page shows. */
 export type Route =
-  /** A room, or with no id, as at /, the first room. */
-  | { page: "room"; roomId: RoomId | null }
+  /** `/`, or an address naming nothing here: the last room visited, or a page saying there are no rooms yet. */
+  | { page: "home" }
+  /** `/rooms`: the room made most recently. */
+  | { page: "newest-room" }
+  /** A room, at `/rooms/<id>`. */
+  | { page: "room"; roomId: RoomId }
+  /** A room at the address for a kind of room, such as `/rooms/opens/<id>`, which goes on to the room's own. */
+  | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
   | { page: "new-room"; access: Access }
   | { page: "room-settings"; access: Access; roomId: RoomId }
   | { page: "workspace-settings" };
@@ -136,21 +142,29 @@ function decoded(segment: string): string | null {
 /** The room id in a /rooms/:id path, or null. */
 export function roomIdFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/rooms\/([^/]+)$/);
-  // A malformed escape names no room, so the workspace falls back to the first one.
+  // A malformed escape names no room, so the address shows home.
   return match ? decoded(match[1]!) : null;
 }
 
 const accessOf = (segment: string): Access => (segment === KIND_SEGMENTS.open ? "open" : "closed");
 
-/** The page a signed-in path shows: anything it doesn't name shows the first room. */
+const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct ? "direct" : accessOf(segment));
+
+/** The page a signed-in path shows: anything it doesn't name is home. */
 export function routeOf(pathname: string): Route {
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
+  if (pathname === "/rooms") return { page: "newest-room" };
   const newRoom = pathname.match(/^\/rooms\/(opens|closeds)\/new$/);
   if (newRoom) return { page: "new-room", access: accessOf(newRoom[1]!) };
   const settings = pathname.match(/^\/rooms\/(opens|closeds)\/([^/]+)\/edit$/);
   const settingsRoomId = settings && decoded(settings[2]!);
   if (settingsRoomId) return { page: "room-settings", access: accessOf(settings[1]!), roomId: settingsRoomId };
-  return { page: "room", roomId: roomIdFromPath(pathname) };
+  // ember-rust's New direct message page, /rooms/directs/new, comes with direct messages (`dms.picker`).
+  const ofKind = pathname.match(/^\/rooms\/(opens|closeds|directs)\/([^/]+)$/);
+  const ofKindRoomId = ofKind && pathname !== "/rooms/directs/new" && decoded(ofKind[2]!);
+  if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
+  const roomId = roomIdFromPath(pathname);
+  return roomId === null ? { page: "home" } : { page: "room", roomId };
 }
 
 /** The page the address shows, re-rendering when it changes. */

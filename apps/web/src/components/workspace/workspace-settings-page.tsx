@@ -6,12 +6,12 @@ import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /**
  * ember-rust's workspace settings (accounts/edit.html), so far just its heading and the Rooms section
- * with New room. Go Back goes home.
+ * with New room. Go Back goes to `back`, the last room visited.
  */
-export function WorkspaceSettingsPage() {
+export function WorkspaceSettingsPage({ back }: { back: string }) {
   useTitle("Account settings");
   return (
-    <SettingsPage back="/">
+    <SettingsPage back={back}>
       <Panel className="flex flex-col gap-x-[1ch] gap-y-4">
         <PageHeading title="Workspace settings">Manage your workspace, invitations, and people.</PageHeading>
         <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">

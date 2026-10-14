@@ -43,7 +43,10 @@ export interface Invitation {
   joinCode: string;
 }
 
-/** What `GET /api/rooms` answers: the rooms someone is in, and the invitation, when they're in its room. */
+/**
+ * What `GET /api/rooms` answers: the rooms someone is in, in the order they were made, and the
+ * invitation, when they're in its room.
+ */
 export interface RoomList {
   rooms: Room[];
   invitation: Invitation | null;

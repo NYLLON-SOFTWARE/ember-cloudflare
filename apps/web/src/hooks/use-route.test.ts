@@ -27,17 +27,18 @@ describe(feature("rooms.show"), () => {
     expect(renderHook(() => useRoute()).result.current).toEqual({ page: "room", roomId: "random" });
   });
 
-  it("ignores other paths", () => {
+  it("reads other paths as home", () => {
     expect(roomIdFromPath("/")).toBeNull();
     expect(roomIdFromPath("/rooms/general/extra")).toBeNull();
-    expect(routeOf("/")).toEqual({ page: "room", roomId: null });
-    expect(routeOf("/rooms/general/extra")).toEqual({ page: "room", roomId: null });
+    expect(routeOf("/")).toEqual({ page: "home" });
+    expect(routeOf("/rooms/general/extra")).toEqual({ page: "home" });
   });
 
   it("treats a malformed escape as no room instead of throwing", () => {
     expect(roomIdFromPath("/rooms/%FF")).toBeNull();
     expect(roomIdFromPath("/rooms/%E0%A4")).toBeNull();
-    expect(routeOf("/rooms/opens/%FF/edit")).toEqual({ page: "room", roomId: null });
+    expect(routeOf("/rooms/opens/%FF/edit")).toEqual({ page: "home" });
+    expect(routeOf("/rooms/opens/%FF")).toEqual({ page: "home" });
   });
 
   it("follows in-app navigation and the browser's Back button", async () => {
@@ -64,6 +65,28 @@ describe(feature("rooms.show"), () => {
     navigate("/rooms/random", { replace: true });
     expect(location.pathname).toBe("/rooms/random");
     expect(history.length).toBe(length);
+  });
+});
+
+describe(feature("rooms.index"), () => {
+  it("has the newest room at /rooms", () => {
+    expect(routeOf("/rooms")).toEqual({ page: "newest-room" });
+  });
+
+  it("reads a room's address for its kind, which goes on to the room's own", () => {
+    expect(routeOf("/rooms/opens/general")).toEqual({ page: "room-of-kind", kind: "open", roomId: "general" });
+    expect(routeOf("/rooms/closeds/caf%C3%A9")).toEqual({ page: "room-of-kind", kind: "closed", roomId: "café" });
+    expect(routeOf("/rooms/directs/ada-grace")).toEqual({ page: "room-of-kind", kind: "direct", roomId: "ada-grace" });
+  });
+
+  it("reads /rooms/opens and the others as room ids, as ember-rust matches /rooms/<id> first", () => {
+    expect(routeOf("/rooms/opens")).toEqual({ page: "room", roomId: "opens" });
+    expect(routeOf("/rooms/closeds")).toEqual({ page: "room", roomId: "closeds" });
+    expect(routeOf("/rooms/directs")).toEqual({ page: "room", roomId: "directs" });
+  });
+
+  it("leaves New direct message, which comes with direct messages, at home for now", () => {
+    expect(routeOf("/rooms/directs/new")).toEqual({ page: "home" });
   });
 });
 

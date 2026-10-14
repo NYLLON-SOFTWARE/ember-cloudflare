@@ -144,7 +144,8 @@ describe(feature("auth.first-run"), () => {
     serve({ signedIn: true });
     render(<App />);
     expect(await roomHeading()).toBeInTheDocument();
-    expect(location.pathname).toBe("/");
+    // Home, which goes on to the last room visited.
+    expect(location.pathname).toBe("/rooms/general");
     expect(loadPage).not.toHaveBeenCalled();
   });
 });
@@ -233,7 +234,8 @@ describe(feature("auth.sign-in"), () => {
     render(<App />);
     await signInAsAda();
     expect(await roomHeading()).toBeInTheDocument();
-    expect(location.pathname).toBe("/");
+    // Home, which goes on to the last room visited.
+    expect(location.pathname).toBe("/rooms/general");
   });
 
   it("shows the sign-in page to someone already signed in, as ember-rust does", async () => {
@@ -274,7 +276,8 @@ describe(feature("auth.sign-up"), () => {
 
     await join("grace@example.com");
     expect(await roomHeading()).toBeInTheDocument();
-    expect(location.pathname).toBe("/");
+    // Home, which goes on to the last room visited.
+    expect(location.pathname).toBe("/rooms/general");
     expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace");
   });
 
@@ -291,7 +294,8 @@ describe(feature("auth.sign-up"), () => {
     serve({ signedIn: true });
     render(<App />);
     expect(await roomHeading()).toBeInTheDocument();
-    expect(location.pathname).toBe("/");
+    // Home, which goes on to the last room visited.
+    expect(location.pathname).toBe("/rooms/general");
   });
 });
 

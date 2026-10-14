@@ -2,7 +2,9 @@ import { useEffect, useEffectEvent } from "react";
 import type { Invitation, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { useRoom } from "@/hooks/use-room";
+import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
+import { rememberLastRoom } from "@/lib/last-room";
 import { Composer, RoomDeleted } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
@@ -19,6 +21,9 @@ interface Props {
 
 export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
+  useTitle(room.name);
+  // As ember-rust's rooms#show remembers the room it shows, for home and Go Back to return to.
+  useEffect(() => rememberLastRoom(room.id), [room.id]);
   const gone = state.status === "gone";
   const roomGone = useEffectEvent(() => onGone(room));
   useEffect(() => {
