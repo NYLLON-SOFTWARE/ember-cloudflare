@@ -223,6 +223,7 @@ export const features = [
     status: "todo",
     behaviors: [
       "Administrators save Workspace name (placeholder \"Name this account\", not autofocused) with Save changes or Enter, and return to settings with \"Changes saved.\" even when nothing changed; members get 403.",
+      "Entering the field keeps the usual cursor rather than selecting the name (`ui.select-on-entry`).",
       "The name isn't validated, so a blank one is saved.",
       "The name shows as members' settings heading, the rail logo's title, the sidebar heading, \"Sign in to <name>\" and \"Join <name>\", and the installed app's name (\"Ember\" before there's a workspace).",
     ],
@@ -822,7 +823,7 @@ export const features = [
     status: "todo",
     behaviors: [
       "The rail's DMs and the sidebar's New direct message open \"New direct message\" / \"Find people by full name. You can also type @name.\" without leaving the page, focus \"Search by name or @name\" and list the first 20 people; on phones the drawer closes first. Clicked with a modifier key, they follow the link to `/rooms/directs/new`.",
-      "Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more.",
+      "Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more. Entering the search keeps the usual cursor rather than selecting what's in it (`ui.select-on-entry`).",
       "The status reads \"Search by name or @name.\", \"Loading people…\", \"Searching…\", \"Choose one or more people.\", \"Everyone shown is selected.\", \"No people found. Try another name.\" or \"No other people are available to message yet.\"",
       "Clicking a person, or Enter on the one highlighted with the arrow keys (which wrap around), adds a chip \"<name> ×\" (\"Remove <name>\") under \"Selected people\" and takes them out of the list; clicking the chip puts them back. Enter with nobody highlighted does nothing.",
       "Start conversation is disabled until someone is picked and says \"Starting conversation…\" while it works; if starting fails: \"Couldn’t start the conversation. Please try again.\", keeping your picks.",
@@ -2325,7 +2326,7 @@ export const features = [
     id: "ui.select-on-entry",
     title: "Select a field's text on entry",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Tabbing or clicking into a text, search, email, URL, phone or password field selects what's in it, so typing replaces it. A second click, or a drag, places the cursor as usual.",
       "Text areas and the message box are never selected, nor are disabled or read-only fields and three marked ones: the workspace name, direct-message search and icon search.",
@@ -2333,6 +2334,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/components/direct_message.html", "crates/views/templates/rooms/layouts/_icon_picker.html", "crates/views/templates/accounts/edit.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
+    notes: "Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields. The workspace name and direct-message search aren't built yet, and `accounts.name` and `dms.picker` say they keep the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.",
   },
   {
     id: "ui.flash",

@@ -10,7 +10,8 @@ import { loadPage } from "@/lib/page";
 
 // ember-rust's Set up Ember page (crates/views/templates/first_runs/show.html and the macros in
 // components/ui.html), styled as its basecoat card (crates/assets/overrides/basecoat/src/theme.css).
-// It has no profile photo yet: that waits for file uploads.
+// It has no profile photo yet: that waits for file uploads. Entering its fields doesn't select what's
+// in them, since it isn't one of ember-rust's app pages, which do (`useSelectOnEntry`).
 
 const TITLE = "Set up Ember";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */
@@ -58,7 +59,10 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
   }
 
   return (
-    <main className="grid min-h-svh grid-cols-[minmax(0,28rem)] place-content-center justify-items-center gap-4 bg-surface pt-[calc(2.5rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] max-[380px]:pt-[calc(1.25rem+env(safe-area-inset-top))] max-[380px]:pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
+    <main
+      data-ember-preserve-selection
+      className="grid min-h-svh grid-cols-[minmax(0,28rem)] place-content-center justify-items-center gap-4 bg-surface pt-[calc(2.5rem+env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(2.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] max-[380px]:pt-[calc(1.25rem+env(safe-area-inset-top))] max-[380px]:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+    >
       {problem && (
         <div role="alert" aria-atomic="true" className="w-full rounded-lg border bg-card px-4 py-3.5">
           {problem}

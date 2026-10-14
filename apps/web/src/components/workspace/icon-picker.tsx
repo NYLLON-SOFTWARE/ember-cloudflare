@@ -249,6 +249,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
             placeholder="Search icons, e.g. coffee or rocket"
             aria-label="Search icons"
             autoComplete="off"
+            data-ember-preserve-selection
             onChange={(event) => find(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
