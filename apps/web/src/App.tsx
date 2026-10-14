@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bootstrap, NewWorkspace, User } from "@ember/protocol";
+import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { Workspace } from "@/components/workspace/workspace";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
+import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
+import { followAppearance } from "@/lib/appearance";
 import { loadPage } from "@/lib/page";
 import { forgetReturnPath, rememberThisPage, takeReturnPath } from "@/lib/return-path";
 
@@ -23,6 +26,11 @@ export function App() {
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
   const signingOut = useRef(false);
+  // Before any page has fields, so even one focused as it opens is selected.
+  useSelectOnEntry();
+
+  // Every page keeps up with the device and other tabs, as each of ember-rust's does, rail or not.
+  useEffect(() => followAppearance(), []);
 
   useEffect(() => {
     forgetStoredSession();
@@ -99,10 +107,21 @@ export function App() {
     setWorkspace((workspace) => workspace && { ...workspace, setup: "complete" });
   }, []);
 
+  // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
-  if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
-  // Someone else's workspace starts afresh, with their own rooms and sockets.
-  if (me && !atSignIn) return <Workspace key={me.id} me={me} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
-  if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
-  return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
+  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn;
+  const page = () => {
+    if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
+    // Someone else's workspace starts afresh, with their own rooms and sockets.
+    if (showsWorkspace) return <Workspace key={me.id} me={me} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
+    if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
+    return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
+  };
+  // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's
+  // flash, as ember-rust's redirect after signing in shows none.
+  return (
+    <FlashProvider key={showsWorkspace ? me.id : "signed out"} workspace={showsWorkspace}>
+      {page()}
+    </FlashProvider>
+  );
 }

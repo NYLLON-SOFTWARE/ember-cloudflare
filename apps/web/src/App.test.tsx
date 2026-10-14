@@ -3,7 +3,9 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, SIGN_IN_REFUSED } from "@ember/protocol";
+import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
+import { setPrefersDark } from "@/test-media";
 import { App } from "./App";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -364,5 +366,94 @@ describe(feature("auth.sign-out"), () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" })));
     expect(screen.getByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("ui.appearance"), () => {
+  it("keeps pages without the rail, such as sign-in, in step with other tabs and the device", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    await signInPage();
+    const isDark = () => document.documentElement.classList.contains("dark");
+
+    localStorage.setItem("ember:appearance", "dark");
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "ember:appearance", newValue: "dark" })));
+    expect(isDark()).toBe(true);
+
+    // Another tab clears the site's storage, which goes back to System.
+    localStorage.clear();
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
+    expect(isDark()).toBe(false);
+    act(() => setPrefersDark(true));
+    expect(isDark()).toBe(true);
+  });
+});
+
+describe(feature("ui.flash"), () => {
+  const BESIDE_THE_RAIL = "md:left-[calc((100%+env(safe-area-inset-left)+var(--spacing-rail)+var(--spacing-sidebar))/2)]";
+  /** Where the flash showing is placed. */
+  const placement = async () => (await screen.findByRole("alert")).parentElement!;
+
+  it("centers a flash over the window while signed out", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    await signInAsAda("wrong horse");
+    expect(await placement()).toHaveClass("left-1/2");
+    expect(await placement()).not.toHaveClass(BESIDE_THE_RAIL);
+  });
+
+  it("centers a flash over the page beside the rail and sidebar in the workspace", async () => {
+    history.replaceState(null, "", "/rooms/nowhere");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await placement()).toHaveClass(BESIDE_THE_RAIL);
+  });
+
+  it("leaves a refused sign-in's alert behind once someone signs in", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    await signInAsAda("wrong horse");
+    await screen.findByRole("alert");
+    await userEvent.type(screen.getByLabelText("Password"), "correct horse{Enter}");
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("flashes what the page before a full page load kept for it once the page it's for shows", async () => {
+    flashOnNextPage({ kind: "notice", text: "✓" });
+    serve({ signedIn: true });
+    render(<App />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(await placement()).toHaveClass(BESIDE_THE_RAIL);
+  });
+});
+
+describe(feature("ui.select-on-entry"), () => {
+  it("selects what's in a field entered again on the sign-in page, signed out", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    const user = userEvent.setup();
+    const emailAddress = await screen.findByLabelText("Email address");
+    await user.type(emailAddress, "grace@example.com");
+    await user.click(screen.getByLabelText("Password"));
+    await user.click(emailAddress);
+    await user.keyboard("ada@example.com");
+    expect(emailAddress).toHaveValue("ada@example.com");
+  });
+
+  it("leaves what's in Set up Ember's fields alone when they're entered", async () => {
+    history.replaceState(null, "", "/first_run");
+    serve({ signedIn: false, setup: "pending" });
+    render(<App />);
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("Name");
+    await user.type(name, "Ada");
+    await user.click(screen.getByLabelText("Email address"));
+    await user.click(name);
+    await user.keyboard(" Lovelace");
+    expect(name).toHaveValue("Ada Lovelace");
   });
 });

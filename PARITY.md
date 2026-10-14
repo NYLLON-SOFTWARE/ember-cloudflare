@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 25 ported and 57 partial of 172 features; 85 not started, 5 not applicable.
+**Overall:** 27 ported and 56 partial of 172 features; 84 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
-| [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
+| [Workspace interface](#workspace-interface) | 3 | 8 | 0 | 0 | 11 |
 | [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
-| **Total** | **25** | **57** | **85** | **5** | **172** |
+| **Total** | **27** | **56** | **84** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -254,6 +254,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 **Rename the workspace** (`accounts.name`) ⬜
 
 - Administrators save Workspace name (placeholder "Name this account", not autofocused) with Save changes or Enter, and return to settings with "Changes saved." even when nothing changed; members get 403.
+- Entering the field keeps the usual cursor rather than selecting the name (`ui.select-on-entry`).
 - The name isn't validated, so a blank one is saved.
 - The name shows as members' settings heading, the rail logo's title, the sidebar heading, "Sign in to &lt;name&gt;" and "Join &lt;name&gt;", and the installed app's name ("Ember" before there's a workspace).
 
@@ -804,7 +805,7 @@ ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`
 **New direct message dialog** (`dms.picker`) ⬜
 
 - The rail's DMs and the sidebar's New direct message open "New direct message" / "Find people by full name. You can also type @name." without leaving the page, focus "Search by name or @name" and list the first 20 people; on phones the drawer closes first. Clicked with a modifier key, they follow the link to `/rooms/directs/new`.
-- Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more.
+- Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more. Entering the search keeps the usual cursor rather than selecting what's in it (`ui.select-on-entry`).
 - The status reads "Search by name or @name.", "Loading people…", "Searching…", "Choose one or more people.", "Everyone shown is selected.", "No people found. Try another name." or "No other people are available to message yet."
 - Clicking a person, or Enter on the one highlighted with the arrow keys (which wrap around), adds a chip "&lt;name&gt; ×" ("Remove &lt;name&gt;") under "Selected people" and takes them out of the list; clicking the chip puts them back. Enter with nobody highlighted does nothing.
 - Start conversation is disabled until someone is picked and says "Starting conversation…" while it works; if starting fails: "Couldn’t start the conversation. Please try again.", keeping your picks.
@@ -2131,11 +2132,11 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 | Rail | `ui.rail` | Ember | 🟡 Partial | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Room header | `ui.room-header` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx) |
 | Conversations drawer on phones | `ui.mobile-drawer` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
-| Light, dark or system appearance | `ui.appearance` | Ember | 🟡 Partial | Web: [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
+| Light, dark or system appearance | `ui.appearance` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
 | Stay at the newest message | `ui.scroll` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Empty room | `ui.empty-room` | This port | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
-| Select a field's text on entry | `ui.select-on-entry` | Ember | ⬜ Not started |  |
-| Saved notices | `ui.flash` | Ember | 🟡 Partial | Web: [flash](apps/web/src/components/flash.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
+| Select a field's text on entry | `ui.select-on-entry` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [icon-picker](apps/web/src/components/workspace/icon-picker.test.tsx), [use-select-on-entry](apps/web/src/hooks/use-select-on-entry.test.tsx)<br>E2E: [select-on-entry](e2e/tests/features/select-on-entry.spec.ts) |
+| Saved notices | `ui.flash` | Ember | 🟡 Partial | Web: [App](apps/web/src/App.test.tsx), [flash](apps/web/src/components/flash.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [flash](apps/web/src/lib/flash.test.ts)<br>E2E: [flash](e2e/tests/features/flash.spec.ts) |
 | Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Ember's icons | `ui.icons` | Ember | 🟡 Partial | Web: [icons](apps/web/src/components/icons/icons.test.tsx) |
 
@@ -2191,16 +2192,17 @@ Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SO
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Light, dark or system appearance** (`ui.appearance`) 🟡
+**Light, dark or system appearance** (`ui.appearance`) ✅
 
 - The rail's appearance button, above your avatar, shows a sun, moon or monitor and is named and titled "Appearance: Light", "Appearance: Dark" or "Appearance: System". It opens a small menu, a dialog named Appearance, with Light, Dark and System radio buttons under the legend "Appearance", the current one checked.
-- A choice applies at once and is kept in this browser (`ember:appearance`, System as `system`). It's applied before the page paints, so dark never flashes light, and other open tabs follow, also when the site's storage is cleared. System follows the device as it changes.
+- A choice applies at once and leaves the menu open, and the arrow keys move between the choices.
+- A choice is kept in this browser (`ember:appearance`, System as `system`) and applied before the page paints, so dark never flashes light. Other open tabs follow, also when the site's storage is cleared or while a tab is still loading, and System follows the device as it changes. Where storage is refused, a choice still holds for the page.
 - `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.
+Note: The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`).
 
-Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
+Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/basecoat/src/theme-init.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/theme-init.js) · [`crates/assets/overrides/basecoat/src/lifecycle.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/lifecycle.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/assets/overrides/basecoat/test/lifecycle.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/test/lifecycle.test.mjs)
 
@@ -2222,11 +2224,13 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 - A room nobody has written in says "Welcome to #&lt;room&gt;" and "This is the very beginning of the room. Say hello!"
 - The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).
 
-**Select a field's text on entry** (`ui.select-on-entry`) ⬜
+**Select a field's text on entry** (`ui.select-on-entry`) ✅
 
 - Tabbing or clicking into a text, search, email, URL, phone or password field selects what's in it, so typing replaces it. A second click, or a drag, places the cursor as usual.
 - Text areas and the message box are never selected, nor are disabled or read-only fields and three marked ones: the workspace name, direct-message search and icon search.
 - It works on every page but first-run setup, signed in or not.
+
+Note: Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields. The workspace name and direct-message search aren't built yet, and `accounts.name` and `dms.picker` say they keep the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.
 
 Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/components/direct_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/direct_message.html) · [`crates/views/templates/rooms/layouts/_icon_picker.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_icon_picker.html) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html)
 
@@ -2239,7 +2243,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Saving the workspace's name or logo says "Changes saved.", saving custom styles or your profile "✓", and a new profile photo "It may take up to 30 minutes to change everywhere." The settings switches, which save as you flip them, show none.
 - Opening a room that's gone or isn't yours goes home with the alert "Room not found or inaccessible", and a refused sign-in shows "Too many requests or unauthorized."
 
-Note: Only alerts so far: a refused sign-in's, "Room not found or inaccessible" from a room or its settings, and why creating or saving a room failed ("Couldn't reach Ember. Check your connection and try again." when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar from 900px up. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.
+Note: Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. What's missing are the notices themselves, which come with the pages that show them: workspace settings' name and logo (`accounts.name`, `accounts.logo`), custom styles (`accounts.custom-css`), and the profile and its photo (`users.profile`, `users.avatar-upload`). The alerts so far are a refused sign-in's, "Room not found or inaccessible" from a room or its settings, and why creating or saving a room failed ("Couldn't reach Ember. Check your connection and try again." when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/assets/stylesheets/flash.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/flash.css) · [`reference/app/assets/stylesheets/animation.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/animation.css) · [`reference/app/javascript/controllers/element_removal_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/element_removal_controller.js) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/accounts/custom_styles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/custom_styles.rs) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs)
 

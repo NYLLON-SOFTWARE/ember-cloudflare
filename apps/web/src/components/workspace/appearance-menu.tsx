@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { Check, Monitor, Moon, Sun } from "@/components/icons/lucide";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { type Appearance, saveAppearance, savedAppearance, watchAppearance } from "@/lib/appearance";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { chooseAppearance, useAppearance } from "@/lib/appearance";
 
 const OPTIONS = [
   { value: "light", label: "Light", Icon: Sun },
@@ -9,43 +9,68 @@ const OPTIONS = [
   { value: "system", label: "System", Icon: Monitor },
 ] as const;
 
+/**
+ * The rail's appearance button, from ember-rust's components/appearance.html: it's named for the
+ * choice shown and opens a small dialog of Light, Dark and System radio buttons. A choice applies at
+ * once and leaves the dialog open, which Escape or a click elsewhere closes.
+ */
 export function AppearanceMenu() {
-  const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
-  useEffect(() => watchAppearance(setAppearance), []);
-
-  const Current = OPTIONS.find((o) => o.value === appearance)!.Icon;
+  const appearance = useAppearance();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const choices = useRef<HTMLFieldSetElement>(null);
+  const { label, Icon } = OPTIONS.find((option) => option.value === appearance)!;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        ref={button}
         className="mt-auto flex size-9 shrink-0 items-center justify-center rounded-full border text-muted-foreground hover:bg-hover hover:text-foreground data-[state=open]:bg-hover data-[state=open]:text-foreground touch:size-11"
-        aria-label="Appearance"
-        title="Appearance"
+        aria-label={`Appearance: ${label}`}
+        title={`Appearance: ${label}`}
       >
-        <Current className="size-[18px]" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-[190px] rounded-xl p-2">
-        <DropdownMenuLabel className="px-2 pt-1 pb-2 text-xs font-semibold text-muted-foreground">Appearance</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={appearance}
-          onValueChange={(value) => {
-            saveAppearance(value as Appearance);
-            setAppearance(value as Appearance);
-          }}
-        >
+        <Icon className="size-[18px]" />
+      </PopoverTrigger>
+      <PopoverContent
+        aria-label="Appearance"
+        side="right"
+        align="end"
+        sideOffset={8}
+        className="w-[190px] rounded-[12px] bg-background p-2 shadow-[0_8px_24px_#0002]"
+        // Opening focuses the current choice, and Tab closes the dialog and goes on from its button,
+        // as workspace-appearance.js has them.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          choices.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          button.current?.focus();
+          setOpen(false);
+        }}
+      >
+        <fieldset ref={choices}>
+          <legend className="px-2 pt-1 pb-2 text-xs font-semibold text-muted-foreground">Appearance</legend>
           {OPTIONS.map(({ value, label, Icon }) => (
-            <DropdownMenuRadioItem
+            <label
               key={value}
-              value={value}
-              className="group min-h-10 gap-2.5 rounded-[7px] p-2 data-[state=checked]:bg-hover touch:min-h-11 [&>span:first-child]:hidden"
+              className="relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-[7px] p-2 hover:bg-hover has-checked:bg-hover has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-foreground touch:min-h-11"
             >
-              <Icon className="size-[18px]" />
-              {label}
-              <Check className="ml-auto size-[18px] opacity-0 group-data-[state=checked]:opacity-100" />
-            </DropdownMenuRadioItem>
+              <input
+                type="radio"
+                name="appearance"
+                value={value}
+                checked={appearance === value}
+                onChange={() => chooseAppearance(value)}
+                className="peer absolute size-px opacity-0 [clip-path:inset(50%)]"
+              />
+              <Icon className="size-[18px] shrink-0" />
+              <span>{label}</span>
+              <Check className="invisible ml-auto size-[18px] shrink-0 peer-checked:visible" />
+            </label>
           ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </fieldset>
+      </PopoverContent>
+    </Popover>
   );
 }

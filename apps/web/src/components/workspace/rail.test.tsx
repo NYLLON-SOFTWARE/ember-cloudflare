@@ -20,7 +20,7 @@ describe(feature("ui.rail"), () => {
       "Activity",
       "Search",
       "Workspace",
-      "Appearance",
+      "Appearance: System",
       "Your profile",
     ]);
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");

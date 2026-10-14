@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useState } from "react";
 import type { Room, RoomId, User } from "@ember/protocol";
-import { Flash } from "@/components/flash";
+import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -96,8 +96,6 @@ interface Props {
 export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   const [{ list, pending }, changeRooms] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Keyed, so the same alert twice fades in again.
-  const [alert, setAlert] = useState<{ text: string; key: number } | null>(null);
   const route = useRoute();
 
   useEffect(() => {
@@ -125,7 +123,7 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   // Another page starts with the drawer closed, as each of ember-rust's does.
   useEffect(() => setDrawerOpen(false), [route]);
 
-  const flash = useCallback((text: string) => setAlert((shown) => ({ text, key: (shown?.key ?? 0) + 1 })), []);
+  const flash = useFlash();
   const mounted = useMounted();
   // A session that's ended goes to sign in; anything else is an alert. Once another person's workspace
   // has taken this one's place, as another tab signing in makes it, what this one's pages hear is
@@ -134,14 +132,14 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
     (error: unknown) => {
       if (!mounted.current) return;
       if (isSignedOut(error)) return onSessionChanged(null);
-      flash(reasonFor(error));
+      flash("alert", reasonFor(error));
     },
     [flash, onSessionChanged, mounted],
   );
   const redirect = useCallback(
     ({ path, alert }: Redirect) => {
       navigate(path, { replace: true });
-      if (alert) flash(alert);
+      if (alert) flash("alert", alert);
     },
     [flash],
   );
@@ -307,11 +305,6 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
 
         {page()}
       </div>
-      {alert && (
-        <Flash key={alert.key} workspace onDone={() => setAlert(null)}>
-          {alert.text}
-        </Flash>
-      )}
     </Sheet>
   );
 }
