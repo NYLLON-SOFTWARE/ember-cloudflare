@@ -70,6 +70,8 @@ export class ChatRoom extends DurableObject<Env> {
   private stopGathering: (() => void) | null = null;
   /** How many calls in a row have failed, which puts the next try off longer. */
   private failedDeliveries = 0;
+  /** When the room may call the Workspace again after a call failed, which its alarm is set for. */
+  private retryAt = 0;
   /**
    * Whether the object has sent the Workspace its log since it started. A restart in the middle of a
    * call, as a deploy can make, leaves the call's events in the log with no alarm set to send them.
@@ -179,6 +181,7 @@ export class ChatRoom extends DurableObject<Env> {
     });
     if (undelivered === undefined) return;
     await this.ctx.storage.delete(UNDELIVERED_ROOM);
+    this.retryAt = 0;
     this.deliver(undelivered);
     while (this.delivering) await this.delivering;
   }
@@ -314,13 +317,13 @@ export class ChatRoom extends DurableObject<Env> {
    * Sends the Workspace the room's log, with who is viewing the room now, for it to mark the room
    * unread for the members who aren't and read for those who've opened it. One call is out at a
    * time, and the events logged meanwhile go in the next, a moment after it, or at once if the call
-   * left some behind or a full call's worth comes first. When a call fails, the alarm tries again
-   * later, from the first event the Workspace hasn't taken.
+   * left some behind or a full call's worth comes first. When a call fails, the next waits for the
+   * alarm, which tries again later, from the first event the Workspace hasn't taken.
    */
   private deliver(roomId: RoomId): void {
     this.undelivered = true;
     if (++this.logged >= EVENTS_PER_CALL) this.stopGathering?.();
-    if (this.delivering) return;
+    if (this.delivering || Date.now() < this.retryAt) return;
     this.undelivered = false;
     this.delivering = this.deliverBatch(roomId)
       .then((full) => (full ? undefined : this.gather()))
@@ -367,8 +370,9 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Sets the alarm to send the room's log, a second after the first failure and twice as long after
-   * each one since, up to the longest wait. A deleted room's alarm is for erasing it, so it's left as
-   * it is; this runs one event at a time with deleting it, so the deletion's alarm can't be overtaken.
+   * each one since, up to the longest wait, and makes no calls until then, however much the room logs.
+   * A deleted room's alarm is for erasing it, so it's left as it is; this runs one event at a time
+   * with deleting it, so the deletion's alarm can't be overtaken.
    */
   private async deliverLater(roomId: RoomId): Promise<void> {
     if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return;
@@ -376,6 +380,7 @@ export class ChatRoom extends DurableObject<Env> {
     const at = Date.now() + Math.min(LONGEST_RETRY_MS, FIRST_RETRY_MS * 2 ** (this.failedDeliveries - 1));
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > at) await this.ctx.storage.setAlarm(at);
+    this.retryAt = at;
   }
 
   /** Everyone with at least one open socket, once each. */

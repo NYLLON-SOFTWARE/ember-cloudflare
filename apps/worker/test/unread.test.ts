@@ -64,13 +64,21 @@ async function sidebarOf(session: Session, room: RoomId, etag?: string) {
   return { status: response.status, etag: response.headers.get("ETag")!, unread: sidebar.rooms.find(({ id }) => id === room)?.unread };
 }
 
-/** Makes the Workspace unreachable from room `room`, as it is when it's restarting, until the function this answers is called. */
-async function cutOff(room: RoomId): Promise<() => Promise<void>> {
+/**
+ * Makes the Workspace unreachable from room `room`, as it is when it's restarting, until the function
+ * this answers is called. The time of each call the room makes meanwhile goes in `calls`.
+ */
+async function cutOff(room: RoomId, calls: number[] = []): Promise<() => Promise<void>> {
   let original: Env | undefined;
   await runInDurableObject(roomStub(room), (instance: ChatRoom) => {
     const object = instance as unknown as { env: Env };
     original = object.env;
-    const unreachable = { applyRoomEvents: () => Promise.reject(new Error("The Workspace is unreachable")) };
+    const unreachable = {
+      applyRoomEvents: () => {
+        calls.push(Date.now());
+        return Promise.reject(new Error("The Workspace is unreachable"));
+      },
+    };
     object.env = { ...original, WORKSPACE: { getByName: () => unreachable } as unknown as Env["WORKSPACE"] };
   });
   return () =>
@@ -277,6 +285,32 @@ describe(feature("sidebar.unread"), () => {
     // The message marked him, and his read, which came after it, cleared the mark.
     expect(await heard(tab, room)).toEqual([read(room)]);
     expect(await marked(room)).toEqual(["Host"]);
+  });
+
+  it("calls a Workspace it couldn't reach again only when its alarm goes off, however busy the room is", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const room = await freshRoom("backing-off");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    const tab = await openWorkspaceSocket(hopper);
+    await settle(ada);
+    await delivered(room);
+
+    const calls: number[] = [];
+    const reconnect = await cutOff(room, calls);
+    // Messages keep coming for longer than the pause after a call.
+    for (let i = 0; i < 8; i++) {
+      await post(ada, `while the Workspace is away, ${i}`);
+      await sleep(100);
+    }
+    expect(calls.length).toBeGreaterThan(0);
+    // Each call after the first waits for the alarm, a second after the first failure and longer after the next.
+    for (let i = 1; i < calls.length; i++) expect(calls[i]! - calls[i - 1]!).toBeGreaterThanOrEqual(1_000);
+
+    await reconnect();
+    await runDurableObjectAlarm(roomStub(room));
+    expect(await heard(tab, room)).toEqual([unread(room)]);
+    expect(await marked(room)).toEqual(["Hopper", "Host"]);
   });
 
   it("sends what a restart left in the log once the room next lets a socket in", async () => {

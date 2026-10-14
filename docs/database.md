@@ -179,10 +179,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   full or 50 more are logged sooner, so a room makes at most four calls a second until its calls
   fill. On D1 a call is three queries: reading the log, the Workspace's batch and the delete, all in
   the one database every room writes to. A call that fails is tried again by the room's alarm, after
-  1 second, then 2, 4 and so on up to 5 minutes. The Workspace applies a call's events in one
-  transaction and records the last in `rooms.applied_seq`, so events sent again, as when the room's
-  answer is lost, change nothing; the log's `AUTOINCREMENT` keeps a number from coming back once its
-  event is deleted. Reads go through the log too, so a read can't overtake the message before it.
+  1 second, then 2, 4 and so on up to 5 minutes, and the room makes no other call meanwhile, however
+  busy it is. The Workspace applies a call's events in one transaction and records the last in
+  `rooms.applied_seq`, so events sent again, as when the room's answer is lost, change nothing; the
+  log's `AUTOINCREMENT` keeps a number from coming back once its event is deleted. Reads go through
+  the log too, so a read can't overtake the message before it.
 - **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
   HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which
   can close after the room stored a message but before its confirmation arrived, so after a
