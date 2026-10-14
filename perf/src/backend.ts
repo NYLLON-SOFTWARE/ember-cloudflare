@@ -5,9 +5,10 @@ import { history, type HistoryResult } from "./scenarios/history.ts";
 import { latency, type LatencyResult } from "./scenarios/latency.ts";
 import { tabs, type TabsResult } from "./scenarios/tabs.ts";
 import { throughput, type ThroughputResult } from "./scenarios/throughput.ts";
+import { unreadAt, type UnreadResult } from "./scenarios/unread.ts";
 import { existingServer, startServer, type Server, type Storage } from "./server.ts";
 
-export const SCENARIOS = ["latency", "throughput", "fanout", "connections", "tabs", "history"] as const;
+export const SCENARIOS = ["latency", "throughput", "fanout", "connections", "tabs", "unread", "history"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 export interface BackendResults {
@@ -16,6 +17,7 @@ export interface BackendResults {
   fanout?: FanoutResult[];
   connections?: ConnectionsResult;
   tabs?: TabsResult;
+  unread?: UnreadResult[];
   history?: HistoryResult;
 }
 
@@ -61,6 +63,13 @@ export async function runBackend(target: Target, profile: Profile, scenarios: re
         break;
       case "tabs":
         results.tabs = await withServer(target, (server) => tabs(server, profile.tabs));
+        break;
+      case "unread":
+        results.unread = [];
+        for (const members of profile.unread.sizes) {
+          log(`${target.storage} · unread · ${members} members away`);
+          results.unread.push(await withServer(target, (server) => unreadAt(server, members, profile.unread)));
+        }
         break;
       case "history":
         results.history = await withServer(target, (server) => history(server, profile.history));

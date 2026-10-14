@@ -1,9 +1,9 @@
 import { feature } from "@ember/parity";
-import type { Room, Sidebar } from "@ember/protocol";
+import type { Room, Sidebar, SidebarRoom } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { byName, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
 
-const room = (id: string, name: string): Room => ({ id, kind: "open", name, icon: null });
+const room = (id: string, name: string, unread = false): SidebarRoom => ({ id, kind: "open", name, icon: null, unread });
 
 describe(feature("rooms.create-open"), () => {
   it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
@@ -81,6 +81,28 @@ describe(feature("rooms.members"), () => {
     expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.rooms).toEqual([room("r2", "general")]);
     const early = roomListReducer(NO_ROOM_LIST, { type: "gone", roomId: "r1" });
     expect(roomListReducer(early, { type: "loaded", list }).list!.rooms).toEqual([room("r2", "general")]);
+  });
+});
+
+describe(feature("sidebar.unread"), () => {
+  const list: Sidebar = { rooms: [room("r1", "Design"), room("r2", "general", true)], invitation: null };
+  const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
+
+  it("marks a room unread or read, and keeps its mark when it's saved, as a new room has none", () => {
+    const marked = roomListReducer(loaded, { type: "marked", roomId: "r1", unread: true });
+    expect(marked.list!.rooms).toEqual([room("r1", "Design", true), room("r2", "general", true)]);
+    expect(roomListReducer(marked, { type: "marked", roomId: "r2", unread: false }).list!.rooms).toEqual([room("r1", "Design", true), room("r2", "general")]);
+
+    const renamed: Room = { id: "r1", kind: "open", name: "Product design", icon: null };
+    expect(withRoom(marked.list!.rooms, renamed)).toEqual([room("r1", "Product design", true), room("r2", "general", true)]);
+    const finance: Room = { id: "r3", kind: "open", name: "Finance", icon: null };
+    expect(withRoom(marked.list!.rooms, finance).at(-1)).toEqual(room("r3", "Finance"));
+  });
+
+  it("keeps a mark made while a list is on its way over the one the list has", () => {
+    const asked = roomListReducer(loaded, { type: "asked" });
+    const read = roomListReducer(asked, { type: "marked", roomId: "r2", unread: false });
+    expect(roomListReducer(read, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Design"), room("r2", "general")]);
   });
 });
 
