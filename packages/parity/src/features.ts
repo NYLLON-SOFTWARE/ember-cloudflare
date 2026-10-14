@@ -134,7 +134,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions.rs", "crates/ember/src/concerns.rs", "crates/views/templates/users/profiles/show.html", "reference/app/javascript/controllers/sessions_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "\"Log out\" is an item in the rail's profile menu until the profile page is ported (`users.profile`), and it loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed; a room that can't be reached doesn't stop the sign-out. There's no push subscription to remove until push notifications are ported.",
+    notes: "\"Log out\" is an item in the rail's profile menu until the profile page is ported (`users.profile`), and it loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's sockets, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed. The rooms close them just after signing out answers, through the Workspace's outbox (`realtime.connection`), which tries a room it can't reach again later rather than holding up the sign-out. There's no push subscription to remove until push notifications are ported.",
   },
   {
     id: "auth.sign-in-link",
@@ -746,7 +746,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/ember/src/channels/room.rs", "crates/ember/src/channels/revocation.rs", "crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/room_not_found.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "Only members can open a room's socket, which carries its messages, typing and presence; anyone else gets 404 \"Room not found or inaccessible\" without the room's object waking. Nobody can be removed from a room yet, so nothing closes a socket that's already open, and there's no \"This room was deleted.\"",
+    notes: "Only members can open a room's socket, which carries its messages, typing and presence; anyone else gets 404 \"Room not found or inaccessible\" without the room's object waking, and the Workspace checks again on every reconnect. Nobody can be removed from a room yet, though the Workspace can already close someone's sockets in every room (`realtime.connection`), and there's no \"This room was deleted.\"",
   },
   {
     id: "rooms.legacy-rooms",
@@ -1700,7 +1700,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/connection.rs", "crates/ember/src/channels/revocation.rs", "crates/cable/src/connection.rs", "crates/cable/src/server.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/user.rs", "crates/ember/src/concerns.rs", "reference/app/channels/application_cable/connection.rb"],
     upstreamTests: ["reference/test/channels/application_cable/connection_test.rb", "crates/ember/src/channels/tests/revocation_test.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/cable/tests/protocol.rs"],
-    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. Signing out disconnects nobody yet, and there's no membership, removal or ban to lose.",
+    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Only signing out uses this yet, and it closes just that session's sockets (`auth.sign-out`); nobody can lose a membership, be removed or be banned until rooms' members and people's administration are ported.",
   },
   {
     id: "realtime.keepalive",

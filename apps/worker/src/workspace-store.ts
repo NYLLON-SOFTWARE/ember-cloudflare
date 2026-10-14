@@ -1,5 +1,6 @@
-import type { HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
+import type { CloseCode, HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
+import { SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -48,6 +49,12 @@ export interface StoredSession {
   lastActiveAt: number;
 }
 
+/** A revocation the Workspace has yet to deliver to its room. */
+export interface PendingRevocation extends Revocation {
+  id: number;
+  roomId: RoomId;
+}
+
 interface SessionRow {
   session_id: string;
   last_active_at: string;
@@ -85,6 +92,23 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name FROM memb
  * rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have no creator and are passed over.
  */
 export const ORIGINAL_ROOM = `SELECT id FROM rooms WHERE creator_id IS NOT NULL ORDER BY id LIMIT 1`;
+
+/**
+ * Queues revoking a session's sockets in every room its person is in, the only rooms it can have
+ * sockets in, answering a row for each room.
+ */
+const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
+  WHERE sessions.token_digest = ? RETURNING id`;
+
+/** Revocations due by a time, those due longest first, up to a number of them. */
+export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
+
+/** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
+const FIRST_RETRY_MS = 1_000;
+const LONGEST_RETRY_MS = 5 * 60 * 1000;
+/** How many times the outbox tries to deliver a revocation before giving up: over 8 minutes of tries. */
+const DELIVERY_ATTEMPTS = 10;
 
 /** Whether someone is in a room, asked on every room socket's upgrade. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
@@ -237,20 +261,56 @@ export class WorkspaceStore {
     );
   }
 
-  async deleteSession(tokenDigest: string): Promise<void> {
-    await this.db.run(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest);
+  /**
+   * Ends the session a token's digest names, and in the same transaction queues closing its sockets
+   * with `code` in every room its person is in, due at `dueAt`. Answers whether it queued any.
+   */
+  async endSession(tokenDigest: string, code: CloseCode, dueAt: number): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      statement(QUEUE_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, tokenDigest),
+      statement(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /** Up to `limit` of the revocations due by `now`, those due longest first. */
+  async dueRevocations(now: number, limit: number): Promise<PendingRevocation[]> {
+    return this.db.all<PendingRevocation>(DUE_REVOCATIONS, now, limit);
+  }
+
+  /**
+   * Forgets the revocations `delivered` names, and puts off the ones `failed` names, each for twice as
+   * long as the time before, giving up on any that have failed too often. Answers the ones it gave up.
+   */
+  async settleRevocations(delivered: number[], failed: number[], now: number): Promise<PendingRevocation[]> {
+    const [, abandoned] = (await this.db.batch([
+      statement(`DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(delivered)),
+      statement(
+        `DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?)) AND attempts + 1 >= ? RETURNING id, room_id AS roomId, tag, code`,
+        JSON.stringify(failed),
+        DELIVERY_ATTEMPTS,
+      ),
+      statement(
+        `UPDATE pending_revocations SET attempts = attempts + 1, due_at = ? + min(?, ? << attempts) WHERE id IN (SELECT value FROM json_each(?))`,
+        now,
+        LONGEST_RETRY_MS,
+        FIRST_RETRY_MS,
+        JSON.stringify(failed),
+      ),
+    ])) as [unknown[], PendingRevocation[], unknown[]];
+    return abandoned;
+  }
+
+  /** When the next revocation is due, if any is waiting. */
+  async nextRevocationDue(): Promise<number | null> {
+    const [row] = await this.db.all<{ due_at: number | null }>(`SELECT min(due_at) AS due_at FROM pending_revocations`);
+    return row?.due_at ?? null;
   }
 
   /** The rooms someone is in, and the workspace's first room, if there is one yet. */
   async roomsFor(userId: UserId): Promise<{ rooms: Room[]; originalRoomId: RoomId | null }> {
     const [rooms, [original]] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(ORIGINAL_ROOM)])) as [Room[], Array<{ id: RoomId }>];
     return { rooms, originalRoomId: original?.id ?? null };
-  }
-
-  /** The ids of the rooms someone is in. */
-  async roomIdsFor(userId: UserId): Promise<RoomId[]> {
-    const rows = await this.db.all<{ room_id: RoomId }>("SELECT room_id FROM memberships WHERE user_id = ?", userId);
-    return rows.map((row) => row.room_id);
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {

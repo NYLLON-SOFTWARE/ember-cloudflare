@@ -109,11 +109,21 @@ export interface LinkPreview {
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
 
 /**
- * The close code for a socket whose session has ended, as when this browser signs out in another
- * tab. The app asks at once whether it's still signed in, rather than waiting for a reconnect to be
- * refused.
+ * What a room closes a socket with when access to it ends, where ember-rust sends a `disconnect`
+ * frame saying whether to reconnect (crates/ember/src/channels/revocation.rs). A close code says the
+ * same and can't go missing, as a frame sent just before the close can.
  */
-export const SESSION_ENDED = 4001;
+export const CloseCode = {
+  /**
+   * Connect again: this browser signed out, say, or the room couldn't trust the connection's sign-in,
+   * and a new connection is checked afresh. The app asks at once whether it's still signed in, rather
+   * than waiting for the new connection to be refused.
+   */
+  Reconnect: 4001,
+  /** Don't connect again: the person was removed from the workspace or banned, which ended all their sessions. */
+  Revoked: 4003,
+} as const;
+export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
 /** The shortest password first run takes, in characters rather than bytes, as ember-rust counts them. */
 export const MIN_PASSWORD_LENGTH = 8;

@@ -67,7 +67,8 @@ export function App() {
   // starts afresh, as ember-rust's redirect to sign in does, and comes back to this page.
   const sessionChanged = useCallback((user: User | null) => {
     if (user) return setMe(user);
-    // Signing out closes the rooms' sockets before it answers, and goes to sign in itself.
+    // Signing out here goes to sign in itself, whether the rooms close their sockets before or after
+    // it's answered.
     if (signingOut.current) return;
     rememberThisPage();
     loadPage(SIGN_IN_PATH);

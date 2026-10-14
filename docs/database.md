@@ -6,24 +6,27 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages and boosts live in that room's Durable Object SQLite storage, and the account,
-people, their sessions, rooms and memberships in the Workspace object's. With `d1`, all of them live
+each room's messages, boosts and recent revocations live in that room's Durable Object SQLite
+storage, and the account, people, their sessions, rooms, memberships and the outbox of revocations
+in the Workspace object's. With `d1`, all of them live
 in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
 `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
-`apps/worker/src/migrations.ts` names as its scope: `room` for messages and boosts, and `workspace`
-for the workspace-wide tables (the account, people, sessions, rooms and memberships). On DO SQLite,
+`apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts and revocations, and
+`workspace` for the workspace-wide tables (the account, people, sessions, rooms, memberships and
+pending revocations). On DO SQLite,
 an object applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
-So far rooms keep messages and boosts, and the Workspace keeps `accounts`, `users`, `sessions`,
-`rooms` and `memberships`. A room's id also names its Durable Object, and the Worker asks the
-Workspace whether someone is a member before it wakes the room for their socket. First run creates
-the account and its administrator, who signs in with an email address and password, found through
-the unique index on `users.email_address`; until join links land, everyone else signs in by display
-name where that's allowed. Presence and typing live in each room object's memory.
+So far rooms keep `messages`, `boosts` and `revocations`, and the Workspace keeps `accounts`,
+`users`, `sessions`, `rooms`, `memberships` and `pending_revocations`. A room's id also names its
+Durable Object, and the Worker asks the Workspace whether someone is a member before it wakes the
+room for their socket. First run creates the account and its administrator, who signs in with an
+email address and password, found through the unique index on `users.email_address`, as do the
+people who join with the join link; where it's allowed, anyone can sign in with just a display name
+instead. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -46,7 +49,8 @@ search index. On top of that schema it adds indexes and query changes for speed.
   from a subquery in the same statement, so a page or a message lookup is one D1 round trip, not two.
 - **Stored sessions, refreshed hourly.** Each sign-in adds a `sessions` row with the browser and IP,
   and a request rewrites its `last_active_at`, browser and IP at most once an hour rather than every
-  time, as ember-rust's `resume` does (`crates/ember/src/concerns.rs`). Signing out deletes the row.
+  time, as ember-rust's `resume` does (`crates/ember/src/concerns.rs`). Signing out deletes the row,
+  and in the same batch queues closing the session's sockets (see the outbox below).
 - **Memberships are found by room and person, or by person.** ember-rust's unique
   `(room_id, user_id)` index is our primary key, which answers each socket upgrade's "is this person
   in this room?", and its `user_id` index is ours with `room_id` added, so listing someone's rooms
@@ -124,7 +128,19 @@ search index. On top of that schema it adds indexes and query changes for speed.
   session itself, so the copy stays current; a session deleted by hand stays signed in until the
   Workspace restarts, which every deploy does, and changing `SESSION_SECRET` still signs everyone
   out.
-
+- **Revocations go through an outbox.** ember-rust disconnects someone's connections in memory,
+  through its cable server, once the change that ends their access is saved
+  (`crates/ember/src/channels/revocation.rs`). Ours are spread over rooms' Durable Objects, which the
+  Workspace has to call, and any call can fail. So the change also writes a `pending_revocations` row
+  for each room, in the same batch, and the Workspace's alarm sends each room its own: up to 40 rows
+  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on, and giving
+  it up after 10 tries. Its index on `due_at` finds the rows that are due. The change sets the alarm
+  even when D1's answer to it is lost, since it may have been saved anyway, and a Workspace that
+  starts sets it for any rows waiting, which one that stopped in between leaves. A room keeps the
+  time of each revocation it has had in `revocations` for five minutes. It turns away a socket the
+  Workspace let through at or before one of them, which was checked just before the change and slow
+  to arrive, and any socket let through over a minute before it arrives, which a revocation the room
+  has since forgotten could cover.
 - **Granting rooms is one statement.** ember-rust reads the ids of everyone a room takes in (or of
   every open room a new person joins) and inserts them 1,000 rows at a time. Our bound-value limit
   would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so

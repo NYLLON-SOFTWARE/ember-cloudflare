@@ -34,15 +34,41 @@ describe(feature("auth.sessions"), () => {
     expect(await cache.get("b", finding(null))).toBeNull();
   });
 
-  it("forgets a session once it ends, even if ending it failed", async () => {
+  it("forgets a session once it ends, even if ending it failed, and answers what ending it did", async () => {
     const cache = new SessionCache<string>(10);
     cache.remember("a", "Ada's");
     cache.remember("b", "Grace's");
-    await cache.end("a", async () => {});
+    expect(await cache.end("a", async () => "queued")).toBe("queued");
     await expect(cache.end("b", () => Promise.reject(new Error("Storage isn't answering")))).rejects.toThrow();
 
     expect(await cache.get("a", finding(null))).toBeNull();
     expect(await cache.get("b", finding(null))).toBeNull();
+  });
+
+  it("doesn't answer a session from memory once it starts ending, since it may be gone before ending it is done", async () => {
+    const cache = new SessionCache<string>(10);
+    cache.remember("a", "Ada's");
+    let ended!: () => void;
+    const ending = cache.end("a", () => new Promise<void>((resolve) => (ended = resolve)));
+
+    const lookUp = finding(null);
+    expect(await cache.get("a", lookUp)).toBeNull();
+    expect(lookUp).toHaveBeenCalledOnce();
+    ended();
+    await ending;
+  });
+
+  it("doesn't keep a session found while it was ending, even if the lookup finished first", async () => {
+    const cache = new SessionCache<string>(10);
+    let ended!: () => void;
+    const ending = cache.end("a", () => new Promise<void>((resolve) => (ended = resolve)));
+    expect(await cache.get("a", finding("Ada's"))).toBe("Ada's");
+    ended();
+    await ending;
+
+    const lookUp = finding(null);
+    expect(await cache.get("a", lookUp)).toBeNull();
+    expect(lookUp).toHaveBeenCalledOnce();
   });
 
   it("doesn't keep a session found while one was ending, since it may have been read before it went", async () => {
