@@ -1,8 +1,8 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Sidebar } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
-import { api, apiWith, builtPages, cookieOf, freshDeploy, origin, signIn, workspaceSql } from "./support";
+import { api, apiWith, builtPages, cookieOf, freshDeploy, listedRoom, origin, signIn, workspaceSql } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "12345678" };
 
@@ -53,8 +53,8 @@ describe(feature("auth.first-run"), () => {
 
     const cookie = cookieOf(response);
     expect(await bootstrap(cookie)).toMatchObject({ setup: "complete", account: { name: "Ember" }, user });
-    const rooms = (await (await api("/api/sidebar", { headers: { Cookie: cookie } })).json()) as { rooms: Room[] };
-    expect(rooms.rooms).toEqual([room]);
+    const sidebar = (await (await api("/api/sidebar", { headers: { Cookie: cookie } })).json()) as Sidebar;
+    expect(sidebar.rooms).toEqual([listedRoom(room)]);
   });
 
   it.each(["", "short", "1234567", "éééé", "🔐🔐🔐🔐"])("refuses the password %j and creates nothing", async (password) => {

@@ -6,27 +6,26 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts and recent revocations live in that room's Durable Object SQLite
-storage, and the account, people, their sessions, rooms, memberships and the outbox of revocations
-in the Workspace object's. With `d1`, all of them live
+each room's messages, boosts, recent revocations and the changes the Workspace has yet to hear of
+live in that room's Durable Object SQLite storage, and the account, people, their sessions, rooms,
+memberships and the outbox of revocations in the Workspace object's. With `d1`, all of them live
 in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
 `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
-`apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts and revocations, and
-`workspace` for the workspace-wide tables (the account, people, sessions, rooms, memberships,
-pending revocations and the rooms deleted). On DO SQLite,
-an object applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
-applies every file to D1, where all the tables share one database and each room's rows carry its
-`room_id`.
+`apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations and
+the room's change log, and `workspace` for the workspace-wide tables (the account, people, sessions,
+rooms, memberships, pending revocations and the rooms deleted). On DO SQLite, an object applies only
+its own scope's files, so a room's storage never holds workspace tables. Wrangler applies every file
+to D1, where all the tables share one database and each room's rows carry its `room_id`.
 
-So far rooms keep `messages`, `boosts` and `revocations`, and the Workspace keeps `accounts`,
-`users`, `sessions`, `rooms`, `memberships`, `pending_revocations` and `deleted_rooms`. A room's id
-also names its Durable Object, and the Worker asks the Workspace whether someone is a member before
-it wakes the room for their socket. First run creates the account and its administrator, who signs
-in with an email address and password, found through the unique index on `users.email_address`, as
-do the people who join with the join link; where it's allowed, anyone can sign in with just a
-display name instead. Presence and typing live in each room object's memory.
+So far rooms keep `messages`, `boosts`, `revocations` and `room_events`, and the Workspace keeps
+`accounts`, `users`, `sessions`, `rooms`, `memberships`, `pending_revocations` and `deleted_rooms`.
+A room's id also names its Durable Object, and the Worker asks the Workspace whether someone is a
+member before it wakes the room for their socket. First run creates the account and its
+administrator, who signs in with an email address and password, found through the unique index on
+`users.email_address`, as do the people who join with the join link; where it's allowed, anyone can
+sign in with just a display name instead. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -61,6 +60,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   runs one first run at a time on DO SQLite, but on D1 two can overlap, and the index refuses the
   second. The account's columns are ember-rust's: its name, its join code, its settings as JSON and
   its custom styles.
+- **Unread marks are a column of the membership.** `memberships.unread_at` is when a room was marked
+  unread for someone, null while it isn't, and one `UPDATE` marks every member a message should, as
+  ember-rust's `unread_memberships` does (`crates/db/src/models/room.rs`). We skip its `connections`
+  and `connected_at` columns: each room's object knows from its sockets who's viewing it, and sends
+  that list with its messages. And ours writes only the rows it changes, so `unread_at` is the time
+  of the first message since someone last read the room, where ember-rust rewrites every member who
+  isn't connected with the newest; nothing reads it but to ask whether it's set.
 - **No unbounded lists of bound values**
   ([`a8b713a`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/a8b713a) batches inserts under
   SQLite's limit). Our limit is lower: Durable Object SQLite and D1 bind at most 100 values a
@@ -93,10 +99,6 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **Names from the users table.** People have their own table now, but we still copy the sender's
   name into each message and boost. That's fine while names can't change, but renaming someone would
   leave the old name on their messages.
-- **Unread rooms:** `memberships.unread_at`, set by one `UPDATE` per message for members who aren't
-  connected. ember-rust records who's connected in `memberships.connections` and `connected_at`;
-  each of our rooms is one object that already knows who's connected, so we can skip those two
-  columns.
 
 ### Not adopting
 
@@ -169,6 +171,19 @@ search index. On top of that schema it adds indexes and query changes for speed.
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace
   kept a list, which `LEGACY_ROOMS` registers, keep their old addresses as ids and have no creator.
+- **Rooms send the Workspace their change logs.** ember-rust marks a room unread in the transaction
+  that creates the message. Ours are in different objects, so a room logs each new message in
+  `room_events`, in the batch that stores it, and each time someone opens it in a shown tab, then
+  sends the Workspace its oldest events, up to 50 a call, and deletes them once they're applied. One
+  call is out at a time, and after each the room waits up to 250 ms for more, less if the call was
+  full or 50 more are logged sooner, so a room makes at most four calls a second until its calls
+  fill. On D1 a call is three queries: reading the log, the Workspace's batch and the delete, all in
+  the one database every room writes to. A call that fails is tried again by the room's alarm, after
+  1 second, then 2, 4 and so on up to 5 minutes, and the room makes no other call meanwhile, however
+  busy it is. The Workspace applies a call's events in one transaction and records the last in
+  `rooms.applied_seq`, so events sent again, as when the room's answer is lost, change nothing; the
+  log's `AUTOINCREMENT` keeps a number from coming back once its event is deleted. Reads go through
+  the log too, so a read can't overtake the message before it.
 - **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
   HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which
   can close after the room stored a message but before its confirmation arrived, so after a

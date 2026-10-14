@@ -1,6 +1,7 @@
-import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import type { RoomEvent } from "./room-log";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -94,12 +95,13 @@ const storedSession = (row: SessionRow): StoredSession => ({
 });
 
 /**
- * The rooms someone is in, in the order they were made, for the app to go home to the oldest and to
- * `/rooms` to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs).
- * Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have ids that don't sort by time, so
- * they go by when they were listed.
+ * The rooms someone is in, with whether each is marked unread for them, in the order they were made,
+ * for the app to go home to the oldest and to `/rooms` to the newest, as ember-rust's
+ * `original_for_user` and `last_for_user` find them (room.rs). Rooms from before the Workspace kept a
+ * list (`LEGACY_ROOMS`) have ids that don't sort by time, so they go by when they were listed.
  */
-export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, memberships.unread_at IS NOT NULL AS unread
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
 /**
@@ -139,6 +141,23 @@ const DELIVERY_ATTEMPTS = 10;
 
 /** Whether someone is in a room, asked on every room socket's upgrade. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
+
+/**
+ * Marks a room unread, as of a message, for its members who aren't marked already, haven't hidden it,
+ * didn't write the message and aren't among the people a JSON list names, who are viewing it, as
+ * ember-rust's `unread_memberships` does (room.rs), answering a row for each. It writes only the rows
+ * it changes, where ember-rust rewrites every member who isn't connected. Nothing changes once the
+ * Workspace has applied the message's event, so one delivered again is applied once.
+ */
+export const MARK_UNREAD = `UPDATE memberships SET unread_at = ?1
+  WHERE room_id = ?2 AND unread_at IS NULL AND involvement <> 'invisible' AND user_id <> ?3
+    AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2)
+  RETURNING user_id`;
+
+/** Clears someone's unread mark on a room, as ember-rust's `read` does (membership.rs), answering a row if there was one, once for each event. */
+export const MARK_READ = `UPDATE memberships SET unread_at = NULL
+  WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
+  RETURNING user_id`;
 
 /** Whether someone is one of the workspace's active administrators. */
 export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role = ${ADMINISTRATOR} AND status = ${ACTIVE}`;
@@ -399,10 +418,35 @@ export class WorkspaceStore {
     return row?.due_at ?? null;
   }
 
-  /** The rooms someone is in, and the workspace's first room, if there is one yet. */
-  async roomsFor(userId: UserId): Promise<{ rooms: Room[]; originalRoomId: RoomId | null }> {
-    const [rooms, [original]] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(ORIGINAL_ROOM)])) as [Room[], Array<{ id: RoomId }>];
-    return { rooms, originalRoomId: original?.id ?? null };
+  /** The rooms someone is in, with their unread marks, and the workspace's first room, if there is one yet. */
+  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; originalRoomId: RoomId | null }> {
+    const [rows, [original]] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(ORIGINAL_ROOM)])) as [
+      Array<Room & { unread: number }>,
+      Array<{ id: RoomId }>,
+    ];
+    return { rooms: rows.map((row) => ({ ...row, unread: row.unread === 1 })), originalRoomId: original?.id ?? null };
+  }
+
+  /**
+   * Applies `events` from room `roomId`'s log, in order and in one transaction, with `viewerIds`, who
+   * is viewing the room: a message marks it unread for the members who aren't, and a read clears the
+   * reader's mark. Those the Workspace has applied before change nothing. Answers whose marks changed,
+   * and whether each is now unread.
+   */
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<Map<UserId, boolean>> {
+    const viewers = JSON.stringify(viewerIds);
+    const last = events.at(-1)!.seq;
+    const results = (await this.db.batch([
+      ...events.map(({ seq, kind, userId, at }) =>
+        kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq),
+      ),
+      statement(`UPDATE rooms SET applied_seq = ? WHERE id = ? AND applied_seq < ?`, last, roomId, last),
+    ])) as Array<Array<{ user_id: UserId }>>;
+    const marks = new Map<UserId, boolean>();
+    events.forEach(({ kind }, i) => {
+      for (const { user_id } of results[i]!) marks.set(user_id, kind === "message");
+    });
+    return marks;
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {

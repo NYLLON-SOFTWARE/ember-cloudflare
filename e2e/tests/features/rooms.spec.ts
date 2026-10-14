@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
-import type { WebSocketRoute } from "@playwright/test";
+import type { Page, WebSocketRoute } from "@playwright/test";
 import { cookieHeader, invitation, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
@@ -45,6 +45,29 @@ test.describe(feature("sidebar.live-updates"), () => {
     await connection!.server.close();
     await connection!.page.close();
     await expect(links).toHaveText(["#general", "#watercooler"]);
+  });
+});
+
+test.describe(feature("sidebar.unread"), () => {
+  test("marks a room bold with a dot for members not in it, through a reload, until they open it in any tab", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
+    const general = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" });
+    await expect(general(grace.page)).not.toHaveAccessibleDescription("Unread");
+
+    await ada.send("Lunch?");
+    await expect(general(grace.page)).toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).toHaveCSS("font-weight", "650");
+    await expect(general(grace.page).locator("span").last()).toHaveCSS("width", "7px");
+
+    // The server keeps the mark.
+    await grace.page.reload();
+    await expect(general(grace.page)).toHaveAccessibleDescription("Unread");
+
+    const secondTab = await grace.page.context().newPage();
+    await secondTab.goto(`/rooms/${rooms.general.id}`);
+    await expect(general(grace.page)).not.toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).toHaveCSS("font-weight", "400");
   });
 });
 

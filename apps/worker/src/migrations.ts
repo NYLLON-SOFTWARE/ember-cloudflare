@@ -7,6 +7,8 @@ import revocations from "../migrations/0006_revocations.sql";
 import pendingRevocations from "../migrations/0007_pending_revocations.sql";
 import deletedRooms from "../migrations/0008_deleted_rooms.sql";
 import roomIcons from "../migrations/0009_room_icons.sql";
+import roomEvents from "../migrations/0010_room_events.sql";
+import unreadMarks from "../migrations/0011_unread_marks.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -36,6 +38,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0007_pending_revocations.sql", scope: "workspace", sql: pendingRevocations },
   { name: "0008_deleted_rooms.sql", scope: "workspace", sql: deletedRooms },
   { name: "0009_room_icons.sql", scope: "workspace", sql: roomIcons },
+  { name: "0010_room_events.sql", scope: "room", sql: roomEvents },
+  { name: "0011_unread_marks.sql", scope: "workspace", sql: unreadMarks },
 ];
 
 /**

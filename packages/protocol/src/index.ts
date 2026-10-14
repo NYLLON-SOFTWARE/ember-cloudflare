@@ -49,13 +49,22 @@ export interface Invitation {
   joinCode: string;
 }
 
+/** A room in someone's sidebar. */
+export interface SidebarRoom extends Room {
+  /**
+   * Whether a message has come since they last had the room open in a shown tab, which marks it
+   * unread for them until they do again.
+   */
+  unread: boolean;
+}
+
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, and the
  * invitation, when they're in its room. It comes with an ETag, and a request whose If-None-Match
  * names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
-  rooms: Room[];
+  rooms: SidebarRoom[];
   invitation: Invitation | null;
 }
 
@@ -272,6 +281,10 @@ export type WorkspaceClientFrame = { type: "ping" };
 export type WorkspaceServerFrame =
   /** Sent as the Workspace lets the socket in: who its session signs in. */
   | { type: "welcome"; you: Me }
+  /** A room of theirs has a message they haven't seen, which marks it unread. Sent only to the person marked, as their mark changes. */
+  | { type: "room.unread"; roomId: RoomId }
+  /** They've read a room marked unread, in this tab or another. */
+  | { type: "room.read"; roomId: RoomId }
   | { type: "error"; message: string }
   | { type: "pong" };
 
