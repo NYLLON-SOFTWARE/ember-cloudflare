@@ -1,4 +1,4 @@
 // The Lucide icons ember-rust draws, from the release it pins: lucide-static 1.53.0 in
 // crates/assets/overrides/basecoat/package.json, shipped as crates/assets/overrides/lucide/catalog.json.
 // lucide-react stays on that exact version, and icons.test.tsx checks each icon against the catalog.
-export { Check, Ellipsis, FaceSlightlySmilingPlus, Monitor, Moon, Pencil, Sun } from "lucide-react";
+export { Check, Ellipsis, FaceSlightlySmilingPlus, Monitor, Moon, Pencil, Star, Sun } from "lucide-react";

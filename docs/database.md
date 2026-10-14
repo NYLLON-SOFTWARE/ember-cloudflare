@@ -167,6 +167,14 @@ search index. On top of that schema it adds indexes and query changes for speed.
   change Campfire's tables, and rewrites the map to change one. Ours is `rooms.icon` (workspace
   migration 0009), null for the default `#`, read with the room and saved in the same batch as its
   name and access. As in ember-rust, saving the icon a room already has leaves `updated_at` alone.
+- **Stars are rows of their own.** ember-rust keeps each person's starred rooms as a list in the
+  account's settings (`ember_favorite_channels`, `crates/db/src/models/account.rs`) and rewrites the
+  settings to star or unstar one. Ours is a `favorites` row for each star (workspace migration 0012),
+  keyed by person and room, whose `position` orders them, so a star or unstar writes its row and
+  bumps its person's `users.favorites_version`, in one batch. That version is how a tab keeps the
+  newer of two lists of their stars, which can reach it in either order. As in ember-rust, a star
+  outlives its person's membership: it's left out while they can't star the room, and dropped at
+  their next star or unstar.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace

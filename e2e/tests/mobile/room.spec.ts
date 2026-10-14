@@ -14,7 +14,7 @@ test("an empty room fits the phone", async ({ page, room, screenIsFine }) => {
 });
 
 test("the page for someone in no rooms fits the phone", async ({ page, screenIsFine }) => {
-  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], invitation: null } satisfies Sidebar }));
+  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null } satisfies Sidebar }));
   await page.goto("/");
   await expect(page).toHaveTitle("No rooms yet");
   await expect(page.getByRole("main").locator("img")).toBeVisible();
@@ -54,6 +54,20 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
   // Four faces, then a count for everyone else.
   await expect(page.getByText("+3")).toBeVisible();
   await screenIsFine({ denseTargets: [REACTION_CHIPS] });
+});
+
+test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
+  await isolateRoom(page, room);
+  await openRoom(page, room);
+  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+  await star.tap();
+  await expect(star).toHaveAttribute("aria-pressed", "true");
+  await screenIsFine();
+
+  if (!hasDrawerLayout(page)) return;
+  await page.getByRole("button", { name: "Open conversations" }).tap();
+  await expect(page.getByRole("dialog").getByRole("link", { name: room.name })).toContainText("★");
+  await screenIsFine();
 });
 
 test("long room names are truncated, not overflowing", async ({ page, room, screenIsFine }) => {

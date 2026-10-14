@@ -8,6 +8,8 @@ const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
 const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null, unread: false };
 const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
+/** Ada's sidebar with `rooms`, none of them starred. */
+const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -60,7 +62,7 @@ class FakeSocket {
  * While `held`, answers for the sidebar wait for it.
  */
 const server = {
-  sidebar: { rooms: [design], invitation: null } as Sidebar,
+  sidebar: unstarred([design]),
   version: 1,
   signedIn: ada as Me | null,
   held: null as Promise<void> | null,
@@ -115,7 +117,7 @@ async function showSidebar(onSessionChanged: (me: Me | null) => void = () => {})
 beforeEach(() => {
   FakeSocket.all = [];
   vi.stubGlobal("WebSocket", FakeSocket);
-  Object.assign(server, { sidebar: { rooms: [design], invitation: null }, version: 1, signedIn: ada, held: null });
+  Object.assign(server, { sidebar: unstarred([design]), version: 1, signedIn: ada, held: null });
   vi.stubGlobal("fetch", vi.fn(answer));
   vi.useFakeTimers();
   vi.spyOn(Math, "random").mockReturnValue(0.5); // no jitter: back-off delays come out exact
@@ -130,15 +132,15 @@ afterEach(() => {
 describe(feature("sidebar.live-updates"), () => {
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
-    expect(result.current.list).toEqual({ rooms: [design], invitation: null });
+    expect(result.current.list).toEqual(unstarred([design]));
     expect(socket().url).toBe("ws://localhost:3000/api/socket");
 
-    server.change({ rooms: [design, general], invitation: null });
+    server.change(unstarred([design, general]));
     socket().connect();
     await settle();
     expect(result.current.list?.rooms).toEqual([design, general]);
 
-    server.change({ rooms: [general], invitation: null });
+    server.change(unstarred([general]));
     socket().drop();
     await wait(500);
     socket().connect();
@@ -186,7 +188,7 @@ describe(feature("sidebar.live-updates"), () => {
     const asked = [result.current.refresh(), result.current.refresh(), result.current.refresh()];
     let settled = 0;
     asked.forEach((refresh) => void refresh.then(() => settled++));
-    server.change({ rooms: [design, general], invitation: null });
+    server.change(unstarred([design, general]));
     await release();
     await settle();
     expect(sidebarRequests()).toEqual([null, 'W/"1"', 'W/"2"']);
@@ -242,6 +244,28 @@ describe(feature("sidebar.unread"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+  });
+});
+
+describe(feature("sidebar.favorites"), () => {
+  it("takes the stars saved in any of Ada's tabs from the workspace socket, keeping the newest", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [design.id], version: 2 } });
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 2 });
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [], version: 1 } });
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 2 });
+  });
+
+  it("keeps stars that come while a list is on its way over the older ones it brings", async () => {
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [design.id], version: 1 } });
+    await release();
+    await settle();
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 1 });
   });
 });
 

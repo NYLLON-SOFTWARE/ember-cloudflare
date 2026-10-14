@@ -1,4 +1,4 @@
-import type { CloseCode, HelpContact, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
+import type { CloseCode, Favorites, HelpContact, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -187,6 +187,52 @@ const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE nam
 
 /** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
 const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
+
+/** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
+export const MAX_FAVORITES = 4_096;
+
+/**
+ * The rooms someone, ?1, can star: the ones they're in and haven't hidden, but not DMs, as ember-rust's
+ * `set_channel_favorite` finds them (account.rs).
+ */
+const STARRABLE_ROOMS = `SELECT memberships.room_id FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ?1 AND memberships.involvement <> 'invisible' AND rooms.kind <> 'direct'`;
+
+/** Whether room ?2 is one of them, found by its membership's key. */
+const STARRABLE = `EXISTS (SELECT 1 FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.room_id = ?2 AND memberships.user_id = ?1 AND memberships.involvement <> 'invisible' AND rooms.kind <> 'direct')`;
+
+/** Whether ?1 has starred room ?2. */
+const STARRED = `EXISTS (SELECT 1 FROM favorites WHERE user_id = ?1 AND room_id = ?2)`;
+
+/**
+ * Stars room ?2 for ?1 after their other stars, if they can star it and, counting only the rooms they
+ * can star, have fewer stars than they can have. A room they've starred already keeps its place.
+ */
+const STAR = `INSERT INTO favorites (user_id, room_id, position)
+  SELECT ?1, ?2, (SELECT coalesce(max(position) + 1, 0) FROM favorites WHERE user_id = ?1)
+  WHERE ${STARRABLE} AND (SELECT count(*) FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS})) < ${MAX_FAVORITES}
+  ON CONFLICT DO NOTHING`;
+
+/** Unstars room ?2 for ?1, if they can star it. */
+const UNSTAR = `DELETE FROM favorites WHERE user_id = ?1 AND room_id = ?2 AND ${STARRABLE}`;
+
+/**
+ * What follows starring or unstarring a room, once `saved` says that did what was asked: dropping
+ * ?1's stars on rooms they can't star now, as ember-rust drops them (account.rs), and counting the
+ * change, answering the new version.
+ */
+const afterStarring = (saved: string) => ({
+  drop: `DELETE FROM favorites WHERE user_id = ?1 AND room_id NOT IN (${STARRABLE_ROOMS}) AND ${saved}`,
+  count: `UPDATE users SET favorites_version = favorites_version + 1 WHERE id = ?1 AND ${saved} RETURNING favorites_version AS version`,
+});
+/** A star stands only if it was allowed, and an unstar only needs the room to be one they can star. */
+const AFTER_STAR = afterStarring(`${STARRABLE} AND ${STARRED}`);
+const AFTER_UNSTAR = afterStarring(STARRABLE);
+
+/** The rooms ?1 has starred and can star, in the order they starred them. */
+const FAVORITES_FOR_USER = `SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}) ORDER BY position`;
+const FAVORITES_VERSION = `SELECT favorites_version AS version FROM users WHERE id = ?`;
 
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
@@ -438,13 +484,37 @@ export class WorkspaceStore {
     return row?.due_at ?? null;
   }
 
-  /** The rooms someone is in, with their unread marks, and the workspace's first room, if there is one yet. */
-  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; originalRoomId: RoomId | null }> {
-    const [rows, [original]] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(ORIGINAL_ROOM)])) as [
-      Array<Room & { unread: number }>,
-      Array<{ id: RoomId }>,
-    ];
-    return { rooms: rows.map((row) => ({ ...row, unread: row.unread === 1 })), originalRoomId: original?.id ?? null };
+  /** The rooms someone is in, with their unread marks, the ones they've starred, and the workspace's first room, if there is one yet. */
+  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; originalRoomId: RoomId | null }> {
+    const [rows, [original], starred, [user]] = (await this.db.batch([
+      statement(ROOMS_FOR_USER, userId),
+      statement(ORIGINAL_ROOM),
+      statement(FAVORITES_FOR_USER, userId),
+      statement(FAVORITES_VERSION, userId),
+    ])) as [Array<Room & { unread: number }>, Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>];
+    return {
+      rooms: rows.map((row) => ({ ...row, unread: row.unread === 1 })),
+      favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
+      originalRoomId: original?.id ?? null,
+    };
+  }
+
+  /**
+   * Stars room `roomId` for someone, after their other stars, or unstars it, as ember-rust's
+   * `set_channel_favorite` does (account.rs), in one transaction that also drops their stars on rooms
+   * they can't star any more. Answers their stars as they are then, or null, having changed nothing,
+   * when they can't star the room, a DM or one they've hidden or aren't in, or have as many stars as
+   * they can have.
+   */
+  async setFavorite(userId: UserId, roomId: RoomId, favorite: boolean): Promise<Favorites | null> {
+    const after = favorite ? AFTER_STAR : AFTER_UNSTAR;
+    const [, , [saved], starred] = (await this.db.batch([
+      statement(favorite ? STAR : UNSTAR, userId, roomId),
+      statement(after.drop, userId, roomId),
+      statement(after.count, userId, roomId),
+      statement(FAVORITES_FOR_USER, userId),
+    ])) as [unknown[], unknown[], Array<{ version: number }>, Array<{ room_id: RoomId }>];
+    return saved ? { rooms: starred.map((row) => row.room_id), version: saved.version } : null;
   }
 
   /**

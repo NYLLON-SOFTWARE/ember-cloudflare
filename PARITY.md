@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 39 ported and 52 partial of 172 features; 76 not started, 5 not applicable.
+**Overall:** 40 ported and 53 partial of 172 features; 74 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -22,7 +22,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 2 | 2 | 6 | 0 | 10 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 3 | 3 | 4 | 0 | 10 |
 | [Messages](#messages) | 3 | 12 | 4 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **39** | **52** | **76** | **5** | **172** |
+| **Total** | **40** | **53** | **74** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -839,12 +839,12 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Room order | `sidebar.room-order` | Ember | ⬜ Not started |  |
+| Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [room-list](apps/web/src/lib/room-list.test.ts) |
 | DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts)<br>Web: [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Activity filter | `sidebar.activity-filter` | Ember | ✅ Ported | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Star rooms | `sidebar.favorites` | Ember | ⬜ Not started |  |
+| Star rooms | `sidebar.favorites` | Ember | ✅ Ported | Worker: [favorites](apps/worker/test/favorites.test.ts)<br>Web: [favorite-button](apps/web/src/components/workspace/favorite-button.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Reorder starred rooms | `sidebar.favorite-order` | Ember | ⬜ Not started |  |
 | Shared room order | `sidebar.shared-order` | Ember | ⬜ Not started |  |
 | Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | ⬜ Not started |  |
@@ -864,13 +864,13 @@ Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/
 
 ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Room order** (`sidebar.room-order`) ⬜
+**Room order** (`sidebar.room-order`) 🟡
 
 - Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.
 - A room added or renamed while the page is open sorts into place at once.
 - Shared-order rooms you can't see are skipped, and their ids never reach your page. Your stars never reorder anyone else's sidebar.
 
-Note: Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order. A room you create or rename sorts into place in your own sidebar at once.
+Note: Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. There's no shared order yet (`sidebar.shared-order`). A room you create or rename sorts into place in your own sidebar at once.
 
 Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs)
 
@@ -929,7 +929,7 @@ Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SO
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Star rooms** (`sidebar.favorites`) ⬜
+**Star rooms** (`sidebar.favorites`) ✅
 
 - The header's star ("Favorite room", `aria-pressed`, titled "Add to favorites" or "Remove from favorites"; not on DMs) stars a room for you alone. It's disabled while saving and changes only once the save succeeds.
 - A starred room moves to the top of your sidebar with a ★ ("Favorite" to screen readers). A new star goes after your other stars, and starring a starred room keeps its place.
@@ -938,6 +938,8 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - The answer lists your stars in order (`{"favorite_channels":[...]}`), and without JavaScript the form redirects back to the room.
 - The sidebar re-sorts at once in the tab that starred; your other tabs catch up on their next reload.
 - If saving fails it says "Couldn’t save your favorite. Please try again." and the star stays as it was.
+
+Note: `PUT /api/rooms/<id>/favorite` takes `{"favorite": true}` or `false` as JSON, rather than a form's `"true"`, and answers `{"favorites": {"rooms": [...], "version": n}}`; there's no form without JavaScript. Each star is a row of its own (`favorites`, workspace migration 0012) rather than a list in the account's settings, and `version` counts each person's changes, so every tab of theirs, which hears `favorites.changed` on its workspace socket, keeps the newest of the answer, the socket's news and the sidebar it loads, in whatever order they come: their other tabs re-sort at once rather than at their next reload. A star refused with 403 drops nothing. Room ids are Ember's own, so an id that isn't one answers 400 "invalid room ID". A session that has expired goes to sign in. While it saves, the star is dimmed and ignores presses through `aria-disabled` rather than `disabled`, so it keeps the keyboard's focus, and on phones it's 44px square, where ember-rust's is 32px by 36px.
 
 Sources: [`crates/ember/src/controllers/rooms/favorites.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/favorites.rs) · [`crates/assets/overrides/controllers/room_favorite_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/room_favorite_controller.js) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js)
 
@@ -2181,7 +2183,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as "Settings for this room", or "Settings for this Ping" in a DM.
 - On phones the header is 56px tall and its buttons are 44px squares. Up to 500px wide, the labels of the header's links are hidden too, leaving 44px buttons.
 
-Note: The header has the `#`, the name and Conversation settings ("Settings for this room" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.
+Note: The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings ("Settings for this room" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.
 
 Sources: [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 

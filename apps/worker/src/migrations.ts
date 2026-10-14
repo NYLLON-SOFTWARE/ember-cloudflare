@@ -9,6 +9,7 @@ import deletedRooms from "../migrations/0008_deleted_rooms.sql";
 import roomIcons from "../migrations/0009_room_icons.sql";
 import roomEvents from "../migrations/0010_room_events.sql";
 import unreadMarks from "../migrations/0011_unread_marks.sql";
+import favorites from "../migrations/0012_favorites.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -40,6 +41,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0009_room_icons.sql", scope: "workspace", sql: roomIcons },
   { name: "0010_room_events.sql", scope: "room", sql: roomEvents },
   { name: "0011_unread_marks.sql", scope: "workspace", sql: unreadMarks },
+  { name: "0012_favorites.sql", scope: "workspace", sql: favorites },
 ];
 
 /**

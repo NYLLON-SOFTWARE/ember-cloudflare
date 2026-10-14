@@ -4,6 +4,7 @@ import {
   type AccountChanges,
   type Bootstrap,
   type Directory,
+  type Favorites,
   type Me,
   type NewJoinCode,
   type NewRoom,
@@ -155,6 +156,14 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
 /** Changes a room, answering it as it is then. */
 export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<Room> {
   return (await request<{ room: Room }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+}
+
+/**
+ * Stars a room for this person, or unstars it, answering their stars as they are then. Fails with a
+ * 403 ApiError for a room they can't star: a DM, or one they've hidden or aren't in.
+ */
+export async function setFavorite(roomId: RoomId, favorite: boolean): Promise<Favorites> {
+  return (await request<{ favorites: Favorites }>(`/api/rooms/${encodeURIComponent(roomId)}/favorite`, { method: "PUT", body: JSON.stringify({ favorite }) })).favorites;
 }
 
 /** Deletes a room, with its messages. */

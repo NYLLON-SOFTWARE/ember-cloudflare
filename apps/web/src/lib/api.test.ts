@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { NewRoom, Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, signOut, workspaceSocketUrl } from "./api";
+import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, setFavorite, signOut, workspaceSocketUrl } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -14,7 +14,7 @@ describe(feature("auth.sessions"), () => {
   });
 
   it("leaves the session to the browser's cookie, sending no token", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ rooms: [], invitation: null }));
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ rooms: [], favorites: { rooms: [], version: 0 }, invitation: null }));
     await fetchSidebar(null);
     const [path, init] = fetch.mock.calls[0]!;
     expect(path).toBe("/api/sidebar");
@@ -73,7 +73,7 @@ describe(feature("platform.live-socket"), () => {
 });
 
 describe(feature("sidebar.live-updates"), () => {
-  const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null, unread: false }], invitation: null };
+  const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation: null };
 
   it("keeps the sidebar's ETag, and names it to keep the copy while it's current", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(sidebar, { headers: { ETag: 'W/"abc"' } }));
@@ -93,6 +93,17 @@ describe(feature("sidebar.live-updates"), () => {
   it("reports a refusal as any request does", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
     await expect(fetchSidebar({ sidebar, etag: 'W/"abc"' })).rejects.toMatchObject({ status: 401, message: "Not signed in" });
+  });
+});
+
+describe(feature("sidebar.favorites"), () => {
+  it("stars a room, or unstars it, answering the person's stars", async () => {
+    const favorites = { rooms: ["r 1"], version: 3 };
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites }));
+    expect(await setFavorite("r 1", true)).toEqual(favorites);
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms/r%201/favorite", expect.objectContaining({ method: "PUT", body: JSON.stringify({ favorite: true }) }));
+    await setFavorite("r 1", false);
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms/r%201/favorite", expect.objectContaining({ body: JSON.stringify({ favorite: false }) }));
   });
 });
 
