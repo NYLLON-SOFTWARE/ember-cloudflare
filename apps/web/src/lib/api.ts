@@ -3,6 +3,7 @@ import {
   type Account,
   type AccountChanges,
   type Bootstrap,
+  type Directory,
   type Me,
   type NewJoinCode,
   type NewRoom,
@@ -121,6 +122,19 @@ export async function fetchSidebar(copy: SidebarCopy | null): Promise<SidebarCop
   const response = await fetch("/api/sidebar", copy?.etag ? { headers: { "If-None-Match": copy.etag } } : {});
   if (copy && response.status === 304) return copy;
   return { sidebar: await dataOf<Sidebar>(response), etag: response.headers.get("ETag") };
+}
+
+/** A copy of the people directory, and the ETag the server sent it with. */
+export interface DirectoryCopy {
+  directory: Directory;
+  etag: string | null;
+}
+
+/** Everyone in the workspace, or `copy` while it's still current, kept out of the browser's cache as the sidebar is. */
+export async function fetchDirectory(copy: DirectoryCopy | null): Promise<DirectoryCopy> {
+  const response = await fetch("/api/users", copy?.etag ? { headers: { "If-None-Match": copy.etag } } : {});
+  if (copy && response.status === 304) return copy;
+  return { directory: await dataOf<Directory>(response), etag: response.headers.get("ETag") };
 }
 
 /** Who the New room forms list: everyone active, by name. */

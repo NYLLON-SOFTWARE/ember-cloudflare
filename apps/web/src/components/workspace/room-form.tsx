@@ -104,7 +104,7 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
         <Fragment key={index}>
           {index > 0 && <Separator />}
           {group.filter(shown).map((person) => (
-            <Row key={person.id} figure={<UserAvatar user={person} className="size-[4ch]" />} name={person.name}>
+            <Row key={person.id} figure={<UserAvatar user={person} className="size-[4ch]" lazy />} name={person.name}>
               {mark(person)}
             </Row>
           ))}

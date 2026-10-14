@@ -13,13 +13,13 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 38 ported and 53 partial of 172 features; 76 not started, 5 not applicable.
+**Overall:** 39 ported and 52 partial of 172 features; 76 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 3 | 2 | 9 | 0 | 14 |
-| [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
+| [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 2 | 2 | 6 | 0 | 10 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **38** | **53** | **76** | **5** | **172** |
+| **Total** | **39** | **52** | **76** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -422,7 +422,7 @@ ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWA
 | Edit your profile | `users.profile` | Ember | ⬜ Not started |  |
 | Upload an avatar | `users.avatar-upload` | Ember | ⬜ Not started |  |
 | Someone's profile page | `users.show` | Campfire | ⬜ Not started |  |
-| Initials avatars | `users.avatars` | Campfire | 🟡 Partial | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Initials avatars | `users.avatars` | Campfire | ✅ Ported | Protocol: [avatars](packages/protocol/src/avatars.test.ts)<br>Worker: [avatars](apps/worker/test/avatars.test.ts)<br>Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [user-avatar](apps/web/src/components/workspace/user-avatar.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Avatars open people's pages | `users.avatar-links` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -468,7 +468,7 @@ Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SO
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb)
 
-**Initials avatars** (`users.avatars`) 🟡
+**Initials avatars** (`users.avatars`) ✅
 
 - Without a usable upload, an avatar is the person's initials in white on one of 18 colors, picked by the CRC32 of their id (1 is `#BF7C2A`, 2 is `#698F9C`, 42 is `#D07B53`, 1000 is `#BFA07A`).
 - Initials are every ASCII letter, digit or underscore that doesn't follow a letter, digit or underscore of any script, however many: "David Heinemeier Hansson" is "DHH" and "Élodie Ünal-Smith o'Brien 3po _x ñ" is "SoB3_". A name with none gets a plain tile.
@@ -477,7 +477,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - They're cacheable for 30 minutes (`Cache-Control: max-age=1800, public, stale-while-revalidate=604800`) with an ETag, and a matching `If-None-Match` answers 304. Removed and banned people's avatars are still served.
 - Bots without an upload get the default bot picture.
 
-Note: Avatars are drawn in the page, not served as images, so there are no avatar URLs, caching or bot picture. Initials come from JavaScript's word boundaries, which count a letter after a non-ASCII one ("Élodie" gives "l"), and stop at three, with "?" when there are none.
+Note: The Worker serves the SVG byte for byte as ember-rust renders it, at the address the people directory (`GET /api/users`, kept current with an ETag and loaded again whenever the sidebar is) gives as `avatarUrl`, and the app draws the same SVG in the page until the image loads. A token is the person's id and the first 16 bytes of its HMAC under SESSION_SECRET rather than a Rails signed id, and one for nobody gets an empty 404 where ember-rust renders its 404 page. The ETag is the image's digest, and a 304 carries the same Cache-Control as a 200, where ember-rust's says nothing of how long to keep the copy. Signing in after being sent there doesn't come back to the avatar.
 
 Sources: [`crates/views/templates/users/avatars/show.svg`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/avatars/show.svg) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/avatars.rs)
 
@@ -489,6 +489,8 @@ ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLO
 - The link's title is "&lt;name&gt; – &lt;bio&gt;", or just the name when the bio is blank.
 - The 48×48 image is hidden from screen readers, except on a boost, where it reads "&lt;name&gt; boosted &lt;content&gt;"; the people, bot and member lists and the DM editor load it lazily.
 - Avatars in the sidebar's DM rows and on profile pages aren't links.
+
+Note: Avatars are images hidden from screen readers, and room member lists load theirs lazily (`users.avatars`), but none links anywhere yet: people's pages (`users.show`) come first.
 
 Sources: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html) · [`crates/views/templates/messages/boosts/_boost.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/boosts/_boost.html) · [`reference/app/helpers/users/avatars_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/users/avatars_helper.rb)
 
