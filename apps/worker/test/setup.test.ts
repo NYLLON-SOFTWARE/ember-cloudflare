@@ -36,7 +36,7 @@ describe(feature("auth.first-run"), () => {
     const response = await setUp(ada);
     expect(response.status).toBe(201);
     const { user, room } = (await response.json()) as NewWorkspace;
-    expect(user).toEqual({ id: expect.any(String), name: "Ada Lovelace" });
+    expect(user).toEqual({ id: expect.any(String), name: "Ada Lovelace", administrator: true });
     expect(room).toEqual({ id: expect.any(String), kind: "open", name: "All Talk", icon: null });
     expect(response.headers.getSetCookie()).toEqual([expect.stringMatching(/^__Host-session_token=[\w-]{43}; Path=\/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure$/)]);
 

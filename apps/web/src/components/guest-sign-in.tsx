@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { User } from "@ember/protocol";
+import type { Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { ArrowRight, User as UserIcon } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { signInAsGuest } from "@/lib/api";
  * EMBER_GUEST_SIGN_IN allows it. ember-rust has no such thing; it stands in for joining until join
  * links are ported.
  */
-export function GuestSignIn({ onSignedIn, onUsePassword }: { onSignedIn: (me: User) => void; onUsePassword: () => void }) {
+export function GuestSignIn({ onSignedIn, onUsePassword }: { onSignedIn: (me: Me) => void; onUsePassword: () => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -214,13 +214,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Workspace link opens `/account/edit`, titled \"Account settings\", with its heading and the Rooms section's New room. Go Back returns to the last room visited (`rooms.last-visited`). Administrators see Workspace rather than Admin, and the version line, Chat bots, Custom styles, the logo, the workspace's name, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room. Chat bots, Custom styles, the logo, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
     title: "Rename the workspace",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators save Workspace name (placeholder \"Name this account\", not autofocused) with Save changes or Enter, and return to settings with \"Changes saved.\" even when nothing changed; members get 403.",
       "Entering the field keeps the usual cursor rather than selecting the name (`ui.select-on-entry`).",
@@ -229,6 +229,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts.rs", "crates/db/src/models/account.rs", "crates/views/templates/accounts/edit.html", "reference/app/controllers/accounts_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts_controller_test.rb"],
+    notes: "Saved with `PATCH /api/account`, which members get 403 from, and loaded with `GET /api/account`, which tells the page whether you can change it. Unlike ember-rust, a name is at most 100 characters (422 past that, and the field stops there), so the sidebar's heading can show it. The tab that saves it shows the new name at once; other tabs show it when they next load, or open workspace settings, where ember-rust's show it on their next page.",
   },
   {
     id: "accounts.logo",
@@ -2249,7 +2250,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home and Workspace work: the logo and Home are marked at home, Home on a room's page, Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.",
+    notes: "Home and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.",
   },
   {
     id: "ui.room-header",
@@ -2334,7 +2335,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/components/direct_message.html", "crates/views/templates/rooms/layouts/_icon_picker.html", "crates/views/templates/accounts/edit.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields. The workspace name and direct-message search aren't built yet, and `accounts.name` and `dms.picker` say they keep the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.",
+    notes: "Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields, and Workspace name on its field. Direct-message search isn't built yet, and `dms.picker` says it keeps the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.",
   },
   {
     id: "ui.flash",
@@ -2349,7 +2350,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. What's missing are the notices themselves, which come with the pages that show them: workspace settings' name and logo (`accounts.name`, `accounts.logo`), custom styles (`accounts.custom-css`), and the profile and its photo (`users.profile`, `users.avatar-upload`). The alerts so far are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
+    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. Saving the workspace's name says \"Changes saved.\"; the other notices come with the pages that show them: the workspace's logo (`accounts.logo`), custom styles (`accounts.custom-css`), and the profile and its photo (`users.profile`, `users.avatar-upload`). The alerts so far are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room, or saving the workspace's name, failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
   },
   {
     id: "ui.accessibility",
@@ -2454,7 +2455,7 @@ export const features = [
     id: "platform.version",
     title: "Version",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Pages and the app's other responses carry X-Version: `APP_VERSION` if set, else `GIT_REVISION`, else the release (\"1.1\", the package version without a trailing \".0\"); blank values count as unset. X-Rev carries `GIT_REVISION` whenever it's set, even blank.",
       "`/up`, static files and the live connection carry neither header.",
@@ -2462,7 +2463,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/concerns.rs", "crates/views/src/helpers/application.rs", "crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/_help_contact.html", "reference/config/initializers/version.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/app/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "Worked out as ember-rust does, with this port's own release (\"0.1\", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. Every answer from the Worker carries the headers but `/up`'s and a room socket's upgrade, `/api/health` included; static files come straight from the assets. Workspace settings, and their line, come with Phase 5.",
+    notes: "Worked out as ember-rust does, with this port's own release (\"0.1\", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. Every answer from the Worker carries the headers but `/up`'s and a room socket's upgrade, `/api/health` included; static files come straight from the assets.",
   },
   {
     id: "platform.browser-support",

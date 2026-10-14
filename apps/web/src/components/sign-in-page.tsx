@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type User } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -15,7 +15,7 @@ import { ApiError, signIn } from "@/lib/api";
 // it's shown again.
 
 /** Signs in with an email address and password, or with just a name when the workspace allows it. */
-export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: User) => void }) {
+export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const [asGuest, setAsGuest] = useState(false);
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
   const [password, setPassword] = useState("");

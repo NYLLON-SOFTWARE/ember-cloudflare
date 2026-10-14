@@ -1,4 +1,4 @@
-import { isPasswordTooLong, parseSignUp, PASSWORD_TOO_LONG, type User } from "@ember/protocol";
+import { isPasswordTooLong, parseSignUp, PASSWORD_TOO_LONG, type Me } from "@ember/protocol";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import type { Env } from "./env";
 import { appPage, empty, formAnswer, home } from "./pages";
@@ -55,5 +55,5 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
     const signIn = `/session/new?${new URLSearchParams({ email_address: form.emailAddress })}`;
     return formAnswer({ error: "That email address has an account already", redirect: signIn }, 409);
   }
-  return formAnswer({ user } satisfies { user: User }, 201, sessionCookie(request, token));
+  return formAnswer({ user } satisfies { user: Me }, 201, sessionCookie(request, token));
 }
