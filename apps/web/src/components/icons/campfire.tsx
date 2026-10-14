@@ -4,9 +4,12 @@ import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
 import arrowUp from "./campfire/arrow-up.svg";
 import copyPaste from "./campfire/copy-paste.svg";
+import download from "./campfire/download.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import messagesAdd from "./campfire/messages-add.svg";
+import qrCode from "./campfire/qr-code.svg";
+import remove from "./campfire/remove.svg";
 import share from "./campfire/share.svg";
 import trash from "./campfire/trash.svg";
 
@@ -45,6 +48,10 @@ export function CopyPaste(props: CampfireIconProps) {
   return <CampfireIcon src={copyPaste} {...props} />;
 }
 
+export function Download(props: CampfireIconProps) {
+  return <CampfireIcon src={download} {...props} />;
+}
+
 export function Lifebuoy(props: CampfireIconProps) {
   return <CampfireIcon src={lifebuoy} {...props} />;
 }
@@ -55,6 +62,14 @@ export function Logout(props: CampfireIconProps) {
 
 export function MessagesAdd(props: CampfireIconProps) {
   return <CampfireIcon src={messagesAdd} {...props} />;
+}
+
+export function QrCode(props: CampfireIconProps) {
+  return <CampfireIcon src={qrCode} {...props} />;
+}
+
+export function Remove(props: CampfireIconProps) {
+  return <CampfireIcon src={remove} {...props} />;
 }
 
 export function Share(props: CampfireIconProps) {

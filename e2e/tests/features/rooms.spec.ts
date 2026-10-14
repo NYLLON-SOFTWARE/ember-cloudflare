@@ -123,3 +123,33 @@ test.describe(feature("accounts.join-link"), () => {
     await expect(ada.page.getByRole("button", { name: "Share join link" })).toHaveCount(0);
   });
 });
+
+test.describe(feature("accounts.qr-codes"), () => {
+  test("opens the join link's QR code in the image viewer", async ({ baseURL, members, request, session }) => {
+    const { roomId, joinCode } = await invitation(request, session);
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true });
+    // The join link as padded URL-safe base64.
+    const qrCode = `/qr_code/${Buffer.from(new URL(`/join/${joinCode}`, baseURL).href).toString("base64").replace(/\+/g, "-").replace(/\//g, "_")}`;
+    const show = ada.page.getByRole("link", { name: "Show join link QR code" });
+    await expect(show).toHaveAttribute("href", qrCode);
+
+    const drawn = ada.page.waitForResponse((response) => new URL(response.url()).pathname === qrCode);
+    await show.click();
+    const response = await drawn;
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toBe("image/svg+xml; charset=utf-8");
+    const viewer = ada.page.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+    await expect(viewer.locator(`img[src="${qrCode}"]`)).toBeVisible();
+    await expect(viewer.getByRole("link", { name: "Download file" })).toHaveAttribute("href", qrCode);
+    await expect(viewer.getByRole("button", { name: "Close image viewer" })).toBeFocused();
+
+    await ada.page.keyboard.press("Escape");
+    await expect(viewer).toBeHidden();
+    await expect(show).toBeFocused();
+
+    await show.click();
+    await viewer.getByRole("button", { name: "Close image viewer" }).click();
+    await expect(viewer).toBeHidden();
+    await expect(viewer.locator("img[src^='/qr_code/']")).toHaveCount(0);
+  });
+});

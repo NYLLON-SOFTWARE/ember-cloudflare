@@ -25,6 +25,17 @@ globalThis.IntersectionObserver ??= class {
   }
 } as unknown as typeof IntersectionObserver;
 
+// jsdom's dialogs can't open or close, so these do what browsers do, short of the top layer and
+// moving focus.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+  this.open = true;
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+  if (!this.open) return;
+  this.open = false;
+  this.dispatchEvent(new Event("close"));
+};
+
 afterEach(() => {
   // Testing Library only unmounts between tests by itself when Vitest's globals are on.
   cleanup();
