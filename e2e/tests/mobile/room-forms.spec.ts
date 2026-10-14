@@ -41,6 +41,20 @@ test("a room's settings fit the phone", async ({ page, room, screenIsFine }) => 
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
+test("tapping into a room's name selects it, and a second tap places the cursor", async ({ page, room }) => {
+  await page.goto(`/rooms/opens/${room.id}/edit`);
+  const name = page.getByRole("textbox", { name: "Room name" });
+  await expect(name).toHaveValue(room.name);
+  await page.getByRole("heading", { level: 1, name: "Room settings" }).tap();
+  await expect(name).not.toBeFocused();
+  await name.tap();
+  await page.keyboard.type("Phone");
+  await expect(name).toHaveValue("Phone");
+  await name.tap();
+  await page.keyboard.type(" room");
+  await expect(name).toHaveValue("Phone room");
+});
+
 test("the room icon picker fits the phone", async ({ page, room, screenIsFine }) => {
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await page.getByRole("button", { name: "Choose room icon" }).click();

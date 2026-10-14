@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 25 ported and 56 partial of 172 features; 86 not started, 5 not applicable.
+**Overall:** 26 ported and 56 partial of 172 features; 85 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
-| [Workspace interface](#workspace-interface) | 2 | 8 | 1 | 0 | 11 |
+| [Workspace interface](#workspace-interface) | 3 | 8 | 0 | 0 | 11 |
 | [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
-| **Total** | **25** | **56** | **86** | **5** | **172** |
+| **Total** | **26** | **56** | **85** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -254,6 +254,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 **Rename the workspace** (`accounts.name`) ⬜
 
 - Administrators save Workspace name (placeholder "Name this account", not autofocused) with Save changes or Enter, and return to settings with "Changes saved." even when nothing changed; members get 403.
+- Entering the field keeps the usual cursor rather than selecting the name (`ui.select-on-entry`).
 - The name isn't validated, so a blank one is saved.
 - The name shows as members' settings heading, the rail logo's title, the sidebar heading, "Sign in to &lt;name&gt;" and "Join &lt;name&gt;", and the installed app's name ("Ember" before there's a workspace).
 
@@ -804,7 +805,7 @@ ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`
 **New direct message dialog** (`dms.picker`) ⬜
 
 - The rail's DMs and the sidebar's New direct message open "New direct message" / "Find people by full name. You can also type @name." without leaving the page, focus "Search by name or @name" and list the first 20 people; on phones the drawer closes first. Clicked with a modifier key, they follow the link to `/rooms/directs/new`.
-- Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more.
+- Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more. Entering the search keeps the usual cursor rather than selecting what's in it (`ui.select-on-entry`).
 - The status reads "Search by name or @name.", "Loading people…", "Searching…", "Choose one or more people.", "Everyone shown is selected.", "No people found. Try another name." or "No other people are available to message yet."
 - Clicking a person, or Enter on the one highlighted with the arrow keys (which wrap around), adds a chip "&lt;name&gt; ×" ("Remove &lt;name&gt;") under "Selected people" and takes them out of the list; clicking the chip puts them back. Enter with nobody highlighted does nothing.
 - Start conversation is disabled until someone is picked and says "Starting conversation…" while it works; if starting fails: "Couldn’t start the conversation. Please try again.", keeping your picks.
@@ -2134,7 +2135,7 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 | Light, dark or system appearance | `ui.appearance` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
 | Stay at the newest message | `ui.scroll` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Empty room | `ui.empty-room` | This port | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
-| Select a field's text on entry | `ui.select-on-entry` | Ember | ⬜ Not started |  |
+| Select a field's text on entry | `ui.select-on-entry` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [icon-picker](apps/web/src/components/workspace/icon-picker.test.tsx), [use-select-on-entry](apps/web/src/hooks/use-select-on-entry.test.tsx)<br>E2E: [select-on-entry](e2e/tests/features/select-on-entry.spec.ts) |
 | Saved notices | `ui.flash` | Ember | 🟡 Partial | Web: [App](apps/web/src/App.test.tsx), [flash](apps/web/src/components/flash.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [flash](apps/web/src/lib/flash.test.ts)<br>E2E: [flash](e2e/tests/features/flash.spec.ts) |
 | Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Ember's icons | `ui.icons` | Ember | 🟡 Partial | Web: [icons](apps/web/src/components/icons/icons.test.tsx) |
@@ -2223,11 +2224,13 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 - A room nobody has written in says "Welcome to #&lt;room&gt;" and "This is the very beginning of the room. Say hello!"
 - The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).
 
-**Select a field's text on entry** (`ui.select-on-entry`) ⬜
+**Select a field's text on entry** (`ui.select-on-entry`) ✅
 
 - Tabbing or clicking into a text, search, email, URL, phone or password field selects what's in it, so typing replaces it. A second click, or a drag, places the cursor as usual.
 - Text areas and the message box are never selected, nor are disabled or read-only fields and three marked ones: the workspace name, direct-message search and icon search.
 - It works on every page but first-run setup, signed in or not.
+
+Note: Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields. The workspace name and direct-message search aren't built yet, and `accounts.name` and `dms.picker` say they keep the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.
 
 Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/components/direct_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/direct_message.html) · [`crates/views/templates/rooms/layouts/_icon_picker.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_icon_picker.html) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html)
 
