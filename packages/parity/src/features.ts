@@ -940,7 +940,7 @@ export const features = [
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/layouts/application.html", "crates/views/templates/users/sidebars/show.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
     notes:
-      "The count is the button's description (\"3 unread\"), so its name stays \"Activity\", where ember-rust's name runs the number on. A link opened in another tab or window leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and \"No conversations found.\" never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.",
+      "The count is the button's description (\"3 unread\"), so its name stays \"Activity\", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and \"No conversations found.\" never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.",
   },
   {
     id: "sidebar.favorites",

@@ -130,9 +130,12 @@ export function roomIdFromPath(pathname: string): string | null {
  */
 export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ?? { page: "home" };
 
+/** The path of the page the app shows, re-rendering when it changes. */
+export const useShownPath = (): string => useSyncExternalStore(subscribe, shownPath);
+
 /** The page the address shows, re-rendering when it changes. */
 export function useRoute(): Route {
-  const pathname = useSyncExternalStore(subscribe, shownPath);
+  const pathname = useShownPath();
   return useMemo(() => routeOf(pathname), [pathname]);
 }
 

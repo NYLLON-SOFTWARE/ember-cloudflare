@@ -560,6 +560,26 @@ describe(feature("sidebar.activity-filter"), () => {
     expect(location.pathname).toBe("/rooms/general");
   });
 
+  it("stays on while unsaved changes keep you on the page, and turns off once they let you go", async () => {
+    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }), "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(activity());
+    act(() => navigate("/rooms/opens/general/edit"));
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
+
+    await user.click(roomLink(/random/));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    expect(location.pathname).toBe("/rooms/opens/general/edit");
+    expect(activity()).toHaveAttribute("aria-pressed", "true");
+
+    // Home goes on to the room visited last before the page paints.
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(activity()).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("keeps the drawer open on a phone, turning on or off, and filters the drawer's rooms", async () => {
     serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
     const { user } = showWorkspace("/rooms/general");
