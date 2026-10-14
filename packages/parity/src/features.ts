@@ -2510,7 +2510,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "reference/app/views/layouts/application.html.erb"],
     upstreamTests: ["crates/views/tests/parity_a.rs"],
-    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark.",
+    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.",
   },
   {
     id: "platform.limits",

@@ -2371,7 +2371,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.
 - `theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.
 
-Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark.
+Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/app/views/layouts/application.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/layouts/application.html.erb)
 

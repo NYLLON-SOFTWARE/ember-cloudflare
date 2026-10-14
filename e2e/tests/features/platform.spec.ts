@@ -25,12 +25,16 @@ test.describe(feature("platform.manifest"), () => {
     const context = await playwright.chromium.launchPersistentContext("", { baseURL, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined });
     try {
       const page = context.pages()[0] ?? (await context.newPage());
+      const logged: string[] = [];
+      page.on("console", (message) => logged.push(message.text()));
       await page.goto("/session/new");
       const cdp = await context.newCDPSession(page);
       const { url, errors } = await cdp.send("Page.getAppManifest", {});
       expect(url).toBe(new URL("/webmanifest.json", baseURL).href);
       expect(errors).toEqual([]);
       await expect.poll(async () => (await cdp.send("Page.getInstallabilityErrors")).installabilityErrors).toEqual([]);
+      // Chrome warns that apple-mobile-web-app-capable is deprecated unless mobile-web-app-capable is there too.
+      expect(logged.filter((text) => text.includes("web-app-capable"))).toEqual([]);
     } finally {
       await context.close();
     }
@@ -55,13 +59,14 @@ test.describe(feature("platform.head-tags"), () => {
       // The page as the server sends it, since its script recolors the theme at once (ui.appearance).
       const tags = await page.evaluate((html) => {
         const head = new DOMParser().parseFromString(html, "text/html").head;
-        const tags = head.querySelectorAll('meta[name="theme-color"], meta[name="apple-mobile-web-app-capable"], link[rel="manifest"], link[rel="icon"], link[rel="apple-touch-icon"]');
+        const tags = head.querySelectorAll('meta[name="theme-color"], meta[name$="mobile-web-app-capable"], link[rel="manifest"], link[rel="icon"], link[rel="apple-touch-icon"]');
         return [...tags].map((tag) => Object.fromEntries([...tag.attributes].map(({ name, value }) => [name, value])));
       }, html);
       expect(tags, path).toEqual([
         { name: "theme-color", content: "#ffffff", media: "(prefers-color-scheme: light)" },
         { name: "theme-color", content: "#000000", media: "(prefers-color-scheme: dark)" },
         { name: "apple-mobile-web-app-capable", content: "yes" },
+        { name: "mobile-web-app-capable", content: "yes" },
         { rel: "manifest", href: "/webmanifest.json" },
         { rel: "icon", type: "image/png", sizes: "48x48", href: "/logos/app-icon-48.png" },
         { rel: "apple-touch-icon", href: "/logos/app-icon.png" },
