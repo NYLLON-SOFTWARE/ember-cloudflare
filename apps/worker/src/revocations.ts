@@ -7,7 +7,7 @@ import { statement, type Db } from "./db";
 
 /** The sockets one revocation closes in a room, and what it closes them with. */
 export interface Revocation {
-  /** A person's id, for all their sockets, or `sessionTag(id)` for one session's. */
+  /** A person's id, for all their sockets, `sessionTag(id)` for one session's, or `EVERYONE`. */
   tag: string;
   code: CloseCode;
 }
@@ -17,6 +17,12 @@ export const SESSION_TAG_PREFIX = "s:";
 
 /** The tag on the sockets a session opens, besides its person's id, so revoking the session can find them. */
 export const sessionTag = (sessionId: string) => `${SESSION_TAG_PREFIX}${sessionId}`;
+
+/**
+ * The tag a revocation names to close every socket in a room, which deleting the room does. No socket
+ * carries it, and no person's id or session's tag can be it.
+ */
+export const EVERYONE = "*";
 
 /**
  * How long the Workspace's word that someone may open a room holds. The Worker passes it on at once,
@@ -45,14 +51,15 @@ export class Revocations {
 
   /**
    * Whether to turn away a socket that the Workspace let through for `tags` at `authorizedAt`: it
-   * may have been checked before one of them lost access here, or it's too old to trust.
+   * may have been checked before one of them lost access here, or before the room was deleted, or
+   * it's too old to trust.
    */
   async refuse(tags: string[], authorizedAt: number, now = Date.now()): Promise<boolean> {
     if (!(now - authorizedAt <= AUTHORIZATION_TTL_MS)) return true;
     const recent = await this.read(now);
     // At or before: the clock only counts milliseconds, and a check in the same one as the
     // revocation may have read what came before it.
-    return tags.some((tag) => authorizedAt <= (recent.get(tag) ?? -Infinity));
+    return [...tags, EVERYONE].some((tag) => authorizedAt <= (recent.get(tag) ?? -Infinity));
   }
 
   /** Records that the Workspace revoked `tags` at `revokedAt`, forgetting revocations too old to matter. */
@@ -64,6 +71,12 @@ export class Revocations {
     ]);
     for (const [tag, at] of recent) if (at < now - REVOCATIONS_KEPT_MS) recent.delete(tag);
     for (const tag of tags) recent.set(tag, Math.max(revokedAt, recent.get(tag) ?? -Infinity));
+  }
+
+  /** Forgets every revocation here, once a deleted room's record of its deletion has served its time. */
+  async forget(): Promise<void> {
+    await this.db.run(`DELETE FROM revocations WHERE room_id = ?`, this.roomId);
+    this.recent = new Map();
   }
 
   private async read(now: number): Promise<Map<string, number>> {

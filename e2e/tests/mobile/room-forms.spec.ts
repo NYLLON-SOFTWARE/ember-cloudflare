@@ -36,6 +36,7 @@ test("a private room's settings, with a switch for each person, fit the phone", 
 test("a room's settings fit the phone", async ({ page, room, screenIsFine }) => {
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await expect(page.getByRole("textbox", { name: "Room name" })).toHaveValue(room.name);
-  // With the Everyone switch, which whoever can change the room has.
+  // With the Everyone switch and Delete, which whoever can change the room has.
+  await expect(page.getByRole("button", { name: `Delete ${room.name}` })).toBeAttached();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });

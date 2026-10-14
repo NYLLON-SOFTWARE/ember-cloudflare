@@ -615,7 +615,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it. An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. Still to come: the icon picker (`rooms.icon-picker`), Delete (`rooms.delete`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it. An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the icon picker (`rooms.icon-picker`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
   },
   {
     id: "rooms.edit-permissions",
@@ -665,7 +665,7 @@ export const features = [
     id: "rooms.delete",
     title: "Delete a room",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Delete in room settings (the trash icon and the room's name, labelled \"Delete <name>\") asks \"Are you sure you want to delete this room and all messages in it? This can’t be undone.\", then deletes the room, its messages and its icon, and goes to `/`.",
       "Only administrators and the room's creator can delete a room; others get 403.",
@@ -674,6 +674,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/screens.yml"],
+    notes: "Delete sits in a panel of its own under a room's settings, for administrators and the room's creator, and asks in the browser's own dialog, as Turbo does. `DELETE /api/rooms/<id>` answers 204, and 404 or 403 as changing a room does. The Workspace deletes the room and its members, and queues closing every socket in it, in one batch, and remembers the room as deleted so `LEGACY_ROOMS` can't bring it back; it makes deletions one at a time with room changes, so a change can't write to a room deleted since it looked. The Workspace tries a room's object it can't reach again until it can, every five minutes at most, never giving up as it does on closing someone's sockets. The room's object closes the sockets with 4004 and deletes the messages and their reactions; it keeps the record of the deletion, which turns away sockets let through before it, for five minutes, then its alarm erases the rest, and the object with it. Unlike ember-rust, which disconnects nobody, everyone with the room open sees \"This room was deleted.\" at once and it leaves their sidebar; other sidebars catch up when they next load (`sidebar.live-updates`). Rooms have no icons yet (`rooms.icons`).",
   },
   {
     id: "rooms.icons",
@@ -764,7 +765,7 @@ export const features = [
       "A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.",
     ],
     sources: [],
-    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before.",
+    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
   },
 
   // Direct messages
@@ -1705,7 +1706,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/connection.rs", "crates/ember/src/channels/revocation.rs", "crates/cable/src/connection.rs", "crates/cable/src/server.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/user.rs", "crates/ember/src/concerns.rs", "reference/app/channels/application_cable/connection.rb"],
     upstreamTests: ["reference/test/channels/application_cable/connection_test.rb", "crates/ember/src/channels/tests/revocation_test.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/cable/tests/protocol.rs"],
-    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Signing out closes just that session's sockets (`auth.sign-out`), and taking someone out of a room closes theirs there, after which the Worker closes their reconnecting socket at once with 4004 and the app stops connecting (`rooms.members`). Nobody can be removed or banned until people's administration is ported.",
+    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Signing out closes just that session's sockets (`auth.sign-out`), and taking someone out of a room closes theirs there, after which the Worker closes their reconnecting socket at once with 4004 and the app stops connecting (`rooms.members`). Deleting a room has its object close every socket in it with 4004 (`rooms.delete`). Nobody can be removed or banned until people's administration is ported.",
   },
   {
     id: "realtime.keepalive",

@@ -12,7 +12,7 @@ import {
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
-import { Revocations, sessionTag, type Revocation } from "./revocations";
+import { EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { MessageStore } from "./store";
 
 /** What each socket remembers across hibernation. */
@@ -29,9 +29,17 @@ export const SESSION_HEADER = "X-Ember-Session";
 /** When the Workspace checked the socket's session and membership, in milliseconds since the epoch. */
 export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 
+/** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
+const DELETED_ROOM = "deletedRoom";
+
 const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked", [CloseCode.NotFound]: "NotFound" };
 
-/** A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused. */
+/**
+ * A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused.
+ * wrangler dev logs "Uncaught Error: Network connection lost." as each one finishes closing, even after
+ * a clean close handshake: the runtime raises it once the close event has fired, where nothing here can
+ * catch it, and the Worker's tests, which have no network between them and the Worker, never see it.
+ */
 export function closedAtOnce(code: CloseCode): Response {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
@@ -108,17 +116,44 @@ export class ChatRoom extends DurableObject<Env> {
         revocations.map(({ tag }) => tag),
         revokedAt,
       );
+      const deletion = revocations.find(({ tag }) => tag === EVERYONE);
+      if (deletion) return this.destroy(roomId, deletion.code);
       const leaving = new Map<UserId, User>();
       for (const { tag, code } of revocations) {
         for (const socket of this.ctx.getWebSockets(tag)) {
-          if (socket.readyState !== WebSocket.OPEN) continue;
-          const attachment = socket.deserializeAttachment() as Attachment;
-          socket.serializeAttachment({ ...attachment, revoked: true } satisfies Attachment);
-          socket.close(code, CLOSE_REASONS[code]);
-          leaving.set(attachment.user.id, attachment.user);
+          const user = this.close(socket, code);
+          if (user) leaving.set(user.id, user);
         }
       }
       for (const user of leaving.values()) this.depart(user);
+    });
+  }
+
+  /**
+   * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, as
+   * ember-rust's `Room::destroy` does (room.rs). Nobody is left to hear who leaves. The record that
+   * the room was deleted stays, turning away sockets let through before then, until none of those
+   * could still arrive, when the alarm erases it.
+   */
+  private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
+    await this.storeFor(roomId).deleteAllMessages();
+    await this.ctx.storage.put(DELETED_ROOM, roomId);
+    await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
+  }
+
+  /**
+   * Erases what's left of a deleted room: its revocations, and the object's own storage, which on DO
+   * SQLite is everything it kept. An object with nothing stored ceases to exist.
+   */
+  override async alarm(): Promise<void> {
+    await this.serially(async () => {
+      const roomId = await this.ctx.storage.get<RoomId>(DELETED_ROOM);
+      if (roomId === undefined) return;
+      await this.revocationsFor(roomId).forget();
+      await this.ctx.storage.deleteAll();
+      // Its tables went too, so anything after this opens the database afresh.
+      this.db = this.store = this.revocations = null;
     });
   }
 
@@ -245,6 +280,15 @@ export class ChatRoom extends DurableObject<Env> {
   /** Whether someone has the room open in a socket other than `except`. */
   private isPresent(userId: UserId, except?: WebSocket): boolean {
     return this.ctx.getWebSockets(userId).some((socket) => socket !== except && socket.readyState === WebSocket.OPEN);
+  }
+
+  /** Closes `socket` with `code` for a revocation, if it's open, and answers whose it was. */
+  private close(socket: WebSocket, code: CloseCode): User | null {
+    if (socket.readyState !== WebSocket.OPEN) return null;
+    const attachment = socket.deserializeAttachment() as Attachment;
+    socket.serializeAttachment({ ...attachment, revoked: true } satisfies Attachment);
+    socket.close(code, CLOSE_REASONS[code]);
+    return attachment.user;
   }
 
   /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */

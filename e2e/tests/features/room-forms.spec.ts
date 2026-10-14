@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { APIRequestContext } from "@playwright/test";
-import { cookieHeader, createSession, signInAs, type Session, type TestRoom } from "../../fixtures";
+import { cookieHeader, createRoom, createSession, signInAs, type Session, type TestRoom } from "../../fixtures";
 import { expect, Member, test } from "./fixtures";
 
 /** A name no other test's people or rooms have, since they all share the server. */
@@ -187,6 +187,41 @@ test.describe(feature("rooms.convert-access"), () => {
     expect(await canSee(request, grace, leads.id)).toBe(true);
     // Its settings now open at the open room's address.
     await expect(linus.page.getByRole("link", { name: "Settings for this room" })).toHaveAttribute("href", `/rooms/opens/${leads.id}/edit`);
+  });
+});
+
+test.describe(feature("rooms.delete"), () => {
+  test("deletes a room from its settings once you confirm, and someone with it open finds it deleted", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const grace = await members.signIn(unique("Grace"), { serverRooms: true });
+    const design = await createRoom(request, ada.session, unique("Design"));
+    await grace.page.goto(`/rooms/${design.id}`);
+    await grace.connected();
+
+    await ada.page.goto(`/rooms/opens/${design.id}/edit`);
+    const remove = ada.page.getByRole("button", { name: `Delete ${design.name}` });
+    // Saying no keeps the room.
+    ada.page.once("dialog", (dialog) => void dialog.dismiss());
+    await remove.click();
+    await expect(remove).toBeEnabled();
+    expect(await canSee(request, ada.session, design.id)).toBe(true);
+
+    const asked = new Promise<string>((resolve) =>
+      ada.page.once("dialog", (dialog) => {
+        resolve(dialog.message());
+        void dialog.accept();
+      }),
+    );
+    await remove.click();
+    expect(await asked).toBe("Are you sure you want to delete this room and all messages in it? This can’t be undone.");
+    await expect(ada.page).toHaveURL(/\/$/);
+    await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
+    await expect(ada.page.getByRole("alert")).toHaveCount(0);
+
+    await expect(grace.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(grace.composer()).toHaveCount(0);
+    await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
+    expect(await canSee(request, grace.session, design.id)).toBe(false);
   });
 });
 

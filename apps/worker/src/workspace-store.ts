@@ -1,6 +1,6 @@
 import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
-import { SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -120,7 +120,11 @@ export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pen
 /** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
-/** How many times the outbox tries to deliver a revocation before giving up: over 8 minutes of tries. */
+/**
+ * How many times the outbox tries to deliver a revocation before giving up: over 8 minutes of tries.
+ * It never gives up on a room's deletion, whose messages would otherwise stay stored with nothing left
+ * to delete them, but tries it at the longest wait until it's delivered.
+ */
 const DELIVERY_ATTEMPTS = 10;
 
 /** Whether someone is in a room, asked on every room socket's upgrade. */
@@ -167,6 +171,10 @@ export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = 
  */
 const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?, name), kind = coalesce(?, kind), updated_at = ?
   WHERE id = ? AND (name IS NOT coalesce(?, name) OR kind IS NOT coalesce(?, kind))`;
+
+/** Of the rooms a JSON list names, those that are neither registered nor deleted. */
+const UNREGISTERED_ROOMS = `SELECT DISTINCT value AS id FROM json_each(?)
+  WHERE value NOT IN (SELECT id FROM rooms) AND value NOT IN (SELECT id FROM deleted_rooms)`;
 
 /** Keeps the people a JSON list of `{id, name}` names as deactivated guests, unless they're already here. */
 const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, created_at, updated_at)
@@ -319,21 +327,26 @@ export class WorkspaceStore {
 
   /**
    * Forgets the revocations `delivered` names, and puts off the ones `failed` names, each for twice as
-   * long as the time before, giving up on any that have failed too often. Answers the ones it gave up.
+   * long as the time before, up to the longest wait. Gives up on any that have failed too often, except
+   * a room's deletion, and answers the ones it gave up.
    */
   async settleRevocations(delivered: number[], failed: number[], now: number): Promise<PendingRevocation[]> {
     const [, abandoned] = (await this.db.batch([
       statement(`DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(delivered)),
       statement(
-        `DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?)) AND attempts + 1 >= ? RETURNING id, room_id AS roomId, tag, code`,
+        `DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?)) AND attempts + 1 >= ? AND tag <> ? RETURNING id, room_id AS roomId, tag, code`,
         JSON.stringify(failed),
         DELIVERY_ATTEMPTS,
+        EVERYONE,
       ),
+      // The wait has stopped doubling by the time the others give up. A deletion goes on failing, and
+      // shifting the first wait by all its failures would soon overflow, making the wait negative.
       statement(
-        `UPDATE pending_revocations SET attempts = attempts + 1, due_at = ? + min(?, ? << attempts) WHERE id IN (SELECT value FROM json_each(?))`,
+        `UPDATE pending_revocations SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
+        DELIVERY_ATTEMPTS,
         JSON.stringify(failed),
       ),
     ])) as [unknown[], PendingRevocation[], unknown[]];
@@ -403,6 +416,25 @@ export class WorkspaceStore {
     return queued!.length > 0;
   }
 
+  /**
+   * Deletes a room and who is in it, as ember-rust's `Room::destroy` does (room.rs), and in the same
+   * transaction queues closing every socket in it with `code`, due at `dueAt`, in place of whatever
+   * else the outbox had for it. The room's own object deletes its messages when that reaches it. The
+   * room is remembered as deleted, so registering `LEGACY_ROOMS` doesn't bring it back.
+   */
+  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<void> {
+    await this.db.batch([
+      // Queued before the rest go, so it takes an id none of them had: SQLite numbers a row after the
+      // largest id left, and the alarm settles what it delivered by id, so taking the id of one it's
+      // delivering now would settle the deletion with it.
+      statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
+      statement(`DELETE FROM pending_revocations WHERE room_id = ? AND tag <> ?`, roomId, EVERYONE),
+      statement(`DELETE FROM memberships WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM rooms WHERE id = ?`, roomId),
+      statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
+    ]);
+  }
+
   /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */
   async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<void> {
     await this.db.batch([
@@ -411,9 +443,9 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** Of the rooms `ids` names, the ones that aren't registered yet. The ids go as one JSON value. */
+  /** Of the rooms `ids` names, the ones that aren't registered yet and were never deleted. The ids go as one JSON value. */
   async unregisteredRooms(ids: RoomId[]): Promise<RoomId[]> {
-    const rows = await this.db.all<{ id: RoomId }>(`SELECT DISTINCT value AS id FROM json_each(?) WHERE value NOT IN (SELECT id FROM rooms)`, JSON.stringify(ids));
+    const rows = await this.db.all<{ id: RoomId }>(UNREGISTERED_ROOMS, JSON.stringify(ids));
     return rows.map((row) => row.id);
   }
 

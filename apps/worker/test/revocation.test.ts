@@ -3,7 +3,7 @@ import { CloseCode, type RoomId } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
-import { AUTHORIZATION_TTL_MS, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "../src/revocations";
+import { AUTHORIZATION_TTL_MS, EVERYONE, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "../src/revocations";
 import type { Workspace } from "../src/workspace";
 import { DUE_REVOCATIONS, type WorkspaceStore } from "../src/workspace-store";
 import { closeOf, connect, forwardUpgrade, freshDeploy, freshRoom, post, roomSql, roomStub, settle, signIn, workspaceSql, workspaceStub, type Access } from "./support";
@@ -261,5 +261,43 @@ describe(feature("realtime.connection"), () => {
     const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${DUE_REVOCATIONS}`, 0, 40)).map((row) => (row as { detail: string }).detail).join("; ");
     expect(plan).toContain("USING INDEX index_pending_revocations_on_due_at (due_at<?)");
     expect(plan).not.toContain("TEMP B-TREE");
+  });
+});
+
+describe(feature("rooms.delete"), () => {
+  it("never gives up deleting a room it can't reach, trying again at the longest wait until it can", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await queue("lobby", EVERYONE, CloseCode.NotFound, LATER);
+    let reachable = false;
+    const calls: unknown[] = [];
+    const rooms: Rooms = {
+      revoke: async (...call) => {
+        calls.push(call);
+        if (!reachable) throw new Error("The lobby isn't answering");
+      },
+    };
+
+    let now = LATER;
+    for (let tries = 1; tries <= 12; tries++) {
+      await runAlarm(rooms);
+      const wait = Math.min(1000 * 2 ** (tries - 1), 5 * 60 * 1000);
+      expect(await waiting()).toEqual([{ room_id: "lobby", tag: EVERYONE, attempts: tries, due_at: now + wait }]);
+      expect(await alarm()).toBe(now + wait);
+      vi.setSystemTime((now += wait));
+    }
+    // However often it has failed.
+    await workspaceSql("UPDATE pending_revocations SET attempts = 100");
+    await runAlarm(rooms);
+    expect(await waiting()).toEqual([{ room_id: "lobby", tag: EVERYONE, attempts: 101, due_at: now + 5 * 60 * 1000 }]);
+    vi.setSystemTime((now += 5 * 60 * 1000));
+
+    reachable = true;
+    await runAlarm(rooms);
+    expect(calls).toHaveLength(14);
+    expect(calls.at(-1)).toEqual(["lobby", [{ tag: EVERYONE, code: CloseCode.NotFound }], now]);
+    expect(await waiting()).toEqual([]);
+    expect(errors).toHaveBeenCalledTimes(13);
+    expect(errors).not.toHaveBeenCalledWith(expect.stringMatching(/^Gave up/));
   });
 });

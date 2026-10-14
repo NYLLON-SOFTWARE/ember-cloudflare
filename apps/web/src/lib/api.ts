@@ -93,6 +93,11 @@ export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<
   return (await request<{ room: Room }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
 }
 
+/** Deletes a room, with its messages. */
+export async function deleteRoom(roomId: RoomId): Promise<void> {
+  await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
+}
+
 export function roomSocketUrl(roomId: string): string {
   const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

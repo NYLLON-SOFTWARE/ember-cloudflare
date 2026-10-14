@@ -14,19 +14,19 @@ in one D1 database. Both backends use the schema in `apps/worker/migrations/` an
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts and revocations, and
-`workspace` for the workspace-wide tables (the account, people, sessions, rooms, memberships and
-pending revocations). On DO SQLite,
+`workspace` for the workspace-wide tables (the account, people, sessions, rooms, memberships,
+pending revocations and the rooms deleted). On DO SQLite,
 an object applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
 applies every file to D1, where all the tables share one database and each room's rows carry its
 `room_id`.
 
 So far rooms keep `messages`, `boosts` and `revocations`, and the Workspace keeps `accounts`,
-`users`, `sessions`, `rooms`, `memberships` and `pending_revocations`. A room's id also names its
-Durable Object, and the Worker asks the Workspace whether someone is a member before it wakes the
-room for their socket. First run creates the account and its administrator, who signs in with an
-email address and password, found through the unique index on `users.email_address`, as do the
-people who join with the join link; where it's allowed, anyone can sign in with just a display name
-instead. Presence and typing live in each room object's memory.
+`users`, `sessions`, `rooms`, `memberships`, `pending_revocations` and `deleted_rooms`. A room's id
+also names its Durable Object, and the Worker asks the Workspace whether someone is a member before
+it wakes the room for their socket. First run creates the account and its administrator, who signs
+in with an email address and password, found through the unique index on `users.email_address`, as
+do the people who join with the join link; where it's allowed, anyone can sign in with just a
+display name instead. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -133,8 +133,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   (`crates/ember/src/channels/revocation.rs`). Ours are spread over rooms' Durable Objects, which the
   Workspace has to call, and any call can fail. So the change also writes a `pending_revocations` row
   for each room, in the same batch, and the Workspace's alarm sends each room its own: up to 40 rows
-  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on, and giving
-  it up after 10 tries. Its index on `due_at` finds the rows that are due. The change sets the alarm
+  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on up to 5
+  minutes, and giving it up after 10 tries, unless it deletes a room, which would leave the room's
+  messages stored. Its index on `due_at` finds the rows that are due. The change sets the alarm
   even when D1's answer to it is lost, since it may have been saved anyway, and a Workspace that
   starts sets it for any rows waiting, which one that stopped in between leaves. A room keeps the
   time of each revocation it has had in `revocations` for five minutes. It turns away a socket the
@@ -151,6 +152,14 @@ search index. On top of that schema it adds indexes and query changes for speed.
   the two leaves a private room with its old members. Ours renames the room, changes its kind, adds
   and takes out its people and queues closing the sockets of everyone taken out in one batch, which
   passes the members as one JSON value, so it binds the same few values however many there are.
+- **Deleting a room takes two steps, and leaves its id behind.** ember-rust deletes a room's members,
+  its messages and the room in one transaction (`crates/db/src/models/room.rs`). Ours live in
+  different objects, so the Workspace deletes the room and its members, and queues closing every
+  socket in it, in one batch, and the room's object deletes its messages, their boosts going through
+  the foreign key, when that reaches it. The object keeps the time of the deletion for five minutes,
+  as it keeps any revocation, then its alarm erases what's left; on DO SQLite that's all its storage,
+  and an object with none ceases to exist. The Workspace records the room's id in `deleted_rooms`,
+  since registering `LEGACY_ROOMS` would otherwise bring a deleted legacy room back.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace
