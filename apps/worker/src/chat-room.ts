@@ -1,33 +1,43 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  CloseCode,
   HISTORY_PAGE_SIZE,
   parseClientFrame,
-  SESSION_ENDED,
   type ClientFrame,
   type RoomId,
   type ServerFrame,
   type User,
   type UserId,
 } from "@ember/protocol";
+import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
-import { MessageStore, openStore } from "./store";
+import { Revocations, sessionTag, type Revocation } from "./revocations";
+import { MessageStore } from "./store";
 
 /** What each socket remembers across hibernation. */
 interface Attachment {
   user: User;
   roomId: RoomId;
+  /** Set once the room has closed the socket for a revocation, which announced that it left. */
+  revoked?: true;
 }
 
 export const USER_HEADER = "X-Ember-User";
 export const ROOM_HEADER = "X-Ember-Room";
 export const SESSION_HEADER = "X-Ember-Session";
+/** When the Workspace checked the socket's session and membership, in milliseconds since the epoch. */
+export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 
-/** The tag on the sockets a session opens, besides its person's id, so signing out can find them. */
-const sessionTag = (sessionId: string) => `s:${sessionId}`;
+const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked" };
 
-/** How many signed-out sessions a room remembers: far more than can sign out while one upgrade is on its way. */
-const ENDED_SESSIONS = 1_000;
+/** A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused. */
+function closedAtOnce(code: CloseCode): Response {
+  const { 0: client, 1: server } = new WebSocketPair();
+  server.accept();
+  server.close(code, CLOSE_REASONS[code]);
+  return new Response(null, { status: 101, webSocket: client });
+}
 
 /**
  * Close codes that only report how a socket closed, like 1006 for a dropped connection, and can't
@@ -40,13 +50,10 @@ const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
  * Uses the hibernation API, so an idle room costs nothing while sockets stay open.
  */
 export class ChatRoom extends DurableObject<Env> {
+  private db: Db | null = null;
   private store: MessageStore | null = null;
+  private revocations: Revocations | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  /**
-   * Sessions that have signed out. The Workspace checks a session before the upgrade comes here, so
-   * one it let through just before the session ended may arrive after the room closed its sockets.
-   */
-  private readonly endedSessions = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -61,13 +68,19 @@ export class ChatRoom extends DurableObject<Env> {
     const user = JSON.parse(request.headers.get(USER_HEADER) ?? "null") as User | null;
     const roomId = request.headers.get(ROOM_HEADER);
     const sessionId = request.headers.get(SESSION_HEADER);
-    if (!user || !roomId || !sessionId) return new Response("Missing user, room or session", { status: 400 });
+    const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
+    if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
 
     return this.serially(async () => {
-      if (this.endedSessions.has(sessionId)) return new Response("Signed out", { status: 401 });
-      const { messages, hasMore } = await this.storeFor(roomId).page(HISTORY_PAGE_SIZE);
+      const tags = [user.id, sessionTag(sessionId)];
+      // Read side by side, so a room that has just woken waits on D1 once.
+      const [refused, { messages, hasMore }] = await Promise.all([
+        this.revocationsFor(roomId).refuse(tags, authorizedAt),
+        this.storeFor(roomId).page(HISTORY_PAGE_SIZE),
+      ]);
+      if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
-      this.ctx.acceptWebSocket(server, [user.id, sessionTag(sessionId)]);
+      this.ctx.acceptWebSocket(server, tags);
       server.serializeAttachment({ user, roomId } satisfies Attachment);
 
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
@@ -83,18 +96,29 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Closes the sockets session `sessionId` opened here, once it has signed out, saying so with
-   * `SESSION_ENDED`, and refuses any it opens later. Each socket leaves the room in `webSocketClose`,
-   * when the app answers the close. Queued behind the events before it, so a socket this session was
-   * opening is closed too.
+   * Closes the sockets each of `revocations` names here, with its code, once the Workspace has saved
+   * the change that ended their access, and turns away their sockets that it let through at or
+   * before `revokedAt`, which may have been checked before the change. Queued behind the events
+   * before it, so a socket it was opening is closed too. Whoever loses their last socket here leaves
+   * at once, rather than when their app answers the close, which it may never do.
    */
-  async endSession(sessionId: string): Promise<void> {
-    this.endedSessions.add(sessionId);
-    if (this.endedSessions.size > ENDED_SESSIONS) this.endedSessions.delete(this.endedSessions.values().next().value!);
+  async revoke(roomId: RoomId, revocations: Revocation[], revokedAt: number): Promise<void> {
     await this.serially(async () => {
-      for (const socket of this.ctx.getWebSockets(sessionTag(sessionId))) {
-        if (socket.readyState === WebSocket.OPEN) socket.close(SESSION_ENDED, "Signed out");
+      await this.revocationsFor(roomId).record(
+        revocations.map(({ tag }) => tag),
+        revokedAt,
+      );
+      const leaving = new Map<UserId, User>();
+      for (const { tag, code } of revocations) {
+        for (const socket of this.ctx.getWebSockets(tag)) {
+          if (socket.readyState !== WebSocket.OPEN) continue;
+          const attachment = socket.deserializeAttachment() as Attachment;
+          socket.serializeAttachment({ ...attachment, revoked: true } satisfies Attachment);
+          socket.close(code, CLOSE_REASONS[code]);
+          leaving.set(attachment.user.id, attachment.user);
+        }
       }
+      for (const user of leaving.values()) this.depart(user);
     });
   }
 
@@ -109,6 +133,9 @@ export class ChatRoom extends DurableObject<Env> {
 
     const { user, roomId } = ws.deserializeAttachment() as Attachment;
     await this.serially(async () => {
+      // A socket the room has closed, as when its access was revoked, can't change anything, even
+      // with frames it sent before it heard.
+      if (ws.readyState !== WebSocket.OPEN) return;
       try {
         await this.handle(ws, user, this.storeFor(roomId), frame);
       } catch (error) {
@@ -191,9 +218,17 @@ export class ChatRoom extends DurableObject<Env> {
     }
   }
 
+  /** The room's database, with its migrations applied first if its storage needs them. */
+  private dbFor(): Db {
+    return (this.db ??= openDb(this.env, this.ctx.storage, "room"));
+  }
+
   private storeFor(roomId: RoomId): MessageStore {
-    this.store ??= openStore(this.env, this.ctx, roomId);
-    return this.store;
+    return (this.store ??= new MessageStore(this.dbFor(), roomId));
+  }
+
+  private revocationsFor(roomId: RoomId): Revocations {
+    return (this.revocations ??= new Revocations(this.dbFor(), roomId));
   }
 
   /** Everyone with at least one open socket, once each. */
@@ -208,15 +243,21 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /** Whether someone has the room open in a socket other than `except`. */
-  private isPresent(userId: UserId, except: WebSocket): boolean {
+  private isPresent(userId: UserId, except?: WebSocket): boolean {
     return this.ctx.getWebSockets(userId).some((socket) => socket !== except && socket.readyState === WebSocket.OPEN);
   }
 
+  /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */
   private leave(ws: WebSocket): void {
-    const { user } = ws.deserializeAttachment() as Attachment;
+    const { user, revoked } = ws.deserializeAttachment() as Attachment;
+    if (!revoked) this.depart(user, ws);
+  }
+
+  /** Tells the room that `user` closed a socket, `closed` if it's just the one, and has left if it was their last. */
+  private depart(user: User, closed?: WebSocket): void {
     // Closing one of several tabs only stops the typing it may have been doing.
-    if (this.isPresent(user.id, ws)) this.broadcast({ type: "typing", user, typing: false }, ws);
-    else this.broadcast({ type: "presence.left", userId: user.id }, ws);
+    if (this.isPresent(user.id, closed)) this.broadcast({ type: "typing", user, typing: false }, closed);
+    else this.broadcast({ type: "presence.left", userId: user.id }, closed);
   }
 
   private refuse(ws: WebSocket, message: string): void {

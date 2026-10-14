@@ -15,7 +15,7 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
-import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
+import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
@@ -108,19 +108,13 @@ async function me(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Signs this browser out, closing its session's sockets in every room its person is in, so its other
- * tabs go to sign in at once. ember-rust tells all the person's connections to reconnect instead,
- * which their other devices survive (concerns.rs). As there, a room that can't be reached doesn't
- * keep anyone signed in.
+ * Signs this browser out. Its session's sockets close in every room its person is in, so its other
+ * tabs go to sign in at once; ember-rust tells all the person's connections to reconnect instead,
+ * which their other devices survive (concerns.rs). The rooms close them once this has answered, so
+ * as there, a room that can't be reached doesn't keep anyone signed in.
  */
 async function endSession(request: Request, env: Env): Promise<Response> {
-  const ended = await signOut(request, env);
-  if (ended) {
-    const closing = ended.rooms.map((roomId) => env.CHAT_ROOM.getByName(roomId).endSession(ended.sessionId));
-    for (const result of await Promise.allSettled(closing)) {
-      if (result.status === "rejected") console.error("Could not close a room's sockets on sign out", result.reason);
-    }
-  }
+  await signOut(request, env);
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
@@ -155,6 +149,7 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
   headers.set(USER_HEADER, JSON.stringify(access.user));
   headers.set(ROOM_HEADER, roomId);
   headers.set(SESSION_HEADER, access.sessionId);
+  headers.set(AUTHORIZED_AT_HEADER, String(access.authorizedAt));
   return env.CHAT_ROOM.getByName(roomId).fetch(new Request(request, { headers }));
 }
 

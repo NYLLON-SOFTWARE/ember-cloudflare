@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SESSION_ENDED, SIGN_IN_REFUSED } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REFUSED } from "@ember/protocol";
 import { loadPage } from "@/lib/page";
 import { App } from "./App";
 
@@ -208,9 +208,9 @@ describe(feature("auth.sessions"), () => {
     await roomHeading();
     act(() => RoomSocket.all[0]!.welcome(ada));
 
-    // Another tab signs out, and the room closes this tab's socket for that.
+    // Another tab signs out, and the room tells this tab's socket to reconnect.
     await fetch("/api/session", { method: "DELETE" });
-    act(() => RoomSocket.all[0]!.end(SESSION_ENDED));
+    act(() => RoomSocket.all[0]!.end(CloseCode.Reconnect));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
   });
@@ -343,7 +343,7 @@ describe(feature("auth.sign-out"), () => {
     });
 
     await signOutFromTheRail();
-    act(() => RoomSocket.all[0]!.end(SESSION_ENDED));
+    act(() => RoomSocket.all[0]!.end(CloseCode.Reconnect));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything()));
     answer();
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));

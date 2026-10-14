@@ -17,7 +17,8 @@ behave; this one rebuilds it on Workers and Durable Objects.
 
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
-   │                ├─────▶ Workspace Durable Object (one: the account, people, sessions, rooms, memberships)
+   │                ├─────▶ Workspace Durable Object (one: the account, people, sessions, rooms, memberships,
+   │                │        and the outbox that closes sockets in every room when access ends)
    │                │
    └──WebSocket─────┴──▶ ChatRoom Durable Object (one per room, by id)
                             ├─ sockets, presence, typing (hibernation API)

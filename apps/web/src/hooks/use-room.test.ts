@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_CHECKED_MESSAGES, SESSION_ENDED, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRoom } from "./use-room";
@@ -129,16 +129,29 @@ describe(feature("realtime.reconnect"), () => {
     }
   });
 
-  it("starts the back-off over once a connection opens", () => {
+  it("starts the back-off over once the room lets a connection in", () => {
     joinGeneral();
     socket().drop();
     wait(500);
     socket().drop();
     wait(1000);
     socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
     socket().drop();
     wait(500);
     expect(FakeSocket.all).toHaveLength(4);
+  });
+
+  it("keeps backing off from a room that closes the socket as soon as it opens", () => {
+    joinGeneral();
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().drop(CloseCode.Reconnect);
+    wait(999);
+    expect(FakeSocket.all).toHaveLength(2);
+    wait(1);
+    expect(FakeSocket.all).toHaveLength(3);
   });
 
   it("refreshes the room on reconnect, keeping messages that never got through", () => {
@@ -275,7 +288,7 @@ describe(feature("realtime.connection"), () => {
     expect(fetch).toHaveBeenCalledWith("/api/me", expect.objectContaining({ headers: expect.any(Headers) }));
   });
 
-  it("asks at once whether the session has ended when the room closes the socket for that reason", async () => {
+  it("asks at once whether the session has ended when the room says to reconnect", async () => {
     const fetch = vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
     const onSessionChanged = vi.fn();
@@ -286,9 +299,46 @@ describe(feature("realtime.connection"), () => {
 
     wait(500);
     socket().open();
-    socket().drop(SESSION_ENDED);
+    socket().drop(CloseCode.Reconnect);
     await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes to sign in without connecting again when the person loses access for good", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 })));
+    const onSessionChanged = vi.fn();
+    const { result } = joinGeneral({ onSessionChanged });
+    socket().drop(CloseCode.Revoked);
+    expect(result.current.state.status).toBe("reconnecting");
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it("hands over to whoever this browser is signed in as when the person loses access for good", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: grace })));
+    const onSessionChanged = vi.fn();
+    joinGeneral({ onSessionChanged });
+    socket().drop(CloseCode.Revoked);
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(grace));
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it.each([
+    ["it's still signed in as them", async () => Response.json({ user: ada })],
+    ["it can't tell", async () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("connects again after losing access for good when %s", async (_case, answer) => {
+    const fetch = vi.fn(answer);
+    vi.stubGlobal("fetch", fetch);
+    const onSessionChanged = vi.fn();
+    joinGeneral({ onSessionChanged });
+    socket().drop(CloseCode.Revoked);
+    await act(async () => {});
+    expect(fetch).toHaveBeenCalledOnce();
+    wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
+    expect(onSessionChanged).not.toHaveBeenCalled();
   });
 
   it("hands over to whoever another tab signed this browser in as, without showing them this room", () => {

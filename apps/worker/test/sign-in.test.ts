@@ -1,14 +1,14 @@
 import { feature } from "@ember/parity";
-import { SESSION_ENDED, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
+import { credentialsFor } from "../src/auth";
 import type { Env } from "../src/env";
 import { hashPassword } from "../src/passwords";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import { api, apiWith, connect, cookieOf, freshDeploy, freshRoom, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, closeOf, connect, cookieOf, forwardUpgrade, freshDeploy, freshRoom, origin, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
@@ -185,11 +185,12 @@ describe(feature("auth.sign-out"), () => {
     const phoneInLobby = await connect(lobby, phone);
     const graceInLobby = await connect(lobby, grace);
     const graceInAnnex = await connect(annex, grace);
-    const closes = [laptopInLobby, laptopInAnnex].map((tab) => new Promise<CloseEvent>((resolve) => tab.ws.addEventListener("close", resolve)));
+    const closes = [laptopInLobby, laptopInAnnex].map((tab) => closeOf(tab.ws));
 
     expect((await api("/api/session", { method: "DELETE", headers: { Cookie: laptop.cookie } })).status).toBe(204);
-    for (const close of await Promise.all(closes)) expect(close).toMatchObject({ code: SESSION_ENDED, reason: "Signed out" });
+    for (const close of await Promise.all(closes)) expect(close).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect((await api(`/api/rooms/${lobby}/socket`, upgrade(laptop.cookie))).status).toBe(401);
+    expect(await workspaceSql("SELECT * FROM pending_revocations")).toEqual([]);
 
     // Ada's phone still has the lobby open, so she's still there; she has left the annex, once.
     expect(await graceInLobby.next("typing")).toEqual({ type: "typing", user: laptop.user, typing: false });
@@ -200,19 +201,28 @@ describe(feature("auth.sign-out"), () => {
     expect(graceInAnnex.log.filter((frame) => frame.type === "presence.left")).toHaveLength(1);
   });
 
-  it("refuses a socket the Workspace let through just before the session ended, which reaches the room after", async () => {
-    const { user } = await setUp();
+  it("turns away a socket the Workspace let through just before the session ended, which reaches the room after", async () => {
+    const laptop = await setUp();
     const lobby = await freshRoom("lobby");
-    const [{ id: sessionId }] = (await workspaceSql("SELECT id FROM sessions WHERE user_id = ?", user.id)) as [{ id: string }];
-    const room = (env as unknown as Env).CHAT_ROOM.getByName(lobby);
-    // What the Worker sends on once the Workspace has checked the session.
-    const approved = () => room.fetch(`https://room/${lobby}`, { headers: { Upgrade: "websocket", [USER_HEADER]: JSON.stringify(user), [ROOM_HEADER]: lobby, [SESSION_HEADER]: sessionId } });
+    const grace = await connect(lobby, "Grace");
+    const tab = await connect(lobby, laptop);
+    const closed = closeOf(tab.ws);
+    // The Workspace lets another of the browser's tabs into the lobby, and the Worker is held up.
+    const token = laptop.cookie.slice(laptop.cookie.indexOf("=") + 1);
+    const access = await workspaceStub().roomAccess(await credentialsFor(token, new Request(origin), env as unknown as Env), lobby);
 
-    await room.endSession(sessionId);
-    expect((await approved()).status).toBe(401);
-    // Another of the person's sessions still gets in.
+    expect((await api("/api/session", { method: "DELETE", headers: { Cookie: laptop.cookie } })).status).toBe(204);
+    expect(await closed).toMatchObject({ code: CloseCode.Reconnect });
+    const late = await forwardUpgrade(lobby, access!);
+    expect(late.status).toBe(101);
+    late.webSocket!.accept();
+    expect(await closeOf(late.webSocket!)).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
+
+    // Nobody saw it arrive, and another of the person's sessions still gets in.
+    await settle(grace);
+    expect(grace.log.filter((frame) => frame.type === "presence.joined")).toEqual([{ type: "presence.joined", user: laptop.user }]);
     const phone = await signInAsAda();
-    expect((await api(`/api/rooms/${lobby}/socket`, upgrade(phone.cookie))).status).toBe(101);
+    expect((await connect(lobby, phone)).me).toEqual(laptop.user);
   });
 });
 

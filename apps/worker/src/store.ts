@@ -1,13 +1,7 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
-import { openDb, type Db } from "./db";
-import type { Env } from "./env";
+import type { Db } from "./db";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts).
-
-/** The room's messages, with its migrations applied first if its storage needs them. */
-export function openStore(env: Env, state: DurableObjectState, roomId: RoomId): MessageStore {
-  return new MessageStore(openDb(env, state.storage, "room"), roomId);
-}
 
 interface MessageRow {
   id: string;

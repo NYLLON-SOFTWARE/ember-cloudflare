@@ -2,6 +2,7 @@ import type { ClientFrame, Room, RoomId, ServerFrame, User, UserId } from "@embe
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
+import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { workspace } from "../src/workspace";
@@ -60,7 +61,23 @@ export async function signIn(name: string): Promise<Session> {
 export const upgrade = (cookie?: string) => ({ headers: { Upgrade: "websocket", Origin: origin, ...(cookie ? { Cookie: cookie } : {}) } });
 
 /** The room's Durable Object. */
-export const roomStub = (room: string) => (env as unknown as { CHAT_ROOM: DurableObjectNamespace }).CHAT_ROOM.getByName(room);
+export const roomStub = (room: string) => (env as unknown as Env).CHAT_ROOM.getByName(room);
+
+/** Who the Workspace let into a room, and when it checked. */
+export interface Access {
+  user: User;
+  sessionId: string;
+  authorizedAt: number;
+}
+
+/** A room socket's upgrade as the Worker sends it on to the room, once the Workspace has let it through. */
+export const forwardUpgrade = (room: RoomId, { user, sessionId, authorizedAt }: Access) =>
+  roomStub(room).fetch(`https://room/${room}`, {
+    headers: { Upgrade: "websocket", [USER_HEADER]: JSON.stringify(user), [ROOM_HEADER]: room, [SESSION_HEADER]: sessionId, [AUTHORIZED_AT_HEADER]: String(authorizedAt) },
+  });
+
+/** How `ws` closes, once it does. */
+export const closeOf = (ws: WebSocket) => new Promise<CloseEvent>((resolve) => ws.addEventListener("close", resolve));
 
 /** The Workspace's Durable Object. */
 export const workspaceStub = () => workspace(env as unknown as Env);

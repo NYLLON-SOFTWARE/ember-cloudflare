@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
-import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, SESSION_ENDED, type ClientFrame, type Message, type User } from "@ember/protocol";
+import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Message, type User } from "@ember/protocol";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { initialRoomState, roomReducer, unconfirmed } from "@/lib/room-state";
 
@@ -55,7 +55,6 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
 
       ws.onopen = () => {
         opened = true;
-        attempt = 0;
         heartbeat = setInterval(() => {
           if (unanswered) {
             // Nothing came back since the last ping, so the network dropped without closing the socket.
@@ -80,15 +79,31 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
           return sessionChanged(frame.you);
         }
         dispatch({ type: "frame", frame, now: Date.now() });
-        if (frame.type === "welcome") checkUnconfirmed(ws, frame.messages);
+        if (frame.type !== "welcome") return;
+        // Only once the room lets it in, so a room that closes the socket as soon as it opens isn't
+        // asked again and again.
+        attempt = 0;
+        checkUnconfirmed(ws, frame.messages);
       };
       ws.onclose = (event) => {
         clearInterval(heartbeat);
         if (closed) return;
-        // A refused upgrade looks like any other failure, so ask whether the session has expired, as
-        // when the room says it has ended. An answer that comes after the room closed may be about a
+        // A session check that answers once this room has closed is dropped: by then it may be about a
         // session that has since been replaced.
-        if (!opened || event.code === SESSION_ENDED) {
+        if (event.code === CloseCode.Revoked) {
+          // The person lost access for good, removed from the workspace or banned, which ends all their
+          // sessions. Rather than connect again, find out who this browser is signed in as now, unless
+          // that's still them.
+          dispatch({ type: "status", status: "reconnecting" });
+          void fetchMe().then(
+            (user) => !closed && (isSomeoneElse(user) ? sessionChanged(user) : reconnect()),
+            (error) => !closed && (error instanceof ApiError && error.status === 401 ? sessionChanged(null) : reconnect()),
+          );
+          return;
+        }
+        // A refused upgrade looks like any other failure, so ask whether the session has expired, as
+        // when the room says to reconnect, which it does when this browser signs out.
+        if (!opened || event.code === CloseCode.Reconnect) {
           void fetchMe().catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionChanged(null));
         }
         reconnect();

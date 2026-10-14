@@ -8,6 +8,8 @@ export class SessionCache<Session> {
   private readonly sessions = new Map<string, Session>();
   /** Counts endings, so a lookup that overlapped one isn't kept: on D1, queries interleave. */
   private endings = 0;
+  /** How many endings are under way. */
+  private ending = 0;
 
   constructor(private readonly limit: number) {}
 
@@ -20,8 +22,8 @@ export class SessionCache<Session> {
     }
     const endings = this.endings;
     const session = await lookUp();
-    // A session that ended during the lookup may have been read before it went.
-    if (session && endings === this.endings) this.remember(digest, session);
+    // A session that ended, or is ending, during the lookup may have been read before it went.
+    if (session && endings === this.endings && this.ending === 0) this.remember(digest, session);
     return session;
   }
 
@@ -32,13 +34,18 @@ export class SessionCache<Session> {
     if (this.sessions.size > this.limit) this.sessions.delete(this.sessions.keys().next().value!);
   }
 
-  /** Ends the session `digest` names with `end`, forgetting it even if `end` fails, since it may have ended anyway. */
-  async end(digest: string, end: () => Promise<void>): Promise<void> {
+  /**
+   * Ends the session `digest` names with `end`, answering what it does. Forgets it first: on D1 the
+   * session can be gone before `end` hears so, and a request in between mustn't find it here.
+   */
+  async end<T>(digest: string, end: () => Promise<T>): Promise<T> {
+    this.sessions.delete(digest);
+    this.ending++;
     try {
-      await end();
+      return await end();
     } finally {
+      this.ending--;
       this.endings++;
-      this.sessions.delete(digest);
     }
   }
 }

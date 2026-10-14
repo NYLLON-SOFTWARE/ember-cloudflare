@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type RoomList, type User, type UserId } from "@ember/protocol";
+import { CloseCode, isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type RoomList, type User, type UserId } from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -20,6 +20,13 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
  */
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
+/**
+ * How many revocations the outbox delivers in one run of its alarm, at most. Each room it calls may
+ * count as a subrequest, of which an invocation on the Free plan can make 50, its queries included.
+ */
+const REVOCATIONS_PER_RUN = 40;
+/** How many rooms the outbox calls at once: as many outgoing connections as an invocation can have open. */
+const ROOMS_AT_ONCE = 6;
 
 /** What a request brings to say who it's from. */
 export interface Credentials {
@@ -54,6 +61,15 @@ const encoder = new TextEncoder();
 function isCode(code: string, joinCode: string): boolean {
   const [given, expected] = [encoder.encode(code), encoder.encode(joinCode)];
   return given.length === expected.length && crypto.subtle.timingSafeEqual(given, expected);
+}
+
+/** Runs `work` on each of `items`, `limit` at a time. */
+async function eachAtMost<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await work(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
@@ -218,13 +234,13 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Ends the session `tokenDigest` names, answering its id and the rooms its person is in, which are
-   * the only ones it can have sockets open in.
+   * Ends the session `tokenDigest` names, and has every room its person is in close the sockets it
+   * opened there, telling them to reconnect, as ember-rust's sign-out does (concerns.rs).
    */
-  async signOut(tokenDigest: string): Promise<{ sessionId: string; rooms: RoomId[] } | null> {
-    const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
-    await this.sessions.end(tokenDigest, () => this.store.deleteSession(tokenDigest));
-    return session && { sessionId: session.id, rooms: await this.store.roomIdsFor(session.user.id) };
+  async signOut(tokenDigest: string): Promise<void> {
+    const now = Date.now();
+    const queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
+    if (queued) await this.wakeAt(now);
   }
 
   /**
@@ -248,10 +264,56 @@ export class Workspace extends DurableObject<Env> {
     return created;
   }
 
-  /** Who `credentials` signs in, with their session, and whether they're in room `roomId`, or null without a valid session. */
-  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<{ user: User; sessionId: string; member: boolean } | null> {
+  /**
+   * Who `credentials` signs in, with their session, and whether they're in room `roomId`, as of
+   * `authorizedAt`, or null without a valid session.
+   */
+  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<{ user: User; sessionId: string; member: boolean; authorizedAt: number } | null> {
+    // Before anything is read, so that a revocation saved while this checks counts as later than it,
+    // and the room turns the socket away if it arrives after the revocation does.
+    const authorizedAt = Date.now();
     const session = await this.session(credentials);
-    return session && { user: session.user, sessionId: session.id, member: await this.store.isMember(roomId, session.user.id) };
+    return session && { user: session.user, sessionId: session.id, member: await this.store.isMember(roomId, session.user.id), authorizedAt };
+  }
+
+  /** Delivers the revocations that are due, the outbox's work. */
+  override async alarm(): Promise<void> {
+    await this.deliverRevocations();
+  }
+
+  /**
+   * Sends rooms the revocations due now, at most `REVOCATIONS_PER_RUN` of them, each room its own in
+   * one call. Those a room doesn't take are tried again later, and the alarm is set for whichever is
+   * due next.
+   */
+  private async deliverRevocations(): Promise<void> {
+    const due = await this.store.dueRevocations(Date.now(), REVOCATIONS_PER_RUN);
+    // Read after the rows, so it's later than every change that queued them, and so later than any
+    // check that saw what came before one of those changes.
+    const revokedAt = Date.now();
+    const delivered: number[] = [];
+    const failed: number[] = [];
+    await eachAtMost([...Map.groupBy(due, (revocation) => revocation.roomId)], ROOMS_AT_ONCE, async ([roomId, revocations]) => {
+      const ids = revocations.map(({ id }) => id);
+      try {
+        await this.env.CHAT_ROOM.getByName(roomId).revoke(roomId, revocations.map(({ tag, code }) => ({ tag, code })), revokedAt);
+        delivered.push(...ids);
+      } catch (error) {
+        console.error(`Could not close sockets in room ${roomId}; trying again later`, error);
+        failed.push(...ids);
+      }
+    });
+    for (const { roomId, tag } of await this.store.settleRevocations(delivered, failed, Date.now())) {
+      console.error(`Gave up closing the sockets tagged ${tag} in room ${roomId}`);
+    }
+    const next = await this.store.nextRevocationDue();
+    if (next !== null) await this.wakeAt(next);
+  }
+
+  /** Sets the alarm for `time`, unless it's already set for sooner. */
+  private async wakeAt(time: number): Promise<void> {
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
   }
 
   /**
