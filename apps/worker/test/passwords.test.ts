@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { toBase64 } from "../src/encoding";
 import type { Env } from "../src/env";
-import { hashPassword, passwordHasher, verifyPassword } from "../src/passwords";
+import { DUMMY_DIGEST, hashPassword, passwordHasher, verifyPassword } from "../src/passwords";
 
 const fromHex = (hex: string) => Uint8Array.from(hex.match(/../g)!, (pair) => parseInt(pair, 16));
 
@@ -50,5 +50,15 @@ describe(feature("auth.first-run"), () => {
   it("hashes in a Durable Object, where there's CPU time for it", async () => {
     const digest = await passwordHasher(env as unknown as Env).hash("12345678");
     expect(await verifyPassword("12345678", digest)).toBe(true);
+    expect(await passwordHasher(env as unknown as Env).verify("12345678", digest)).toBe(true);
+  });
+});
+
+describe(feature("auth.sign-in"), () => {
+  it("checks an unknown address's password against a digest that costs as much as a real one and matches nothing", async () => {
+    const real = await hashPassword("12345678");
+    // The same scheme and iterations, so the check takes as long.
+    expect(DUMMY_DIGEST.split("$").slice(0, 3)).toEqual(real.split("$").slice(0, 3));
+    for (const password of ["12345678", "password", "analytical engine"]) expect(await verifyPassword(password, DUMMY_DIGEST), password).toBe(false);
   });
 });

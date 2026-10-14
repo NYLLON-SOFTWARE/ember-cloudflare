@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
-import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Message, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, SESSION_ENDED, type ClientFrame, type Message, type User } from "@ember/protocol";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { initialRoomState, roomReducer, unconfirmed } from "@/lib/room-state";
 
@@ -82,12 +82,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
         dispatch({ type: "frame", frame, now: Date.now() });
         if (frame.type === "welcome") checkUnconfirmed(ws, frame.messages);
       };
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         clearInterval(heartbeat);
         if (closed) return;
-        // A refused upgrade looks like any other failure, so ask whether the session has expired. An
-        // answer that comes after the room closed may be about a session that has since been replaced.
-        if (!opened) void fetchMe().catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionChanged(null));
+        // A refused upgrade looks like any other failure, so ask whether the session has expired, as
+        // when the room says it has ended. An answer that comes after the room closed may be about a
+        // session that has since been replaced.
+        if (!opened || event.code === SESSION_ENDED) {
+          void fetchMe().catch((error) => !closed && error instanceof ApiError && error.status === 401 && sessionChanged(null));
+        }
         reconnect();
       };
     };

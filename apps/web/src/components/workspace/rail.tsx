@@ -53,7 +53,7 @@ export function Rail({ me, onSignOut }: { me: User; onSignOut: () => void }) {
           <DropdownMenuLabel className="truncate">{me.name}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onSignOut}>
-            <Logout className="size-[18px]" /> Sign out
+            <Logout className="size-[18px]" /> Log out
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

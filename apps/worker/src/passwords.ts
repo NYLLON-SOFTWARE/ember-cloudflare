@@ -20,6 +20,13 @@ async function pbkdf2(password: string, salt: Uint8Array, iterations: number, by
   return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, bytes * 8));
 }
 
+/**
+ * A digest made like any other from a random password that was then thrown away, so checking a
+ * password against it takes as long as a real check and never matches. ember-rust's `DUMMY_DIGEST`
+ * does the same for unknown email addresses (crates/db/src/models/user.rs).
+ */
+export const DUMMY_DIGEST = "$pbkdf2-sha256$i=100000$JqYHS2VmJDGIAkhAzJBMnA$hiVQu8xiJnN+7X+rOxHKdYCIi5VkmNz+7WDWFkMXEC4";
+
 /** A new digest of `password`, with a salt of its own. */
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
@@ -44,6 +51,10 @@ export async function verifyPassword(password: string, digest: string): Promise<
 export class PasswordHasher extends DurableObject<Env> {
   hash(password: string): Promise<string> {
     return hashPassword(password);
+  }
+
+  verify(password: string, digest: string): Promise<boolean> {
+    return verifyPassword(password, digest);
   }
 }
 

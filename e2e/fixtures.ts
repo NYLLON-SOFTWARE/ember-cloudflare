@@ -28,6 +28,25 @@ export async function createSession(request: APIRequestContext, name: string): P
   return { user, cookie: { name: cookieName, value, url: new URL(response.url()).origin, httpOnly: true, sameSite: "Lax" } };
 }
 
+/** The administrator the first-run project sets Ember up with, whom every other suite can sign in as. */
+export const ADMINISTRATOR = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse battery" };
+
+/**
+ * Gives `page` an IP address of its own, as Cloudflare's `CF-Connecting-IP` header, which `wrangler
+ * dev` passes through, so the per-address limit on signing in never counts another test's attempts.
+ */
+export async function useOwnAddress(page: Page): Promise<void> {
+  const groups = Array.from(crypto.getRandomValues(new Uint16Array(4)), (group) => group.toString(16));
+  await page.setExtraHTTPHeaders({ "CF-Connecting-IP": `2001:db8::${groups.join(":")}` });
+}
+
+/** Signs the administrator in on the sign-in page `page` is showing, with `password` if given. */
+export async function signInAsAdministrator(page: Page, password = ADMINISTRATOR.password): Promise<void> {
+  await page.getByLabel("Email address").fill(ADMINISTRATOR.emailAddress);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+}
+
 /** The `Cookie` header that carries a session, for clients other than the test's browsers. */
 export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.value}`;
 

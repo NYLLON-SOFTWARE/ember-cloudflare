@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SESSION_ENDED, SIGN_IN_REFUSED } from "@ember/protocol";
 import { loadPage } from "@/lib/page";
 import { App } from "./App";
 
@@ -24,7 +25,7 @@ class RoomSocket extends QuietSocket {
   static all: RoomSocket[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
 
   constructor() {
     super();
@@ -36,21 +37,34 @@ class RoomSocket extends QuietSocket {
     this.onopen?.();
     this.onmessage?.({ data: JSON.stringify({ type: "welcome", you, messages: [], present: [you], hasMore: false }) });
   }
+
+  /** The room closes the socket, saying why. */
+  end(code: number) {
+    this.readyState = 3;
+    this.onclose?.({ code });
+  }
 }
 
-/** Plays the server, which may be waiting to be set up, and whose session cookie this browser starts out with or without. */
-function serve({ signedIn, setup = "complete" }: { signedIn: boolean; setup?: "pending" | "complete" }) {
+/**
+ * Plays the server, which may be waiting to be set up, and whose session cookie this browser starts
+ * out with or without. Ada signs in as ada@example.com with "correct horse".
+ */
+function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn: boolean; setup?: "pending" | "complete"; guestSignIn?: boolean }) {
   let rooms = [general];
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupProtected: false, guestSignIn: true, account: { name: "Ember" }, user: signedIn ? ada : null });
+      const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
+      return Response.json({ setup, setupProtected: false, guestSignIn, account: { name: "Ember" }, helpContact, version: "0.1", user: signedIn ? ada : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, [allTalk]];
       return Response.json({ user: ada, room: allTalk }, { status: 201 });
     }
     if (route === "POST /api/session") {
+      const fields = JSON.parse(String(init?.body)) as Record<string, string>;
+      const isAda = fields.emailAddress === "ada@example.com" && fields.password === "correct horse";
+      if (!("name" in fields) && !isAda) return Response.json({ error: SIGN_IN_REFUSED }, { status: 401 });
       signedIn = true;
       return Response.json({ user: ada }, { status: 201 });
     }
@@ -65,12 +79,18 @@ function serve({ signedIn, setup = "complete" }: { signedIn: boolean; setup?: "p
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1, name: "general" });
-const signInCard = () => screen.findByRole("heading", { name: "Welcome to Ember" });
+const signInPage = () => screen.findByRole("heading", { name: "Sign in to Ember" });
+
+async function signInAsAda(password = "correct horse") {
+  const user = userEvent.setup();
+  await user.type(await screen.findByLabelText("Email address"), "ada@example.com");
+  await user.type(screen.getByLabelText("Password"), `${password}{Enter}`);
+}
 
 async function signOutFromTheRail() {
   const user = userEvent.setup();
   await user.click(screen.getAllByRole("button", { name: "Your profile" })[0]!);
-  await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await user.click(screen.getByRole("menuitem", { name: "Log out" }));
 }
 
 beforeEach(() => {
@@ -82,6 +102,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
+  sessionStorage.clear();
   history.replaceState(null, "", "/");
 });
 
@@ -126,10 +147,13 @@ describe(feature("auth.sessions"), () => {
     expect(await roomHeading()).toBeInTheDocument();
   });
 
-  it("shows the sign-in card when this browser isn't signed in", async () => {
+  it("sends someone who isn't signed in to sign in", async () => {
+    history.replaceState(null, "", "/rooms/general");
     serve({ signedIn: false });
     render(<App />);
-    expect(await signInCard()).toBeInTheDocument();
+    expect(await signInPage()).toBeInTheDocument();
+    expect(location.pathname).toBe("/session/new");
+    expect(loadPage).not.toHaveBeenCalled();
   });
 
   it("keeps asking who's signed in while the server can't be reached", async () => {
@@ -138,7 +162,7 @@ describe(feature("auth.sessions"), () => {
     fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     render(<App />);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sign in to Ember" })).not.toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(await roomHeading()).toBeInTheDocument();
@@ -162,28 +186,120 @@ describe(feature("auth.sessions"), () => {
     localStorage.setItem("ember:session", JSON.stringify({ user: ada, token: "t" }));
     serve({ signedIn: false });
     render(<App />);
-    await signInCard();
+    await signInPage();
     expect(localStorage.getItem("ember:session")).toBeNull();
+  });
+
+  it("goes to sign in when the session ends elsewhere, and comes back to this room afterwards", async () => {
+    RoomSocket.all = [];
+    vi.stubGlobal("WebSocket", RoomSocket);
+    history.replaceState(null, "", "/rooms/general");
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    act(() => RoomSocket.all[0]!.welcome(ada));
+
+    // Another tab signs out, and the room closes this tab's socket for that.
+    await fetch("/api/session", { method: "DELETE" });
+    act(() => RoomSocket.all[0]!.end(SESSION_ENDED));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
+    expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
+  });
+});
+
+describe(feature("auth.sign-in"), () => {
+  it("signs in with an email address and password, and comes back to the page asked for", async () => {
+    history.replaceState(null, "", "/rooms/general");
+    serve({ signedIn: false });
+    render(<App />);
+    await signInPage();
+    await signInAsAda();
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("goes home from the sign-in page itself", async () => {
+    history.replaceState(null, "", "/session/new");
+    serve({ signedIn: false });
+    render(<App />);
+    await signInAsAda();
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/");
+  });
+
+  it("shows the sign-in page to someone already signed in, as ember-rust does", async () => {
+    history.replaceState(null, "", "/session/new");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await signInPage()).toBeInTheDocument();
+    await signInAsAda();
+    expect(await roomHeading()).toBeInTheDocument();
+  });
+
+  it("stays on the sign-in page when the password is wrong", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    await signInAsAda("wrong horse");
+    expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REFUSED);
+    expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/session/new");
   });
 });
 
 describe(feature("auth.guest-sign-in"), () => {
-  it("goes from the sign-in card to the workspace", async () => {
+  it("goes from the sign-in page to the workspace with just a name", async () => {
     serve({ signedIn: false });
     render(<App />);
-    await userEvent.type(await screen.findByLabelText("Your name"), "Ada{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "Join with just a name" }));
+    await userEvent.type(screen.getByLabelText("Your name"), "Ada{Enter}");
     expect(await roomHeading()).toBeInTheDocument();
+  });
+
+  it("only offers the password when guests can't sign in", async () => {
+    serve({ signedIn: false, guestSignIn: false });
+    render(<App />);
+    await signInPage();
+    expect(screen.queryByRole("button", { name: "Join with just a name" })).not.toBeInTheDocument();
   });
 });
 
 describe(feature("auth.sign-out"), () => {
-  it("ends the session and returns to the sign-in card", async () => {
+  it("ends the session and loads the sign-in page, from where signing in goes home", async () => {
     const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
+    sessionStorage.setItem("ember:return-to", "/rooms/general");
     await signOutFromTheRail();
-    expect(await signInCard()).toBeInTheDocument();
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" }));
+    expect(sessionStorage.getItem("ember:return-to")).toBeNull();
+  });
+
+  it("goes home after signing in again, even when a room closes the socket before signing out answers", async () => {
+    RoomSocket.all = [];
+    vi.stubGlobal("WebSocket", RoomSocket);
+    history.replaceState(null, "", "/rooms/general");
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    act(() => RoomSocket.all[0]!.welcome(ada));
+    // The server ends the session at once, but its answer is held back.
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const server = fetch.getMockImplementation()!;
+    fetch.mockImplementationOnce(async (input, init) => {
+      const response = await server(input, init);
+      await answered;
+      return response;
+    });
+
+    await signOutFromTheRail();
+    act(() => RoomSocket.all[0]!.end(SESSION_ENDED));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything()));
+    answer();
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
+    expect(loadPage).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem("ember:return-to")).toBeNull();
   });
 
   it("stays signed in when signing out can't reach the server", async () => {
@@ -194,6 +310,6 @@ describe(feature("auth.sign-out"), () => {
     await signOutFromTheRail();
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" })));
     expect(screen.getByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
+    expect(loadPage).not.toHaveBeenCalled();
   });
 });

@@ -27,6 +27,12 @@ export interface Account {
   name: string;
 }
 
+/** Whom the sign-in page offers to email for help: the workspace's first administrator. */
+export interface HelpContact {
+  name: string;
+  emailAddress: string;
+}
+
 /** What the app asks first (`GET /api/bootstrap`): whether Ember is set up, and who this browser is signed in as. */
 export interface Bootstrap {
   /** "pending" until first run creates the workspace and its first administrator. */
@@ -37,6 +43,10 @@ export interface Bootstrap {
   guestSignIn: boolean;
   /** "Ember" before setup, as in ember-rust. */
   account: Account;
+  /** Null until there's an administrator. */
+  helpContact: HelpContact | null;
+  /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
+  version: string;
   user: User | null;
 }
 
@@ -52,6 +62,22 @@ export interface NewWorkspace {
   user: User;
   room: Room;
 }
+
+/** Signing in with an email address and password (`POST /api/session`). */
+export interface PasswordSignIn {
+  emailAddress: string;
+  password: string;
+}
+
+/** ember-rust's one answer to a sign-in it refuses, for a wrong password and too many attempts alike. */
+export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
+
+/**
+ * The close code for a socket whose session has ended, as when this browser signs out in another
+ * tab. The app asks at once whether it's still signed in, rather than waiting for a reconnect to be
+ * refused.
+ */
+export const SESSION_ENDED = 4001;
 
 /** The shortest password first run takes, in characters rather than bytes, as ember-rust counts them. */
 export const MIN_PASSWORD_LENGTH = 8;

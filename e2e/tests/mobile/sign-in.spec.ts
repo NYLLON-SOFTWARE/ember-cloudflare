@@ -1,13 +1,37 @@
+import { SIGN_IN_REFUSED } from "@ember/protocol";
+import { ADMINISTRATOR, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
+
+test.beforeEach(({ page }) => useOwnAddress(page));
 
 test("the sign-in screen fits the phone", async ({ page, screenIsFine }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Welcome to Ember" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to Ember" })).toBeVisible();
   await screenIsFine();
 });
 
 test("you can sign in with taps", async ({ page }) => {
   await page.goto("/");
+  await page.getByLabel("Email address").tap();
+  await page.keyboard.type(ADMINISTRATOR.emailAddress);
+  await page.getByLabel("Password").tap();
+  await page.keyboard.type(ADMINISTRATOR.password);
+  await page.getByRole("button", { name: "Sign in" }).tap();
+  await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+});
+
+test("a refused sign-in's alert fits the phone", async ({ page, screenIsFine }) => {
+  await page.goto("/session/new");
+  await page.getByLabel("Email address").fill(ADMINISTRATOR.emailAddress);
+  await page.getByLabel("Password").fill("incorrect horse battery");
+  await page.getByRole("button", { name: "Sign in" }).tap();
+  await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+  await screenIsFine();
+});
+
+test("you can join with just a name, with taps", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Join with just a name" }).tap();
   await page.getByLabel("Your name").tap();
   await page.keyboard.type("Pat on a phone");
   await page.getByRole("button", { name: "Join" }).tap();

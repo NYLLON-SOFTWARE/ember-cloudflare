@@ -20,7 +20,7 @@ beforeEach(freshDeploy);
 
 describe(feature("auth.first-run"), () => {
   it("starts out waiting to be set up, with the setup page open to the first visitor", async () => {
-    expect(await bootstrap()).toEqual({ setup: "pending", setupProtected: false, guestSignIn: true, account: { name: "Ember" }, user: null });
+    expect(await bootstrap()).toEqual({ setup: "pending", setupProtected: false, guestSignIn: true, account: { name: "Ember" }, helpContact: null, version: "0.1", user: null });
     expect((await api("/api/bootstrap")).headers.get("Cache-Control")).toBe("no-store");
 
     const response = await page("/first_run");

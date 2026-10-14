@@ -124,10 +124,10 @@ unlocks setup in that browser for 15 minutes, and whoever sets Ember up becomes 
 so keep the link to yourself. Without `EMBER_SETUP_TOKEN`, setup is open to whoever visits first,
 as in Campfire: fine on your own machine, but not on the internet.
 
-Signing in with just a name is off unless the Worker's `EMBER_GUEST_SIGN_IN` variable is `"true"`,
-and email sign-in hasn't landed yet, so for now a deploy that people besides its administrator
-should be able to use needs it in `vars` in `apps/worker/wrangler.jsonc`. Anyone with the link can
-then join.
+The administrator then signs in at `/session/new` with the email address and password they set up
+with. Join links haven't landed yet, so for now a deploy that other people should be able to use
+needs the Worker's `EMBER_GUEST_SIGN_IN` variable set to `"true"` in `vars` in
+`apps/worker/wrangler.jsonc`: the sign-in page then lets anyone with the link join with just a name.
 
 ### A preview from GitHub Actions
 
@@ -144,8 +144,9 @@ first deploy gives the preview a token nobody knows, so setup stays locked until
 and run the workflow again. The secrets go up with each deploy, never in its logs. The first deploy
 makes the Worker's `SESSION_SECRET`, and later ones keep it.
 
-Until email sign-in lands, the preview lets anyone sign in with just a name. Its `LEGACY_ROOMS`
-keeps the general and random rooms it had before the Workspace kept a list of rooms. After each
+The preview is a private workspace: until join links land, only its administrator can sign in. Its
+`LEGACY_ROOMS` keeps the general and random rooms it had before the Workspace kept a list of rooms,
+and its version, under the sign-in page's help contact, is the commit it deployed. After each
 deploy, `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that
 `/api/health` answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object
 reading their storage), that the page loads, that the API asks for sign-in, and that setup, until
@@ -154,14 +155,15 @@ Deployments.
 
 ## Status
 
-This is the starter. Working now: first-run setup, which creates the administrator and All Talk
-and can be kept to whoever has the private setup link, sign-in by display name (when
-`EMBER_GUEST_SIGN_IN` allows it) with a session cookie the Workspace keeps, sign-out, open and private
+This is the starter. Working now: first-run setup, which creates the administrator and All Talk and
+can be kept to whoever has the private setup link, sign-in by email address and password (10 tries
+per IP address every 3 minutes) or, when `EMBER_GUEST_SIGN_IN` allows it, by display name, with a
+session cookie the Workspace keeps, sign-out, which closes that browser's sockets, open and private
 rooms that only their members can open (made through the API until the New room page lands), live
 messages with optimistic sends, edit and delete your own messages, Ember's quick and tray reactions,
 presence, typing indicators, history paging, reconnects, and the Light / Dark / System appearance
 picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 
-Next, roughly in order: email sign-in and the join link, a workspace directory for
-creating rooms and private rooms, direct messages, unread state and the Activity filter, starred
-rooms and room order, rich text and attachments (R2), search, and Web Push.
+Next, roughly in order: the join link, a workspace directory for creating rooms and private rooms,
+direct messages, unread state and the Activity filter, starred rooms and room order, rich text and
+attachments (R2), search, and Web Push.

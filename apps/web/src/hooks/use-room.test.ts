@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { MAX_CHECKED_MESSAGES, SESSION_ENDED, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRoom } from "./use-room";
@@ -19,7 +19,7 @@ class FakeSocket {
   closedWith: number | undefined;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
 
   constructor(readonly url: string) {
     FakeSocket.all.push(this);
@@ -32,7 +32,7 @@ class FakeSocket {
   close(code?: number) {
     this.closedWith = code;
     this.readyState = FakeSocket.CLOSED;
-    this.onclose?.();
+    this.onclose?.({ code: code ?? 1005 });
   }
 
   open() {
@@ -46,10 +46,11 @@ class FakeSocket {
     act(() => this.onmessage?.({ data: JSON.stringify(frame) }));
   }
 
-  drop() {
+  /** Closes as the network or the room does: 1006 when the connection drops. */
+  drop(code = 1006) {
     act(() => {
       this.readyState = FakeSocket.CLOSED;
-      this.onclose?.();
+      this.onclose?.({ code });
     });
   }
 
@@ -247,7 +248,7 @@ describe(feature("realtime.reconnect"), () => {
   it("keeps retrying when the network, not the session, is the problem", async () => {
     const onSessionChanged = vi.fn();
     joinGeneral({ connect: false, onSessionChanged });
-    await act(async () => socket().onclose?.());
+    await act(async () => socket().onclose?.({ code: 1006 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     wait(500);
     expect(onSessionChanged).not.toHaveBeenCalled();
@@ -269,9 +270,25 @@ describe(feature("realtime.connection"), () => {
     vi.stubGlobal("fetch", fetch);
     const onSessionChanged = vi.fn();
     joinGeneral({ connect: false, onSessionChanged });
-    await act(async () => socket().onclose?.());
+    await act(async () => socket().onclose?.({ code: 1006 }));
     await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     expect(fetch).toHaveBeenCalledWith("/api/me", expect.objectContaining({ headers: expect.any(Headers) }));
+  });
+
+  it("asks at once whether the session has ended when the room closes the socket for that reason", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    const onSessionChanged = vi.fn();
+    joinGeneral({ onSessionChanged });
+    // A connection that drops while open is the network's doing, so it just reconnects.
+    socket().drop();
+    expect(fetch).not.toHaveBeenCalled();
+
+    wait(500);
+    socket().open();
+    socket().drop(SESSION_ENDED);
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("hands over to whoever another tab signed this browser in as, without showing them this room", () => {
@@ -298,10 +315,10 @@ describe(feature("realtime.connection"), () => {
 
     // The user signs out and back in while the first check is still waiting.
     const first = renderHook(() => useRoom("general", ada, stale));
-    await act(async () => socket().onclose?.());
+    await act(async () => socket().onclose?.({ code: 1006 }));
     first.unmount();
     renderHook(() => useRoom("general", ada, live));
-    await act(async () => socket().onclose?.());
+    await act(async () => socket().onclose?.({ code: 1006 }));
 
     // Both checks answer, the old one first; only the live room acts on its answer.
     await act(async () => answers.forEach((answer) => answer()));

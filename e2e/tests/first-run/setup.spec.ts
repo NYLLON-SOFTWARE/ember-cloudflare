@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "@playwright/test";
+import { ADMINISTRATOR } from "../../fixtures";
 
 // The test server starts empty, so this sets it up through the Set up Ember page before any other
 // suite runs; they then find the workspace, All Talk and its administrator there.
@@ -17,8 +18,8 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page.getByLabel("Name")).toBeFocused();
 
     const password = page.getByLabel("Password", { exact: true });
-    await page.getByLabel("Name").fill("Ada Lovelace");
-    await page.getByLabel("Email address").fill("ada@example.com");
+    await page.getByLabel("Name").fill(ADMINISTRATOR.name);
+    await page.getByLabel("Email address").fill(ADMINISTRATOR.emailAddress);
     // Eight UTF-16 units satisfy the browser's minlength, but the server counts four characters.
     await password.fill("🔐🔐🔐🔐");
     await page.getByRole("button", { name: "Continue" }).click();
@@ -26,16 +27,16 @@ test.describe(feature("auth.first-run"), () => {
     await expect(password).toBeFocused();
     await expect(password).toHaveValue("");
     await expect(password).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByLabel("Name")).toHaveValue("Ada Lovelace");
+    await expect(page.getByLabel("Name")).toHaveValue(ADMINISTRATOR.name);
 
-    await password.fill("correct horse battery");
+    await password.fill(ADMINISTRATOR.password);
     await page.getByRole("button", { name: "Show password" }).click();
     await expect(password).toHaveAttribute("type", "text");
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("All Talk");
     await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Ada Lovelace");
+    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
     // Setup took the page's place, so Back doesn't return to it.
     expect(await page.evaluate(() => history.length)).toBe(2);
 

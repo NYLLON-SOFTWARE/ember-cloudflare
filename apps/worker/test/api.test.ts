@@ -27,12 +27,12 @@ describe(feature("auth.guest-sign-in"), () => {
     expect(first.user.id).not.toBe(second.user.id);
   });
 
+  // A body without a name is an email sign-in (auth.sign-in).
   it.each([
     ["a blank name", { name: "   " }],
-    ["a missing name", {}],
     ["a name that isn't text", { name: 42 }],
+    ["a name that's null", { name: null }],
     ["a name over 48 characters", { name: "x".repeat(49) }],
-    ["a null body", null],
   ])("refuses %s with 422 and says why", async (_, body) => {
     const response = await api("/api/session", { method: "POST", body: JSON.stringify(body) });
     expect(response.status).toBe(422);
@@ -42,10 +42,6 @@ describe(feature("auth.guest-sign-in"), () => {
   it("accepts a name of exactly 48 characters", async () => {
     const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "x".repeat(48) }) });
     expect(response.status).toBe(201);
-  });
-
-  it("refuses a body that isn't JSON", async () => {
-    expect((await api("/api/session", { method: "POST", body: "name=Ada" })).status).toBe(422);
   });
 
   it('is turned off unless EMBER_GUEST_SIGN_IN is "true"', async () => {

@@ -13,11 +13,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 10 ported and 39 partial of 172 features; 118 not started, 5 not applicable.
+**Overall:** 12 ported and 42 partial of 172 features; 113 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 2 | 5 | 5 | 0 | 12 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 4 | 6 | 2 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 1 | 5 | 12 | 0 | 18 |
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
-| [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
-| [Platform](#platform) | 3 | 1 | 7 | 4 | 15 |
-| **Total** | **10** | **39** | **118** | **5** | **172** |
+| [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
+| [Platform](#platform) | 3 | 2 | 6 | 4 | 15 |
+| **Total** | **12** | **42** | **113** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -43,15 +43,15 @@ or when this file is out of date. Tests name the feature they cover with `descri
 |---|---|---|---|---|
 | Set up the workspace | `auth.first-run` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [passwords](apps/worker/test/passwords.test.ts), [setup](apps/worker/test/setup.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [setup-page](apps/web/src/components/setup-page.test.tsx)<br>E2E: [setup](e2e/tests/first-run/setup.spec.ts) |
 | Installer-protected setup link | `auth.protected-setup` | Ember | ✅ Ported | Worker: [protected-setup](apps/worker/test/protected-setup.test.ts)<br>Web: [setup-access](apps/web/src/lib/setup-access.test.ts)<br>E2E: [setup-link](e2e/tests/protected-setup/setup-link.spec.ts) |
-| Sign in with email and password | `auth.sign-in` | Ember | ⬜ Not started |  |
-| Sign in with a display name | `auth.guest-sign-in` | This port | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [sign-in](apps/web/src/components/sign-in.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
-| Sign-in attempt limit | `auth.rate-limit` | Campfire | ⬜ Not started |  |
+| Sign in with email and password | `auth.sign-in` | Ember | ✅ Ported | Worker: [passwords](apps/worker/test/passwords.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign in with a display name | `auth.guest-sign-in` | This port | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [guest-sign-in](apps/web/src/components/guest-sign-in.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign-in attempt limit | `auth.rate-limit` | Campfire | ✅ Ported | Worker: [rate-limit](apps/worker/test/rate-limit.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [sign-in-page](apps/web/src/components/sign-in-page.test.tsx) |
 | Pages need a signed-in person | `auth.require-sign-in` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts) |
 | Stay signed in, per device | `auth.sessions` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
-| Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Private sign-in link | `auth.sign-in-link` | Campfire | ⬜ Not started |  |
 | Sign up with the join link | `auth.sign-up` | Ember | ⬜ Not started |  |
-| Help contact on sign-in pages | `auth.help-contact` | Campfire | ⬜ Not started |  |
+| Help contact on sign-in pages | `auth.help-contact` | Campfire | 🟡 Partial | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Forgery protection without tokens | `auth.csrf` | Ember | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts) |
 
 <details>
@@ -91,7 +91,7 @@ Sources: [`crates/ember/src/controllers/first_runs/access.rs`](https://github.co
 
 ember-rust tests: [`crates/ember/src/controllers/first_runs/access/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs/access/tests.rs) · [`parity/kro/protected-setup.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/protected-setup.test.mjs)
 
-**Sign in with email and password** (`auth.sign-in`) ⬜
+**Sign in with email and password** (`auth.sign-in`) ✅
 
 - `/session/new` (titled "Sign in") shows the workspace logo, "Sign in to &lt;workspace name&gt;" / "Welcome back. Pick up the conversation.", Email address (placeholder "Enter your email address", autofocused, prefilled from `?email_address=`), Password ("Enter your password", up to 72 characters) and Sign in, with the help contact below.
 - It's public, and people who are already signed in can still open it.
@@ -100,7 +100,7 @@ ember-rust tests: [`crates/ember/src/controllers/first_runs/access/tests.rs`](ht
 - Accounts without a password, such as bots and people who joined with an empty one, never sign in this way, and an unknown email still costs a password check, so timing doesn't reveal which addresses have accounts.
 - Email addresses must match exactly, with no trimming or case folding.
 
-Note: People join here with just a display name (`auth.guest-sign-in`). First run gives the administrator an email address and password, but nothing signs in with them yet.
+Note: The page is the app's own: it posts JSON to `/api/session` and opens the page asked for without reloading, which the tab keeps in sessionStorage rather than the session (`auth.require-sign-in`). It shows Ember's flame until workspace logos are ported (`accounts.logo`). A refusal focuses the password, since the email address is still filled in, and a sign-in that can't reach the server says so instead of being refused. Passwords are checked against PBKDF2 digests (`auth.first-run`), and one longer than the field's 72 characters is refused before any lookup, since nobody can have it.
 
 Sources: [`crates/views/templates/sessions/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/sessions/new.html) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
 
@@ -108,16 +108,18 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 
 **Sign in with a display name** (`auth.guest-sign-in`) ✅
 
-- The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.
-- `POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.
-- It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `"true"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on, and so does the preview until email sign-in is ported.
-- Once Ember is set up, this stands in for signing in until `auth.sign-in` and `auth.sign-up` are ported.
+- The sign-in page offers "No account? Join with just a name", which asks only for the name people will see (1 to 48 characters, trimmed) and then opens the page asked for, or the first room; "Have an account? Sign in" goes back.
+- `POST /api/session` with a `name` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason; without one it's an email sign-in (`auth.sign-in`). Everyone who signs in is someone new, even with a name already in use.
+- It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `"true"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on; the preview doesn't, since its administrator signs in with a password.
+- It stands in for joining until join links are ported (`auth.sign-up`).
 
-**Sign-in attempt limit** (`auth.rate-limit`) ⬜
+**Sign-in attempt limit** (`auth.rate-limit`) ✅
 
 - Each client IP, as seen through trusted proxies, gets 10 sign-in attempts, successful or not, per fixed 3-minute window that starts at its first attempt. Only posts to `/session` count, not first run, join links or sign-in links.
 - The 11th attempt answers 429 with the sign-in page, the shaking card and "Too many requests or unauthorized.", keeping the email, without checking the password; other IPs are unaffected.
 - Counts live in server memory, so a restart resets them.
+
+Note: The client's address is Cloudflare's `CF-Connecting-IP`. Counts live in the Workspace Durable Object's memory, so they reset when Cloudflare evicts it after a quiet spell, as well as when it restarts. Signing in with just a name (`auth.guest-sign-in`) isn't counted.
 
 Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/kit/src/request.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/request.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
 
@@ -130,7 +132,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - A missing, tampered or forged session cookie counts as signed out, and so does one whose session was deleted by signing out, removal, a ban or a password reset.
 - Signed-in people who open a join link, or post to one, go to `/` instead.
 
-Note: The API answers 401 without a valid session cookie, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.
+Note: The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -142,7 +144,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The session cookie lasts 20 years, so the session survives browser restarts. At most once an hour, a request refreshes the session's last activity, browser and IP and extends the cookie.
 - Signing out ends only this device's session. Removing or banning a person, or resetting their password, ends all of theirs.
 
-Note: The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Each guest sign-in is someone new, so nobody has sessions on two devices yet, and nobody can be removed or banned or reset a password yet.
+Note: The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Nobody can be removed or banned or reset a password yet.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/db/src/models/session.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/session.rs) · [`reference/app/models/session.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/session.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -154,7 +156,7 @@ ember-rust tests: [`reference/test/controllers/sessions_controller_test.rb`](htt
 - Before submitting, the page unsubscribes this browser from push and sends the subscription's endpoint, and the server deletes that subscription if it's the person's own.
 - The person's open connections are told to reconnect, so their other devices carry on with their own sessions; signing out still completes if they can't be disconnected.
 
-Note: "Sign out" is an item in the rail's profile menu rather than a "Log out" button on the profile page, and the app shows the sign-in card rather than loading `/`. If the server can't be reached, the browser stays signed in. Open connections aren't told to reconnect yet, so the browser's other tabs carry on until they next reconnect and are sent to sign-in, and there's no push subscription to remove.
+Note: "Log out" is an item in the rail's profile menu until the profile page is ported (`users.profile`), and it loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed; a room that can't be reached doesn't stop the sign-out. There's no push subscription to remove until push notifications are ported.
 
 Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
@@ -184,10 +186,12 @@ Sources: [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOF
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Help contact on sign-in pages** (`auth.help-contact`) ⬜
+**Help contact on sign-in pages** (`auth.help-contact`) 🟡
 
 - The sign-in and join pages end with a mail button for the first administrator, showing their email address with a lifebuoy icon, titled "Email &lt;name&gt;" and linking to `mailto:"<name>" <<email>>`, then "Ember™ version &lt;version&gt;"; both are left out when there's no administrator.
 - The first administrator is the earliest-created one, whatever their status, so a removed one still shows, with their scrambled email address.
+
+Note: Only the sign-in page has it until the join page is ported (`auth.sign-up`). Nobody can be removed yet, so no scrambled address shows.
 
 Sources: [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`reference/app/views/accounts/_help_contact.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/_help_contact.html.erb)
 
@@ -423,7 +427,7 @@ ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWA
 - A new password leaves your other sessions signed in.
 - Saving shows a single check mark ("Changes saved" to screen readers), or "It may take up to 30 minutes to change everywhere." when the save included an avatar.
 
-Note: The rail's profile picture opens a menu with your name and Sign out instead.
+Note: The rail's profile picture opens a menu with your name and Log out instead.
 
 Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/views/src/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/users.rs) · [`reference/app/controllers/users/profiles_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/profiles_controller.rb)
 
@@ -2096,7 +2100,7 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 | Stay at the newest message | `ui.scroll` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Empty room | `ui.empty-room` | This port | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Select a field's text on entry | `ui.select-on-entry` | Ember | ⬜ Not started |  |
-| Saved notices | `ui.flash` | Ember | ⬜ Not started |  |
+| Saved notices | `ui.flash` | Ember | 🟡 Partial | Web: [flash](apps/web/src/components/flash.test.tsx) |
 | Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Ember's icons | `ui.icons` | Ember | 🟡 Partial | Web: [icons](apps/web/src/components/icons/icons.test.tsx) |
 
@@ -2121,7 +2125,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.
 - DMs opens the new direct message dialog without leaving the page.
 
-Note: Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Sign out rather than your profile.
+Note: Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
@@ -2192,12 +2196,14 @@ Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SO
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Saved notices** (`ui.flash`) ⬜
+**Saved notices** (`ui.flash`) 🟡
 
 - A notice shows as a toast below the header, centered over the content (over the whole window when signed out, or at 900px wide and below): a check and the text, in white on green. An alert is red, with an alert sign.
 - It fades in after 0.3 seconds and fades out again, leaving the page 3.3 seconds after it loaded. Screen readers hear it as an alert, and a notice of just "✓" shows only the check, read as "Changes saved".
 - Saving the workspace's name or logo says "Changes saved.", saving custom styles or your profile "✓", and a new profile photo "It may take up to 30 minutes to change everywhere." The settings switches, which save as you flip them, show none.
 - Opening a room that's gone or isn't yours goes home with the alert "Room not found or inaccessible", and a refused sign-in shows "Too many requests or unauthorized."
+
+Note: Only a refused sign-in's alert is ported yet; notices and the room alert come with the features that show them. Signed-in pages don't show one yet, so it's always centered over the whole window. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/assets/stylesheets/flash.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/flash.css) · [`reference/app/assets/stylesheets/animation.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/animation.css) · [`reference/app/javascript/controllers/element_removal_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/element_removal_controller.js) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/accounts/custom_styles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/custom_styles.rs) · [`crates/ember/src/controllers/users/profiles.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/profiles.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs)
 
@@ -2222,7 +2228,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Room icons and message actions come from a pinned catalog of 1,869 Lucide icons, and Campfire's SVGs remain for bell levels, boosts, attachments, copy, trash and similar.
 - The rail shows the Ember flame, or the workspace's logo.
 
-Note: Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in card. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.
+Note: Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in page. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.
 
 Sources: [`crates/views/templates/components/icons.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/icons.html) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/assets/overrides/logos`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/logos)
 
@@ -2239,7 +2245,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts) |
 | One live connection per tab outside the open room | `platform.live-socket` | This port | ⬜ Not started |  |
-| Version | `platform.version` | Ember | ⬜ Not started |  |
+| Version | `platform.version` | Ember | 🟡 Partial | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx) |
 | Supported browsers | `platform.browser-support` | Campfire | ⬜ Not started |  |
 | Security headers and HTTPS | `platform.security-headers` | Campfire | ⬜ Not started |  |
 | Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
@@ -2298,11 +2304,13 @@ Sources: [`crates/ember/src/channels.rs`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs)
 
-**Version** (`platform.version`) ⬜
+**Version** (`platform.version`) 🟡
 
 - Pages and the app's other responses carry X-Version: `APP_VERSION` if set, else `GIT_REVISION`, else the release ("1.1", the package version without a trailing ".0"); blank values count as unset. X-Rev carries `GIT_REVISION` whenever it's set, even blank.
 - `/up`, static files and the live connection carry neither header.
 - Workspace settings show "Ember™ version &lt;same value&gt;" at the bottom, and so do the sign-in and join pages under the help contact, when there's an administrator to contact.
+
+Note: The sign-in page shows it under the help contact, worked out as ember-rust does, with this port's own release ("0.1", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. The X-Version and X-Rev headers and workspace settings aren't ported yet.
 
 Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`reference/config/initializers/version.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/version.rb)
 
