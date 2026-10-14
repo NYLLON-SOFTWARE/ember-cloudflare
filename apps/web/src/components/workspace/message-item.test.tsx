@@ -46,8 +46,26 @@ describe(feature("messages.create"), () => {
   it("shows the author, the time and the text", () => {
     const { article } = show(message({ body: "Line one\nLine two" }));
     expect(within(article).getByText("Ada")).toBeInTheDocument();
-    expect(within(article).getByText(/Line one\s+Line two/)).toBeInTheDocument();
+    expect(article.querySelector(".message-content")).toContainHTML("<p>Line one<br>Line two</p>");
     expect(article.querySelector("time")).toHaveAttribute("datetime", "2026-10-12T10:00:00.000Z");
+  });
+});
+
+describe(feature("messages.autolink"), () => {
+  it("links the addresses in a message's text", () => {
+    const { article } = show(message({ body: "Docs at www.example.com, or ask ada@example.com" }));
+    expect(within(article).getByRole("link", { name: "www.example.com" })).toHaveAttribute("href", "http://www.example.com");
+    expect(within(article).getByRole("link", { name: "ada@example.com" })).toHaveAttribute("href", "mailto:ada@example.com");
+  });
+});
+
+describe(feature("messages.emoji-only"), () => {
+  it("shows a message of nothing but emoji large, pending ones included", () => {
+    const large = (m: Message | PendingMessage) => show(m).article.querySelector(".message-content")!.classList.contains("text-[2.4em]");
+    expect(large(message({ body: "😄🤘" }))).toBe(true);
+    expect(large({ ...message({ body: "😄🤘" }), pending: true })).toBe(true);
+    expect(large(message({ body: "Haha! 😄🤘" }))).toBe(false);
+    expect(large(message({ body: "🔥 💯" }))).toBe(false);
   });
 });
 
@@ -109,7 +127,8 @@ describe(feature("messages.edit"), () => {
   it("marks an edited message, including one grouped under the message before it", () => {
     const edited = message({ updatedAt: "2026-10-12T10:05:00.000Z" });
     expect(within(show(edited).article).getByText("(edited)")).toBeInTheDocument();
-    expect(within(show(edited, { threaded: true }).article).getByText("(edited)")).toBeInTheDocument();
+    // A grouped message has no header to hold the mark, so it ends the message's text.
+    expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
   });
 
   it("caps edits at the length the server accepts", async () => {

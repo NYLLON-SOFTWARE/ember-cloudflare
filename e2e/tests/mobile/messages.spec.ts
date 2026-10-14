@@ -93,7 +93,7 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await page.keyboard.type("with a second line");
   await message.getByRole("button", { name: "Save" }).tap();
   await expect(message.getByText("(edited)")).toBeVisible();
-  await expect(message).toContainText("A message to edit\nwith a second line");
+  await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
   await message.getByRole("button", { name: "Message options" }).tap();
   await edit.tap();

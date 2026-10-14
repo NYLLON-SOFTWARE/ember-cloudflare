@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 1 | 2 | 7 | 0 | 10 |
-| [Messages](#messages) | 2 | 13 | 4 | 0 | 19 |
+| [Messages](#messages) | 3 | 12 | 4 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -987,7 +987,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts) |
+| Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [display](packages/richtext/src/display.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [highlight](apps/web/src/lib/highlight.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | See your message before it's saved | `messages.optimistic` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Delete a message | `messages.delete` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -1000,10 +1000,10 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Reply with a quote | `messages.reply` | Campfire | ⬜ Not started |  |
 | Copy a link to a message | `messages.copy-link` | Campfire | ⬜ Not started |  |
 | Link to a message | `messages.permalink` | Campfire | ⬜ Not started |  |
-| Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts) |
+| Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | /play sounds | `messages.sounds` | Campfire | 🟡 Partial | Rich text: [sounds](packages/richtext/src/sounds.test.ts) |
 | Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts) |
-| Links in message text | `messages.autolink` | Campfire | 🟡 Partial | Rich text: [autolink](packages/richtext/src/autolink.test.ts), [hardening](packages/richtext/src/hardening.test.ts) |
+| Links in message text | `messages.autolink` | Campfire | ✅ Ported | Rich text: [autolink](packages/richtext/src/autolink.test.ts), [display](packages/richtext/src/display.test.ts), [hardening](packages/richtext/src/hardening.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Messages that can't be shown | `messages.unrenderable` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -1030,7 +1030,7 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
 - While a message is sending, its pending copy shows the formatting as typed.
 
-Note: Messages here are still plain text: line breaks are kept and nothing else is formatted. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores or shows rich text with it yet. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. There's no code highlighting yet.
+Note: Messages here are still plain text, shown as the paragraph Lexxy sends for it: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores rich text with it yet, and the composer can't write any. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes.
 
 Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
@@ -1179,7 +1179,7 @@ ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github
 - A message that's only emoji ("😄🤘", but not "Haha! 😄🤘" or "🔥 💯") shows large without a bubble, pending ones included; reactions that are all emoji are larger too.
 - Skin tones, flags, ❤️, © and ™ count as emoji, but emoji joined with zero-width joiners, like families, and keycaps like 1️⃣ don't.
 
-Note: `packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does, but messages don't show large yet.
+Note: `packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji aren't larger yet.
 
 Sources: [`reference/lib/rails_ext/string.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/string.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js)
 
@@ -1210,14 +1210,14 @@ Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWAR
 
 ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/reference_tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/reference_tests.rs)
 
-**Links in message text** (`messages.autolink`) 🟡
+**Links in message text** (`messages.autolink`) ✅
 
 - Addresses that start with a known scheme and `://` (http, https, ftp, mailto, ssh, file and 18 more) or with `www.`, and email addresses, become links; `www.` addresses get `http://` and email addresses `mailto:`.
 - Trailing punctuation stays out of the link unless it closes a bracket the address opened. Text already in a link isn't linked again, but addresses in code are linked.
 - `javascript:` and unknown schemes stay text, and quotes or angle brackets can't break out of a link.
 - Links to this site open in place; others open in a new tab.
 
-Note: `packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus, but messages don't show rich text yet, so nothing is linked, and nothing opens links to this site in place. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.
+Note: `packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus. A link opens in place when it's to one of the app's pages, and an address on this site that isn't one loads in the same tab. Whether a link is to this site is read from its origin, not, as in Campfire, from whether its address starts with this site's, which takes `http://host:30001` for `http://host:3000`. Links to other sites get `rel="noopener"` too. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.
 
 Sources: [`crates/richtext/src/autolink.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/autolink.rs) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js)
 
