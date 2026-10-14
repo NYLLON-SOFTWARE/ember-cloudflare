@@ -42,6 +42,9 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
  */
 export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId: RoomId } | { type: "marked"; roomId: RoomId; unread: boolean };
 
+/** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
+export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
+
 /**
  * Someone's rooms: the server's list, once it arrives, with the changes made since it was asked for,
  * which it may not show. Asked for again, it keeps the list it has until the new one arrives. It
@@ -50,15 +53,15 @@ export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId:
 export interface RoomListState {
   list: Sidebar | null;
   /** While a list is on its way, the changes made since it was asked for, which it may not show; otherwise null. */
-  pending: RoomChange[] | null;
+  pending: SidebarChange[] | null;
 }
 
 export const NO_ROOM_LIST: RoomListState = { list: null, pending: [] };
 
 /** A change, or the list asked for, arriving, or failing to. */
-export type RoomListAction = RoomChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
+export type RoomListAction = SidebarChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
 
-function changed(list: Sidebar, change: RoomChange): Sidebar {
+function changed(list: Sidebar, change: SidebarChange): Sidebar {
   switch (change.type) {
     case "saved":
       return { ...list, rooms: withRoom(list.rooms, change.room) };
@@ -66,6 +69,8 @@ function changed(list: Sidebar, change: RoomChange): Sidebar {
       return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId) };
     case "marked":
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
+    case "join code":
+      return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
   }
 }
 

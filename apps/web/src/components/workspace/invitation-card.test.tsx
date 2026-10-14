@@ -30,6 +30,12 @@ describe(feature("rooms.invitation-card"), () => {
     expect(link).toHaveValue(LINK);
     expect(link).toHaveAttribute("readonly");
   });
+
+  it("can't regenerate the link, as workspace settings can", () => {
+    render(<InvitationCard joinCode={JOIN_CODE} />);
+    expect(screen.getByRole("button", { name: "Copy join link" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate join link" })).not.toBeInTheDocument();
+  });
 });
 
 describe(feature("accounts.join-link"), () => {

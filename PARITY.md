@@ -13,12 +13,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 34 ported and 55 partial of 172 features; 78 not started, 5 not applicable.
+**Overall:** 36 ported and 54 partial of 172 features; 77 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 1 | 3 | 10 | 0 | 14 |
+| [Workspace administration](#workspace-administration) | 3 | 2 | 9 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **34** | **55** | **78** | **5** | **172** |
+| **Total** | **36** | **54** | **77** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -223,9 +223,9 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Workspace logo | `accounts.logo` | Ember | ⬜ Not started |  |
 | Custom CSS | `accounts.custom-css` | Ember | ⬜ Not started |  |
 | Translation buttons | `accounts.translation-buttons` | Ember | ⬜ Not started |  |
-| Join link | `accounts.join-link` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ⬜ Not started |  |
-| QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Join link | `accounts.join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [accounts](e2e/tests/features/accounts.spec.ts), [rooms](e2e/tests/features/rooms.spec.ts) |
+| Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [join-link](e2e/tests/workspace-settings/join-link.spec.ts) |
+| QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | People list | `accounts.people` | Campfire | ⬜ Not started |  |
 | Make or revoke administrators | `accounts.roles` | Campfire | ⬜ Not started |  |
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
@@ -245,7 +245,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 - The Rooms section has "Rooms" and New room, which opens `/rooms/opens/new`; administrators also get Must be admin to create new rooms and the shared room order.
 - At 390px wide nothing scrolls sideways.
 
-Note: The rail's Admin link, Workspace for members, opens `/account/edit`, titled "Account settings", with its heading and "Ember™ version &lt;version&gt;" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room. Chat bots, Custom styles, the logo, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).
+Note: The rail's Admin link, Workspace for members, opens `/account/edit`, titled "Account settings", with its heading and "Ember™ version &lt;version&gt;" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`). Chat bots, Custom styles, the logo, the translation setting and the people list under the invite link aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).
 
 Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs)
 
@@ -302,7 +302,7 @@ Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Join link** (`accounts.join-link`) 🟡
+**Join link** (`accounts.join-link`) ✅
 
 - The workspace has one join code of 12 random letters and digits in groups of four (`XXXX-XXXX-XXXX`), made with the account and kept until an administrator regenerates it.
 - Workspace settings shows everyone the absolute link `https://<host>/join/<code>` in a read-only field labeled "Share to invite more people".
@@ -310,17 +310,19 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Share shows only where the browser can share, and shares "Link to join Ember" / "Hit this link to join me in Ember and start chatting." with the link.
 - The first room's welcome card offers the same link and buttons, without Regenerate.
 
-Note: Only the welcome card shows the link until workspace settings are ported. On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.
+Note: Workspace settings load the code with `GET /api/account`, which answers `Cache-Control: no-store`, as the sidebar does, so the code doesn't outlast sign-out in the browser's cache. On touch screens the welcome card's link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.
 
 Sources: [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`reference/app/models/account/joinable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account/joinable.rb)
 
 ember-rust tests: [`reference/test/models/account/joinable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/account/joinable_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
-**Regenerate the join link** (`accounts.regenerate-join-link`) ⬜
+**Regenerate the join link** (`accounts.regenerate-join-link`) ✅
 
 - An administrator's Regenerate join link, an icon button with that name, issues a new code at once with no confirmation or notice, and settings show the new link.
 - The old `/join/<code>` then answers 404 with an empty body, to GET and POST alike.
 - Members get 403 and see no button.
+
+Note: Regenerated with `POST /api/account/join_code`, which answers the new code; the join form's `POST /api/join/<code>` answers an old code 404 as JSON, as it does any code it doesn't know (`auth.sign-up`), even a form that was on its way as the link was regenerated. The tab that regenerates the link shows it on the first room's welcome card too, while other tabs show it when their sidebar next loads (`sidebar.live-updates`) or their settings open. The button is disabled until the new code arrives, where Campfire's would show its busy dots.
 
 Sources: [`crates/ember/src/controllers/accounts/join_codes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/join_codes.rs) · [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/controllers/accounts/join_codes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/join_codes_controller.rb)
 
@@ -334,7 +336,7 @@ ember-rust tests: [`reference/test/controllers/accounts/join_codes_controller_te
 - Text too long for the largest QR code, such as 3,000 bytes, answers 422.
 - The join link and sign-in link open their QR codes in the image viewer.
 
-Note: The welcome card's join link opens its QR code; workspace settings' join link and the sign-in link get theirs when those are ported (`accounts.join-link`, `auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.
+Note: The join link opens its QR code, on the welcome card and in workspace settings; the sign-in link gets its own when it's ported (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.
 
 Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`reference/app/controllers/qr_code_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/qr_code_controller.rb)
 

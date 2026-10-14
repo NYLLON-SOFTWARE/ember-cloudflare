@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room. Chat bots, Custom styles, the logo, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`). Chat bots, Custom styles, the logo, the translation setting and the people list under the invite link aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -282,7 +282,7 @@ export const features = [
     id: "accounts.join-link",
     title: "Join link",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The workspace has one join code of 12 random letters and digits in groups of four (`XXXX-XXXX-XXXX`), made with the account and kept until an administrator regenerates it.",
       "Workspace settings shows everyone the absolute link `https://<host>/join/<code>` in a read-only field labeled \"Share to invite more people\".",
@@ -292,13 +292,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/_invite.html", "crates/views/src/helpers/application.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/copy_to_clipboard_controller.js", "crates/assets/overrides/controllers/web_share_controller.js", "reference/app/models/account/joinable.rb"],
     upstreamTests: ["reference/test/models/account/joinable_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
-    notes: "Only the welcome card shows the link until workspace settings are ported. On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.",
+    notes: "Workspace settings load the code with `GET /api/account`, which answers `Cache-Control: no-store`, as the sidebar does, so the code doesn't outlast sign-out in the browser's cache. On touch screens the welcome card's link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.",
   },
   {
     id: "accounts.regenerate-join-link",
     title: "Regenerate the join link",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "An administrator's Regenerate join link, an icon button with that name, issues a new code at once with no confirmation or notice, and settings show the new link.",
       "The old `/join/<code>` then answers 404 with an empty body, to GET and POST alike.",
@@ -306,6 +306,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/join_codes.rs", "crates/views/templates/accounts/_invite.html", "crates/db/src/models/account.rs", "reference/app/controllers/accounts/join_codes_controller.rb"],
     upstreamTests: ["reference/test/controllers/accounts/join_codes_controller_test.rb"],
+    notes: "Regenerated with `POST /api/account/join_code`, which answers the new code; the join form's `POST /api/join/<code>` answers an old code 404 as JSON, as it does any code it doesn't know (`auth.sign-up`), even a form that was on its way as the link was regenerated. The tab that regenerates the link shows it on the first room's welcome card too, while other tabs show it when their sidebar next loads (`sidebar.live-updates`) or their settings open. The button is disabled until the new code arrives, where Campfire's would show its busy dots.",
   },
   {
     id: "accounts.qr-codes",
@@ -321,7 +322,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/qr_code.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs", "crates/views/src/helpers/application.rs", "reference/app/controllers/qr_code_controller.rb"],
     upstreamTests: ["reference/test/controllers/qr_code_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs"],
-    notes: "The welcome card's join link opens its QR code; workspace settings' join link and the sign-in link get theirs when those are ported (`accounts.join-link`, `auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
+    notes: "The join link opens its QR code, on the welcome card and in workspace settings; the sign-in link gets its own when it's ported (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
   },
   {
     id: "accounts.people",

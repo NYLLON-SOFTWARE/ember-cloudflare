@@ -7,6 +7,7 @@ import {
   parseRoomChanges,
   SIGN_IN_REFUSED,
   type Bootstrap,
+  type NewJoinCode,
   type NewRoomForm,
   type RoomId,
   type RoomSettings,
@@ -125,12 +126,25 @@ async function me(request: Request, env: Env): Promise<Response> {
   return json({ user }, { headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
-/** Workspace settings, which anyone signed in may see, read-only unless they're an administrator. */
+/**
+ * Workspace settings, which anyone signed in may see, read-only unless they're an administrator. They
+ * hold the join code, which no cache should keep, as the sidebar's invitation does.
+ */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
-  return settings === "not set up" ? problem(404, "Ember isn't set up yet") : json(settings satisfies WorkspaceSettings);
+  if (settings === "not set up") return problem(404, "Ember isn't set up yet");
+  return json(settings satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
+async function regenerateJoinCode(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const regenerated = credentials && (await workspace(env).regenerateJoinCode(credentials));
+  if (!regenerated) return problem(401, "Not signed in");
+  if (regenerated === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return json(regenerated satisfies NewJoinCode, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -270,6 +284,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/me") return me(request, env);
   if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
+  if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);

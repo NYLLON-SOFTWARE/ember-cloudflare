@@ -4,6 +4,7 @@ import {
   type AccountChanges,
   type Bootstrap,
   type Me,
+  type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
@@ -90,7 +91,7 @@ export async function fetchMe(): Promise<Me> {
   return (await request<{ user: Me }>("/api/me")).user;
 }
 
-/** Workspace settings: the workspace, and whether this person can change it. */
+/** Workspace settings: the workspace, its join code, and whether this person can change it. */
 export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
   return request<WorkspaceSettings>("/api/account");
 }
@@ -98,6 +99,11 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** Gives the join link a new code, answering it. Fails with a 403 ApiError for anyone but an administrator. */
+export async function regenerateJoinCode(): Promise<string> {
+  return (await request<NewJoinCode>("/api/account/join_code", { method: "POST" })).joinCode;
 }
 
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
