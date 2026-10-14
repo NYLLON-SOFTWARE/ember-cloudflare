@@ -3,7 +3,7 @@ import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type User } from "@ember/protocol
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Flash } from "@/components/flash";
+import { useFlash } from "@/components/flash";
 import { GuestSignIn } from "@/components/guest-sign-in";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
@@ -20,11 +20,10 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [refusals, setRefusals] = useState(0);
-  const [flashing, setFlashing] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
+  const flash = useFlash();
 
   useTitle("Sign in");
 
@@ -37,8 +36,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       setPassword("");
-      setRefusals((count) => count + 1);
-      setFlashing(true);
+      flash("alert", SIGN_IN_REFUSED);
       setShaking(true);
       passwordInput.current?.focus();
     }
@@ -46,11 +44,6 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
 
   return (
     <AuthPage workspace={workspace}>
-      {flashing && (
-        <Flash key={refusals} onDone={() => setFlashing(false)}>
-          {SIGN_IN_REFUSED}
-        </Flash>
-      )}
       {problem && <Problem>{problem}</Problem>}
       <AuthCard onAnimationEnd={(event) => event.target === event.currentTarget && setShaking(false)} className={shaking ? "motion-safe:animate-shake" : undefined}>
         {asGuest ? (
