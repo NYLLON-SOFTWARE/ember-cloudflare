@@ -2,12 +2,14 @@
 
 ember-cloudflare draws exactly the icons ember-rust draws, from the same sources. Import them from
 this folder, never from `lucide-react` directly: `icons.test.tsx` fails `pnpm test`, and so CI, if any
-other file does, and it checks every Lucide icon here against ember-rust's catalog.
+other file does, and it checks every Lucide icon here against ember-rust's catalog, copied into
+`lucide/`.
 
 | Module | What it holds | Where ember-rust gets it |
 |---|---|---|
 | `ember.tsx` | Ember's own line icons (24px grid, 1.7 stroke, `currentColor`): the rail, the mobile menu, close buttons, the sign-in form | `crates/views/templates/components/icons.html`, drawn with `{% call icons::icon("name") %}` |
 | `lucide.ts` | Lucide, pinned to 1.53.0: message actions and the appearance menu | `h::lucide_icon("name")`, from the generated `crates/assets/overrides/lucide/catalog.json` (lucide-static 1.53.0) |
+| `lucide/catalog.json`, `lucide/LICENSE.txt` | Every icon a room can have: ember-rust's catalog of 1,869 Lucide icons (`{name, label, svg}`, 991 KB), with Lucide's license. `ROOM_ICON_NAMES` in `@ember/protocol` lists their names, and nothing draws them yet | `crates/assets/overrides/lucide/`, generated from lucide-static 1.53.0 and copied byte for byte |
 | `campfire.tsx`, `campfire/*.svg` | Campfire's filled icons, drawn as black `<img>`s and inverted where the background is dark | `ctx.asset("name.svg")` or `h::image_tag(ctx, "name.svg", …)`, served from its `reference/` submodule: basecamp/once-campfire `app/assets/images/` at `90b3300` |
 
 The brand images live in `apps/web/public`. `logos/app-icon.png` is ember-rust's
@@ -24,8 +26,8 @@ Find the element you're porting in ember-rust's templates and see how it draws i
 
 - **`icons::icon("name")`**: copy its shapes from `icons.html` into `ember.tsx` verbatim.
 - **`h::lucide_icon("name")`**: add the icon's PascalCase name to the export in `lucide.ts` (Lucide's
-  own name, not an alias: `face-slightly-smiling-plus` is `FaceSlightlySmilingPlus`), and its markup
-  from `catalog.json` to the catalog in `icons.test.tsx`. Keep `lucide-react` on 1.53.0 until
+  own name, not an alias: `face-slightly-smiling-plus` is `FaceSlightlySmilingPlus`), and
+  `icons.test.tsx` compares its drawing with the catalog's. Keep `lucide-react` on 1.53.0 until
   ember-rust moves its pin.
 - **`ctx.asset("name.svg")`**: copy the file byte for byte from once-campfire's `app/assets/images/`
   into `campfire/` (check `crates/assets/overrides/` first, since a file there replaces Campfire's),
@@ -38,3 +40,11 @@ Find the element you're porting in ember-rust's templates and see how it draws i
 Size icons as `zz-ember.css` sizes that element (the rail's are 22px, sidebar headings 15px, message
 actions 16px, composer buttons 18px). Adding a shadcn/ui component brings `lucide-react` imports with
 it, so swap those for icons from here.
+
+## Moving the Lucide pin
+
+When ember-rust moves `lucide-static` (`crates/assets/overrides/basecoat/package.json`), copy its
+`crates/assets/overrides/lucide/catalog.json` and `LICENSE.txt` into `lucide/` byte for byte, put their
+SHA-256 hashes and ember-rust's commit in `catalog.test.ts`, and move `lucide-react` to the same
+version. Then `pnpm --filter @ember/web exec vitest run catalog --update` rewrites the room icons'
+names in `packages/protocol/src/room-icons.ts`.

@@ -2,6 +2,10 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import { ROOM_ICON_NAMES } from "./room-icons.ts";
+
+export { ROOM_ICON_NAMES };
+
 export type UserId = string;
 export type RoomId = string;
 
@@ -11,6 +15,9 @@ export interface User {
 }
 
 export type RoomKind = "open" | "closed" | "direct";
+
+/** A room's icon: the name of one of the Lucide icons in ember-rust's catalog. */
+export type RoomIconName = (typeof ROOM_ICON_NAMES)[number];
 
 /** A room someone is in, as their room list shows it. */
 export interface Room {
@@ -230,6 +237,18 @@ export function parseClientFrame(raw: string): ClientFrame | null {
  */
 export function isRoomId(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value);
+}
+
+// Built on first use, so a bundle that never checks an icon leaves the names out.
+let roomIconNames: ReadonlySet<string> | undefined;
+
+/**
+ * Whether `value` is exactly the name of an icon in the catalog, as ember-rust checks a room's
+ * icon: `"coffee"` is, but `" coffee "`, `"Coffee"` and `""`, which stands for the default `#`, aren't.
+ */
+export function isRoomIcon(value: unknown): value is RoomIconName {
+  roomIconNames ??= new Set(ROOM_ICON_NAMES);
+  return typeof value === "string" && roomIconNames.has(value);
 }
 
 /** Parses an untrusted request to create a room. Returns why it's refused instead of the room. */

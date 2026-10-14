@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Lucide's icon names (zoom-in, table, italic...) aren't class names, so don't make utilities of them. */
+@source not "./components/icons/lucide";
+
 /* Dark mode follows the `dark` class on <html>, set from the Light / Dark / System picker. */
 @custom-variant dark (&:is(.dark *));
 

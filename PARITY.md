@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 12 ported and 42 partial of 172 features; 113 not started, 5 not applicable.
+**Overall:** 12 ported and 43 partial of 172 features; 112 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 4 | 6 | 2 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
-| [Rooms](#rooms) | 1 | 5 | 12 | 0 | 18 |
+| [Rooms](#rooms) | 1 | 6 | 11 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
 | [Platform](#platform) | 3 | 2 | 6 | 4 | 15 |
-| **Total** | **12** | **42** | **113** | **5** | **172** |
+| **Total** | **12** | **43** | **112** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -502,7 +502,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Switch a room between open and private | `rooms.convert-access` | Campfire | ⬜ Not started |  |
 | Add and remove private room members | `rooms.members` | Campfire | ⬜ Not started |  |
 | Delete a room | `rooms.delete` | Campfire | ⬜ Not started |  |
-| Room icons | `rooms.icons` | Ember | ⬜ Not started |  |
+| Room icons | `rooms.icons` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Web: [catalog](apps/web/src/components/icons/catalog.test.ts) |
 | Room icon picker | `rooms.icon-picker` | Ember | ⬜ Not started |  |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | ⬜ Not started |  |
@@ -658,14 +658,14 @@ Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOF
 
 ember-rust tests: [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Room icons** (`rooms.icons`) ⬜
+**Room icons** (`rooms.icons`) 🟡
 
 - A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.
 - Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`" coffee "`, `"Coffee"`, `"../coffee"`, `"<svg></svg>"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.
 - The icon shows on the room's sidebar row and in its header. A change reaches its members' sidebars and open headers at once, except one saved together with an access switch (`rooms.convert-access`).
 - The icon survives switching access, and DMs never have one.
 
-Note: Every room shows `#` here.
+Note: Only the catalog is here so far: ember-rust's `catalog.json` and its license, copied byte for byte, and `isRoomIcon` in the protocol, which takes exactly its 1,869 names and refuses the values ember-rust refuses. Rooms don't have icons yet, so every room shows `#`.
 
 Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/src/helpers/icons.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/icons.rs) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html)
 

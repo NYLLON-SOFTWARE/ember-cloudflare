@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isPasswordTooLong,
   isPasswordTooShort,
+  isRoomIcon,
   isRoomId,
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
@@ -12,6 +13,7 @@ import {
   parseClientFrame,
   parseFirstRun,
   parseNewRoom,
+  ROOM_ICON_NAMES,
 } from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
@@ -76,6 +78,19 @@ describe(feature("rooms.show"), () => {
     expect(isRoomId("a/b")).toBe(false);
     expect(isRoomId("_health")).toBe(false);
     expect(isRoomId("x".repeat(64))).toBe(false);
+  });
+});
+
+describe(feature("rooms.icons"), () => {
+  it("takes the name of every icon in the catalog", () => {
+    expect(ROOM_ICON_NAMES).toHaveLength(1869);
+    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash"]));
+    expect(ROOM_ICON_NAMES.filter((name) => !isRoomIcon(name))).toEqual([]);
+  });
+
+  it("refuses anything that isn't exactly one, as ember-rust does", () => {
+    const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
+    expect(values.filter(isRoomIcon)).toEqual([]);
   });
 });
 
