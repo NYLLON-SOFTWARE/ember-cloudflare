@@ -2,6 +2,7 @@
 // whom it mentions (Ember's rich-text design: sanitize on write, render on the client).
 
 import { RenderError, type MentionUser, type ResolveMention } from "./attachments";
+import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { mentionedUsers, userIdsIn, usersAttached } from "./mentions";
@@ -54,5 +55,6 @@ export function withParser(parse: HtmlParser) {
     plainText: (markup: string, resolve: ResolveMention) => plainText(parse, markup, resolve),
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
+    autoLink: (html: string) => autoLink(parse, html),
   };
 }
