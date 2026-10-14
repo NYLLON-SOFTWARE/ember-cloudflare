@@ -57,6 +57,7 @@ and talk to rooms over real WebSockets, sending the same frames as the web app.
 | `fanout` | One member posting 10 a second into rooms of 10, 100, 250 and 500 | What each extra member costs a broadcast, and when the last one gets it |
 | `connections` | One room grown in steps from 100 to 1,000 members until p95 time-to-welcome passes 2 s | How many sockets one room holds well, and the presence traffic each join causes |
 | `tabs` | Tabs opened as the web app opens them, in steps from 250 to 1,000, each someone else with a room's socket, the workspace socket and the sidebar; then every tab reconnecting as after a deploy | How many tabs the Workspace, one Durable Object that every tab's sockets and sidebar ask, holds well, and how long a deploy's reconnects take |
+| `unread` | One member posting in rooms of 100, 500 and 1,000 people away from them, each with only the workspace socket open: one message, then 100 more at 10 a second | How long the Workspace takes to mark a room unread for everyone away and tell them, and what each message after costs once they're marked |
 | `history` | A 2,000-message room: 30 fresh joins, then paging back to the start three times | The read path, where DO SQLite and D1 differ most |
 
 Alongside each measurement it records the CPU used by the `wrangler` and `workerd` processes. A

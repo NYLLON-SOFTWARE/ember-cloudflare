@@ -14,8 +14,11 @@ import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import { RoomLog } from "./room-log";
+import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore } from "./store";
-import type { Viewing } from "./viewing";
+import { viewersOf, type Viewing } from "./viewing";
+import { workspace } from "./workspace";
 
 /** What each socket remembers across hibernation. */
 interface Attachment extends Viewing {
@@ -32,28 +35,20 @@ export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 
 /** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
 const DELETED_ROOM = "deletedRoom";
+/** What a room's object keeps in its own storage while its alarm is to send the Workspace its log: the room's id. */
+const UNDELIVERED_ROOM = "undeliveredRoom";
 
-/** What a socket closed with each code says, for anyone reading the close. */
-export const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked", [CloseCode.NotFound]: "NotFound" };
-
+/** How many events of its log a room sends the Workspace in one call, at most. */
+const EVENTS_PER_CALL = 50;
 /**
- * A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused.
- * wrangler dev logs "Uncaught Error: Network connection lost." as each one finishes closing, even after
- * a clean close handshake: the runtime raises it once the close event has fired, where nothing here can
- * catch it, and the Worker's tests, which have no network between them and the Worker, never see it.
+ * How long a room waits after a call before the next, gathering the events logged meanwhile, unless
+ * the call was full or a full call's worth is logged sooner. So a busy room sends many in each call,
+ * and makes at most four calls a second until they fill.
  */
-export function closedAtOnce(code: CloseCode): Response {
-  const { 0: client, 1: server } = new WebSocketPair();
-  server.accept();
-  server.close(code, CLOSE_REASONS[code]);
-  return new Response(null, { status: 101, webSocket: client });
-}
-
-/**
- * Close codes that only report how a socket closed, like 1006 for a dropped connection, and can't
- * be sent in a close frame (RFC 6455, section 7.4.1).
- */
-export const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
+const GATHER_MS = 250;
+/** How long a room waits to send its log again after a call fails, doubling each time up to the longest wait. */
+const FIRST_RETRY_MS = 1_000;
+const LONGEST_RETRY_MS = 5 * 60 * 1000;
 
 /**
  * One chat room: its WebSockets, who is present and typing, and its messages.
@@ -63,7 +58,23 @@ export class ChatRoom extends DurableObject<Env> {
   private db: Db | null = null;
   private store: MessageStore | null = null;
   private revocations: Revocations | null = null;
+  private log: RoomLog | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  /** The call sending the Workspace the room's log, while one is out. */
+  private delivering: Promise<void> | null = null;
+  /** Whether the log has had events since the call out now read it, so another call goes once it's done. */
+  private undelivered = false;
+  /** Roughly how many events the room has logged since the call out read the log. */
+  private logged = 0;
+  /** Ends the wait after a call, while there is one, once a full call's worth of events is logged. */
+  private stopGathering: (() => void) | null = null;
+  /** How many calls in a row have failed, which puts the next try off longer. */
+  private failedDeliveries = 0;
+  /**
+   * Whether the object has sent the Workspace its log since it started. A restart in the middle of a
+   * call, as a deploy can make, leaves the call's events in the log with no alarm set to send them.
+   */
+  private logChecked = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -97,6 +108,11 @@ export class ChatRoom extends DurableObject<Env> {
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
       // Everyone else has the list from their own welcome, so they only hear who's new.
       if (!this.isPresent(user.id, server)) this.broadcast({ type: "presence.joined", user }, server);
+      // Opening the room in a shown tab reads it, which sends the Workspace the log. Logged next,
+      // rather than before the socket is let in, so the welcome doesn't wait on it.
+      if (visible) void this.serially(() => this.read(roomId, user.id)).catch((error) => console.error("Could not log a read", error));
+      // Otherwise the first socket since the object started sends whatever a restart left in the log.
+      else if (!this.logChecked) this.deliver(roomId);
       return new Response(null, { status: 101, webSocket: client });
     });
   }
@@ -141,23 +157,30 @@ export class ChatRoom extends DurableObject<Env> {
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
     await this.storeFor(roomId).deleteAllMessages();
+    await this.logFor(roomId).forget();
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
   }
 
   /**
    * Erases what's left of a deleted room: its revocations, and the object's own storage, which on DO
-   * SQLite is everything it kept. An object with nothing stored ceases to exist.
+   * SQLite is everything it kept. An object with nothing stored ceases to exist. Otherwise, sends the
+   * Workspace the room's log, which a call that failed left.
    */
   override async alarm(): Promise<void> {
-    await this.serially(async () => {
+    const undelivered = await this.serially(async () => {
       const roomId = await this.ctx.storage.get<RoomId>(DELETED_ROOM);
-      if (roomId === undefined) return;
+      if (roomId === undefined) return this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM);
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
       // Its tables went too, so anything after this opens the database afresh.
-      this.db = this.store = this.revocations = null;
+      this.db = this.store = this.revocations = this.log = null;
+      return undefined;
     });
+    if (undelivered === undefined) return;
+    await this.ctx.storage.delete(UNDELIVERED_ROOM);
+    this.deliver(undelivered);
+    while (this.delivering) await this.delivering;
   }
 
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
@@ -211,7 +234,8 @@ export class ChatRoom extends DurableObject<Env> {
     switch (frame.type) {
       case "message.create": {
         const message = await store.create(sortableId(), frame.clientMessageId, user, frame.body, now);
-        return this.broadcast({ type: "message.created", message });
+        this.broadcast({ type: "message.created", message });
+        return this.deliver(store.roomId);
       }
       case "message.update": {
         const message = await store.find(frame.messageId);
@@ -253,7 +277,10 @@ export class ChatRoom extends DurableObject<Env> {
       }
       case "presence.visible": {
         const attachment = ws.deserializeAttachment() as Attachment;
-        return ws.serializeAttachment({ ...attachment, visible: frame.visible, heardAt: Date.now() } satisfies Attachment);
+        ws.serializeAttachment({ ...attachment, visible: frame.visible, heardAt: Date.now() } satisfies Attachment);
+        // Coming back to a tab showing the room reads it.
+        if (frame.visible) await this.read(store.roomId, user.id);
+        return;
       }
       case "ping":
         return this.send(ws, { type: "pong" });
@@ -271,6 +298,84 @@ export class ChatRoom extends DurableObject<Env> {
 
   private revocationsFor(roomId: RoomId): Revocations {
     return (this.revocations ??= new Revocations(this.dbFor(), roomId));
+  }
+
+  private logFor(roomId: RoomId): RoomLog {
+    return (this.log ??= new RoomLog(this.dbFor(), roomId));
+  }
+
+  /** Logs that `userId` has read the room, for the Workspace to clear their mark, and sends it the log. */
+  private async read(roomId: RoomId, userId: UserId): Promise<void> {
+    await this.logFor(roomId).read(userId, new Date().toISOString());
+    this.deliver(roomId);
+  }
+
+  /**
+   * Sends the Workspace the room's log, with who is viewing the room now, for it to mark the room
+   * unread for the members who aren't and read for those who've opened it. One call is out at a
+   * time, and the events logged meanwhile go in the next, a moment after it, or at once if the call
+   * left some behind or a full call's worth comes first. When a call fails, the alarm tries again
+   * later, from the first event the Workspace hasn't taken.
+   */
+  private deliver(roomId: RoomId): void {
+    this.undelivered = true;
+    if (++this.logged >= EVENTS_PER_CALL) this.stopGathering?.();
+    if (this.delivering) return;
+    this.undelivered = false;
+    this.delivering = this.deliverBatch(roomId)
+      .then((full) => (full ? undefined : this.gather()))
+      .finally(() => {
+        this.delivering = null;
+        if (this.undelivered) this.deliver(roomId);
+      });
+  }
+
+  /** Waits after a call for the events logged meanwhile, until a full call's worth is or `GATHER_MS` passes. */
+  private async gather(): Promise<void> {
+    if (this.logged >= EVENTS_PER_CALL) return;
+    await new Promise<void>((resolve) => {
+      this.stopGathering = resolve;
+      void scheduler.wait(GATHER_MS).then(resolve);
+    });
+    this.stopGathering = null;
+  }
+
+  /**
+   * Sends the Workspace the oldest events it hasn't taken, as many as one call takes, and forgets them
+   * once it has. Answers whether the call was full, which may have left more behind.
+   */
+  private async deliverBatch(roomId: RoomId): Promise<boolean> {
+    this.logChecked = true;
+    this.logged = 0;
+    try {
+      const log = this.logFor(roomId);
+      const events = await log.undelivered(EVENTS_PER_CALL);
+      if (events.length === 0) return false;
+      await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+      await log.delivered(events.at(-1)!.seq);
+      this.failedDeliveries = 0;
+      if (events.length < EVENTS_PER_CALL) return false;
+      this.undelivered = true;
+      return true;
+    } catch (error) {
+      console.error(`Could not send room ${roomId}'s log to the Workspace; trying again later`, error);
+      this.failedDeliveries++;
+      await this.serially(() => this.deliverLater(roomId)).catch((error) => console.error("Could not set the alarm to send the log", error));
+      return false;
+    }
+  }
+
+  /**
+   * Sets the alarm to send the room's log, a second after the first failure and twice as long after
+   * each one since, up to the longest wait. A deleted room's alarm is for erasing it, so it's left as
+   * it is; this runs one event at a time with deleting it, so the deletion's alarm can't be overtaken.
+   */
+  private async deliverLater(roomId: RoomId): Promise<void> {
+    if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return;
+    await this.ctx.storage.put(UNDELIVERED_ROOM, roomId);
+    const at = Date.now() + Math.min(LONGEST_RETRY_MS, FIRST_RETRY_MS * 2 ** (this.failedDeliveries - 1));
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > at) await this.ctx.storage.setAlarm(at);
   }
 
   /** Everyone with at least one open socket, once each. */

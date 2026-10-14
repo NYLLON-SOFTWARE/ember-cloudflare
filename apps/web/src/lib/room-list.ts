@@ -1,4 +1,4 @@
-import type { Room, RoomId, Sidebar } from "@ember/protocol";
+import type { Room, RoomId, Sidebar, SidebarRoom } from "@ember/protocol";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists them by name, as ember-rust's does (membership.rs), compared as
@@ -18,28 +18,34 @@ function compare(x: number[], y: number[]): number {
 }
 
 /** `rooms` in the sidebar's order, by name, each name and id read once rather than at every comparison. */
-export function byName(rooms: Room[]): Room[] {
+export function byName<T extends Room>(rooms: T[]): T[] {
   return rooms
     .map((room) => ({ room, name: codePoints(folded(room.name)), id: codePoints(room.id) }))
     .sort((a, b) => compare(a.name, b.name) || compare(a.id, b.id))
     .map(({ room }) => room);
 }
 
-/** `rooms` with `room` as it is now, in place of what it was, or last, as the room made most recently. */
-export function withRoom(rooms: Room[], room: Room): Room[] {
-  return rooms.some((r) => r.id === room.id) ? rooms.map((r) => (r.id === room.id ? room : r)) : [...rooms, room];
+/**
+ * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last, as the room made
+ * most recently, and read.
+ */
+export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
+  return rooms.some((r) => r.id === room.id)
+    ? rooms.map((r) => (r.id === room.id ? { ...room, unread: r.unread } : r))
+    : [...rooms, { ...room, unread: false }];
 }
 
 /**
- * A change made here to someone's rooms, which the server's list shows the next time it's asked: a
- * room saved, or one that's gone for this person, deleted or no longer theirs.
+ * A change to someone's rooms, which the server's list shows the next time it's asked: a room saved
+ * here, one that's gone for this person, deleted or no longer theirs, or a room the workspace socket
+ * says has been marked unread or read.
  */
-export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId: RoomId };
+export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId: RoomId } | { type: "marked"; roomId: RoomId; unread: boolean };
 
 /**
- * Someone's rooms: the server's list, once it arrives, with the changes made here since it was asked
- * for. Asked for again, it keeps the list it has until the new one arrives. It follows one list on its
- * way at a time, so it's asked for again only once the last has come or failed to.
+ * Someone's rooms: the server's list, once it arrives, with the changes made since it was asked for,
+ * which it may not show. Asked for again, it keeps the list it has until the new one arrives. It
+ * follows one list on its way at a time, so it's asked for again only once the last has come or failed to.
  */
 export interface RoomListState {
   list: Sidebar | null;
@@ -49,13 +55,19 @@ export interface RoomListState {
 
 export const NO_ROOM_LIST: RoomListState = { list: null, pending: [] };
 
-/** A change made here, or the list asked for, arriving, or failing to. */
+/** A change, or the list asked for, arriving, or failing to. */
 export type RoomListAction = RoomChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
 
-const changed = (list: Sidebar, change: RoomChange): Sidebar => ({
-  ...list,
-  rooms: change.type === "saved" ? withRoom(list.rooms, change.room) : list.rooms.filter((room) => room.id !== change.roomId),
-});
+function changed(list: Sidebar, change: RoomChange): Sidebar {
+  switch (change.type) {
+    case "saved":
+      return { ...list, rooms: withRoom(list.rooms, change.room) };
+    case "gone":
+      return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId) };
+    case "marked":
+      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
+  }
+}
 
 export function roomListReducer(state: RoomListState, action: RoomListAction): RoomListState {
   switch (action.type) {

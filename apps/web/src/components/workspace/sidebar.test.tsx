@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
-  { id: "general", name: "general", kind: "open" as const, icon: null },
-  { id: "random", name: "random", kind: "open" as const, icon: null },
+  { id: "general", name: "general", kind: "open" as const, icon: null, unread: false },
+  { id: "random", name: "random", kind: "open" as const, icon: null, unread: false },
 ];
 
 describe(feature("sidebar.rooms"), () => {
@@ -42,5 +42,29 @@ describe(feature("rooms.icons"), () => {
     expect(coffee).toHaveAccessibleName("general");
     expect(coffee!.querySelector('[data-icon="coffee"]')).toHaveStyle({ width: "19px", height: "19px" });
     expect(random).toHaveTextContent("#random");
+  });
+});
+
+describe(feature("sidebar.unread"), () => {
+  it("makes an unread room's row bold, with a dot, and says so to screen readers", () => {
+    render(<Sidebar rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId={null} onSelect={vi.fn()} />);
+    const [general, random] = within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link");
+    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveAccessibleName("general");
+    expect(general).toHaveAccessibleDescription("Unread");
+    expect(general!.lastElementChild).toHaveAttribute("aria-hidden", "true");
+    expect(general!.lastElementChild).toHaveClass("ml-auto", "size-[7px]", "rounded-full", "bg-foreground");
+
+    expect(random).not.toHaveClass("font-[650]");
+    expect(random).not.toHaveAttribute("aria-description");
+    expect(random!.querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("never marks the room the tab shows", () => {
+    render(<Sidebar rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
+    const general = screen.getByRole("link", { current: "page" });
+    expect(general).not.toHaveClass("font-[650]");
+    expect(general).not.toHaveAttribute("aria-description");
+    expect(general.querySelector(".rounded-full")).toBeNull();
   });
 });

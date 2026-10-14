@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type NewWorkspace, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type NewWorkspace, type Sidebar, type User } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { credentialsFor } from "../src/auth";
 import type { Env } from "../src/env";
 import { CREDENTIALS_HEADER, type Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import { api, closeOf, cookieOf, createRoom, freshDeploy, origin, signIn, upgrade, workspaceStub, type Session } from "./support";
+import { api, cookieOf, createRoom, freshDeploy, listedRoom, openWorkspaceSocket, origin, signIn, upgrade, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -26,36 +26,6 @@ async function signInAsAda(): Promise<Session> {
 }
 
 const signOut = (session: Session) => api("/api/session", { method: "DELETE", headers: { Cookie: session.cookie } });
-
-/** Opens a workspace socket in `session`, as a tab does, and queues what the Workspace sends on it after its welcome. */
-async function openWorkspaceSocket(session: Session) {
-  const response = await api("/api/socket", upgrade(session.cookie));
-  if (!response.webSocket) throw new Error(`No socket: ${response.status} ${await response.text()}`);
-  const ws = response.webSocket;
-  const frames: WorkspaceServerFrame[] = [];
-  const waiters: Array<() => void> = [];
-  ws.addEventListener("message", (event) => {
-    frames.push(JSON.parse(event.data as string) as WorkspaceServerFrame);
-    waiters.splice(0).forEach((wake) => wake());
-  });
-  const closed = closeOf(ws);
-  ws.accept();
-
-  /** The next frame, waiting for it if need be. */
-  async function next(): Promise<WorkspaceServerFrame> {
-    while (frames.length === 0) await new Promise<void>((resolve) => waiters.push(resolve));
-    return frames.shift()!;
-  }
-
-  /** Whether the Workspace still answers on it. A ping with more than its type reaches the Workspace itself. */
-  async function answers(): Promise<boolean> {
-    ws.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
-    return (await next()).type === "pong";
-  }
-
-  const welcome = await next();
-  return { ws, welcome, next, answers, closed, send: (data: string) => ws.send(data) };
-}
 
 beforeEach(freshDeploy);
 
@@ -187,7 +157,7 @@ describe(feature("sidebar.live-updates"), () => {
     const changed = await sidebarOf(grace, etag);
     expect(changed.status).toBe(200);
     expect(changed.headers.get("ETag")).not.toBe(etag);
-    expect(((await changed.json()) as Sidebar).rooms).toEqual([room]);
+    expect(((await changed.json()) as Sidebar).rooms).toEqual([listedRoom(room)]);
   });
 
   it("is only for someone signed in", async () => {

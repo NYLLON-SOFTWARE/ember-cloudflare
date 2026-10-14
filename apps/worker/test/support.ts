@@ -1,4 +1,16 @@
-import { roomSocketQuery, type ClientFrame, type Room, type RoomIconChoice, type RoomId, type RoomSocketParams, type ServerFrame, type User, type UserId } from "@ember/protocol";
+import {
+  roomSocketQuery,
+  type ClientFrame,
+  type Room,
+  type RoomIconChoice,
+  type RoomId,
+  type RoomSocketParams,
+  type ServerFrame,
+  type SidebarRoom,
+  type User,
+  type UserId,
+  type WorkspaceServerFrame,
+} from "@ember/protocol";
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
@@ -115,6 +127,9 @@ export async function createRoom(name: string, { closedTo, icon, as }: { closedT
   return ((await response.json()) as { room: Room }).room;
 }
 
+/** `room` as the sidebar lists it to someone it isn't marked unread for. */
+export const listedRoom = (room: Room): SidebarRoom => ({ ...room, unread: false });
+
 /** A new open room, so tests never share a ChatRoom. Everyone is in it, whenever they sign in. */
 export const freshRoom = async (label: string): Promise<RoomId> => (await createRoom(label)).id;
 
@@ -191,3 +206,35 @@ export async function settle(...clients: Client[]): Promise<void> {
     await client.next("pong");
   }
 }
+
+/** Opens a workspace socket in `session`, as a tab does, and queues what the Workspace sends on it after its welcome. */
+export async function openWorkspaceSocket(session: Session) {
+  const response = await api("/api/socket", upgrade(session.cookie));
+  if (!response.webSocket) throw new Error(`No socket: ${response.status} ${await response.text()}`);
+  const ws = response.webSocket;
+  const frames: WorkspaceServerFrame[] = [];
+  const waiters: Array<() => void> = [];
+  ws.addEventListener("message", (event) => {
+    frames.push(JSON.parse(event.data as string) as WorkspaceServerFrame);
+    waiters.splice(0).forEach((wake) => wake());
+  });
+  const closed = closeOf(ws);
+  ws.accept();
+
+  /** The next frame, waiting for it if need be. */
+  async function next(): Promise<WorkspaceServerFrame> {
+    while (frames.length === 0) await new Promise<void>((resolve) => waiters.push(resolve));
+    return frames.shift()!;
+  }
+
+  /** Whether the Workspace still answers on it. A ping with more than its type reaches the Workspace itself. */
+  async function answers(): Promise<boolean> {
+    ws.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
+    return (await next()).type === "pong";
+  }
+
+  const welcome = await next();
+  return { ws, welcome, next, answers, closed, send: (data: string) => ws.send(data) };
+}
+
+export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;

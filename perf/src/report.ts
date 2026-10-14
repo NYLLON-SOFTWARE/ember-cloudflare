@@ -163,6 +163,37 @@ function backendSection(backend: Results["backend"]): string[] {
     }
   }
 
+  const unread = runs.filter(([, r]) => r.unread?.length);
+  if (unread.length) {
+    const { rate, messages } = unread[0]![1].unread![0]!;
+    out.push(
+      "",
+      "### Unread marks",
+      "",
+      `One member posting in a room everyone else is away from, each with only the workspace's socket open. Marked is the first message to each of them hearing the room is unread. Then ${messages} more messages, ${rate} a second, which mark nobody new: ack is the poster seeing each come back, while the Workspace applies it.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Storage", "Away", "Marked p50", "p95", "Last", "Missed", "Then ack p50", "p95", "Server CPU", "Busiest process CPU"],
+        unread.flatMap(([storage, { unread: rows }]) =>
+          rows!.map((r) => [
+            STORAGE_NAMES[storage],
+            num(r.members),
+            p(r.marked, "p50"),
+            p(r.marked, "p95"),
+            ms(r.marked?.max),
+            num(r.missed),
+            p(r.ack, "p50"),
+            p(r.ack, "p95"),
+            pct(r.window.serverCpuPercent),
+            pct(r.window.busiestProcessCpuPercent),
+          ]),
+        ),
+      ),
+    );
+  }
+
   const history = runs.filter(([, r]) => r.history);
   if (history.length) {
     const { messages, welcomes } = history[0]![1].history!;

@@ -1,5 +1,6 @@
 import type { Boost, Message, RoomId, User } from "@ember/protocol";
-import type { Db } from "./db";
+import { statement, type Db } from "./db";
+import { logEvent } from "./room-log";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts).
 
@@ -75,19 +76,23 @@ export class MessageStore {
     return row ? this.toMessage(row) : null;
   }
 
+  /** Stores a new message, logging it in the same transaction for the Workspace to mark the room unread by. */
   async create(id: string, clientMessageId: string, creator: User, body: string, now: string): Promise<Message> {
-    await this.db.run(
-      `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      this.roomId,
-      clientMessageId,
-      creator.id,
-      creator.name,
-      body,
-      now,
-      now,
-    );
+    await this.db.batch([
+      statement(
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        this.roomId,
+        clientMessageId,
+        creator.id,
+        creator.name,
+        body,
+        now,
+        now,
+      ),
+      logEvent(this.roomId, "message", creator.id, now),
+    ]);
     return { id, clientMessageId, roomId: this.roomId, creator, body, createdAt: now, updatedAt: now, boosts: [] };
   }
 

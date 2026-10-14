@@ -1,20 +1,20 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Room, type RoomId } from "@ember/protocol";
+import { CloseCode, type RoomId, type SidebarRoom } from "@ember/protocol";
 import { listDurableObjectIds, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
 import { MEMBERSHIP, ROOMS_FOR_USER } from "../src/workspace-store";
-import { api, connect, createRoom, freshRoom, roomStub, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, connect, createRoom, freshRoom, listedRoom, roomStub, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const bindings = env as unknown as Env;
 
 /** The rooms `session`'s person sees listed, of those `ids` names, in the order they're listed. */
-async function listed(session: Session, ...ids: RoomId[]): Promise<Room[]> {
+async function listed(session: Session, ...ids: RoomId[]): Promise<SidebarRoom[]> {
   const response = await api("/api/sidebar", { headers: { Cookie: session.cookie } });
   expect(response.status).toBe(200);
-  const { rooms } = (await response.json()) as { rooms: Room[] };
+  const { rooms } = (await response.json()) as { rooms: SidebarRoom[] };
   return rooms.filter((room) => ids.includes(room.id));
 }
 
@@ -59,8 +59,8 @@ describe(feature("rooms.open"), () => {
     const grace = await signIn("Grace");
 
     expect(room).toEqual({ id: expect.stringMatching(/^[0-9a-z]{16}$/), kind: "open", name: "Design", icon: null });
-    expect(await listed(ada, room.id)).toEqual([room]);
-    expect(await listed(grace, room.id)).toEqual([room]);
+    expect(await listed(ada, room.id)).toEqual([listedRoom(room)]);
+    expect(await listed(grace, room.id)).toEqual([listedRoom(room)]);
     expect(await membersOf(room.id)).toContainEqual({ user_id: grace.user.id, involvement: "mentions" });
   });
 
@@ -88,7 +88,7 @@ describe(feature("rooms.index"), () => {
     const ada = await signIn("Ada");
     const as = { closedTo: [ada.user.id] };
     const [beta, alpha, gamma] = [await createRoom("beta", as), await createRoom("Alpha", as), await createRoom("gamma", as)];
-    expect(await listed(ada, gamma.id, alpha.id, beta.id)).toEqual([beta, alpha, gamma]);
+    expect(await listed(ada, gamma.id, alpha.id, beta.id)).toEqual([beta, alpha, gamma].map(listedRoom));
   });
 });
 
@@ -106,7 +106,7 @@ describe(feature("rooms.member-only-access"), () => {
   it("lists only the rooms someone is in", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id] });
-    expect(await listed(ada, room.id)).toEqual([room]);
+    expect(await listed(ada, room.id)).toEqual([listedRoom(room)]);
     expect(await listed(grace, room.id)).toEqual([]);
   });
 
@@ -205,7 +205,7 @@ describe(feature("rooms.legacy-rooms"), () => {
     await workspaceStub().registerLegacyRooms([room.id]);
     const grace = await signIn("Grace");
 
-    const expected = { id: room.id, kind: "open", name: room.id, icon: null };
+    const expected = { id: room.id, kind: "open", name: room.id, icon: null, unread: false };
     expect(await listed(ada, room.id)).toEqual([expected]);
     expect(await listed(grace, room.id)).toEqual([expected]);
     const { welcome } = await connect(room.id, grace);

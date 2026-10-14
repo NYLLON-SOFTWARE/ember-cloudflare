@@ -43,10 +43,10 @@ function oneAtATime(task: () => Promise<void>): () => Promise<void> {
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
- * while it wasn't connected reached it. It loads again when the tab is shown after more than a minute
- * hidden too, as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's
- * page and this does on every page. `refresh` asks for it again, settling once a list asked for since
- * has come, or failing as that did.
+ * while it wasn't connected reached it. Meanwhile the socket marks rooms unread and read. It loads
+ * again when the tab is shown after more than a minute hidden too, as `refresh-room:visible` reloads
+ * it (helpers/users.rs), which ember-rust does on a room's page and this does on every page. `refresh`
+ * asks for it again, settling once a list asked for since has come, or failing as that did.
  *
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
  * or whoever another tab signed in as.
@@ -78,14 +78,19 @@ export function useSidebar(me: User, onSessionChanged: (me: User | null) => void
 
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
-      if (frame?.type !== "welcome") return;
-      if (isSomeoneElse(frame.you)) {
-        // Another tab signed this browser out and in as someone else, and the cookie went with it.
-        workspace.close();
-        return sessionChanged(frame.you);
+      switch (frame?.type) {
+        case "welcome":
+          if (isSomeoneElse(frame.you)) {
+            // Another tab signed this browser out and in as someone else, and the cookie went with it.
+            workspace.close();
+            return sessionChanged(frame.you);
+          }
+          workspace.connected();
+          return reload();
+        case "room.unread":
+        case "room.read":
+          return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
       }
-      workspace.connected();
-      reload();
     };
 
     // A refused upgrade looks like any other failure, so ask whether the session has expired, as when

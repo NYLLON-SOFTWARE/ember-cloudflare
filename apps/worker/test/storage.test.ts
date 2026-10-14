@@ -9,7 +9,7 @@ import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, workspaceS
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Scope, string[]> = {
-  room: ["boosts", "messages", "revocations"],
+  room: ["boosts", "messages", "revocations", "room_events"],
   workspace: ["accounts", "deleted_rooms", "memberships", "pending_revocations", "rooms", "sessions", "users"],
 };
 

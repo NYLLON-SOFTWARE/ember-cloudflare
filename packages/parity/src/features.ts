@@ -911,7 +911,7 @@ export const features = [
     id: "sidebar.unread",
     title: "Unread rooms",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A new message, from a person, a bot or a webhook, marks its room unread for every member except its author, people who've hidden the room and people viewing it. Edits, deletions and reactions mark nothing.",
       "You're viewing a room while a tab shows it, from when it opens until 5 seconds after the tab is hidden, and again from 5 seconds after it's shown; a connection that dropped without closing counts for up to 60 seconds.",
@@ -922,6 +922,7 @@ export const features = [
     ],
     sources: ["crates/db/src/models/room.rs", "crates/ember/src/channels/unread_rooms.rs", "crates/assets/overrides/controllers/rooms_list_controller.js", "reference/app/channels/unread_rooms_channel.rb", "crates/ember/src/channels/presence.rs", "crates/ember/src/channels/broadcasts.rs", "crates/db/src/models/membership.rs", "reference/app/javascript/controllers/presence_controller.js", "reference/app/javascript/controllers/read_rooms_controller.js"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs", "reference/test/system/unread_rooms_test.rb", "reference/test/channels/unread_rooms_channel_test.rb", "crates/ember/src/channels/tests/broadcasts_test.rs"],
+    notes: "Each room logs its new messages, in the transaction that stores them, and each time someone opens it in a shown tab (`room_events`), and sends the log to the Workspace in order, up to 50 events a call, trying again with backoff while it can't. The Workspace applies each event once: a message marks the room unread, as of when it was written, for its members but its author, those who've hidden the room and those viewing it as the event arrives (`realtime.presence`), and a read clears the reader's mark. Only the people whose marks change hear of it, on their workspace sockets (`platform.live-socket`). Unlike ember-rust, a row turns bold only where the server marked it, not also, until the sidebar reloads, in the tabs of the author and of members viewing the room elsewhere; and a room opened in a tab that loads hidden stays marked until the tab is shown. A marked row also says \"Unread\" to screen readers, which ember-rust's doesn't. Every message is logged as it's stored, so bots' and webhooks' messages will mark rooms as people's do once they exist.",
   },
   {
     id: "sidebar.activity-filter",
@@ -1654,7 +1655,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/presence.rs", "crates/db/src/models/membership.rs", "crates/ember/src/app.rs", "reference/app/channels/presence_channel.rb", "reference/app/models/membership/connectable.rb", "reference/app/javascript/controllers/presence_controller.js"],
     upstreamTests: ["reference/test/channels/presence_channel_test.rb", "crates/ember/src/channels/tests/channels_test.rs", "reference/test/models/membership_test.rb"],
-    notes: "Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Nothing uses the count yet, so there are no unread marks or pushes for it to hold back. Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.",
+    notes: "Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Opening a room in a shown tab, or showing a tab that has it open, clears its unread mark in all your tabs, and members viewing a room get no unread mark from its messages (`sidebar.unread`). There are no push notifications yet for the count to hold back. Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.",
   },
   {
     id: "realtime.who-is-here",
@@ -2447,7 +2448,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels.rs", "crates/ember/src/channels/unread_rooms.rs", "crates/ember/src/channels/read_rooms.rs", "reference/app/channels/unread_rooms_channel.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs"],
-    notes: "Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. Nothing else travels on it yet: unread and read marks, DM activity, sidebar and star changes and reload requests are still to come.",
+    notes: "Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. It also tells each person when a room is marked unread or read for them (`sidebar.unread`). DM activity, sidebar and star changes and reload requests are still to come.",
   },
   {
     id: "platform.version",
