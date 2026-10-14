@@ -1,9 +1,9 @@
-import type { Bootstrap, NewRoom, NewRoomForm, NewWorkspace, PasswordSignIn, Room, RoomChanges, RoomId, RoomList, RoomSettings, SignUp, User } from "@ember/protocol";
+import type { Bootstrap, NewRoom, NewRoomForm, NewWorkspace, PasswordSignIn, Room, RoomChanges, RoomId, RoomSettings, Sidebar, SignUp, User } from "@ember/protocol";
 
-// The session lives in an HttpOnly cookie, which the browser sends with every request and room
-// socket, so nothing here handles a token.
+// The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
+// so nothing here handles a token.
 
-export type { Room, RoomList };
+export type { Room, Sidebar };
 
 export class ApiError extends Error {
   constructor(
@@ -21,13 +21,17 @@ export class ApiError extends Error {
 /** Whether `error` says this browser's session has ended, which matters whatever page is showing. */
 export const isSignedOut = (error: unknown) => error instanceof ApiError && error.status === 401;
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, { ...init, headers });
+/** What an answer carries, or the ApiError it says why it failed with. */
+async function dataOf<T>(response: Response): Promise<T> {
   const data = (await response.json().catch(() => ({}))) as T & { error?: string; field?: string; redirect?: string };
   if (!response.ok) throw new ApiError(response.status, data.error ?? `Request failed (${response.status})`, data.field, data.redirect);
   return data;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body) headers.set("Content-Type", "application/json");
+  return dataOf<T>(await fetch(path, { ...init, headers }));
 }
 
 /** Whether Ember is set up yet, and who this browser is signed in as. */
@@ -68,9 +72,21 @@ export async function fetchMe(): Promise<User> {
   return (await request<{ user: User }>("/api/me")).user;
 }
 
-/** The rooms this person is in, and the welcome card's invitation when they're in its room. */
-export async function fetchRooms(): Promise<RoomList> {
-  return request<RoomList>("/api/rooms");
+/** A copy of someone's sidebar, and the ETag the server sent it with. */
+export interface SidebarCopy {
+  sidebar: Sidebar;
+  etag: string | null;
+}
+
+/**
+ * This person's sidebar, or `copy` while it's still current. The server keeps the sidebar out of the
+ * browser's cache, since it can hold the join code, so the app keeps its own copy, and says which it has
+ * with the copy's ETag.
+ */
+export async function fetchSidebar(copy: SidebarCopy | null): Promise<SidebarCopy> {
+  const response = await fetch("/api/sidebar", copy?.etag ? { headers: { "If-None-Match": copy.etag } } : {});
+  if (copy && response.status === 304) return copy;
+  return { sidebar: await dataOf<Sidebar>(response), etag: response.headers.get("ETag") };
 }
 
 /** Who the New room forms list: everyone active, by name. */
@@ -98,11 +114,17 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
 }
 
-export function roomSocketUrl(roomId: string): string {
-  const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, location.href);
+/** The address of a socket at `path` on this page's host, over wss on https pages. */
+function socketUrl(path: string): string {
+  const url = new URL(path, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
+
+export const roomSocketUrl = (roomId: string) => socketUrl(`/api/rooms/${encodeURIComponent(roomId)}/socket`);
+
+/** The address of a tab's workspace socket, which carries what changes outside the room it shows. */
+export const workspaceSocketUrl = () => socketUrl("/api/socket");
 
 /** Forgets the session earlier versions of the app kept in localStorage, which nothing reads now. */
 export function forgetStoredSession(): void {

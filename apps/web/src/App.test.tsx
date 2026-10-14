@@ -25,16 +25,16 @@ class QuietSocket {
   close() {}
 }
 
-/** A room socket the test answers as the room. */
+/** A room socket the test answers as the room. The tab's workspace socket stays quiet, and unlisted. */
 class RoomSocket extends QuietSocket {
   static all: RoomSocket[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
 
-  constructor() {
+  constructor(url: string) {
     super();
-    RoomSocket.all.push(this);
+    if (url.includes("/api/rooms/")) RoomSocket.all.push(this);
   }
 
   welcome(you: typeof ada) {

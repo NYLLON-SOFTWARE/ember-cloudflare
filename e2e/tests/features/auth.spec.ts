@@ -195,3 +195,25 @@ test.describe(feature("auth.sign-out"), () => {
     }
   });
 });
+
+test.describe(feature("platform.live-socket"), () => {
+  test("sends another tab to sign in from a page with no room open, through its workspace connection", async ({ browser, baseURL, rooms }) => {
+    const laptop = await administratorOn(browser, baseURL!, rooms.general);
+    try {
+      const settings = await laptop.context().newPage();
+      // Its listener goes on as the socket opens, so it can't miss the welcome.
+      const welcomed = new Promise<void>((resolve) =>
+        settings.on("websocket", (ws) => void (ws.url().endsWith("/api/socket") && ws.once("framereceived", () => resolve()))),
+      );
+      await settings.goto("/account/edit");
+      await welcomed;
+
+      await laptop.getByRole("button", { name: "Your profile" }).click();
+      await laptop.getByRole("menuitem", { name: "Log out" }).click();
+      await expect(signInHeading(laptop)).toBeVisible();
+      await expect(signInHeading(settings)).toBeVisible();
+    } finally {
+      await laptop.context().close();
+    }
+  });
+});

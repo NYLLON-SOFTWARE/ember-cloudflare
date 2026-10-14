@@ -105,6 +105,64 @@ function backendSection(backend: Results["backend"]): string[] {
     for (const [storage, { connections: r }] of connections) if (r!.stopped) out.push("", `${STORAGE_NAMES[storage]} stopped: ${r!.stopped}.`);
   }
 
+  const tabs = runs.filter(([, r]) => r.tabs);
+  if (tabs.length) {
+    const { concurrency, rooms, maxConnectP95Ms } = tabs[0]![1].tabs!;
+    out.push(
+      "",
+      "### Tabs",
+      "",
+      `Tabs opened as the app opens them, ${concurrency} at a time, until p95 time to the workspace's welcome passes ${num(maxConnectP95Ms)} ms: a room's socket, spread over ${rooms} rooms, the workspace socket, and the sidebar, loaded as the page loads and again on the welcome. Each tab is someone else signed in.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Storage", "Tabs", "Welcome p50", "p95", "Sidebar p50", "p95", "Tabs/s", "Busiest process CPU", "Server memory"],
+        tabs.flatMap(([storage, { tabs: r }]) =>
+          r!.steps.map((step) => [
+            STORAGE_NAMES[storage],
+            num(step.tabs),
+            p(step.welcome, "p50"),
+            p(step.welcome, "p95"),
+            p(step.sidebar, "p50"),
+            p(step.sidebar, "p95"),
+            num(step.tabsPerSecond, 1),
+            pct(step.window.busiestProcessCpuPercent),
+            step.window.serverRssMb === null ? "–" : `${num(step.window.serverRssMb)} MB`,
+          ]),
+        ),
+      ),
+    );
+    for (const [storage, { tabs: r }] of tabs) if (r!.stopped) out.push("", `${STORAGE_NAMES[storage]} stopped: ${r!.stopped}.`);
+
+    const reconnects = tabs.flatMap(([storage, { tabs: r }]) => (r!.reconnect ? [[storage, r!.reconnect] as const] : []));
+    if (reconnects.length) {
+      out.push(
+        "",
+        "Then every tab's sockets close, and each tab connects them again as the app does after a deploy: its room's a quarter of a second to two seconds later, and its workspace socket 2 to 10 seconds later, loading the sidebar on the welcome. Welcomes are timed from each socket's own try. All back is the time from the deploy to the last tab with both welcomes and its sidebar.",
+        "",
+      );
+      out.push(
+        table(
+          ["Storage", "Tabs", "Welcome p50", "p95", "Room welcome p50", "p95", "Sidebar p50", "p95", "All back", "Failed", "Busiest process CPU"],
+          reconnects.map(([storage, r]) => [
+            STORAGE_NAMES[storage],
+            num(r.tabs),
+            p(r.welcome, "p50"),
+            p(r.welcome, "p95"),
+            p(r.roomWelcome, "p50"),
+            p(r.roomWelcome, "p95"),
+            p(r.sidebar, "p50"),
+            p(r.sidebar, "p95"),
+            `${ms(r.allBackMs)} ms`,
+            num(r.failures),
+            pct(r.window.busiestProcessCpuPercent),
+          ]),
+        ),
+      );
+    }
+  }
+
   const history = runs.filter(([, r]) => r.history);
   if (history.length) {
     const { messages, welcomes } = history[0]![1].history!;

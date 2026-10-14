@@ -318,14 +318,15 @@ export class WorkspaceStore {
 
   /**
    * Ends the session a token's digest names, and in the same transaction queues closing its sockets
-   * with `code` in every room its person is in, due at `dueAt`. Answers whether it queued any.
+   * with `code` in every room its person is in, due at `dueAt`. Answers whether it queued any, and
+   * the session's id, if there was one to end.
    */
-  async endSession(tokenDigest: string, code: CloseCode, dueAt: number): Promise<boolean> {
-    const [queued] = await this.db.batch([
+  async endSession(tokenDigest: string, code: CloseCode, dueAt: number): Promise<{ queued: boolean; sessionId: string | null }> {
+    const [queued, ended] = await this.db.batch([
       statement(QUEUE_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, tokenDigest),
-      statement(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest),
+      statement(`DELETE FROM sessions WHERE token_digest = ? RETURNING id`, tokenDigest),
     ]);
-    return queued!.length > 0;
+    return { queued: queued!.length > 0, sessionId: (ended![0] as { id: string } | undefined)?.id ?? null };
   }
 
   /** Up to `limit` of the revocations due by `now`, those due longest first. */

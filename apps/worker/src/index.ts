@@ -1,4 +1,4 @@
-import { CloseCode, isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomList, type RoomSettings } from "@ember/protocol";
+import { CloseCode, isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomSettings, type Sidebar } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
@@ -18,6 +18,7 @@ import {
 import { AUTHORIZED_AT_HEADER, closedAtOnce, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed } from "./error-pages";
+import { jsonWithETag } from "./etag";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -29,7 +30,7 @@ import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } 
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
-import { ACCOUNT_NAME, workspace } from "./workspace";
+import { ACCOUNT_NAME, CREDENTIALS_HEADER, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
@@ -120,12 +121,15 @@ async function endSession(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
-/** The rooms the signed-in person is in, and the welcome card's invitation if they're in its room. */
-async function listRooms(request: Request, env: Env): Promise<Response> {
+/**
+ * The signed-in person's sidebar: the rooms they're in, and the welcome card's invitation if they're in
+ * its room. It can hold the join code, which no cache should keep, not even the browser's, where it
+ * would outlast signing out. So the app keeps its own copy, and sends its ETag to ask whether it's current.
+ */
+async function sidebar(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const list = credentials && (await workspace(env).rooms(credentials));
-  // It can hold the join code, which no cache should keep.
-  return list ? json(list satisfies RoomList, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+  const sidebar = credentials && (await workspace(env).sidebar(credentials));
+  return sidebar ? jsonWithETag(request, sidebar satisfies Sidebar, { "Cache-Control": "no-store" }) : problem(401, "Not signed in");
 }
 
 /** Creates an open room, or a closed one for the people it names, as New room's forms do. */
@@ -182,6 +186,17 @@ async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   return new Response(null, { status: 204 });
 }
 
+/** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
+async function connectToWorkspace(request: Request, env: Env): Promise<Response> {
+  // As with a room's, the address is only there for upgrades from the app's own pages.
+  if (request.headers.get("Upgrade") !== "websocket" || !isSameOriginUpgrade(request)) return problem(404, "Not found");
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Sign in first");
+  const headers = new Headers(request.headers);
+  headers.set(CREDENTIALS_HEADER, JSON.stringify(credentials));
+  return workspace(env).fetch(new Request(request, { headers }));
+}
+
 async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   // As with Action Cable, the address is only there for upgrades from the app's own pages.
   if (request.headers.get("Upgrade") !== "websocket" || !isSameOriginUpgrade(request)) return problem(404, "Not found");
@@ -215,7 +230,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
   if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
   if (pathname === "/api/me") return me(request, env);
-  if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
+  if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
+  if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);

@@ -63,10 +63,10 @@ describe(feature("auth.guest-sign-in"), () => {
 describe(feature("auth.require-sign-in"), () => {
   it("answers 401 to requests without a valid session", async () => {
     expect((await api("/api/me")).status).toBe(401);
-    expect((await api("/api/rooms")).status).toBe(401);
+    expect((await api("/api/sidebar")).status).toBe(401);
     for (const cookie of ["__Host-session_token=forged", unknownSession, "__Host-session_token="]) {
       expect((await api("/api/me", withCookie(cookie))).status, cookie).toBe(401);
-      expect((await api("/api/rooms", withCookie(cookie))).status, cookie).toBe(401);
+      expect((await api("/api/sidebar", withCookie(cookie))).status, cookie).toBe(401);
     }
   });
 });

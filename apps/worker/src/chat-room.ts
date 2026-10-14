@@ -32,7 +32,8 @@ export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 /** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
 const DELETED_ROOM = "deletedRoom";
 
-const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked", [CloseCode.NotFound]: "NotFound" };
+/** What a socket closed with each code says, for anyone reading the close. */
+export const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked", [CloseCode.NotFound]: "NotFound" };
 
 /**
  * A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused.
@@ -51,7 +52,7 @@ export function closedAtOnce(code: CloseCode): Response {
  * Close codes that only report how a socket closed, like 1006 for a dropped connection, and can't
  * be sent in a close frame (RFC 6455, section 7.4.1).
  */
-const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
+export const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 
 /**
  * One chat room: its WebSockets, who is present and typing, and its messages.

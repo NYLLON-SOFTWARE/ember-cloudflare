@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap, type NewWorkspace, type RoomList, type User } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap, type NewWorkspace, type Sidebar, type User } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
@@ -30,7 +30,7 @@ const join = (code: string, form: unknown, { cookie, headers = {} }: { cookie?: 
 /** The join link's page as the browser asks for it, with the built app standing in. */
 const page = (path: string, init: RequestInit<IncomingRequestCfProperties> = {}) => apiWith({ ASSETS: builtPages }, path, { redirect: "manual", ...init });
 
-const roomList = async (cookie: string) => (await (await api("/api/rooms", { headers: { Cookie: cookie } })).json()) as RoomList;
+const roomList = async (cookie: string) => (await (await api("/api/sidebar", { headers: { Cookie: cookie } })).json()) as Sidebar;
 
 const count = async (table: string) => ((await workspaceSql(`SELECT count(*) AS n FROM ${table}`)) as Array<{ n: number }>)[0]!.n;
 
@@ -153,7 +153,7 @@ describe(feature("auth.sign-up"), () => {
     await setUp();
     const code = await joinCode();
     expect(JSON.stringify(await ((await api("/api/bootstrap")).json() as Promise<Bootstrap>))).not.toContain(code);
-    expect((await api("/api/rooms")).status).toBe(401);
+    expect((await api("/api/sidebar")).status).toBe(401);
   });
 });
 
@@ -177,7 +177,7 @@ describe(feature("rooms.invitation-card"), () => {
     // Including people who joined after it was made.
     const member = cookieOf(await join(code, grace));
     expect((await roomList(member)).invitation).toEqual({ roomId: administrator.allTalk.id, joinCode: code });
-    expect((await api("/api/rooms", { headers: { Cookie: member } })).headers.get("Cache-Control")).toBe("no-store");
+    expect((await api("/api/sidebar", { headers: { Cookie: member } })).headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("gives nobody else the invitation", async () => {

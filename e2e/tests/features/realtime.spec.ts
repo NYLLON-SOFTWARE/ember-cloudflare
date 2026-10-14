@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import type { WebSocketRoute } from "@playwright/test";
+import { ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Members } from "./fixtures";
 
 test.describe(feature("realtime.who-is-here"), () => {
@@ -69,7 +70,7 @@ test.describe(feature("realtime.reconnect"), () => {
     let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
     const ada = await members.signIn("Ada", {
       beforeOpen: (page) =>
-        page.routeWebSocket(/\/socket/, (ws) => {
+        page.routeWebSocket(ROOM_SOCKET, (ws) => {
           if (!online) return ws.close();
           connection = { page: ws, server: ws.connectToServer() };
         }),

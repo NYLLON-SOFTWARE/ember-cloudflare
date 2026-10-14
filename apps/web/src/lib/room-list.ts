@@ -1,6 +1,6 @@
-import type { Room, RoomId, RoomList } from "@ember/protocol";
+import type { Room, RoomId, Sidebar } from "@ember/protocol";
 
-// Someone's rooms keep the order `GET /api/rooms` gives them, the order they were made, which `/` and
+// Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists them by name, as ember-rust's does (membership.rs), compared as
 // SQLite's NOCASE compares it, folding only ASCII letters, then by id.
 
@@ -42,7 +42,7 @@ export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId:
  * way at a time, so it's asked for again only once the last has come or failed to.
  */
 export interface RoomListState {
-  list: RoomList | null;
+  list: Sidebar | null;
   /** While a list is on its way, the changes made since it was asked for, which it may not show; otherwise null. */
   pending: RoomChange[] | null;
 }
@@ -50,9 +50,9 @@ export interface RoomListState {
 export const NO_ROOM_LIST: RoomListState = { list: null, pending: [] };
 
 /** A change made here, or the list asked for, arriving, or failing to. */
-export type RoomListAction = RoomChange | { type: "asked" } | { type: "loaded"; list: RoomList } | { type: "unanswered" };
+export type RoomListAction = RoomChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
 
-const changed = (list: RoomList, change: RoomChange): RoomList => ({
+const changed = (list: Sidebar, change: RoomChange): Sidebar => ({
   ...list,
   rooms: change.type === "saved" ? withRoom(list.rooms, change.room) : list.rooms.filter((room) => room.id !== change.roomId),
 });
@@ -63,8 +63,9 @@ export function roomListReducer(state: RoomListState, action: RoomListAction): R
       return { ...state, pending: [] };
     case "loaded":
       return { list: (state.pending ?? []).reduce(changed, action.list), pending: null };
+    // When the first list fails to arrive, there are no rooms to show, rather than a list loading for good.
     case "unanswered":
-      return { ...state, pending: null };
+      return { list: state.list ?? { rooms: [], invitation: null }, pending: null };
     default:
       return { list: state.list && changed(state.list, action), pending: state.pending && [...state.pending, action] };
   }

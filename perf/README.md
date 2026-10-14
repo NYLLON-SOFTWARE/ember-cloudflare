@@ -56,12 +56,17 @@ and talk to rooms over real WebSockets, sending the same frames as the web app.
 | `throughput` | Four members posting as fast as acknowledgements come back, 8 in flight each | The most one room, which is one Durable Object, can write per second |
 | `fanout` | One member posting 10 a second into rooms of 10, 100, 250 and 500 | What each extra member costs a broadcast, and when the last one gets it |
 | `connections` | One room grown in steps from 100 to 1,000 members until p95 time-to-welcome passes 2 s | How many sockets one room holds well, and the presence traffic each join causes |
+| `tabs` | Tabs opened as the web app opens them, in steps from 250 to 1,000, each someone else with a room's socket, the workspace socket and the sidebar; then every tab reconnecting as after a deploy | How many tabs the Workspace, one Durable Object that every tab's sockets and sidebar ask, holds well, and how long a deploy's reconnects take |
 | `history` | A 2,000-message room: 30 fresh joins, then paging back to the start three times | The read path, where DO SQLite and D1 differ most |
 
 Alongside each measurement it records the CPU used by the `wrangler` and `workerd` processes. A
 room's Durable Object runs on one thread, so "busiest process" near 100% means the room itself is
 the bottleneck. It also records the load generator's own event-loop delay: when that's more than a
 few milliseconds, the latencies include time the client spent queued rather than the server.
+
+The `tabs` scenario's reconnect closes the sockets from the client and waits for their goodbyes to
+finish, since a deploy drops sockets without any. The Workspace keeps the sessions it has looked up in
+memory, which a deploy would clear, so its checks after the reconnect read less than they would.
 
 Receivers check that messages arrive in id order. Ids are assigned in arrival order, so "out of
 order" means writes finished in a different order than they started.
@@ -99,6 +104,7 @@ order" means writes finished in a different order than they started.
 | `src/main.ts` | The command line |
 | `src/server.ts` | Starts `wrangler dev` per storage backend and samples its CPU and memory |
 | `src/room-client.ts` | A minimal room participant over one WebSocket |
+| `src/tab-client.ts` | A tab as the web app opens one: a room's socket, the workspace socket and the sidebar |
 | `src/load.ts` | Shared helpers: joining, rate control, seeding, measurement windows |
 | `src/scenarios/` | The backend scenarios |
 | `src/web/` | Bundle sizes, Lighthouse, and the in-browser render timing |

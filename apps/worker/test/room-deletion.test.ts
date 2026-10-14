@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type RoomId, type RoomList } from "@ember/protocol";
+import { CloseCode, type RoomId, type Sidebar } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +36,7 @@ const remove = (roomId: RoomId, session: Session) => api(`/api/rooms/${roomId}`,
 const promote = (session: Session) => workspaceSql("UPDATE users SET role = 1 WHERE id = ?", session.user.id);
 
 /** The ids of the rooms `session`'s person sees listed. */
-const listed = async (session: Session) => ((await (await api("/api/rooms", { headers: { Cookie: session.cookie } })).json()) as RoomList).rooms.map((room) => room.id);
+const listed = async (session: Session) => ((await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as Sidebar).rooms.map((room) => room.id);
 
 /** Waits for the Workspace to deliver every revocation it queued, which the rooms have finished with by then. */
 const delivered = () => vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });

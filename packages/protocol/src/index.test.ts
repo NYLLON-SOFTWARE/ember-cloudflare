@@ -13,8 +13,11 @@ import {
   parseClientFrame,
   parseNewRoom,
   parseRoomChanges,
+  parseServerFrame,
   parseSignUp,
+  parseWorkspaceClientFrame,
   ROOM_ICON_NAMES,
+  type WorkspaceServerFrame,
 } from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
@@ -66,6 +69,22 @@ describe(feature("realtime.reconnect"), () => {
     for (const clientMessageIds of [[], "c1", ["c1", 2], ["c1", ""], ["x".repeat(65)], Array.from({ length: MAX_CHECKED_MESSAGES + 1 }, (_, i) => `c${i}`)]) {
       expect(check(clientMessageIds), JSON.stringify(clientMessageIds)).toBeNull();
     }
+  });
+});
+
+describe(feature("platform.live-socket"), () => {
+  it("takes only pings on the workspace socket", () => {
+    expect(parseWorkspaceClientFrame('{"type":"ping"}')).toEqual({ type: "ping" });
+    expect(parseWorkspaceClientFrame('{"type":"ping","nonce":"n1"}')).toEqual({ type: "ping" });
+    for (const raw of ['{"type":"typing.start"}', '{"type":"message.create","clientMessageId":"c1","body":"hi"}', "[]", "null", "{"]) {
+      expect(parseWorkspaceClientFrame(raw), raw).toBeNull();
+    }
+  });
+
+  it("reads the workspace socket's frames as the server sends them", () => {
+    const welcome: WorkspaceServerFrame = { type: "welcome", you: { id: "u1", name: "Ada" } };
+    expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
+    expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
   });
 });
 
