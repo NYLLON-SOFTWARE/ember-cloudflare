@@ -20,7 +20,7 @@ test.describe(feature("ui.layout"), () => {
     const roomsBox = await box(rooms);
     expect(roomsBox.x).toBeGreaterThan(80);
     expect(roomsBox.x + roomsBox.width).toBeLessThanOrEqual(360);
-    expect(await box(rail.getByRole("button", { name: "Home" }))).toMatchObject({ width: 56, height: 56 });
+    expect(await box(rail.getByRole("link", { name: "Home", exact: true }))).toMatchObject({ width: 56, height: 56 });
     await expect(ada.page.getByRole("button", { name: "Open conversations" })).toBeHidden();
     await expect(ada.composer()).toBeInViewport({ ratio: 1 });
   });

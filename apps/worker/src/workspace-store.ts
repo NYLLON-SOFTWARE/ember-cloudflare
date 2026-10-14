@@ -1,4 +1,4 @@
-import type { CloseCode, HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
+import type { CloseCode, HelpContact, Room, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 
@@ -75,6 +75,12 @@ const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, user
   FROM sessions JOIN users ON users.id = sessions.user_id
   WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
 
+interface RoomToChangeRow extends Room {
+  can_administer: number;
+}
+
+const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name }, canAdminister: row.can_administer === 1 });
+
 const storedSession = (row: SessionRow): StoredSession => ({
   id: row.session_id,
   user: { id: row.user_id, name: row.name },
@@ -112,6 +118,22 @@ const DELIVERY_ATTEMPTS = 10;
 
 /** Whether someone is in a room, asked on every room socket's upgrade. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
+
+/** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
+export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
+
+/** The same, with whether each is in a room, for its settings. */
+export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
+  FROM users LEFT JOIN memberships ON memberships.room_id = ? AND memberships.user_id = users.id
+  WHERE users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`;
+
+/**
+ * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
+ * room's creator can, as ember-rust's `can_administer` says (user.rs).
+ */
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
 
 // Memberships are granted with one statement for everyone, rather than a row at a time, since both
 // backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
@@ -315,6 +337,31 @@ export class WorkspaceStore {
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /** Everyone active, by name. */
+  async activePeople(): Promise<User[]> {
+    return this.db.all<User>(ACTIVE_PEOPLE);
+  }
+
+  /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it. */
+  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: Room; canAdminister: boolean } | null> {
+    const [row] = await this.db.all<RoomToChangeRow>(ROOM_TO_CHANGE, roomId, userId);
+    return row ? roomToChange(row) : null;
+  }
+
+  /** The same, with everyone active and whether they're in the room, read together. */
+  async roomSettings(roomId: RoomId, userId: UserId): Promise<RoomSettings | null> {
+    const [[row], people] = (await this.db.batch([statement(ROOM_TO_CHANGE, roomId, userId), statement(ACTIVE_PEOPLE_IN_ROOM, roomId)])) as [
+      RoomToChangeRow[],
+      Array<User & { member: number }>,
+    ];
+    return row ? { ...roomToChange(row), people: people.map((person) => ({ ...person, member: person.member === 1 })) } : null;
+  }
+
+  /** Renames a room. */
+  async renameRoom(roomId: RoomId, name: string, now: string): Promise<void> {
+    await this.db.run(`UPDATE rooms SET name = ?, updated_at = ? WHERE id = ?`, name, now, roomId);
   }
 
   /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */

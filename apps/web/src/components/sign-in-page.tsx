@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
 import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type User } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
-import { AUTH_FORM, AUTH_INPUT, AuthCard, AuthHeading, AuthPage, Field, Problem, SubmitButton, useTitle, type SignedOutWorkspace } from "@/components/auth-page";
+import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
+import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Flash } from "@/components/flash";
 import { GuestSignIn } from "@/components/guest-sign-in";
 import { Input } from "@/components/ui/input";
+import { useTitle } from "@/hooks/use-title";
 import { ApiError, signIn } from "@/lib/api";
 
 // ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
@@ -73,7 +75,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                   placeholder="Enter your email address"
                   value={emailAddress}
                   onChange={(event) => setEmailAddress(event.target.value)}
-                  className={AUTH_INPUT}
+                  className={FIELD_INPUT}
                 />
               </Field>
               <Field id="password" label="Password">
@@ -87,7 +89,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                   maxLength={MAX_PASSWORD_LENGTH}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className={AUTH_INPUT}
+                  className={FIELD_INPUT}
                 />
               </Field>
               <SubmitButton disabled={busy}>Sign in</SubmitButton>

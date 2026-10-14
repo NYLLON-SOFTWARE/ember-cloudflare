@@ -1,4 +1,5 @@
 import { MessagesAdd } from "@/components/icons/campfire";
+import { roomPath } from "@/hooks/use-route";
 import type { Room } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +14,7 @@ export function Sidebar({ rooms, currentRoomId, onSelect }: { rooms: Room[]; cur
         {rooms.map((room) => (
           <a
             key={room.id}
-            href={`/rooms/${room.id}`}
+            href={roomPath(room.id)}
             aria-current={room.id === currentRoomId ? "page" : undefined}
             onClick={(event) => {
               if (event.metaKey || event.ctrlKey || event.shiftKey) return;

@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
+import type { NewRoom } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchMe, fetchRooms, forgetStoredSession, joinWorkspace, roomSocketUrl, signOut } from "./api";
+import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRooms, fetchRoomSettings, forgetStoredSession, joinWorkspace, roomSocketUrl, signOut } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -59,5 +60,32 @@ describe(feature("realtime.connection"), () => {
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
     expect(roomSocketUrl("general")).toBe("wss://ember.example/api/rooms/general/socket");
     vi.unstubAllGlobals();
+  });
+});
+
+describe(feature("rooms.create-closed"), () => {
+  it("asks for New room's people, and creates a room with the people chosen", async () => {
+    const leads = { id: "leads", name: "Leads", kind: "closed" };
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ people: [] }));
+    expect(await fetchNewRoomForm()).toEqual({ people: [] });
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms/new", expect.anything());
+
+    fetch.mockResolvedValueOnce(Response.json({ room: leads }, { status: 201 }));
+    const room: NewRoom = { kind: "closed", name: "Leads", memberIds: ["u1", "u2"] };
+    expect(await createRoom(room)).toEqual(leads);
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms", expect.objectContaining({ method: "POST", body: JSON.stringify(room) }));
+  });
+});
+
+describe(feature("rooms.settings-page"), () => {
+  it("reads and changes a room by its id, escaped", async () => {
+    const café = { id: "café", name: "Café", kind: "open" };
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ room: café, canAdminister: true, people: [] }));
+    expect(await fetchRoomSettings("café")).toEqual({ room: café, canAdminister: true, people: [] });
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms/caf%C3%A9/settings", expect.anything());
+
+    fetch.mockResolvedValueOnce(Response.json({ room: { ...café, name: "Coffee" } }));
+    expect(await changeRoom("café", { name: "Coffee" })).toEqual({ ...café, name: "Coffee" });
+    expect(fetch).toHaveBeenLastCalledWith("/api/rooms/caf%C3%A9", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Coffee" }) }));
   });
 });

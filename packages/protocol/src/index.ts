@@ -44,6 +44,30 @@ export interface RoomList {
 /** A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names. */
 export type NewRoom = { kind: "open"; name: string } | { kind: "closed"; name: string; memberIds: UserId[] };
 
+/** Someone active, as a room's settings list them, with whether they're in the room. */
+export interface RoomPerson extends User {
+  member: boolean;
+}
+
+/** What `GET /api/rooms/new` answers for the New room forms: everyone active, by name. */
+export interface NewRoomForm {
+  people: User[];
+}
+
+/** What `GET /api/rooms/<id>/settings` answers for a room's settings page. */
+export interface RoomSettings {
+  room: Room;
+  /** Whether you can change the room, as administrators and its creator can. Others see it read-only. */
+  canAdminister: boolean;
+  /** Everyone active, by name. */
+  people: RoomPerson[];
+}
+
+/** What `PATCH /api/rooms/<id>` changes in a room: so far its name. */
+export interface RoomChanges {
+  name?: string;
+}
+
 /** The workspace, which first run creates. */
 export interface Account {
   name: string;
@@ -302,6 +326,15 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   return Array.isArray(memberIds) && memberIds.length <= MAX_LISTED_USERS && memberIds.every(id)
     ? { kind: r.kind, name, memberIds }
     : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** Parses an untrusted change to a room. Returns why it's refused instead of the changes. */
+export function parseRoomChanges(data: unknown): RoomChanges | string {
+  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  const r = data as Record<string, unknown>;
+  if (r.name === undefined) return {};
+  const name = text(r.name, MAX_ROOM_NAME_LENGTH);
+  return name ? { name } : `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
 }
 
 /**

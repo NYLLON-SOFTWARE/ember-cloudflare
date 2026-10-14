@@ -1,15 +1,23 @@
 import { Alert } from "@/components/icons/campfire";
+import { cn } from "@/lib/utils";
 
 /**
  * ember-rust's flash (crates/views/templates/layouts/application.html, styled in zz-ember.css): a red
  * notice 12px below the header, 56px tall on phones, that fades in and out, then goes. Only its
  * alerts are ported yet. It grows to fit its text, up to the screen's width less 24px, where
  * ember-rust's stops at half the screen's width, as Campfire's flash.css centers it from the
- * middle, and so wraps early on a phone.
+ * middle, and so wraps early on a phone. In the workspace it's centered over the page beside the
+ * rail and sidebar, where they show.
  */
-export function Flash({ children, onDone }: { children: string; onDone: () => void }) {
+export function Flash({ children, workspace = false, onDone }: { children: string; workspace?: boolean; onDone: () => void }) {
   return (
-    <div onAnimationEnd={onDone} className="pointer-events-none fixed top-[calc(var(--spacing-header)+12px)] left-1/2 max-md:top-[calc(56px+12px)] z-30 flex w-max max-w-[calc(100dvw-24px)] -translate-x-1/2 justify-center">
+    <div
+      onAnimationEnd={onDone}
+      className={cn(
+        "pointer-events-none fixed top-[calc(var(--spacing-header)+12px)] left-1/2 max-md:top-[calc(56px+12px)] z-30 flex w-max max-w-[calc(100dvw-24px)] -translate-x-1/2 justify-center",
+        workspace && "md:left-[calc((100%+var(--spacing-rail)+var(--spacing-sidebar))/2)] md:max-w-[calc(100dvw-var(--spacing-rail)-var(--spacing-sidebar)-24px)]",
+      )}
+    >
       <div
         role="alert"
         aria-atomic="true"

@@ -22,7 +22,7 @@ export function RoomView({ room, invitation, me, onSessionChanged }: Props) {
 
   return (
     <>
-      <RoomHeader name={room.name} present={state.present} status={state.status} />
+      <RoomHeader room={room} present={state.present} status={state.status} />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
       <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (

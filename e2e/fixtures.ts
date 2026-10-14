@@ -66,11 +66,13 @@ export async function createRoom(request: APIRequestContext, session: Session, n
 /**
  * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
  * own instead of among every other test's open rooms. Given a `joinCode`, it's the room with the
- * welcome card too, inviting people with that code.
+ * welcome card too, inviting people with that code. Creating a room goes straight through.
  */
 export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
   const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
-  await page.route("**/api/rooms", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open" }], invitation } satisfies RoomList }));
+  await page.route("**/api/rooms", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: { rooms: [{ ...room, kind: "open" }], invitation } satisfies RoomList }) : route.fallback(),
+  );
 }
 
 /**

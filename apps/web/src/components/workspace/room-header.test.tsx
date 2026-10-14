@@ -1,19 +1,22 @@
 import { feature } from "@ember/parity";
-import type { User } from "@ember/protocol";
+import type { Room, User } from "@ember/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
+const general: Room = { id: "general", name: "general", kind: "open" };
+
+afterEach(() => history.replaceState(null, "", "/"));
 
 /** The header inside the drawer's Sheet, which its menu button opens, as in the workspace. */
 function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
   return render(
     <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader name="general" present={[]} status="open" {...props} />
+      <RoomHeader room={general} present={[]} status="open" {...props} />
     </Sheet>,
   );
 }
@@ -39,6 +42,17 @@ describe(feature("ui.room-header"), () => {
     renderHeader();
     expect(screen.getByRole("banner")).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
+  });
+});
+
+describe(feature("rooms.settings-page"), () => {
+  it("links to the room's settings at the address for its kind, showing them in place", async () => {
+    renderHeader({ room: { id: "leads", name: "Leads", kind: "closed" } });
+    const settings = screen.getByRole("link", { name: "Settings for this room" });
+    expect(settings).toHaveAttribute("title", "Conversation settings");
+    expect(settings).toHaveAttribute("href", "/rooms/closeds/leads/edit");
+    await userEvent.click(settings);
+    expect(location.pathname).toBe("/rooms/closeds/leads/edit");
   });
 });
 
