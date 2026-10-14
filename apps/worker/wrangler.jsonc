@@ -3,6 +3,9 @@
   "name": "ember",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
+  // Link previews fetch pages people name: this sends those fetches out over the public Internet even
+  // when they name a host in this Worker's own zone, rather than straight to its origin.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   // `enabled` alone turns on logs; traces time each fetch, RPC and Durable Object SQL statement.
   "observability": { "enabled": true, "traces": { "enabled": true } },
   // Lets production CPU and heap profiles and exception stacks name our source files.
@@ -17,19 +20,21 @@
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,
-  // one Workspace object for what the rooms share, and short-lived PasswordHasher objects, which
-  // have the CPU time a password's hash takes.
+  // one Workspace object for what the rooms share, and short-lived PasswordHasher and Unfurler
+  // objects, which have the CPU time a password's hash and a link's preview take.
   "durable_objects": {
     "bindings": [
       { "name": "CHAT_ROOM", "class_name": "ChatRoom" },
       { "name": "WORKSPACE", "class_name": "Workspace" },
-      { "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" }
+      { "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" },
+      { "name": "UNFURLER", "class_name": "Unfurler" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ChatRoom"] },
     { "tag": "v2", "new_sqlite_classes": ["Workspace"] },
-    { "tag": "v3", "new_sqlite_classes": ["PasswordHasher"] }
+    { "tag": "v3", "new_sqlite_classes": ["PasswordHasher"] },
+    { "tag": "v4", "new_sqlite_classes": ["Unfurler"] }
   ],
 
   "vars": {

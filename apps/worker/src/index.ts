@@ -18,11 +18,13 @@ import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
+import { unfurlLink } from "./unfurl";
 import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
+export { Unfurler } from "./unfurl";
 export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
@@ -183,6 +185,7 @@ export default {
     if (pathname === "/api/me") return me(request, env);
     if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
     if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
+    if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
 
     const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
     if (socket) {

@@ -87,6 +87,9 @@ importers:
       '@ember/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      parse5:
+        specifier: ^8.0.1
+        version: 8.0.1
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: ^1.4.0

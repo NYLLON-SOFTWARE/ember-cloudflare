@@ -1524,7 +1524,7 @@ export const features = [
     id: "unfurl.endpoint",
     title: "Link preview lookup",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`POST /unfurl_link` needs a session and takes `url` as JSON or a form. A missing or blank `url` is 400, and one sent as a hash or an array is 204.",
       "It answers 200 JSON (title, url, image, description) when, after tags are stripped, the page has a title, a description and a URL. Otherwise it answers 204, as it does when the whole lookup, image check included, takes over 10 seconds.",
@@ -1537,12 +1537,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/unfurl_links.rs", "crates/ember/src/integrations/opengraph.rs", "crates/ember/src/integrations/opengraph/metadata.rs", "crates/ember/src/integrations/opengraph/document.rs", "crates/ember/src/integrations/opengraph/html.rs", "crates/ember/src/integrations/opengraph/entities.rs", "reference/app/controllers/unfurl_links_controller.rb"],
     upstreamTests: ["reference/test/controllers/unfurl_links_controller_test.rb", "crates/ember/src/integrations/opengraph/tests.rs", "crates/ember/src/controllers/unfurl_links.rs", "crates/ember/src/integrations/opengraph/html.rs", "crates/ember/src/integrations/opengraph/document.rs", "crates/ember/src/integrations/opengraph/metadata.rs"],
+    notes: "`POST /api/unfurl` takes JSON `{url}` from the app's own pages, not a form, and its tests replay ember-rust's 90 recorded previews (`apps/worker/test/fixtures`). It answers 429 to anyone who asks for more than 30 previews in a minute, which ember-rust doesn't limit, and 204 for this Ember's own links, which the app never shows a preview of. Titles and descriptions come back as plain text rather than HTML-escaped, so \"Tom & Jerry\" can show as written, and a page keeps its non-ASCII characters without a meta charset. Where ember-rust answers 500 (`mailto:foo`, an X post fxtwitter has nothing for, markup Gumbo refuses), this answers 204. A title or description is cut to 4,096 UTF-16 code units before its tags are stripped, as the app shows at most 560 characters. Each preview is made in a short-lived `Unfurler` Durable Object, whose requests get the CPU time a 5 MiB page takes.",
   },
   {
     id: "unfurl.guard",
     title: "Link preview safety limits",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Only http(s) URLs are fetched, and only when their host is a public address or a plain name (ASCII letters, digits, hyphens and dots, up to 255 bytes) resolving to one. Numeric hosts such as `2130706433` or `0x7f.1` count as addresses, and `http://127.0.0.1/secret` gets no preview.",
       "Private, loopback, link-local, CGNAT, documentation, multicast and other reserved addresses are refused in IPv4 and IPv6, as are IPv4-mapped and IPv4-compatible IPv6 addresses (even of public IPv4) and IPv6 outside IANA's allocated unicast space; well-known NAT64 addresses are judged by the IPv4 they carry.",
@@ -1554,6 +1555,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/integrations/net/guard.rs", "crates/ember/src/integrations/net/http.rs", "crates/ember/src/integrations/opengraph/fetch.rs", "crates/ember/src/integrations/opengraph/location.rs", "reference/lib/restricted_http/private_network_guard.rb"],
     upstreamTests: ["crates/ember/src/integrations/opengraph/tests.rs", "reference/test/models/opengraph/fetch_test.rb", "reference/test/lib/restricted_http/private_network_guard_test.rb", "crates/ember/src/integrations/net/guard.rs"],
+    notes: "A Worker's `fetch` connects by name, so the address the guard checked can't be pinned: a host must resolve only to public addresses (one with a private answer too is refused), a host written as an address is never fetched, public or not, and a name whose answers change between the guard's lookup and the fetch's own (DNS rebinding) isn't caught the way pinning catches it. Names are looked up once per preview with Cloudflare's DNS over HTTPS, and the `global_fetch_strictly_public` flag sends every fetch over the public Internet, even to this Worker's own zone. A preview makes at most 45 subrequests, of the 50 a request gets on Workers Free, and goes on without anything past them. The 10 seconds per preview stand, 5 seconds bound the wait for each response and each read of its body, and a limit of 30 previews a minute per person stands in for 16 at a time. Requests send `Accept: */*` and an Emberbot User-Agent, since sites that serve their tags only to bots, fxtwitter among them, look for \"bot\".",
   },
   {
     id: "unfurl.render",
