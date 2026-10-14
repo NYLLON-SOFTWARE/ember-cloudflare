@@ -1,4 +1,19 @@
-import type { Bootstrap, NewRoom, NewRoomForm, NewWorkspace, PasswordSignIn, Room, RoomChanges, RoomId, RoomSettings, Sidebar, SignUp, User } from "@ember/protocol";
+import {
+  roomSocketQuery,
+  type Bootstrap,
+  type NewRoom,
+  type NewRoomForm,
+  type NewWorkspace,
+  type PasswordSignIn,
+  type Room,
+  type RoomChanges,
+  type RoomId,
+  type RoomSettings,
+  type RoomSocketParams,
+  type Sidebar,
+  type SignUp,
+  type User,
+} from "@ember/protocol";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
 // so nothing here handles a token.
@@ -121,7 +136,8 @@ function socketUrl(path: string): string {
   return url.toString();
 }
 
-export const roomSocketUrl = (roomId: string) => socketUrl(`/api/rooms/${encodeURIComponent(roomId)}/socket`);
+/** The address of a room's socket, which tells the room what `params` says about the tab. */
+export const roomSocketUrl = (roomId: string, params: RoomSocketParams) => socketUrl(`/api/rooms/${encodeURIComponent(roomId)}/socket${roomSocketQuery(params)}`);
 
 /** The address of a tab's workspace socket, which carries what changes outside the room it shows. */
 export const workspaceSocketUrl = () => socketUrl("/api/socket");

@@ -56,9 +56,9 @@ describe(feature("auth.sign-out"), () => {
 
 describe(feature("realtime.connection"), () => {
   it("opens room sockets at the room's own address, over wss on https pages", () => {
-    expect(roomSocketUrl("general")).toBe("ws://localhost:3000/api/rooms/general/socket");
+    expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1");
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
-    expect(roomSocketUrl("general")).toBe("wss://ember.example/api/rooms/general/socket");
+    expect(roomSocketUrl("general", { visible: false })).toBe("wss://ember.example/api/rooms/general/socket?visible=0");
     vi.unstubAllGlobals();
   });
 });

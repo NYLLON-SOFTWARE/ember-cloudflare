@@ -210,6 +210,8 @@ export type ClientFrame =
   | { type: "history.before"; before: string; limit?: number }
   /** Asks which of these messages the room stored from the sender, after a closed socket lost their confirmations. */
   | { type: "message.check"; clientMessageIds: string[] }
+  /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
+  | { type: "presence.visible"; visible: boolean }
   | { type: "ping" };
 
 export type ServerFrame =
@@ -248,6 +250,23 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: User }
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What a room socket's address tells the room about the tab opening it. */
+export interface RoomSocketParams {
+  /** Whether the tab is shown, which `presence.visible` frames update. */
+  visible: boolean;
+}
+
+/** The query that carries `params` on a room socket's address. */
+export const roomSocketQuery = ({ visible }: RoomSocketParams) => `?visible=${visible ? 1 : 0}`;
+
+/** The part of a `URLSearchParams` that reading a socket's address needs, which the protocol, made for every runtime, names itself. */
+interface SearchParams {
+  get(name: string): string | null;
+}
+
+/** What a room socket's address says about its tab, as `roomSocketQuery` wrote it. Without it, the tab counts as shown. */
+export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams => ({ visible: query.get("visible") !== "0" });
 
 export const MAX_MESSAGE_LENGTH = 10_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
@@ -327,6 +346,8 @@ export function parseClientFrame(raw: string): ClientFrame | null {
         ? { type: f.type, clientMessageIds: ids }
         : null;
     }
+    case "presence.visible":
+      return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
     case "typing.start":
     case "typing.stop":
     case "ping":

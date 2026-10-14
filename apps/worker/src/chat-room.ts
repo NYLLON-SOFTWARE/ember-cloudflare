@@ -3,6 +3,7 @@ import {
   CloseCode,
   HISTORY_PAGE_SIZE,
   parseClientFrame,
+  parseRoomSocketParams,
   type ClientFrame,
   type RoomId,
   type ServerFrame,
@@ -14,10 +15,10 @@ import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { MessageStore } from "./store";
+import type { Viewing } from "./viewing";
 
 /** What each socket remembers across hibernation. */
-interface Attachment {
-  user: User;
+interface Attachment extends Viewing {
   roomId: RoomId;
   /** Set once the room has closed the socket for a revocation, which announced that it left. */
   revoked?: true;
@@ -79,6 +80,7 @@ export class ChatRoom extends DurableObject<Env> {
     const sessionId = request.headers.get(SESSION_HEADER);
     const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
+    const { visible } = parseRoomSocketParams(new URL(request.url).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId)];
@@ -90,7 +92,7 @@ export class ChatRoom extends DurableObject<Env> {
       if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
       this.ctx.acceptWebSocket(server, tags);
-      server.serializeAttachment({ user, roomId } satisfies Attachment);
+      server.serializeAttachment({ user, roomId, visible, heardAt: Date.now() } satisfies Attachment);
 
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
       // Everyone else has the list from their own welcome, so they only hear who's new.
@@ -248,6 +250,10 @@ export class ChatRoom extends DurableObject<Env> {
         const stored = await store.storedClientMessageIds(user, frame.clientMessageIds);
         const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
         return this.send(ws, { type: "message.checked", stored, missing });
+      }
+      case "presence.visible": {
+        const attachment = ws.deserializeAttachment() as Attachment;
+        return ws.serializeAttachment({ ...attachment, visible: frame.visible, heardAt: Date.now() } satisfies Attachment);
       }
       case "ping":
         return this.send(ws, { type: "pong" });
