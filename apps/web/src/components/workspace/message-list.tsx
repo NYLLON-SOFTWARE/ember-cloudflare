@@ -14,7 +14,8 @@ interface Props {
   invitation: Invitation | null;
   state: RoomState;
   me: User;
-  actions: MessageActions;
+  /** What can be done to the messages, or null for a room that's gone, whose messages stay as they are. */
+  actions: MessageActions | null;
   onLoadOlder: () => void;
 }
 

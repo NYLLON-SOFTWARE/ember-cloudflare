@@ -41,7 +41,7 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
             </button>
           </div>
         )}
-        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={messageActions} onLoadOlder={loadOlder} />
+        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={gone ? null : messageActions} onLoadOlder={loadOlder} />
         {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.status !== "open"} onSend={postMessage} onTyping={typing} />}
       </main>
     </>

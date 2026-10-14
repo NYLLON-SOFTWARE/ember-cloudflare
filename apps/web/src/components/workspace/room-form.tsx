@@ -56,9 +56,10 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
         <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{name}</h2>
       )}
 
-      <section className="my-4 rounded-[10px] border bg-surface px-[1ch]">
+      {/* Saving sends who the switches showed when Save was pressed, so they wait until it's done. */}
+      <fieldset disabled={saving} className="my-4 min-w-0 rounded-[10px] border bg-surface px-[1ch]">
         <People everyone={everyone} groups={groups} mark={mark} />
-      </section>
+      </fieldset>
 
       {canAdminister && <SubmitButton disabled={saving}>Save</SubmitButton>}
     </form>

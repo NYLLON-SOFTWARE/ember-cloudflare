@@ -628,7 +628,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/user.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "`GET /api/rooms/<id>/settings` and `PATCH /api/rooms/<id>` find the room with `WorkspaceStore.roomToChange`, answering 404, then 403, then 422 in ember-rust's order, and the app goes to `/` with the alert on a 404. Renaming, switching access and choosing members go through it; icons and deletion will too.",
+    notes: "`GET /api/rooms/<id>/settings` and `PATCH /api/rooms/<id>` find the room with `WorkspaceStore.roomToChange`, answering 404, then 403, then 422 in ember-rust's order, and the app goes to `/` with the alert on a 404. Renaming, switching access and choosing members go through it; icons and deletion will too. The Workspace makes these changes one at a time: on D1 other requests run between a change's check and its write, and without that someone another change had just taken out of a room could still open it to everyone.",
   },
   {
     id: "rooms.convert-access",
@@ -750,7 +750,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/ember/src/channels/room.rs", "crates/ember/src/channels/revocation.rs", "crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/room_not_found.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "Only members can open a room's socket, which carries its messages, typing and presence, and the Workspace checks again on every reconnect. Anyone else's upgrade, including someone taken out of the room (`rooms.members`), is accepted and closed at once with 4004 without the room's object waking, since the app can't read why a refused upgrade failed. The app then stops connecting and shows \"This room was deleted.\" in place of the composer, at once rather than when a message is sent, unless the browser is now signed in as someone else, whom it switches to.",
+    notes: "Only members can open a room's socket, which carries its messages, typing and presence, and the Workspace checks again on every reconnect. Anyone else's upgrade, including someone taken out of the room (`rooms.members`), is accepted and closed at once with 4004 without the room's object waking, since the app can't read why a refused upgrade failed. The app then stops connecting and shows \"This room was deleted.\" in place of the composer, at once rather than when a message is sent, unless the browser is now signed in as someone else, whom it switches to. The room's messages stay on screen without their actions, since nothing done to them could be saved.",
   },
   {
     id: "rooms.legacy-rooms",

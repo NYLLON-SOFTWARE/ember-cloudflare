@@ -27,7 +27,8 @@ interface Props {
   message: Message | PendingMessage;
   me: User;
   threaded: boolean;
-  actions: MessageActions;
+  /** What can be done to the message, or null where nothing can, as in a room that's gone. */
+  actions: MessageActions | null;
 }
 
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
@@ -53,7 +54,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const saveEdit = () => {
     const body = draft.trim();
     // An edit that couldn't be sent keeps the editor open, so the draft isn't lost.
-    if (body && body !== message.body && !actions.edit(message.id, body)) return;
+    if (body && body !== message.body && !actions?.edit(message.id, body)) return;
     setEditing(false);
   };
 
@@ -88,7 +89,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   };
 
   const boost = (emoji: string) => {
-    actions.boost(message.id, emoji);
+    actions?.boost(message.id, emoji);
     closeAfterReacting();
   };
 
@@ -166,7 +167,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
                 className="size-8 justify-center p-0 text-base touch:size-11"
                 onSelect={() => {
                   moreReactions.current = "chosen";
-                  actions.boost(message.id, emoji);
+                  actions?.boost(message.id, emoji);
                 }}
               >
                 {emoji}
@@ -190,7 +191,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           >
             <Pencil />
           </button>
-          <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions.remove(message.id)}>
+          <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions?.remove(message.id)}>
             <Trash className="size-4" />
           </button>
         </>
@@ -226,7 +227,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           </div>
         )}
 
-        {editing ? (
+        {editing && actions ? (
           <form
             className="rounded-[10px] border bg-surface p-3"
             onSubmit={(event) => {
@@ -278,8 +279,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
                   type="button"
                   title={group.names.join(", ")}
                   aria-pressed={group.mine !== null}
-                  onClick={() => (group.mine ? actions.unboost(group.mine) : actions.boost(message.id, group.content))}
-                  className="flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-xs hover:bg-hover aria-pressed:border-foreground/40 aria-pressed:bg-hover"
+                  disabled={!actions}
+                  onClick={() => (group.mine ? actions?.unboost(group.mine) : actions?.boost(message.id, group.content))}
+                  className="flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-xs enabled:hover:bg-hover aria-pressed:border-foreground/40 aria-pressed:bg-hover"
                 >
                   <span>{group.content}</span>
                   <span className="text-message-muted">{group.count}</span>
@@ -290,7 +292,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         )}
       </div>
 
-      {!pending &&
+      {actions &&
+        !pending &&
         !editing &&
         (touch ? (
           // Touch screens have no hover, so the options button opens the actions just below it, or above

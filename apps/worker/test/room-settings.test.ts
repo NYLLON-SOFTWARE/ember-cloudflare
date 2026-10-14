@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { CloseCode, type NewRoomForm, type Room, type RoomId, type RoomSettings, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../src/workspace";
 import { ACTIVE_PEOPLE, ACTIVE_PEOPLE_IN_ROOM, QUEUE_MEMBER_REVOCATIONS, REVOKE_ROOM_FROM_OTHERS, ROOM_TO_CHANGE, type WorkspaceStore } from "../src/workspace-store";
 import { api, closeOf, connect, createRoom, freshDeploy, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
@@ -153,6 +153,35 @@ describe(feature("rooms.edit-permissions"), () => {
       expect(await response.json()).toEqual({ error: "Only administrators and the room's creator can change it" });
     }
     expect(await nameOf(room.id)).toBe("Design");
+  });
+
+  it("makes one change at a time, so someone taken out of a room can't open it with a change they sent before", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    await promote(grace);
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    // Holds Ada's change between reading who may make it and writing, as D1 can, until Grace's change
+    // has finished, or for a second if it's waiting for Ada's.
+    const race = { adaHasRead: false, graceIsDone: false };
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const roomToChange = store.roomToChange.bind(store);
+      store.roomToChange = async (roomId, userId) => {
+        const found = await roomToChange(roomId, userId);
+        if (userId !== ada.user.id) return found;
+        race.adaHasRead = true;
+        for (let waited = 0; !race.graceIsDone && waited < 1_000; waited += 10) await scheduler.wait(10);
+        return found;
+      };
+    });
+
+    const adaOpensIt = change(room.id, ada, { kind: "open" });
+    await vi.waitFor(() => expect(race.adaHasRead).toBe(true));
+    const graceTakesAdaOut = await change(room.id, grace, { kind: "closed", memberIds: [grace.user.id] });
+    race.graceIsDone = true;
+    expect((await adaOpensIt).status).toBe(200);
+    expect(graceTakesAdaOut.status).toBe(200);
+    expect(await workspaceSql("SELECT kind FROM rooms WHERE id = ?", room.id)).toEqual([{ kind: "closed" }]);
+    expect(await membersOf(room.id)).toEqual(ids(grace));
   });
 
   it("answers 404 to people who aren't in the room, administrators included, and for missing rooms and DMs", async () => {

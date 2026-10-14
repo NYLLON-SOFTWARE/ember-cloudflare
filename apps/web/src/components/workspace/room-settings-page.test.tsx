@@ -251,6 +251,21 @@ describe(feature("rooms.members"), () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
+  it("holds the switches as they were sent until the change is saved", async () => {
+    const answer = holdChange(closedSettings);
+    const { onSaved, user } = showPage(leads);
+    await user.click(await screen.findByRole("switch", { name: `Give ${grace.name} access to this room` }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(accessSwitch(linus));
+    await user.click(screen.getByRole("switch", { name: "Give everyone access to this room" }));
+    expect(accessSwitch(linus)).toBeChecked();
+    expect(location.pathname).toBe("/rooms/closeds/leads/edit");
+
+    await answer(Response.json({ room: leads }));
+    expect(sent()).toEqual({ name: "Leads", kind: "closed", memberIds: [ada.id, linus.id, grace.id] });
+    expect(onSaved).toHaveBeenCalledWith(leads);
+  });
+
   it("takes a room left out of the sidebar when the answer comes after the page was left, staying where you are", async () => {
     const answer = holdChange(closedSettings);
     const { onLeft, onMissing, user, unmount } = showPage(leads);

@@ -105,6 +105,8 @@ export class Workspace extends DurableObject<Env> {
   private knownHelpContact: HelpContact | null | undefined;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
+  /** The last room change asked for, which the next one waits for (see `oneAtATime`). */
+  private lastRoomChange: Promise<unknown> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -315,20 +317,33 @@ export class Workspace extends DurableObject<Env> {
   async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<Room | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const found = await this.store.roomToChange(roomId, user.id);
-    if (!found) return "not found";
-    if (!found.canAdminister) return "forbidden";
-    const changed = { ...found.room, ...(changes.name && { name: changes.name }), ...(changes.kind && { kind: changes.kind }) };
-    if (!changes.name && !changes.kind) return changed;
-    const now = Date.now();
-    // As when signing out, until the database says it queued nothing.
-    let queued = changes.kind === "closed";
-    try {
-      queued = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
-    } finally {
-      if (queued) await this.wakeAt(now);
-    }
-    return changed;
+    return this.oneAtATime(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      const changed = { ...found.room, ...(changes.name && { name: changes.name }), ...(changes.kind && { kind: changes.kind }) };
+      if (!changes.name && !changes.kind) return changed;
+      const now = Date.now();
+      // As when signing out, until the database says it queued nothing.
+      let queued = changes.kind === "closed";
+      try {
+        queued = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
+      } finally {
+        if (queued) await this.wakeAt(now);
+      }
+      return changed;
+    });
+  }
+
+  /**
+   * Makes room changes one at a time, each once the one before has finished. A change reads who may
+   * make it before it writes, and on D1 other requests run in between: without this, someone another
+   * change had just taken out of a room could still open it to everyone.
+   */
+  private oneAtATime<T>(change: () => Promise<T>): Promise<T> {
+    const result = this.lastRoomChange.then(change);
+    this.lastRoomChange = result.catch(() => undefined);
+    return result;
   }
 
   /**

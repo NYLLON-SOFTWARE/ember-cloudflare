@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type Room, type RoomSettings } from "@ember/protocol";
+import { CloseCode, type Message, type Room, type RoomSettings } from "@ember/protocol";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
@@ -29,16 +29,21 @@ class QuietSocket {
   close() {}
 }
 
-/** Sockets that `roomId`'s room closes as soon as they open, as it does for a room that's gone for this person. */
-function goneRoom(roomId: string) {
+/**
+ * Sockets that `roomId`'s room closes as soon as they open, as it does for a room that's gone for this
+ * person, after welcoming them with `messages` if there are any, as a room that goes while it's open does.
+ */
+function goneRoom(roomId: string, messages: Message[] = []) {
   return class extends QuietSocket {
     onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
     onclose: ((event: { code: number }) => void) | null = null;
     constructor(url: string) {
       super();
       if (!url.includes(`/api/rooms/${roomId}/socket`)) return;
       setTimeout(() => {
         this.onopen?.();
+        if (messages.length > 0) this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages, present: [ada], hasMore: false }) });
         this.onclose?.({ code: CloseCode.NotFound });
       });
     }
@@ -193,6 +198,17 @@ describe(feature("rooms.member-only-access"), () => {
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
     expect(await roomHeading()).toHaveTextContent("general");
     expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+  });
+
+  it("leaves the messages of a room that's gone with nothing to do to them", async () => {
+    const said: Message = { id: "m1", clientMessageId: "c1", roomId: "random", creator: ada, body: "Before it went", createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", boosts: [] };
+    vi.stubGlobal("WebSocket", goneRoom("random", [said]));
+    serve({ "GET /api/me": () => Response.json({ user: ada }) });
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    const article = screen.getByText("Before it went").closest("article")!;
+    expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
 
   it("keeps the first room on screen when it goes while shown at /", async () => {
