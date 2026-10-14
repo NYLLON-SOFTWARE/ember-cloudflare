@@ -102,7 +102,7 @@ describe(feature("platform.security-headers"), () => {
   it("adds them to the app's page, which comes through the Worker", async () => {
     for (const path of ["/", "/rooms/general", "/session/new"]) {
       const response = await page(path);
-      expect(await response.text()).toBe(`page ${path}`);
+      expect(await response.text()).toBe("page /");
       expectRailsDefaults(response);
     }
   });

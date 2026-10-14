@@ -2400,16 +2400,17 @@ export const features = [
     id: "platform.error-pages",
     title: "Error pages",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A missing page answers 404, a write refused as cross-site 422 and a server failure 500, each with a standalone page titled \"We can’t find that (404)\", \"That didn’t work (422)\" or \"Something went wrong (500)\": an illustration and a Go back button to `/`, plus Try again, which reloads, on the 422 page.",
       "A request for JSON gets `{\"status\":404,\"error\":\"Not Found\"}` instead, with the matching status and reason.",
       "The 502 page says \"Starting Ember…\" with the logo and reloads itself every 10 seconds.",
       "`/robots.txt` is served, and allows everything.",
     ],
-    sources: ["reference/public/404.html", "reference/public/422.html", "reference/public/500.html", "crates/assets/overrides/public/502.html", "reference/public/robots.txt", "crates/ember/src/app.rs", "crates/kit/src/exceptions.rs"],
+    sources: ["reference/public/404.html", "reference/public/422.html", "reference/public/500.html", "crates/assets/overrides/public/502.html", "reference/public/robots.txt", "crates/ember/src/app.rs", "crates/ember/src/controllers.rs", "crates/kit/src/adapter.rs", "crates/kit/src/ctx.rs", "crates/kit/src/exceptions.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs", "crates/kit/src/exceptions.rs", "parity/screens.yml"],
-    notes: "Unknown page paths get the app's page with status 200, which goes home, to the last room visited, once you're signed in, and unknown `/api/` paths answer 404 with `{ \"error\": \"Not found\" }`. An exception in the Worker reaches Cloudflare's own error page, and there's no `/robots.txt`.",
+    notes:
+      "The Worker serves the app's page only at the addresses the app shows a page at, which `@ember/protocol` lists for the app's router too; the built app answers any other path with one of its files or Campfire's 404 page (`not_found_handling`), and the Worker answers a write to a page, an unknown address under `/first_run` and a QR code's address without a code with the 404 page itself. Rails' unused actions, such as `/rooms/new`, are 404s as in ember-rust, but My profile, New direct message and a DM's settings, which the app links to before it has them, go home for now. Where ember-rust ignores a trailing or doubled slash, the Worker redirects to the page's own address, which the app reads. The setup link's exchange is the only page a cross-site write reaches; the API refuses one with JSON, as it answers every error, an exception's included (`{ \"error\": \"Something went wrong\" }`), where ember-rust answers any JSON request with `{\"status\":…,\"error\":…}`; elsewhere a JSON request gets the page. On setup's pages and form, an exception's log says only that the request failed, as ember-rust's does. Campfire's pages have no viewport, so a phone shrinks them to fit a 980px layout and Go back is too small to tap; these add one, and a language. An old browser gets the upgrade page even at an unknown address, since that check comes first (`platform.browser-support`). There's no 502 page: a Worker has no start-up to wait through, and a deploy switches over at once.",
   },
   {
     id: "platform.storage",
