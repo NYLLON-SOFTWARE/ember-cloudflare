@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { useRoom } from "./use-room";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -154,18 +155,67 @@ describe(feature("realtime.reconnect"), () => {
     expect(FakeSocket.all).toHaveLength(3);
   });
 
-  it("refreshes the room on reconnect, keeping messages that never got through", () => {
+  it("refreshes the room on reconnect, then sends what was written while it was away", () => {
     const { result } = joinGeneral({ messages: [message("m1")] });
     socket().drop();
-    act(() => result.current.postMessage("Sent while offline"));
+    act(() => result.current.postMessage("Written while away"));
+    expect(result.current.state.messages[1]).toMatchObject({ body: "Written while away", pending: true, queued: true });
     wait(500);
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [message("m1"), message("m2")], present: [ada, grace], hasMore: false });
 
     expect(result.current.state.status).toBe("open");
-    expect(result.current.state.messages.map((m) => m.body)).toEqual(["m1", "m2", "Sent while offline"]);
-    expect(result.current.state.messages[2]).toMatchObject({ pending: true, failed: true });
+    expect(result.current.state.messages.map((m) => m.body)).toEqual(["m1", "m2", "Written while away"]);
+    const written = result.current.state.messages[2]!;
+    expect(written).toMatchObject({ pending: true });
+    expect(written).not.toHaveProperty("failed");
+    expect(written).not.toHaveProperty("queued");
+    // It never went, so the room isn't asked about it.
+    expect(socket().sent).toEqual([{ type: "message.create", clientMessageId: written.clientMessageId, body: "Written while away" }]);
     expect(result.current.state.present).toEqual([ada, grace]);
+  });
+
+  it("sends what was written while connecting, in order, once the room lets the socket in", () => {
+    const { result } = joinGeneral({ connect: false });
+    act(() => result.current.postMessage("first"));
+    act(() => result.current.postMessage("second"));
+    socket().open();
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["first", "second"]);
+  });
+
+  it(`counts as offline once the connection has been down ${OFFLINE_AFTER_MS / 1000} seconds, until the room lets one in`, () => {
+    const { result } = joinGeneral();
+    socket().drop();
+    wait(OFFLINE_AFTER_MS - 1);
+    expect(result.current.state.offline).toBe(false);
+    wait(1);
+    expect(result.current.state).toMatchObject({ status: "reconnecting", offline: true });
+    socket().open();
+    expect(result.current.state.offline).toBe(true);
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    expect(result.current.state).toMatchObject({ status: "open", offline: false });
+  });
+
+  it("shows what was waiting to be sent as not sent once offline, and doesn't send it later", () => {
+    const { result } = joinGeneral();
+    socket().drop();
+    act(() => result.current.postMessage("Hello?"));
+    expect(result.current.state.notice).toBeNull();
+    wait(OFFLINE_AFTER_MS);
+    expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, failed: true });
+    expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
+
+    // One written while offline doesn't wait at all.
+    act(() => result.current.dismissNotice());
+    act(() => result.current.postMessage("Anyone?"));
+    expect(result.current.state.messages[1]).toMatchObject({ body: "Anyone?", pending: true, failed: true });
+    expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
+
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    expect(socket().sent).toEqual([]);
   });
 
   it("asks the room about the messages a closed socket never confirmed", () => {
@@ -173,17 +223,21 @@ describe(feature("realtime.reconnect"), () => {
     act(() => result.current.postMessage("are you there?"));
     const clientMessageId = socket().sentOfType("message.create")[0]!.clientMessageId as string;
 
-    // The socket closes before the room's confirmation comes back, and the next message can't go at all.
+    // The socket closes before the room's confirmation comes back, and the next message waits for the next one.
     socket().drop();
     act(() => result.current.postMessage("hello?"));
     wait(500);
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
-    expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: [clientMessageId] }]);
-    const [unconfirmed, unsent] = result.current.state.messages;
+    const [unconfirmed, waited] = result.current.state.messages;
+    expect(socket().sent).toEqual([
+      { type: "message.check", clientMessageIds: [clientMessageId] },
+      { type: "message.create", clientMessageId: waited!.clientMessageId, body: "hello?" },
+    ]);
     expect(unconfirmed).toMatchObject({ body: "are you there?", pending: true });
     expect(unconfirmed).not.toHaveProperty("failed");
-    expect(unsent).toMatchObject({ body: "hello?", failed: true });
+    expect(waited).toMatchObject({ body: "hello?", pending: true });
+    expect(waited).not.toHaveProperty("failed");
 
     socket().receive({ type: "message.checked", stored: [clientMessageId], missing: [] });
     expect(result.current.state.messages.map((m) => m.body)).toEqual(["hello?"]);
@@ -200,40 +254,6 @@ describe(feature("realtime.reconnect"), () => {
     socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
     const checks = socket().sentOfType("message.check").map((frame) => (frame.clientMessageIds as string[]).length);
     expect(checks).toEqual([MAX_CHECKED_MESSAGES, 1]);
-  });
-
-  it("sends a heartbeat every 25 seconds while connected", () => {
-    joinGeneral();
-    wait(24_999);
-    expect(socket().sentOfType("ping")).toHaveLength(0);
-    wait(1);
-    expect(socket().sentOfType("ping")).toHaveLength(1);
-    const dropped = socket();
-    dropped.drop();
-    wait(50_000);
-    expect(dropped.sentOfType("ping")).toHaveLength(1);
-  });
-
-  it("keeps a socket that answers its heartbeats", () => {
-    joinGeneral();
-    for (let i = 0; i < 4; i++) {
-      wait(25_000);
-      socket().receive({ type: "pong" });
-    }
-    expect(socket().sentOfType("ping")).toHaveLength(4);
-    expect(FakeSocket.all).toHaveLength(1);
-  });
-
-  it("reconnects when a heartbeat goes unanswered", () => {
-    const { result } = joinGeneral();
-    const silent = socket();
-    // The network drops without closing the socket, so nothing comes back.
-    wait(50_000);
-    expect(silent.sentOfType("ping")).toHaveLength(1);
-    expect(silent.readyState).toBe(FakeSocket.CLOSED);
-    expect(result.current.state.status).toBe("reconnecting");
-    wait(500);
-    expect(FakeSocket.all).toHaveLength(2);
   });
 
   it("says so when an edit or reaction can't be sent, and the edit reports it", () => {
@@ -274,6 +294,42 @@ describe(feature("realtime.reconnect"), () => {
     expect(socket().closedWith).toBe(1000);
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
+  });
+});
+
+describe(feature("realtime.keepalive"), () => {
+  it("sends a heartbeat every 25 seconds while connected", () => {
+    joinGeneral();
+    wait(24_999);
+    expect(socket().sentOfType("ping")).toHaveLength(0);
+    wait(1);
+    expect(socket().sentOfType("ping")).toHaveLength(1);
+    const dropped = socket();
+    dropped.drop();
+    wait(50_000);
+    expect(dropped.sentOfType("ping")).toHaveLength(1);
+  });
+
+  it("keeps a socket that answers its heartbeats", () => {
+    joinGeneral();
+    for (let i = 0; i < 4; i++) {
+      wait(25_000);
+      socket().receive({ type: "pong" });
+    }
+    expect(socket().sentOfType("ping")).toHaveLength(4);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it("reconnects when a heartbeat goes unanswered", () => {
+    const { result } = joinGeneral();
+    const silent = socket();
+    // The network drops without closing the socket, so nothing comes back.
+    wait(50_000);
+    expect(silent.sentOfType("ping")).toHaveLength(1);
+    expect(silent.readyState).toBe(FakeSocket.CLOSED);
+    expect(result.current.state.status).toBe("reconnecting");
+    wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
   });
 });
 
@@ -389,9 +445,11 @@ describe(feature("messages.optimistic"), () => {
     expect(result.current.state.messages).toEqual([message("m1", { clientMessageId: pending!.clientMessageId, body: "Hello" })]);
   });
 
-  it("marks a message as not sent when there's no connection", () => {
+  it("holds a message written before the room connects, and marks it not sent if the room takes too long", () => {
     const { result } = joinGeneral({ connect: false });
     act(() => result.current.postMessage("Hello?"));
+    expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, queued: true });
+    wait(OFFLINE_AFTER_MS);
     expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, failed: true });
     expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
     act(() => result.current.dismissNotice());

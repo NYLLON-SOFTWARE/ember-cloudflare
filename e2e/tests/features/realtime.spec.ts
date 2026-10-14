@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { WebSocketRoute } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test, type Members } from "./fixtures";
 
 test.describe(feature("realtime.who-is-here"), () => {
   test("shows who is in the room as people come and go", async ({ members }) => {
@@ -63,8 +63,8 @@ test.describe(feature("realtime.typing"), () => {
 });
 
 test.describe(feature("realtime.reconnect"), () => {
-  test("reconnects after losing the connection and catches up on what was missed", async ({ members }) => {
-    // Route Ada's room socket so the test can cut it, and keep it cut, like a network drop.
+  /** Routes Ada's room socket so the test can cut it, and keep it cut, like a network drop. */
+  async function cuttable(members: Members) {
     let online = true;
     let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
     const ada = await members.signIn("Ada", {
@@ -74,12 +74,25 @@ test.describe(feature("realtime.reconnect"), () => {
           connection = { page: ws, server: ws.connectToServer() };
         }),
     });
+    const cut = async () => {
+      online = false;
+      await connection!.server.close();
+      await connection!.page.close();
+      // The page knows the connection is down.
+      await expect(ada.timeline()).toHaveAttribute("aria-busy", "true");
+    };
+    const restore = () => {
+      online = true;
+    };
+    return { ada, cut, restore };
+  }
+
+  test("reconnects after losing the connection and catches up on what was missed", async ({ members }) => {
+    const { ada, cut, restore } = await cuttable(members);
     const grace = await members.signIn("Grace");
 
-    online = false;
-    await connection!.server.close();
-    await connection!.page.close();
-    await expect(ada.connection()).toHaveText("Reconnecting…");
+    await cut();
+    await expect(ada.connection()).toHaveText("Reconnecting…", { timeout: 10_000 });
     await expect(ada.page.getByRole("button", { name: "Send" })).toBeDisabled();
     await ada.composer().fill("Typed while offline");
     await expect(ada.page.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -87,10 +100,25 @@ test.describe(feature("realtime.reconnect"), () => {
     await grace.send("Sent while Ada was away");
     await expect(grace.message("Sent while Ada was away")).not.toHaveAttribute("aria-busy");
 
-    online = true;
+    restore();
     await expect(ada.connection()).toHaveCount(0, { timeout: 20_000 });
     await expect(ada.message("Sent while Ada was away")).toBeVisible();
     await expect(ada.composer()).toHaveValue("Typed while offline");
     await expect(ada.page.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  test("sends a message written during a short drop once the connection is back", async ({ members }) => {
+    const { ada, cut, restore } = await cuttable(members);
+    const grace = await members.signIn("Grace");
+
+    await cut();
+    await ada.send("Written during a short drop");
+    await expect(ada.message("Written during a short drop")).toHaveAttribute("aria-busy", "true");
+    await expect(ada.page.getByRole("alert")).toHaveCount(0);
+
+    restore();
+    await expect(grace.message("Written during a short drop")).toBeVisible();
+    await expect(ada.message("Written during a short drop")).not.toHaveAttribute("aria-busy");
+    await expect(ada.message("Written during a short drop")).toHaveCount(1);
   });
 });

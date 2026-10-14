@@ -35,7 +35,7 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
 
   return (
     <>
-      <RoomHeader room={room} present={state.present} status={state.status} />
+      <RoomHeader room={room} present={state.present} status={state.status} offline={state.offline} />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
       <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (
@@ -47,7 +47,7 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
           </div>
         )}
         <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={gone ? null : messageActions} onLoadOlder={loadOlder} />
-        {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.status !== "open"} onSend={postMessage} onTyping={typing} />}
+        {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.offline} onSend={postMessage} onTyping={typing} />}
       </main>
     </>
   );

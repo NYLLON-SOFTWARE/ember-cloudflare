@@ -9,14 +9,23 @@ import { UserAvatar } from "./user-avatar";
 
 const MAX_FACES = 4;
 
+interface Props {
+  room: Room;
+  present: User[];
+  status: ConnectionStatus;
+  /** Whether the room has been without a connection long enough to say so. */
+  offline: boolean;
+}
+
 /** ember-rust's room header (rooms/show/_nav.html): the room's name, who's here, and its settings. */
-export function RoomHeader({ room, present, status }: { room: Room; present: User[]; status: ConnectionStatus }) {
+export function RoomHeader({ room, present, status, offline }: Props) {
   return (
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         <h1 className="truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{room.name}</h1>
-        {(status === "connecting" || status === "reconnecting") && (
+        {/* ember-rust only disables the composer once it's offline; this says why. */}
+        {offline && (
           <span role="status" className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
             {status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>
