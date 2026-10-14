@@ -64,6 +64,20 @@ test.describe(feature("realtime.typing"), () => {
     await ken.composer().fill("…");
     await expect(ada.typingIndicator()).toHaveText("Grace, Ken, Linus");
   });
+
+  test("keeps names that don't fit on one line, clear of the message box", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 320, height: 640 } } });
+    for (const name of ["Grace Brewster Murray Hopper", "Kenneth Lane Thompson", "Linus Benedict Torvalds"]) {
+      const typist = await members.signIn(name);
+      await typist.composer().fill("…");
+    }
+    await expect(ada.typingIndicator()).toHaveText("Grace Brewster Murray Hopper, Kenneth Lane Thompson, Linus Benedict Torvalds");
+
+    const names = (await ada.typingIndicator().boundingBox())!;
+    const field = (await ada.composer().boundingBox())!;
+    expect(names.height).toBeLessThan(20);
+    expect(names.y + names.height).toBeLessThanOrEqual(field.y);
+  });
 });
 
 test.describe(feature("realtime.reconnect"), () => {

@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
  * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
  * composer.css): the names of whoever is typing, sorted and comma-separated after a three-dot spinner,
  * fading in above the composer. Like ember-rust's, it isn't a live region: announced on every change,
- * a bare list of names would mean nothing out of context.
+ * a bare list of names would mean nothing out of context. Names that don't fit end in an ellipsis,
+ * where ember-rust's wrap down over the message box.
  */
 function TypingIndicator({ typists }: { typists: User[] }) {
   const names = typists
@@ -19,11 +20,14 @@ function TypingIndicator({ typists }: { typists: User[] }) {
   return (
     <div
       className={cn(
-        "absolute -top-[19px] left-0 inline-flex items-center text-[11px] transition-opacity duration-300 motion-reduce:transition-none max-md:-top-[15px]",
+        "absolute -top-[19px] left-0 inline-flex max-w-full items-center text-[11px] transition-opacity duration-300 motion-reduce:transition-none max-md:-top-[15px]",
         !names && "opacity-0",
       )}
     >
-      <div className={cn("spinner ps-[1.5em] leading-none", !names && "hidden")}>{names}</div>
+      <div className={cn("spinner min-w-0 ps-[1.5em] leading-none", !names && "hidden")}>
+        {/* The names clip, and the spinner beside them mustn't; the padding keeps descenders. */}
+        <span className="-my-[0.25em] block truncate py-[0.25em]">{names}</span>
+      </div>
     </div>
   );
 }
