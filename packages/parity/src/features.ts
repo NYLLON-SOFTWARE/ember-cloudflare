@@ -1014,7 +1014,7 @@ export const features = [
     id: "messages.rich-text",
     title: "Rich text, safely",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Bold, italic, strikethrough, underline, highlight, code, links, headings, quotes with their attribution, nested lists, code blocks, dividers and tables survive, and `~~x~~` becomes strikethrough.",
       "Scripts, event handlers, styles, `target`, `rel`, `name`, list numbering (`start`, `value`) and data attributes other than `data-language` are stripped, and table wrappers are unwrapped.",
@@ -1024,7 +1024,7 @@ export const features = [
     ],
     sources: ["reference/app/helpers/content_filters.rb", "reference/app/helpers/messages_helper.rb", "crates/richtext/src/sanitizer.rs", "crates/richtext/src/filters.rs", "crates/ember/src/controllers/presenters.rs", "reference/app/javascript/models/message_formatter.js", "reference/app/javascript/initializers/highlight.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/helpers/content_filters_test.rb", "reference/test/system/composer_test.rb", "crates/richtext/tests/corpus.rs"],
-    notes: "Messages here are plain text: line breaks are kept and nothing else is formatted.",
+    notes: "Messages here are still plain text: line breaks are kept and nothing else is formatted. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores or shows rich text with it yet. It will store each body as it renders, less `class` attributes and the pictures of remote image attachments, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. There's no code highlighting yet.",
   },
   {
     id: "messages.optimistic",
@@ -1197,19 +1197,20 @@ export const features = [
     id: "messages.emoji-only",
     title: "Emoji-only messages",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A message that's only emoji (\"😄🤘\", but not \"Haha! 😄🤘\" or \"🔥 💯\") shows large without a bubble, pending ones included; reactions that are all emoji are larger too.",
       "Skin tones, flags, ❤️, © and ™ count as emoji, but emoji joined with zero-width joiners, like families, and keycaps like 1️⃣ don't.",
     ],
     sources: ["reference/lib/rails_ext/string.rb", "reference/app/helpers/messages_helper.rb", "crates/assets/overrides/models/client_message.js"],
     upstreamTests: ["reference/test/models/message_test.rb", "reference/test/system/sending_messages_test.rb"],
+    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does, but messages don't show large yet.",
   },
   {
     id: "messages.sounds",
     title: "/play sounds",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A message of exactly `/play <name>`, naming one of 56 sounds, shows a 🔊 button with the sound's picture or caption (bell shows 🔔); anything else is ordinary text.",
       "The sound plays as the message arrives for everyone whose timeline reaches the newest message, the sender included, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.",
@@ -1217,12 +1218,13 @@ export const features = [
     ],
     sources: ["reference/app/models/sound.rb", "crates/db/src/models/message.rs", "crates/views/src/messages/presentation.rs", "crates/assets/overrides/models/client_message.js", "crates/assets/overrides/controllers/messages_controller.js"],
     upstreamTests: ["crates/db/src/tests/message_test.rs"],
+    notes: "`packages/richtext` lists the 56 sounds and finds the one a message plays, and the one a message that's sending shows as playing, but nothing plays them or shows the 🔊 button yet.",
   },
   {
     id: "messages.plain-text",
     title: "Plain-text version of a message",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Paragraphs, lists, quotes and top-level headings end with a blank line, and line breaks and divs with a newline. Other headings, code blocks and table cells add no breaks of their own, and trailing newlines are trimmed.",
       "Quotes are wrapped in “ ”, list items start with \"• \" or \"1. \", \"2. \" and so on, nested ones indented two spaces a level, and captions read \"[caption]\". Scripts and styles are dropped.",
@@ -1231,6 +1233,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. Messages are still plain text, so nothing uses it yet, and a body that can't be converted will be refused rather than stored.",
   },
   {
     id: "messages.autolink",
@@ -1339,13 +1342,14 @@ export const features = [
     id: "mentions.render",
     title: "How mentions look",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A mention shows the person's avatar, linked to their profile and titled \"Name – bio\", then their current name, every time they're mentioned. Renaming someone updates every mention of them.",
       "A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.",
     ],
     sources: ["crates/richtext/src/attachables.rs", "crates/views/templates/users/_mention.html", "crates/richtext/src/lib.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs", "reference/test/system/composer_test.rb"],
+    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"gid://ember/User/<id>\">`, which shows the person as they are when it's rendered. The id isn't signed, as any member can list everyone's. A mention of someone who doesn't exist is stored as ☒. Messages are still plain text, so nothing shows mentions yet.",
   },
 
   // Attachments

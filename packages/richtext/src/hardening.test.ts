@@ -1,0 +1,178 @@
+import { feature } from "@ember/parity";
+import { describe, expect, it } from "vitest";
+import { plainText, prepareBody } from "./body";
+import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
+import { userGid } from "./mentions";
+import { parseHtml } from "./parse";
+import { canonicalize, presentMessage } from "./render";
+import { cgiUnescapeHtml } from "./sanitize";
+import { descendants, getAttr, isElement } from "./tree";
+
+// Ported from ember-rust's crates/richtext/tests/hardening.rs: where the port deliberately
+// diverges from Rails to close a hole or bound the work a message body can cause. Bodies come
+// from clients, and the Durable Object that prepares them has little CPU time to spare.
+
+const users = new Map([[1, { id: 1, name: "David" }]]);
+const resolve = (sgid: string) => users.get(Number(sgid.slice("gid://ember/User/".length)));
+const none = () => undefined;
+const mentionPartial = (user: { name: string }) => `<span class="mention">${user.name}</span>\n`;
+const presentation = (body: string) => presentMessage(parseHtml, body, resolve, mentionPartial);
+const mention = (id: number) =>
+  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${userGid(id)}"></action-text-attachment>`;
+const galleryAttachment =
+  '<action-text-attachment presentation="gallery" content-type="text/html" content="&lt;p&gt;x&lt;/p&gt;"></action-text-attachment>';
+
+/**
+ * ember-rust's bound for a debug build. Each of these bodies of hundreds of KB takes a second at
+ * most; the slow paths they found took several.
+ */
+const QUICK_MS = 5_000;
+const SLOW_TEST_MS = 30_000;
+
+function expectQuick(what: string, work: () => void): void {
+  const started = performance.now();
+  work();
+  expect(performance.now() - started, what).toBeLessThan(QUICK_MS);
+}
+
+/** Every element and attribute name in rendered `html` as a browser would parse it. */
+function parsedMarkup(html: string): string[] {
+  const names: string[] = [];
+  for (const node of descendants(parseHtml(html))) {
+    if (!isElement(node) || getAttr(node, "class") === "lexxy-content") continue;
+    names.push(node.name, ...node.attrs.map((attr) => `${node.name}[${attr.name}]`));
+  }
+  return names;
+}
+
+/** Content attachments nested `levels` deep, each saying which level it is. */
+function nestedContentAttachments(levels: number, padding: string): string {
+  let body = "";
+  for (let level = levels; level >= 1; level--) {
+    const content = `<p>level ${level}${padding}</p>${body}`.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+    body = `<action-text-attachment content-type="text/html" content="${content}"></action-text-attachment>`;
+  }
+  return body;
+}
+
+/** The page and the stored form both have to refuse `body`, and quickly. */
+function expectRefusedQuickly(what: string, body: string): void {
+  expectQuick(what, () => {
+    expect(() => presentation(body), what).toThrow(ParseLimitError);
+    expect(() => plainText(parseHtml, body, none), what).toThrow(ParseLimitError);
+    expect(prepareBody(parseHtml, body, none), what).toBeNull();
+  });
+}
+
+describe(feature("messages.rich-text"), () => {
+  it("drops name attributes, which could clobber the page's globals", () => {
+    const html = presentation('<p><a name="body" href="/x">x</a><span name="cookie">y</span></p>');
+    expect(parsedMarkup(html)).toEqual(["p", "a", "a[href]", "span"]);
+  });
+
+  it("renders content attachments eight levels deep", () => {
+    const html = presentation(nestedContentAttachments(12, ""));
+    for (let level = 1; level <= 12; level++) expect(html.includes(`level ${level}<`), `level ${level}`).toBe(level <= 8);
+  });
+
+  it(
+    "renders deeply nested content attachments quickly",
+    () => {
+      const body = nestedContentAttachments(200, "x".repeat(1000));
+      expect(body.length).toBeGreaterThan(200_000);
+      expectQuick("200 nested content attachments", () => presentation(body));
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    "refuses deeply nested elements quickly",
+    () => {
+      expectRefusedQuickly("400 KB of nested <div>s", "<div>".repeat(80_000));
+      expectRefusedQuickly("480 KB of <a><b>", "<a><b>".repeat(80_000));
+      expectRefusedQuickly("390 KB of <a><div><div>", "<a><div><div>".repeat(30_000));
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    "doesn't read the rest of a body once it's too deep",
+    () => {
+      const tooDeep = "<div>".repeat(401);
+      const rest = "x".repeat(16 * 1024 * 1024);
+      for (const [what, body] of [
+        ["tags", tooDeep + "<a><b>".repeat(rest.length / 6)],
+        ["a comment", `${tooDeep}<!--${rest}`],
+        ["a tag name", `${tooDeep}<${rest}`],
+      ] as const) {
+        const started = performance.now();
+        expect(() => plainText(parseHtml, body, none)).toThrow(ParseLimitError);
+        expect(prepareBody(parseHtml, body, none)).toBeNull();
+        expect(performance.now() - started, `refusing 16 MB of ${what}`).toBeLessThan(1_000);
+      }
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    "refuses a tag with too many attributes quickly",
+    () => {
+      const attributes = Array.from({ length: 64_000 }, (_, i) => `a${i + 1}=1`).join(" ");
+      expectRefusedQuickly("a tag with 64,000 attributes", `<b ${attributes}>x</b>`);
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    "parses <html> tags in the body in linear time",
+    () => {
+      const attributes = (t: number) => Array.from({ length: MAX_ATTRIBUTES }, (_, i) => `a${t * MAX_ATTRIBUTES + i + 1}`);
+      const tag = (t: number) => `<html ${attributes(t).join(" ")}>`;
+      const body = Array.from({ length: 200 }, (_, t) => tag(t)).join("");
+      expect(body.length).toBeGreaterThan(500_000);
+      expectQuick("550 KB of <html> tags, each with 400 new attributes", () => {
+        expect(plainText(parseHtml, body, none)).toBe("");
+        expect(presentation(body)).toBe(presentation(""));
+      });
+    },
+    SLOW_TEST_MS,
+  );
+
+  it(
+    "parses elements misplaced in a table in linear time",
+    () => {
+      expectQuick("800 KB of <br>s in a table", () => plainText(parseHtml, `<table>${"<br>".repeat(200_000)}`, none));
+    },
+    SLOW_TEST_MS,
+  );
+
+  const hostileBodies = {
+    "700 KB of <font>s": `<p>${"<font>x</font>".repeat(50_000)}</p>`,
+    "a <font> of 200,000 <br>s": `<p><font>${"<br>".repeat(200_000)}</font></p>`,
+    "500 KB of <img>s": `<p>${"<img>".repeat(100_000)}</p>`,
+    "a list of 50,000 items": `<ol>${"<li>x</li>".repeat(50_000)}</ol>`,
+    "10,000 mentions": `<p>${mention(1).repeat(10_000)}</p>`,
+    "2,000 galleries": `<div>${galleryAttachment.repeat(2)}</div>`.repeat(2_000),
+    "300 KB of misnested links": `<b>${"<a>x</a><p>y".repeat(25_000)}`,
+    "500 KB of escaped ampersands": `<p><a href="${"&amp;#38;".repeat(50_000)}">x</a></p>`,
+  };
+  for (const [what, body] of Object.entries(hostileBodies)) {
+    it(
+      `prepares ${what} in linear time`,
+      () => expectQuick(what, () => expect(prepareBody(parseHtml, body, resolve)).not.toBeNull()),
+      SLOW_TEST_MS,
+    );
+  }
+
+  it("unescapes a value of many entities in linear time", () => {
+    expectQuick("1 MB of &s", () => cgiUnescapeHtml("&".repeat(1_000_000)));
+    expectQuick("1 MB of unfinished references", () => cgiUnescapeHtml("&#1".repeat(250_000)));
+  });
+
+  it("shows a mention of a deleted user as ☒ and keeps the rest of the message", () => {
+    const body = `<p>Hi ${mention(6)}, welcome</p>`;
+    const html = presentation(body);
+    expect(html.includes("Hi") && html.includes("☒") && html.includes("welcome"), html).toBe(true);
+    expect(canonicalize(parseHtml, body, resolve)).toBe("<p>Hi ☒, welcome</p>");
+  });
+});

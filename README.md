@@ -14,6 +14,7 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
 | `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers, the web app manifest, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
+| `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions, emoji-only and `/play`, golden-tested against ember-rust's corpus of Rails outputs. |
 
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
