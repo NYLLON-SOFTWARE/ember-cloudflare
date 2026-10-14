@@ -58,6 +58,7 @@ export const MIN_PASSWORD_LENGTH = 8;
 /** The password fields' `maxlength`, which ember-rust's forms keep from bcrypt's 72-byte limit. */
 export const MAX_PASSWORD_LENGTH = 72;
 export const PASSWORD_TOO_SHORT = "Password must be at least 8 characters.";
+export const PASSWORD_TOO_LONG = "Password must be at most 72 characters.";
 
 export interface Boost {
   id: string;
@@ -235,6 +236,12 @@ export function parseFirstRun(data: unknown): FirstRun | string {
 
 /** Whether a password is shorter than first run takes, counting an emoji as one character. */
 export const isPasswordTooShort = (password: string) => [...password].length < MIN_PASSWORD_LENGTH;
+
+/**
+ * Whether a password is longer than the password fields take, counting UTF-16 units as their
+ * `maxlength` does, so the server takes exactly the passwords the forms can send.
+ */
+export const isPasswordTooLong = (password: string) => password.length > MAX_PASSWORD_LENGTH;
 
 /** Parses a frame from the server. The server is trusted, so this only guards against garbage. */
 export function parseServerFrame(raw: string): ServerFrame | null {

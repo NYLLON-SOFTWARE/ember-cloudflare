@@ -1,4 +1,4 @@
-import { isPasswordTooShort, parseFirstRun, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
+import { isPasswordTooLong, isPasswordTooShort, parseFirstRun, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
 import type { Env } from "./env";
@@ -239,7 +239,10 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
 
   const form = parseFirstRun(await request.json().catch(() => null));
   if (typeof form === "string") return json({ error: form }, 400);
-  // Before anything is hashed or saved, as in ember-rust.
+  // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
+  // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
+  // form can send.
+  if (isPasswordTooLong(form.password)) return json({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(form.password)) return json({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);

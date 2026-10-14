@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
+  isPasswordTooLong,
   isPasswordTooShort,
   isRoomId,
   MAX_BOOST_LENGTH,
@@ -137,5 +138,12 @@ describe(feature("auth.first-run"), () => {
     expect(["", "short", "1234567", "éééé", "🔐🔐🔐🔐", "🔐🔐🔐🔐🔐🔐🔐"].filter(isPasswordTooShort)).toHaveLength(6);
     expect(isPasswordTooShort("12345678")).toBe(false);
     expect(isPasswordTooShort("🔐".repeat(8))).toBe(false);
+  });
+
+  it("measures a password's length as the form's maxlength does, in UTF-16 units", () => {
+    expect(isPasswordTooLong("x".repeat(72))).toBe(false);
+    expect(isPasswordTooLong("🔐".repeat(36))).toBe(false);
+    expect(isPasswordTooLong("x".repeat(73))).toBe(true);
+    expect(isPasswordTooLong("🔐".repeat(37))).toBe(true);
   });
 });

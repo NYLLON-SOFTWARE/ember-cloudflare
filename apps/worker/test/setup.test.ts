@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
 import { api, apiWith, builtPages, cookieOf, freshDeploy, origin, signIn, workspaceSql } from "./support";
@@ -62,6 +62,21 @@ describe(feature("auth.first-run"), () => {
     expect(await response.json()).toEqual({ error: PASSWORD_TOO_SHORT, field: "password" });
     expect(response.headers.get("Set-Cookie")).toBeNull();
     for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
+  });
+
+  it.each([MAX_PASSWORD_LENGTH + 1, 2 ** 20])("refuses a password of %i characters, which the form can't send, and creates nothing", async (length) => {
+    const response = await setUp({ ...ada, password: "x".repeat(length) });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: PASSWORD_TOO_LONG, field: "password" });
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+    for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
+  });
+
+  it("takes a password as long as the form allows", async () => {
+    const password = "x".repeat(MAX_PASSWORD_LENGTH);
+    expect((await setUp({ ...ada, password })).status).toBe(201);
+    const [administrator] = (await workspaceSql("SELECT password_digest FROM users")) as Array<{ password_digest: string }>;
+    expect(await verifyPassword(password, administrator!.password_digest)).toBe(true);
   });
 
   it.each([
