@@ -613,10 +613,10 @@ describe(feature("ui.mobile-drawer"), () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Appearance" }));
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Appearance: System" }));
+    expect(screen.getByRole("dialog", { name: "Appearance" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Appearance" })).not.toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
