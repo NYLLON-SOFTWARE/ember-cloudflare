@@ -11,7 +11,7 @@ const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
 
-/** Whom a message being sent mentions, which only the room knows: the web app can't look people up yet. */
+/** Whom a message being sent mentions, until the room says: the composer can't write a mention yet. */
 const NO_ONE = () => undefined;
 
 /**
