@@ -283,6 +283,24 @@ describe(feature("rooms.settings-page"), () => {
     expect(sidebarRooms()).toEqual(["lobby", "random"]);
   });
 
+  it("keeps a room opened to you since the list came where it was made, once you save its settings", async () => {
+    const older: Room = { id: "older", name: "older", kind: "closed", icon: null };
+    const lists = [{ rooms }];
+    serve({
+      "GET /api/rooms": () => Response.json(lists.shift() ?? { rooms: [older, ...rooms] }),
+      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
+    });
+    const { user } = showWorkspace("/rooms/closeds/older/edit");
+    const name = await screen.findByRole("textbox", { name: "Room name" });
+    await user.clear(name);
+    await user.type(name, "elder{Enter}");
+    expect(await roomHeading()).toHaveTextContent("elder");
+    // The room made last is still the newest.
+    act(() => navigate("/rooms"));
+    expect(await roomHeading()).toHaveTextContent("random");
+  });
+
   it("goes back to the room it was opened from", async () => {
     serve({ "GET /api/rooms/random/settings": () => Response.json({ ...generalSettings, room: rooms[1] }) });
     const { user } = showWorkspace("/rooms/random");

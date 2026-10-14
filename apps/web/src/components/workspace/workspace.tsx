@@ -41,7 +41,8 @@ const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccess
 
 /** The room an address names that has to be one of someone's rooms, which a direct message's doesn't. */
 function namedRoomId(route: Route): RoomId | null {
-  return route.page === "room" || (route.page === "room-of-kind" && route.kind !== "direct") ? route.roomId : null;
+  if (route.page === "room-of-kind") return route.kind !== "direct" ? route.roomId : null;
+  return route.page === "room" || route.page === "room-settings" ? route.roomId : null;
 }
 
 /**
@@ -153,9 +154,10 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   const goneRoom = gone?.route === route ? gone.room : null;
 
   // A room the list doesn't have may be one made, or opened to this person, since it came, which
-  // ember-rust's server would know: the list is asked for again before the address counts as naming a
-  // room they can't see, once each time it's visited. One list is on its way at a time, so an older
-  // one can't take the place of a newer one, which has changes made here since the older was asked for.
+  // ember-rust's server would know: the list is asked for again, once each time an address naming it is
+  // visited, before a room's address counts as naming a room they can't see, and so its settings, once
+  // saved, leave it where it was made rather than last, as a room just made goes. One list is on its way
+  // at a time, so an older one can't take the place of a newer one, which has changes made here since.
   const [askedAgain, setAskedAgain] = useState<Route | null>(null);
   const namedId = namedRoomId(route);
   const unlisted = rooms !== null && !goneRoom && namedId !== null && !rooms.some((r) => r.id === namedId);
