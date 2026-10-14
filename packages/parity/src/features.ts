@@ -1248,7 +1248,7 @@ export const features = [
     id: "messages.autolink",
     title: "Links in message text",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Addresses that start with a known scheme and `://` (http, https, ftp, mailto, ssh, file and 18 more) or with `www.`, and email addresses, become links; `www.` addresses get `http://` and email addresses `mailto:`.",
       "Trailing punctuation stays out of the link unless it closes a bracket the address opened. Text already in a link isn't linked again, but addresses in code are linked.",
@@ -1257,6 +1257,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/autolink.rs", "reference/app/helpers/messages_helper.rb", "reference/app/javascript/controllers/reply_controller.js"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/hardening.rs"],
+    notes: "`packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus, but messages don't show rich text yet, so nothing is linked, and nothing opens links to this site in place. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.",
   },
   {
     id: "messages.unrenderable",

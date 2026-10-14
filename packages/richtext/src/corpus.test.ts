@@ -4,6 +4,7 @@
 
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
+import { autoLink } from "./autolink";
 import { plainText, prepareBody, type PreparedBody } from "./body";
 import { mentionedUsers } from "./mentions";
 import { parseHtml } from "./parse";
@@ -19,7 +20,6 @@ import {
   railsUser,
   UnloggableRailsError,
   verifiedUser,
-  withoutAutolinks,
   withPortDivergences,
   type CorpusCase,
   type Outcome,
@@ -82,11 +82,11 @@ describe(feature("messages.rich-text"), () => {
     }));
   });
 
-  it("renders every body as Rails did before linking its addresses", () => {
+  it("renders every body as Rails did", () => {
     expectRailsReadings("presentation", (body) => {
       let actual: string;
       try {
-        actual = presentMessage(parseHtml, body.body, railsUser, railsMentionPartial);
+        actual = autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial));
       } catch (error) {
         // message_presentation rescues and shows nothing, unless logging the error raises too
         actual = error instanceof UnloggableRailsError ? "(unrenderable)" : "";
@@ -96,15 +96,17 @@ describe(feature("messages.rich-text"), () => {
       if (body.presentation_raised_message?.includes("to_missing_attachable_partial_path")) {
         return { expected: "a rendering with ☒", actual: actual.includes("☒") ? "a rendering with ☒" : actual };
       }
-      const expected = "ok" in body.presentation ? withoutAutolinks(withPortDivergences(body.presentation.ok)) : "(unrenderable)";
+      const expected = "ok" in body.presentation ? withPortDivergences(body.presentation.ok) : "(unrenderable)";
       return { expected, actual };
     });
   });
 
   it("renders nothing a browser could run", () => {
+    // auto_link's own links add `target`
+    const shown: SafeList = { tags: AUTO_LINK.tags, attributes: new Set([...AUTO_LINK.attributes, "target"]) };
     const violations = corpus.cases.flatMap((body) => {
-      const html = attempt(() => presentMessage(parseHtml, body.body, railsUser, railsMentionPartial));
-      return html === RAISES ? [] : securityViolations(html, AUTO_LINK).map((violation) => `${body.name}: ${violation}`);
+      const html = attempt(() => autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial)));
+      return html === RAISES ? [] : securityViolations(html, shown).map((violation) => `${body.name}: ${violation}`);
     });
     expect(violations).toEqual([]);
   });

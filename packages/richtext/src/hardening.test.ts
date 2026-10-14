@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
+import { autoLink } from "./autolink";
 import { plainText, prepareBody } from "./body";
 import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
 import { mentionSgid, userIdsIn } from "./mentions";
@@ -189,4 +190,38 @@ describe(feature("messages.rich-text"), () => {
     expect(html.includes("Hi") && html.includes("☒") && html.includes("welcome"), html).toBe(true);
     expect(canonicalize(parseHtml, body, resolve)).toBe("<p>Hi ☒, welcome</p>");
   });
+});
+
+describe(feature("messages.autolink"), () => {
+  const shown = (body: string) => autoLink(parseHtml, presentation(body));
+
+  it("can't break out of an attribute through an address after a greater-than sign", () => {
+    // Rails serialized the title unescaped (`title="x> http://..."`), so auto_link's "inside a
+    // tag" check missed, the <a href="..."> it inserted closed the attribute, and the <img> after
+    // it became markup.
+    const html = shown('<p title="x> http://evil.test/ <img src=x onerror=alert(1)>">hi</p>');
+    expect(parsedMarkup(html), html).toEqual(["p", "p[title]"]);
+  });
+
+  it("can't break out of an attribute through an email address after a greater-than sign", () => {
+    const html = shown('<p><abbr title="x> me@evil.test <img src=x onerror=alert(1)>">hi</abbr></p>');
+    expect(parsedMarkup(html), html).toEqual(["p", "abbr", "abbr[title]"]);
+  });
+
+  it("still links addresses in the text", () => {
+    expect(shown("<p>see http://example.com/a?b=1&amp;c=2 and me@example.com</p>")).toContain(
+      '<p>see <a target="_blank" href="http://example.com/a?b=1&amp;c=2">http://example.com/a?b=1&amp;c=2</a> and <a target="_blank" href="mailto:me@example.com">me@example.com</a></p>',
+    );
+  });
+
+  it(
+    "links many bare domains in linear time",
+    () => {
+      const domains = (64 * 1024) / 16;
+      let html = "";
+      expectQuick("linking 64 KB of bare domains", () => (html = shown("<p>www.a.com</p>".repeat(domains))));
+      expect(html.split('<a target="_blank" href="http://www.a.com">').length - 1).toBe(domains);
+    },
+    SLOW_TEST_MS,
+  );
 });
