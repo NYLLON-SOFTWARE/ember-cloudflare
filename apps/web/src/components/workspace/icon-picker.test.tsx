@@ -103,6 +103,19 @@ describe(feature("rooms.icon-picker"), () => {
     expect(status()).toHaveTextContent("No icons match your search. Try another word.");
   });
 
+  it("opens on every icon again after a search", async () => {
+    serveCatalog();
+    const { user } = showPicker();
+    await open(user);
+    await user.type(within(dialog()).getByRole("searchbox", { name: "Search icons" }), "gamepad");
+    await user.click(within(dialog()).getByRole("button", { name: "Cancel" }));
+
+    await open(user);
+    expect(within(dialog()).getByRole("searchbox", { name: "Search icons" })).toHaveValue("");
+    expect(status()).toHaveTextContent(`${icons.length} icons · 72 shown`);
+    expect(shown().slice(0, 3)).toEqual(["hash", "coffee", "rocket"]);
+  });
+
   it("applies the icon picked only with Use icon, and hands focus back to the button", async () => {
     serveCatalog();
     const { onChange, onSubmit, user } = showPicker("coffee");

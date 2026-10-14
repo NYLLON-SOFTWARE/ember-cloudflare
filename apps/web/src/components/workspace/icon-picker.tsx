@@ -87,7 +87,6 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
   const opening = useRef(0);
   const [catalog, setCatalog] = useState<CatalogIcon[] | null>(null);
   const [status, setStatus] = useState<"loading" | "failed" | "ready">("loading");
-  const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<CatalogIcon[]>([]);
   const [visible, setVisible] = useState(PAGE_SIZE);
   // The icon picked here, which Use icon applies.
@@ -131,7 +130,9 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
   };
 
   const open = () => {
-    setQuery("");
+    // Cleared here, as ember-rust's open() clears it, since the search reads the field itself: a
+    // catalog already in is searched before React would draw the field again.
+    if (searchBox.current) searchBox.current.value = "";
     setStaged(icon);
     dialog.current?.showModal();
     searchBox.current?.focus();
@@ -248,11 +249,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
             placeholder="Search icons, e.g. coffee or rocket"
             aria-label="Search icons"
             autoComplete="off"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              find(event.target.value);
-            }}
+            onChange={(event) => find(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
               // Stages the first match without applying it, and doesn't send the form.
