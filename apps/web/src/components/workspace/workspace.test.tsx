@@ -481,6 +481,100 @@ describe(feature("ui.rail"), () => {
   });
 });
 
+describe(feature("sidebar.activity-filter"), () => {
+  const marked = [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true }, { id: "design", name: "Design", kind: "open", icon: null, unread: false }];
+  const activity = () => screen.getByRole("button", { name: "Activity" });
+  // The sidebar's rooms, which workspace settings has a section named for too.
+  const sidebarRooms = () => within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("link").map((link) => link.textContent!.replace(/^#/, ""));
+  const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
+
+  /** A workspace socket that welcomes Ada, then says random has been marked unread for her. */
+  class MarkingSocket extends QuietSocket {
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(url: string) {
+      super();
+      if (!url.includes("/api/socket")) return;
+      setTimeout(() => {
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+        this.onmessage?.({ data: JSON.stringify({ type: "room.unread", roomId: "random" }) });
+      });
+    }
+  }
+
+  it("counts the conversations marked unread but the one shown, and shows only them while it's on", async () => {
+    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+    await user.click(activity());
+    expect(activity()).toHaveAttribute("aria-pressed", "true");
+    expect(sidebarRooms()).toEqual(["random"]);
+    expect(railCurrent()).toEqual([]);
+
+    await user.click(activity());
+    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(railCurrent()).toEqual(["Home"]);
+  });
+
+  it("counts a room as it's marked", async () => {
+    vi.stubGlobal("WebSocket", MarkingSocket);
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+  });
+
+  it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
+    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(activity());
+    act(() => navigate("/account/edit"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
+    expect(activity()).toHaveAttribute("aria-pressed", "true");
+    // With no room shown, general counts too.
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+
+    await user.click(roomLink(/random/));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(activity()).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(activity());
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    expect(activity()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("stays on when a link opens somewhere else", async () => {
+    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(activity());
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }]) {
+      // Keeps jsdom, which can't open a tab, from following the link once the page has had the click.
+      document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+      fireEvent.click(roomLink(/random/), init);
+    }
+    expect(activity()).toHaveAttribute("aria-pressed", "true");
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("keeps the drawer open on a phone, turning on or off, and filters the drawer's rooms", async () => {
+    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    const drawer = screen.getByRole("dialog", { name: "Conversations" });
+    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
+    expect(within(drawer).getAllByRole("link", { name: /random|general|Design/ }).map((link) => link.textContent)).toEqual(["#random"]);
+    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
+    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
 describe(feature("sidebar.rooms"), () => {
   it("switches rooms from the sidebar and puts the room in the address", async () => {
     const { user } = showWorkspace("/rooms/general");

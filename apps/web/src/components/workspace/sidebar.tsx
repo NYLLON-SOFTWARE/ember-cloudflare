@@ -2,6 +2,7 @@ import type { SidebarRoom } from "@ember/protocol";
 import { MessagesAdd } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { roomPath } from "@/hooks/use-route";
+import { markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -9,15 +10,20 @@ interface Props {
   workspaceName: string;
   rooms: SidebarRoom[];
   currentRoomId: string | null;
+  /** Whether Activity is on, which shows only the rows marked unread. */
+  unreadOnly: boolean;
   onSelect: (roomId: string) => void;
 }
 
 /**
  * The conversation list: rooms, then DMs, under the workspace name. A room marked unread is bold with
- * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css),
- * except the room the tab shows, which rooms_list_controller.js never marks.
+ * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css).
+ * With Activity on, only those rows show, as shell.js's `filterRooms` leaves them, and with none it
+ * says everything's read. The DMs' placeholder stands where ember-rust's suggestions would, which the
+ * filter hides too, so "No conversations found.", for a sidebar with no rows at all, never shows yet.
  */
-export function Sidebar({ workspaceName, rooms, currentRoomId, onSelect }: Props) {
+export function Sidebar({ workspaceName, rooms, currentRoomId, unreadOnly, onSelect }: Props) {
+  const shown = unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms;
   return (
     <div className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
       {/* At 900px and below the drawer's close button sits at the end of this row. A long name wraps where
@@ -25,8 +31,8 @@ export function Sidebar({ workspaceName, rooms, currentRoomId, onSelect }: Props
       <h2 className="flex min-h-7 items-center gap-2 px-1.5 text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
 
       <section aria-label="Rooms" className="flex flex-col gap-[3px]">
-        {rooms.map((room) => {
-          const unread = room.unread && room.id !== currentRoomId;
+        {shown.map((room) => {
+          const unread = markedUnread(room, currentRoomId);
           return (
             <a
               key={room.id}
@@ -66,8 +72,9 @@ export function Sidebar({ workspaceName, rooms, currentRoomId, onSelect }: Props
             <MessagesAdd className="size-[15px]" />
           </button>
         </div>
-        <p className="px-[9px] text-[13px] text-muted-foreground">No direct messages yet.</p>
+        {!unreadOnly && <p className="px-[9px] text-[13px] text-muted-foreground">No direct messages yet.</p>}
       </section>
+      {unreadOnly && shown.length === 0 && <p className="px-[9px] text-[13px] text-muted-foreground">You’re all caught up. No unread conversations.</p>}
     </div>
   );
 }

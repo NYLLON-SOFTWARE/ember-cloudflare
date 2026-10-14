@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Room, Sidebar, SidebarRoom } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { byName, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
+import { byName, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
 
 const room = (id: string, name: string, unread = false): SidebarRoom => ({ id, kind: "open", name, icon: null, unread });
 
@@ -97,6 +97,13 @@ describe(feature("sidebar.unread"), () => {
     expect(withRoom(marked.list!.rooms, renamed)).toEqual([room("r1", "Product design", true), room("r2", "general", true)]);
     const finance: Room = { id: "r3", kind: "open", name: "Finance", icon: null };
     expect(withRoom(marked.list!.rooms, finance).at(-1)).toEqual(room("r3", "Finance"));
+  });
+
+  it("marks a room's row unread unless the tab shows the room", () => {
+    expect(markedUnread(room("r1", "Design", true), null)).toBe(true);
+    expect(markedUnread(room("r1", "Design", true), "r2")).toBe(true);
+    expect(markedUnread(room("r1", "Design", true), "r1")).toBe(false);
+    expect(markedUnread(room("r1", "Design"), null)).toBe(false);
   });
 
   it("keeps a mark made while a list is on its way over the one the list has", () => {

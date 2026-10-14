@@ -9,7 +9,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
-import { byName } from "@/lib/room-list";
+import { byName, markedUnread } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -107,6 +107,9 @@ interface Props {
 export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
   const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
+  // keep it on, and loading the page again starts with it off.
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const route = useRoute();
 
@@ -221,8 +224,19 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     const link = (event.target as Element).closest("a[href]");
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
-  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} onSignOut={onSignOut} />;
-  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />;
+  // Following a link in the rail or the sidebar turns Activity off, as shell.js does. One the browser
+  // opens somewhere else leaves this page as it was, as it leaves the drawer.
+  const showAllForLink = (event: MouseEvent) => {
+    if (event.defaultPrevented && (event.target as Element).closest("a[href]")) setUnreadOnly(false);
+  };
+  const currentRoomId = room?.id ?? null;
+  const activity = {
+    on: unreadOnly,
+    unread: listed.filter((r) => markedUnread(r, currentRoomId)).length,
+    onToggle: () => setUnreadOnly((on) => !on),
+  };
+  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onSignOut={onSignOut} />;
+  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} currentRoomId={currentRoomId} unreadOnly={unreadOnly} onSelect={select} />;
 
   const page = () => {
     switch (route.page) {
@@ -294,7 +308,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       <DrawerOpen value={drawerOpen}>
         <div className="grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]">
           <SkipLink />
-          <div className="contents max-md:hidden [&>*]:row-span-2">
+          <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
             {rail}
             <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
               {sidebar}
@@ -309,7 +323,10 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               event.preventDefault();
               closeDrawerButton.current?.focus();
             }}
-            onClick={closeForLinkHere}
+            onClick={(event) => {
+              closeForLinkHere(event);
+              showAllForLink(event);
+            }}
             className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
           >
             <SheetTitle className="sr-only">Conversations</SheetTitle>
