@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
-import type { Room, User } from "@ember/protocol";
+import type { Room, RoomId, User } from "@ember/protocol";
 import { Flash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -79,10 +79,18 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
     navigate("/", { replace: true });
     flash("Room not found or inaccessible");
   }, [flash]);
-  // A room just made or renamed takes its place in the list, by name.
+  // A room just saved takes its place in the list, by name, and one that's gone leaves it.
   const listRoom = useCallback((room: Room) => changeRooms({ type: "saved", room }), []);
+  const unlistRoom = useCallback((roomId: RoomId) => changeRooms({ type: "gone", roomId }), []);
 
-  const room = route.page === "room" ? (rooms?.find((r) => r.id === route.roomId) ?? rooms?.[0] ?? null) : null;
+  // A room found gone while it's shown stays on screen to say so until another page shows.
+  const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
+  const roomGone = (room: Room) => {
+    setGone({ room, route });
+    unlistRoom(room.id);
+  };
+
+  const room = route.page !== "room" ? null : gone?.route === route ? gone.room : (rooms?.find((r) => r.id === route.roomId) ?? rooms?.[0] ?? null);
   const select = (roomId: string) => {
     navigate(roomPath(roomId));
     setDrawerOpen(false);
@@ -101,12 +109,30 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
         // Not keyed, so flipping Everyone, which changes the address, keeps what's filled in.
         return <NewRoomPage access={route.access} me={me} onCreated={listRoom} onFailed={failed} />;
       case "room-settings":
-        return <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} onSaved={listRoom} onMissing={missing} onFailed={failed} />;
+        return (
+          <RoomSettingsPage
+            key={route.roomId}
+            roomId={route.roomId}
+            access={route.access}
+            me={me}
+            onSaved={listRoom}
+            onLeft={unlistRoom}
+            onMissing={missing}
+            onFailed={failed}
+          />
+        );
       case "workspace-settings":
         return <WorkspaceSettingsPage />;
       case "room":
         return room ? (
-          <RoomView key={room.id} room={room} invitation={invitation?.roomId === room.id ? invitation : null} me={me} onSessionChanged={onSessionChanged} />
+          <RoomView
+            key={room.id}
+            room={room}
+            invitation={invitation?.roomId === room.id ? invitation : null}
+            me={me}
+            onSessionChanged={onSessionChanged}
+            onGone={roomGone}
+          />
         ) : (
           <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">
             {rooms ? "No rooms yet." : "Loading…"}

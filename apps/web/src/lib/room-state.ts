@@ -1,6 +1,7 @@
 import type { Message, ServerFrame, User } from "@ember/protocol";
 
-export type ConnectionStatus = "connecting" | "open" | "reconnecting";
+/** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
+export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
 
 /**
  * ember-rust's page of messages (`Message::PAGE_SIZE`). The welcome card shows only in a room with no
@@ -76,7 +77,8 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "reset":
       return initialRoomState;
     case "status":
-      return { ...state, status: action.status };
+      // Nobody shows as here with this person in a room that's gone.
+      return action.status === "gone" ? { ...state, status: action.status, present: [], typing: {} } : { ...state, status: action.status };
     case "pending":
       return { ...state, messages: [...state.messages, action.message] };
     case "loading-older":

@@ -3,7 +3,7 @@ import { MAX_MESSAGE_LENGTH, type User } from "@ember/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Composer } from "./composer";
+import { Composer, RoomDeleted } from "./composer";
 
 function showComposer({ typing = [] as User[], disabled = false } = {}) {
   const onSend = vi.fn();
@@ -82,5 +82,15 @@ describe(feature("realtime.typing"), () => {
   ])("names who is typing: %j", (typing, sentence) => {
     const { view } = showComposer({ typing });
     expect(view.container.querySelector("[aria-live=polite]")).toHaveTextContent(sentence, { normalizeWhitespace: true });
+  });
+});
+
+describe(feature("rooms.member-only-access"), () => {
+  it("says a room that's gone was deleted, in red, shaking once where motion is welcome", () => {
+    render(<RoomDeleted />);
+    const notice = screen.getByRole("alert");
+    expect(notice).toHaveTextContent("This room was deleted.");
+    expect(notice).toHaveClass("text-negative", "border-negative", "motion-safe:animate-shake");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

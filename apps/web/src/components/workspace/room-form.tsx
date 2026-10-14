@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { MAX_ROOM_NAME_LENGTH, type User } from "@ember/protocol";
+import { MAX_ROOM_NAME_LENGTH, type User, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Check, Everyone } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
@@ -56,9 +56,10 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
         <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{name}</h2>
       )}
 
-      <section className="my-4 rounded-[10px] border bg-surface px-[1ch]">
+      {/* Saving sends who the switches showed when Save was pressed, so they wait until it's done. */}
+      <fieldset disabled={saving} className="my-4 min-w-0 rounded-[10px] border bg-surface px-[1ch]">
         <People everyone={everyone} groups={groups} mark={mark} />
-      </section>
+      </fieldset>
 
       {canAdminister && <SubmitButton disabled={saving}>Save</SubmitButton>}
     </form>
@@ -157,6 +158,14 @@ function Filter({ onFilter }: { onFilter: (filter: string) => void }) {
 /** ember-rust's check mark, for someone a room takes in who has no switch. */
 export function CheckMark() {
   return <Check width={20} height={20} className="size-5 shrink-0" />;
+}
+
+/** The people `chosen` for a private room, with `person` among them or not. */
+export function withChoice(chosen: ReadonlySet<UserId>, person: User, checked: boolean): ReadonlySet<UserId> {
+  const next = new Set(chosen);
+  if (checked) next.add(person.id);
+  else next.delete(person.id);
+  return next;
 }
 
 /** The switch that gives someone access to a private room. */

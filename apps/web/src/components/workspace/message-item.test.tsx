@@ -250,6 +250,13 @@ describe(feature("boosts.add"), () => {
     await user.click(chips[0]!);
     expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
   });
+
+  it("offers nothing where nothing can be done, as in a room that's gone", () => {
+    render(<MessageItem message={message({ boosts: [boost("b1", grace, "👍")] })} me={ada} threaded={false} actions={null} />);
+    expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Reactions" })).getByRole("button", { name: /👍/ })).toBeDisabled();
+  });
 });
 
 describe(feature("boosts.remove"), () => {

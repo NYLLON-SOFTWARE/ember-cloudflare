@@ -69,6 +69,11 @@ describe(feature("realtime.reconnect"), () => {
     renderHeader();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("shows no status for a room that's gone, which nothing reconnects to", () => {
+    renderHeader({ status: "gone" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
 });
 
 describe(feature("ui.mobile-drawer"), () => {

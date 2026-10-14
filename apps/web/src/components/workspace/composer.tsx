@@ -11,6 +11,9 @@ function typingSentence(users: User[]): string {
   return "Several people are typing…";
 }
 
+/** The composer's place below the messages, which keeps clear of a phone's home bar. */
+const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
+
 interface Props {
   roomName: string;
   typing: User[];
@@ -33,7 +36,7 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
   };
 
   return (
-    <footer className="bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]">
+    <footer className={FOOTER}>
       <form
         className="relative"
         onSubmit={(event) => {
@@ -86,6 +89,21 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
           </div>
         </div>
       </form>
+    </footer>
+  );
+}
+
+/**
+ * ember-rust's messages/room_not_found.html, in the composer's place in a room that's gone: deleted, or
+ * no longer this person's. Its span is inline, so its width, centering and shake don't take; this has
+ * them, as its classes mean.
+ */
+export function RoomDeleted() {
+  return (
+    <footer className={FOOTER}>
+      <p role="alert" className="rounded-lg border border-negative px-[0.8em] py-[0.5em] text-center text-base text-negative motion-safe:animate-shake">
+        This room was deleted.
+      </p>
     </footer>
   );
 }

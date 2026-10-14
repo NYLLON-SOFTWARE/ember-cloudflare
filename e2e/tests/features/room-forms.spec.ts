@@ -132,6 +132,64 @@ test.describe(feature("rooms.edit-permissions"), () => {
   });
 });
 
+test.describe(feature("rooms.members"), () => {
+  test("adds and removes a private room's people, and someone removed who has it open finds it gone", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const linus = await members.signIn(unique("Linus"), { serverRooms: true });
+    const grace = await createSession(request, unique("Grace"));
+    const leads = await createPrivateRoom(request, linus.session, unique("Leads"), [linus.session, ada.session]);
+    await ada.page.goto(`/rooms/${leads.id}`);
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText(leads.name);
+    await ada.connected();
+
+    await linus.page.goto(`/rooms/closeds/${leads.id}/edit`);
+    const accessFor = (name: string) => linus.page.getByRole("switch", { name: `Give ${name} access to this room` });
+    await expect(accessFor(ada.name)).toBeChecked();
+    await expect(accessFor(grace.user.name)).not.toBeChecked();
+    await accessFor(grace.user.name).click();
+    await accessFor(ada.name).click();
+    await linus.page.getByRole("button", { name: "Save" }).click();
+    await expect(linus.page).toHaveURL(new RegExp(`/rooms/${leads.id}$`));
+
+    await expect(ada.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(ada.composer()).toHaveCount(0);
+    await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
+    expect(await canSee(request, ada.session, leads.id)).toBe(false);
+    expect(await canSee(request, grace, leads.id)).toBe(true);
+  });
+
+  test("goes home with an alert when you save a private room without yourself", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const leads = await createPrivateRoom(request, ada.session, unique("Leads"), [ada.session]);
+    await ada.page.goto(`/rooms/closeds/${leads.id}/edit`);
+    await ada.page.getByRole("switch", { name: `Give ${ada.name} access to this room` }).click();
+    await ada.page.getByRole("button", { name: "Save" }).click();
+    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
+    await expect(ada.page).toHaveURL(/\/$/);
+    await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
+    expect(await canSee(request, ada.session, leads.id)).toBe(false);
+  });
+});
+
+test.describe(feature("rooms.convert-access"), () => {
+  test("opens a private room to everyone with the Everyone switch", async ({ members, request }) => {
+    const linus = await members.signIn(unique("Linus"), { serverRooms: true });
+    const grace = await createSession(request, unique("Grace"));
+    const leads = await createPrivateRoom(request, linus.session, unique("Leads"), [linus.session]);
+    await linus.page.goto(`/rooms/closeds/${leads.id}/edit`);
+    await linus.page.getByRole("switch", { name: "Give everyone access to this room" }).click();
+    await expect(linus.page).toHaveURL(new RegExp(`/rooms/opens/${leads.id}/edit$`));
+    await expect(linus.page.getByRole("switch", { name: "Give only some access to this room" })).toBeChecked();
+    await linus.page.getByRole("button", { name: "Save" }).click();
+
+    await expect(linus.page).toHaveURL(new RegExp(`/rooms/${leads.id}$`));
+    await linus.connected();
+    expect(await canSee(request, grace, leads.id)).toBe(true);
+    // Its settings now open at the open room's address.
+    await expect(linus.page.getByRole("link", { name: "Settings for this room" })).toHaveAttribute("href", `/rooms/opens/${leads.id}/edit`);
+  });
+});
+
 test.describe(feature("ui.flash"), () => {
   test("centers an alert over the page beside the rail and sidebar", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });

@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { CheckMark, RoomForm } from "./room-form";
+import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const grace = { id: "grace", name: "Grace Hopper" };
@@ -68,9 +68,11 @@ describe(feature("rooms.create-open"), () => {
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
   });
 
-  it("disables Save while saving", () => {
-    renderForm({ saving: true });
+  it("disables Save and every switch while saving", () => {
+    renderForm({ saving: true, everyone: { on: false, onFlip: vi.fn() }, mark: (person) => <AccessSwitch person={person} checked onCheckedChange={vi.fn()} /> });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getAllByRole("switch")).toHaveLength(4);
+    for (const toggle of screen.getAllByRole("switch")) expect(toggle).toBeDisabled();
   });
 });
 

@@ -4,7 +4,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
-import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
+import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /** What New room's name starts as, as in ember-rust (rooms/opens.rs). */
@@ -42,14 +42,6 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     return () => void (stopped = true);
   }, [onFailed]);
 
-  const choose = (person: User, checked: boolean) =>
-    setChosen((chosen) => {
-      const next = new Set(chosen);
-      if (checked) next.add(person.id);
-      else next.delete(person.id);
-      return next;
-    });
-
   const save = () => {
     setSaving(true);
     // The private form lists its creator with a check mark and sends them as one of its members.
@@ -84,7 +76,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
               access === "open" || person.id === me.id ? (
                 <CheckMark />
               ) : (
-                <AccessSwitch person={person} checked={chosen.has(person.id)} onCheckedChange={(checked) => choose(person, checked)} />
+                <AccessSwitch person={person} checked={chosen.has(person.id)} onCheckedChange={(checked) => setChosen((chosen) => withChoice(chosen, person, checked))} />
               )
             }
             saving={saving}

@@ -504,3 +504,38 @@ describe(feature("realtime.presence"), () => {
     expect(result.current.state.present).toEqual([ada]);
   });
 });
+
+describe(feature("rooms.member-only-access"), () => {
+  it("stops connecting to a room that's gone for the person, deleted or no longer theirs", async () => {
+    const fetch = vi.fn(async () => Response.json({ user: ada }));
+    vi.stubGlobal("fetch", fetch);
+    const onSessionChanged = vi.fn();
+    const { result } = joinGeneral({ onSessionChanged });
+    socket().drop(CloseCode.NotFound);
+    expect(result.current.state.status).toBe("reconnecting");
+    await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(result.current.state.present).toEqual([]);
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("calls a room gone when it can't tell who the browser is signed in as", async () => {
+    const { result } = joinGeneral();
+    socket().drop(CloseCode.NotFound);
+    await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
+  });
+
+  it.each([
+    ["someone else", async () => Response.json({ user: grace }), grace],
+    ["nobody", async () => Response.json({ error: "Not signed in" }, { status: 401 }), null],
+  ])("hands over when a room is gone for whoever the browser is now signed in as: %s", async (_case, answer, signedIn) => {
+    vi.stubGlobal("fetch", vi.fn(answer));
+    const onSessionChanged = vi.fn();
+    const { result } = joinGeneral({ onSessionChanged });
+    socket().drop(CloseCode.NotFound);
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(signedIn));
+    expect(result.current.state.status).toBe("reconnecting");
+  });
+});

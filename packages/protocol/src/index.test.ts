@@ -141,8 +141,31 @@ describe(feature("rooms.settings-page"), () => {
     ["a blank name", { name: "   " }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
     ["a name that isn't text", { name: null }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
     ["a name that's too long", { name: "x".repeat(MAX_ROOM_NAME_LENGTH + 1) }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a direct message", { kind: "direct" }, 'Kind must be "open" or "closed"'],
+    ["a kind that isn't one", { name: "Design", kind: "secret" }, 'Kind must be "open" or "closed"'],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseRoomChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("rooms.convert-access"), () => {
+  it("takes making a room open, with or without a new name, and ignores members it doesn't need", () => {
+    expect(parseRoomChanges({ kind: "open" })).toEqual({ kind: "open" });
+    expect(parseRoomChanges({ name: " Design ", kind: "open", memberIds: ["u1"] })).toEqual({ name: "Design", kind: "open" });
+  });
+});
+
+describe(feature("rooms.members"), () => {
+  it("takes a private room's members, even nobody", () => {
+    expect(parseRoomChanges({ name: "Leads", kind: "closed", memberIds: ["u1", "u2"] })).toEqual({ name: "Leads", kind: "closed", memberIds: ["u1", "u2"] });
+    expect(parseRoomChanges({ kind: "closed", memberIds: [] })).toEqual({ kind: "closed", memberIds: [] });
+  });
+
+  it("refuses making a room private without its members listed, since everyone left out is taken out", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
+      expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
+    }
   });
 });
 

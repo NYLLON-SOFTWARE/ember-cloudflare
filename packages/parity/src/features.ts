@@ -615,7 +615,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`, and the other kind's address moves to the room's own. People who can change the room get \"Room name\" and Save, which renames it and opens the room. An open room lists everyone active with check marks under Everyone; a private room lists its members with check marks, a line, then everyone else, since switches come with `rooms.members`. Everyone else gets the name as a heading and the list. Still to come: the Everyone switch (`rooms.convert-access`), the icon picker (`rooms.icon-picker`), Delete (`rooms.delete`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it. An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. Still to come: the icon picker (`rooms.icon-picker`), Delete (`rooms.delete`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
   },
   {
     id: "rooms.edit-permissions",
@@ -628,13 +628,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/user.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "`GET /api/rooms/<id>/settings` and `PATCH /api/rooms/<id>` find the room with `WorkspaceStore.roomToChange`, answering 404, then 403, then 422 in ember-rust's order, and the app goes to `/` with the alert on a 404. Renaming is the only change so far; members, access, icons and deletion will go through the same check.",
+    notes: "`GET /api/rooms/<id>/settings` and `PATCH /api/rooms/<id>` find the room with `WorkspaceStore.roomToChange`, answering 404, then 403, then 422 in ember-rust's order, and the app goes to `/` with the alert on a 404. Renaming, switching access and choosing members go through it; icons and deletion will too. The Workspace makes these changes one at a time: on D1 other requests run between a change's check and its write, and without that someone another change had just taken out of a room could still open it to everyone.",
   },
   {
     id: "rooms.convert-access",
     title: "Switch a room between open and private",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Making a private room open adds everyone, keeping members' notification levels.",
       "Making an open room private keeps exactly the people chosen and removes everyone else: their connections drop and reconnect without the room, which leaves their sidebar.",
@@ -643,12 +643,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/channels/broadcasts.rs", "reference/app/models/rooms/open.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/models/rooms/open_test.rb"],
+    notes: "The settings page's Everyone switch moves between the open and private forms in place, keeping the name and the switches, and Save sends `{ \"name\", \"kind\": \"open\" }` or `{ \"name\", \"kind\": \"closed\", \"memberIds\" }` to `PATCH /api/rooms/<id>`. The Workspace saves the room, its members and the sockets to close for everyone taken out in one batch, where ember-rust takes two writes, and changes nothing, `updated_at` included, when nothing changed. Unlike ember-rust, making a room private needs its list of members, even an empty one, rather than taking everyone out when the list is missing. Someone taken out who has the room open sees \"This room was deleted.\" at once, and it leaves their sidebar (`rooms.members`); other sidebars, including those of people a room adds, catch up when they next load (`sidebar.live-updates`). Rooms have no icons yet (`rooms.icons`).",
   },
   {
     id: "rooms.members",
     title: "Add and remove private room members",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Saving a private room's members adds newcomers at `mentions` and removes everyone else. Editors who untick themselves are removed too, and go to `/` with \"Room not found or inaccessible\".",
       "The form lists only active people, but the id of anyone who exists is accepted.",
@@ -658,6 +659,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/channels/revocation.rs", "crates/db/src/models/membership.rs", "reference/app/models/room.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/revocation_test.rs", "reference/test/models/room_test.rb"],
+    notes: "A private room's settings start with its members' switches on. Saving grants the people switched on, any id that belongs to someone, at `mentions`, and takes everyone else out: the Workspace's revocation outbox closes their sockets in the room with 4001, and when they reconnect the Worker closes the new socket at once with 4004, after which the app stops connecting. Someone who switches themselves off goes to `/` with \"Room not found or inaccessible\", and the room leaves their sidebar. Unlike ember-rust, which says \"This room was deleted.\" only when someone removed sends a message, the app says so in the composer's place as soon as the room's socket is refused, and the room leaves that person's sidebar. ember-rust's notice is an inline span, so its width, centering and shake don't take; here they do. Other sidebars catch up when they next load (`sidebar.live-updates`).",
   },
   {
     id: "rooms.delete",
@@ -741,14 +743,14 @@ export const features = [
     id: "rooms.member-only-access",
     title: "Only members see a room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Only members get a room's page, messages, typing and presence; anyone else is refused, including someone removed from the room replaying a stream name they saw earlier.",
       "Sending a message to a room you're not in, or one that no longer exists, posts nothing and shows \"This room was deleted.\" in place of the composer.",
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/ember/src/channels/room.rs", "crates/ember/src/channels/revocation.rs", "crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/room_not_found.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "Only members can open a room's socket, which carries its messages, typing and presence; anyone else gets 404 \"Room not found or inaccessible\" without the room's object waking, and the Workspace checks again on every reconnect. Nobody can be removed from a room yet, though the Workspace can already close someone's sockets in every room (`realtime.connection`), and there's no \"This room was deleted.\"",
+    notes: "Only members can open a room's socket, which carries its messages, typing and presence, and the Workspace checks again on every reconnect. Anyone else's upgrade, including someone taken out of the room (`rooms.members`), is accepted and closed at once with 4004 without the room's object waking, since the app can't read why a refused upgrade failed. The app then stops connecting and shows \"This room was deleted.\" in place of the composer, at once rather than when a message is sent, unless the browser is now signed in as someone else, whom it switches to. The room's messages stay on screen without their actions, since nothing done to them could be saved.",
   },
   {
     id: "rooms.legacy-rooms",
@@ -1703,7 +1705,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/connection.rs", "crates/ember/src/channels/revocation.rs", "crates/cable/src/connection.rs", "crates/cable/src/server.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/user.rs", "crates/ember/src/concerns.rs", "reference/app/channels/application_cable/connection.rb"],
     upstreamTests: ["reference/test/channels/application_cable/connection_test.rb", "crates/ember/src/channels/tests/revocation_test.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/cable/tests/protocol.rs"],
-    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Only signing out uses this yet, and it closes just that session's sockets (`auth.sign-out`); nobody can lose a membership, be removed or be banned until rooms' members and people's administration are ported.",
+    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Signing out closes just that session's sockets (`auth.sign-out`), and taking someone out of a room closes theirs there, after which the Worker closes their reconnecting socket at once with 4004 and the app stops connecting (`rooms.members`). Nobody can be removed or banned until people's administration is ported.",
   },
   {
     id: "realtime.keepalive",
