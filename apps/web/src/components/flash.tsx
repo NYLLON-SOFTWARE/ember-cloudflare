@@ -1,30 +1,86 @@
-import { Alert } from "@/components/icons/campfire";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Alert, Check } from "@/components/icons/campfire";
+import { takeFlashFromLastPage, type FlashMessage } from "@/lib/flash";
 import { cn } from "@/lib/utils";
 
+/** Flashes a message over the page, in place of any still showing. */
+export type Flasher = (kind: FlashMessage["kind"], text: string) => void;
+
+const FlashContext = createContext<Flasher | null>(null);
+
 /**
- * ember-rust's flash (crates/views/templates/layouts/application.html, styled in zz-ember.css): a red
- * notice 12px below the header, 56px tall on phones, that fades in and out, then goes. Only its
- * alerts are ported yet. It grows to fit its text, up to the screen's width less 24px, where
- * ember-rust's stops at half the screen's width, as Campfire's flash.css centers it from the
- * middle, and so wraps early on a phone. In the workspace it's centered over the page beside the
- * rail and sidebar, where they show.
+ * Flashes messages over every page, signed in or not, as ember-rust's layout does: one at a time, so
+ * a new one, or the same one again, takes the place of any still showing and fades in afresh. Over
+ * the workspace, they're centered on the page beside the rail and sidebar, where those show.
  */
-export function Flash({ children, workspace = false, onDone }: { children: string; workspace?: boolean; onDone: () => void }) {
+export function FlashProvider({ workspace = false, children }: { workspace?: boolean; children: ReactNode }) {
+  // Keyed, so the same message twice fades in again.
+  const [shown, setShown] = useState<(FlashMessage & { key: number }) | null>(null);
+  const flash = useCallback<Flasher>((kind, text) => setShown((current) => ({ kind, text, key: (current?.key ?? 0) + 1 })), []);
+
+  // What the page before a full page load left to flash, as ember-rust flashes after a redirect.
+  useEffect(() => {
+    const message = takeFlashFromLastPage();
+    if (message) flash(message.kind, message.text);
+  }, [flash]);
+
+  return (
+    <FlashContext value={flash}>
+      {children}
+      {shown && (
+        <Flash
+          key={shown.key}
+          message={shown}
+          workspace={workspace}
+          // Unless another has taken its place meanwhile.
+          onDone={() => setShown((current) => (current?.key === shown.key ? null : current))}
+        />
+      )}
+    </FlashContext>
+  );
+}
+
+/** Flashes messages over the page, from inside a `FlashProvider`. */
+export function useFlash(): Flasher {
+  const flash = useContext(FlashContext);
+  if (!flash) throw new Error("useFlash needs a FlashProvider around it");
+  return flash;
+}
+
+/**
+ * ember-rust's flash (crates/views/templates/layouts/application.html, styled in zz-ember.css): a
+ * notice in white on green with Campfire's check, or an alert on red with its alert sign, 12px below
+ * the header. A notice of just "✓" shows only the check, read as "Changes saved". It fades in after
+ * 0.3s and out again by 3.3s (Campfire's flash.css), and then goes. Unlike ember-rust's, it:
+ * - shows at once under reduced motion, without fading, until the fade would have ended, where
+ *   Campfire's reset cuts the animation to nothing, so ember-rust's never shows;
+ * - grows to fit its text, up to the screen's width less 24px, where ember-rust's stops at half the
+ *   screen's width, as Campfire's flash.css centers it from the middle, and so wraps early on a phone;
+ * - keeps 12px below the header, and centered on the page, where they make room for a notch.
+ */
+function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashMessage; workspace: boolean; onDone: () => void }) {
+  const Sign = kind === "alert" ? Alert : Check;
   return (
     <div
       onAnimationEnd={onDone}
+      // z-30, as ember-rust's: over the page, under menus and dialogs, and, unlike ember-rust's, under
+      // the drawer on a phone, which is a modal dialog here.
       className={cn(
-        "pointer-events-none fixed top-[calc(var(--spacing-header)+12px)] left-1/2 max-md:top-[calc(56px+12px)] z-30 flex w-max max-w-[calc(100dvw-24px)] -translate-x-1/2 justify-center",
-        workspace && "md:left-[calc((100%+var(--spacing-rail)+var(--spacing-sidebar))/2)] md:max-w-[calc(100dvw-var(--spacing-rail)-var(--spacing-sidebar)-24px)]",
+        "pointer-events-none fixed top-[calc(var(--spacing-header)+12px)] left-1/2 max-md:top-[calc(56px+env(safe-area-inset-top)+12px)] z-30 flex w-max max-w-[calc(100dvw-24px)] -translate-x-1/2 justify-center",
+        workspace &&
+          "md:left-[calc((100%+env(safe-area-inset-left)+var(--spacing-rail)+var(--spacing-sidebar))/2)] md:max-w-[calc(100dvw-env(safe-area-inset-left)-var(--spacing-rail)-var(--spacing-sidebar)-24px)]",
       )}
     >
       <div
         role="alert"
         aria-atomic="true"
-        className="flex min-h-12 min-w-12 animate-flash items-center justify-center gap-2.5 rounded-[10px] bg-negative p-3 text-center text-white shadow-[0_8px_24px_#00000012]"
+        className={cn(
+          "flex min-h-12 min-w-12 animate-flash items-center justify-center gap-2.5 rounded-[10px] p-3 text-center text-white shadow-[0_8px_24px_#00000012] motion-reduce:animate-flash-still",
+          kind === "alert" ? "bg-negative" : "bg-positive",
+        )}
       >
-        <Alert tone="white" width={24} height={24} className="size-6 flex-none" />
-        <span>{children}</span>
+        <Sign tone="white" width={24} height={24} className="size-6 flex-none" />
+        {text === "✓" ? <span className="sr-only">Changes saved</span> : <span>{text}</span>}
       </div>
     </div>
   );

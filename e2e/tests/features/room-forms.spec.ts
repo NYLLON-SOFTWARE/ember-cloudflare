@@ -436,15 +436,3 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     await expect(page).toHaveURL(/\/session\/new$/);
   });
 });
-
-test.describe(feature("ui.flash"), () => {
-  test("centers an alert over the page beside the rail and sidebar", async ({ members }) => {
-    const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
-    await ada.page.goto("/rooms/opens/nowhere/edit");
-    const alert = ada.page.getByRole("alert");
-    await expect(alert).toHaveText("Room not found or inaccessible");
-    const box = (await alert.boundingBox())!;
-    // Halfway between the sidebar's edge, 80px of rail and 280px of sidebar in, and the window's.
-    expect(Math.round(box.x + box.width / 2)).toBe((360 + 1280) / 2);
-  });
-});

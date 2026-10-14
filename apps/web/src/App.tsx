@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bootstrap, NewWorkspace, User } from "@ember/protocol";
+import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
@@ -99,10 +100,21 @@ export function App() {
     setWorkspace((workspace) => workspace && { ...workspace, setup: "complete" });
   }, []);
 
+  // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
-  if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
-  // Someone else's workspace starts afresh, with their own rooms and sockets.
-  if (me && !atSignIn) return <Workspace key={me.id} me={me} workspaceName={workspace.account.name} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
-  if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
-  return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
+  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn;
+  const page = () => {
+    if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
+    // Someone else's workspace starts afresh, with their own rooms and sockets.
+    if (showsWorkspace) return <Workspace key={me.id} me={me} workspaceName={workspace.account.name} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
+    if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
+    return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
+  };
+  // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's
+  // flash, as ember-rust's redirect after signing in shows none.
+  return (
+    <FlashProvider key={showsWorkspace ? me.id : "signed out"} workspace={showsWorkspace}>
+      {page()}
+    </FlashProvider>
+  );
 }
