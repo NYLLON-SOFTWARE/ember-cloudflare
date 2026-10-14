@@ -63,25 +63,41 @@ describe(feature("composer.send"), () => {
 });
 
 describe(feature("realtime.typing"), () => {
-  it("reports typing while there's text, and stops when it's cleared or the box loses focus", async () => {
+  it("reports typing while there's text, and stops when it's cleared, but not when the box loses focus", async () => {
     const { onTyping, input, user } = showComposer();
     await user.type(input, "Hi");
     expect(onTyping).toHaveBeenLastCalledWith(true);
     await user.clear(input);
     expect(onTyping).toHaveBeenLastCalledWith(false);
     await user.type(input, "Hi");
+    onTyping.mockClear();
     await user.tab();
-    expect(onTyping).toHaveBeenLastCalledWith(false);
+    expect(onTyping).not.toHaveBeenCalled();
   });
 
+  const typist = (name: string, i: number): User => ({ id: `u${i}`, name });
+
   it.each([
-    [[], ""],
-    [[{ id: "u1", name: "Ada" }], "Ada is typing…"],
-    [[{ id: "u1", name: "Ada" }, { id: "u2", name: "Grace" }], "Ada and Grace are typing…"],
-    [[{ id: "u1", name: "Ada" }, { id: "u2", name: "Grace" }, { id: "u3", name: "Linus" }], "Several people are typing…"],
-  ])("names who is typing: %j", (typing, sentence) => {
-    const { view } = showComposer({ typing });
-    expect(view.container.querySelector("[aria-live=polite]")).toHaveTextContent(sentence, { normalizeWhitespace: true });
+    [["Ada"], "Ada"],
+    [["Grace", "Ada"], "Ada, Grace"],
+    [["Linus", "Grace", "Ada", "Ken"], "Ada, Grace, Ken, Linus"],
+    // Sorted by code unit, as JavaScript sorts strings, so capitals come first.
+    [["ada", "Bob"], "Bob, ada"],
+  ])("names whoever is typing after a spinner, sorted and comma-separated: %j", (names, line) => {
+    const { view } = showComposer({ typing: names.map(typist) });
+    const indicator = view.container.querySelector(".spinner")!;
+    expect(indicator).toHaveTextContent(line, { normalizeWhitespace: false });
+    expect(indicator).not.toHaveClass("hidden");
+    expect(indicator.parentElement).not.toHaveClass("opacity-0");
+    expect(indicator.closest("[aria-live]")).toBeNull();
+  });
+
+  it("shows nothing while nobody is typing, and fades in when someone starts", () => {
+    const { view } = showComposer();
+    const indicator = view.container.querySelector(".spinner")!;
+    expect(indicator).toHaveTextContent("");
+    expect(indicator).toHaveClass("hidden");
+    expect(indicator.parentElement).toHaveClass("opacity-0", "transition-opacity", "duration-300");
   });
 });
 

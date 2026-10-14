@@ -87,8 +87,9 @@ export class Member {
     return this.page.getByText(/^\d+ here now$/);
   }
 
+  /** The names of whoever else is typing, above the composer: hidden and empty while nobody is. */
   typingIndicator(): Locator {
-    return this.page.locator("p[aria-live=polite]");
+    return this.page.locator("footer").filter({ has: this.composer() }).locator(".spinner");
   }
 }
 

@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 30 ported and 56 partial of 172 features; 81 not started, 5 not applicable.
+**Overall:** 31 ported and 55 partial of 172 features; 81 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -29,13 +29,13 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
-| [Presence, typing and live updates](#presence-typing-and-live-updates) | 2 | 4 | 0 | 0 | 6 |
+| [Presence, typing and live updates](#presence-typing-and-live-updates) | 3 | 3 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 8 | 3 | 0 | 4 | 15 |
-| **Total** | **30** | **56** | **81** | **5** | **172** |
+| **Total** | **31** | **55** | **81** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1595,7 +1595,7 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 |---|---|---|---|---|
 | Presence | `realtime.presence` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts), [viewing](apps/worker/test/viewing.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts), [visibility](apps/web/src/lib/visibility.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Who's here | `realtime.who-is-here` | This port | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
-| Typing indicator | `realtime.typing` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
+| Typing indicator | `realtime.typing` | Campfire | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [reconnecting-socket](apps/web/src/lib/reconnecting-socket.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Connection sign-in and revocation | `realtime.connection` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts), [revocation](apps/worker/test/revocation.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts) |
 | Keeping the connection alive | `realtime.keepalive` | Campfire | ✅ Ported | Web: [use-room](apps/web/src/hooks/use-room.test.ts), [reconnecting-socket](apps/web/src/lib/reconnecting-socket.test.ts) |
@@ -1621,13 +1621,13 @@ ember-rust tests: [`reference/test/channels/presence_channel_test.rb`](https://g
 - The room header shows the faces of up to four people who have the room open, with +N for the rest, their names on hover, and "N here now" for screen readers.
 - It changes as people arrive and leave.
 
-**Typing indicator** (`realtime.typing`) 🟡
+**Typing indicator** (`realtime.typing`) ✅
 
 - Typing tells the room at most once a second; emptying the box or sending tells it you've stopped, and leaving the box doesn't.
 - Others see the typists' names, sorted and comma-separated, with a spinner above the composer and no "is typing"; nobody sees their own name. A name goes 5 seconds after they last typed, or as soon as they stop.
 - Only room members send or receive typing.
 
-Note: Typing goes out at most every 3 seconds and lasts 6, and leaving the message box stops it. The indicator reads "Ada is typing…", "Ada and Grace are typing…" or "Several people are typing…" in a polite live region, which ember-rust's isn't. Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once.
+Note: Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once. Sending a message tells everyone else its author stopped as it arrives, rather than with a stop of its own. Without motion, the spinner's dots hold still in a row, where ember-rust's reset stacks them into one dot. Names that don't fit on one line end in an ellipsis, where ember-rust's wrap down over the message box.
 
 Sources: [`reference/app/channels/typing_notifications_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/typing_notifications_channel.rb) · [`crates/ember/src/channels/typing_notifications.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/typing_notifications.rs) · [`reference/app/javascript/controllers/typing_notifications_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/typing_notifications_controller.js) · [`reference/app/javascript/models/typing_tracker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/typing_tracker.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`reference/app/assets/stylesheets/spinner.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/spinner.css)
 
