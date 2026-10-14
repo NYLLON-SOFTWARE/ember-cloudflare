@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 37 ported and 53 partial of 172 features; 77 not started, 5 not applicable.
+**Overall:** 38 ported and 52 partial of 172 features; 77 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **37** | **53** | **77** | **5** | **172** |
+| **Total** | **38** | **52** | **77** | **5** | **172** |
 
 ## Sign-in and sessions
 
