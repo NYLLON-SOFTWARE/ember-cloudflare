@@ -2276,7 +2276,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/views/templates/layouts/application.html", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The drawer is a Radix modal dialog named \"Conversations\", holding the rail and the conversations, where ember-rust slides in the rail and an `aside` that it keeps inert while they're closed, and makes the page behind inert while they're open. Radix hides the page behind from assistive tech, keeps focus in the drawer and takes it off the page while it's closed, which works the same. When a link in it shows another page, focus goes to that page's menu button, where ember-rust's page load leaves nothing focused.",
+    notes: "The drawer is a Radix modal dialog named \"Conversations\", holding the rail and the conversations, where ember-rust slides in the rail and an `aside` that it keeps inert while they're closed, and makes the page behind inert while they're open. Radix hides the page behind from assistive tech, keeps focus in the drawer and takes it off the page while it's closed, which works the same. When a link in it shows another page, focus goes to that page's menu button, where ember-rust's page load leaves nothing focused. A link in it opened somewhere else, such as in a new tab with a modifier key, leaves it open, where ember-rust's shell.js closes it on any click on a rail or sidebar link.",
   },
   {
     id: "ui.appearance",

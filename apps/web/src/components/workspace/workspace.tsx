@@ -215,8 +215,11 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
   const select = (roomId: string) => navigate(roomPath(roomId));
   // Following a link in the drawer closes it, as ember-rust's shell.js does: one to another page once
   // that page shows, which unsaved changes hold off while they're asked about, and one to the page
-  // shown at once.
+  // shown at once. One the browser opens somewhere else, such as in a new tab, leaves this page as it
+  // was, so the drawer stays open, where ember-rust's closes it anyway.
   const closeForLinkHere = (event: MouseEvent) => {
+    // A link followed in place has kept the browser from following it.
+    if (!event.defaultPrevented) return;
     const link = (event.target as Element).closest("a[href]");
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };

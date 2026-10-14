@@ -196,11 +196,19 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await expect(still.page.getByRole("dialog", { name: "Conversations" })).toHaveCSS("animation-name", "none");
   });
 
-  test("closes the drawer on following a link to the page shown", async ({ members, rooms }) => {
+  test("closes the drawer on following a link to the page shown, but not on opening it in a new tab", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { context: phone });
     await ada.page.getByRole("button", { name: "Open conversations" }).click();
     const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
-    await drawer.getByRole("link", { name: "general" }).click();
+    const general = drawer.getByRole("link", { name: "general" });
+
+    const tab = ada.page.context().waitForEvent("page");
+    await general.click({ modifiers: ["ControlOrMeta"] });
+    await (await tab).close();
+    // Still open, where one sliding out would still show: its button still offers to close it.
+    await expect(ada.page.getByRole("button", { name: "Close conversations", expanded: true, includeHidden: true })).toBeAttached();
+
+    await general.click();
     await expect(drawer).toHaveCount(0);
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });

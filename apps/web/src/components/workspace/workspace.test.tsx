@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, type Message, type Room, type RoomSettings } from "@ember/protocol";
@@ -587,6 +587,26 @@ describe(feature("ui.mobile-drawer"), () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("link", { name: "Workspace" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(location.pathname).toBe("/account/edit");
+  });
+
+  it("stays open when a link to the page shown opens somewhere else", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const openElsewhere = (name: string | RegExp, init: MouseEventInit) => {
+      // Keeps jsdom, which can't open a tab, from following the link once the page has had the click.
+      document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("link", { name }), init);
+    };
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }]) openElsewhere(/general/, init);
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }]) openElsewhere("Workspace", init);
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
   });
 
   it("leaves Escape to the appearance menu while it's open over the drawer", async () => {
