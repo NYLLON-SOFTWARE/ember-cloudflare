@@ -248,7 +248,7 @@ test.describe(feature("rooms.icon-picker"), () => {
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${design.id}$`));
     const row = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name });
     await expect(row.locator('[data-icon="coffee"]')).toBeVisible();
-    await expect(ada.page.locator('header [data-icon="coffee"]')).toBeVisible();
+    await expect(ada.page.getByRole("navigation", { name: "Page" }).locator('[data-icon="coffee"]')).toBeVisible();
     // Each icon is a file of its own, which the page fetches as it shows it.
     const svg = await request.get("/lucide/icons/coffee.svg");
     expect(svg.status()).toBe(200);
