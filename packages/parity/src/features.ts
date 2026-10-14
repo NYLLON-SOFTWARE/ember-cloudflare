@@ -2276,7 +2276,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/appearance.html", "crates/assets/overrides/basecoat/src/appearance.js", "crates/assets/overrides/basecoat/src/workspace-appearance.js", "crates/assets/overrides/ember/appearance.js", "crates/views/templates/layouts/application.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/first-run.test.mjs", "crates/assets/overrides/basecoat/test/lifecycle.test.mjs"],
-    notes: "The button is just \"Appearance\", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance` or theme color.",
+    notes: "The button is just \"Appearance\", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.",
   },
   {
     id: "ui.scroll",
@@ -2488,7 +2488,7 @@ export const features = [
     id: "platform.manifest",
     title: "Web app manifest",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/webmanifest.json` answers JSON without sign-in. It names the app after the workspace (\"Ember\" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.",
       "It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description \"A chat app from the makers of Basecamp and HEY.\" and the categories social, business and productivity.",
@@ -2496,19 +2496,21 @@ export const features = [
       "It lists three 1080×2400 narrow screenshots labelled \"Ember is an installable, self-hosted group chat system.\", \"Easily invite people. Make rooms. @mentions, DMs, and mobile support.\" and \"Full support for dark mode, customizable to your brand.\"",
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
-    upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. Both shortcuts open the first room until the New room page and profiles are ported (`rooms.create-open`, `users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",
     title: "Installable page head",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.",
       "`theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.",
     ],
     sources: ["crates/views/templates/layouts/application.html", "reference/app/views/layouts/application.html.erb"],
-    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original.",
+    upstreamTests: ["crates/views/tests/parity_a.rs"],
+    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.",
   },
   {
     id: "platform.limits",

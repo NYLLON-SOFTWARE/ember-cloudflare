@@ -17,6 +17,7 @@ import {
 import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { join, joinCodeOf, joinPage } from "./join";
+import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
 import { versionOf } from "./version";
@@ -199,6 +200,8 @@ export default {
     if (isSetupPath(pathname)) return setupPage(request, env);
     const joinCode = joinCodeOf(pathname);
     if (joinCode !== null) return joinPage(request, env, joinCode);
+    const manifestFormat = manifestFormatOf(pathname);
+    if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

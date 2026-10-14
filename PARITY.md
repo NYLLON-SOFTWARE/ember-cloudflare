@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 13 ported and 45 partial of 172 features; 109 not started, 5 not applicable.
+**Overall:** 14 ported and 46 partial of 172 features; 107 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
-| [Platform](#platform) | 3 | 2 | 6 | 4 | 15 |
-| **Total** | **13** | **45** | **109** | **5** | **172** |
+| [Platform](#platform) | 4 | 3 | 4 | 4 | 15 |
+| **Total** | **14** | **46** | **107** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2166,7 +2166,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance` or theme color.
+Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.
 
 Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
@@ -2253,8 +2253,8 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Supported browsers | `platform.browser-support` | Campfire | ⬜ Not started |  |
 | Security headers and HTTPS | `platform.security-headers` | Campfire | ⬜ Not started |  |
 | Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
-| Web app manifest | `platform.manifest` | Ember | ⬜ Not started |  |
-| Installable page head | `platform.head-tags` | Campfire | ⬜ Not started |  |
+| Web app manifest | `platform.manifest` | Ember | 🟡 Partial | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Installable page head | `platform.head-tags` | Campfire | ✅ Ported | E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
 | Install commands and the private setup link | `platform.install-commands` | Ember | ➖ Not applicable |  |
 | Runs on a Campfire install | `platform.rails-compat` | Campfire | ➖ Not applicable |  |
@@ -2353,25 +2353,29 @@ Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py) · [`deploy/installer/tests/test_install_recovery.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_install_recovery.py)
 
-**Web app manifest** (`platform.manifest`) ⬜
+**Web app manifest** (`platform.manifest`) 🟡
 
 - `/webmanifest.json` answers JSON without sign-in. It names the app after the workspace ("Ember" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.
 - It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description "A chat app from the makers of Basecamp and HEY." and the categories social, business and productivity.
 - Its shortcuts are New chat room (`rooms/opens/new`, "Open Ember and start a new chat room") and My profile (`/users/me/profile`, "Open Ember and view your profile"), each with an icon.
 - It lists three 1080×2400 narrow screenshots labelled "Ember is an installable, self-hosted group chat system.", "Easily invite people. Make rooms. @mentions, DMs, and mobile support." and "Full support for dark mode, customizable to your brand."
 
+Note: The app is named after the workspace, which first run names "Ember", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, "A real-time chat app that runs entirely on Cloudflare.", and there are no screenshots yet, since ember-rust's show Campfire's Android app. Both shortcuts open the first room until the New room page and profiles are ported (`rooms.create-open`, `users.profile`). `/webmanifest` answers JSON whatever the request accepts.
+
 Sources: [`crates/views/templates/pwa/manifest.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/manifest.json) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/views/pwa/manifest.json.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/manifest.json.erb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs)
 
-**Installable page head** (`platform.head-tags`) ⬜
+**Installable page head** (`platform.head-tags`) ✅
 
 - Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.
 - `theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.
 
-Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original.
+Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/app/views/layouts/application.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/layouts/application.html.erb)
+
+ember-rust tests: [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs)
 
 **Request and connection limits** (`platform.limits`) ➖
 
