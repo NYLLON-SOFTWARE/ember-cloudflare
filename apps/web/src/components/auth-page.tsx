@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import type { Bootstrap } from "@ember/protocol";
 import { HelpContact } from "@/components/help-contact";
+import { MainContent, SkipLink } from "@/components/main-content";
 import { cn } from "@/lib/utils";
 
 // What ember-rust's sign-in and join pages share (sessions/new.html and users/new.html, styled by the
@@ -16,10 +17,13 @@ export const AUTH_FORM = "flex flex-col gap-5";
 /** ember-rust's `.mb-auth-page`: what `children` holds, the card and anything above it, then the help contact. */
 export function AuthPage({ workspace, children }: { workspace: SignedOutWorkspace; children: ReactNode }) {
   return (
-    <main className="min-h-dvh bg-surface pt-header pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] max-md:pt-[calc(56px+env(safe-area-inset-top))]">
-      {children}
-      <HelpContact contact={workspace.helpContact} version={workspace.version} />
-    </main>
+    <>
+      <SkipLink />
+      <MainContent className="min-h-dvh bg-surface pt-header pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] max-md:pt-[calc(56px+env(safe-area-inset-top))]">
+        {children}
+        <HelpContact contact={workspace.helpContact} version={workspace.version} />
+      </MainContent>
+    </>
   );
 }
 

@@ -57,7 +57,7 @@ test("the composer and the newest message stay in view when the keyboard opens",
   await expect(composer).toBeFocused();
   await expect(composer).toBeInViewport({ ratio: 1 });
   await expect(page.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
-  await expect(page.getByRole("banner")).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("navigation", { name: "Page" })).toBeInViewport({ ratio: 1 });
   const { width, height } = page.viewportSize()!;
   // In landscape the keyboard leaves room for little more than the header and the composer.
   if (height > width) await expect(newest).toBeInViewport({ ratio: 1 });

@@ -36,21 +36,38 @@ function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
   );
 }
 
-/** Which of the rail's links is for the page shown: Home for rooms, as ember-rust's shell.js marks them. */
-export type RailPage = "home" | "workspace" | null;
+/**
+ * The page shown, whose links the rail marks as ember-rust's shell.js does: every link to the page's
+ * own path (the logo and Home at home, Workspace on workspace settings), and Home on a room's page.
+ */
+export type RailPage = "home" | "room" | "workspace" | null;
+
+interface Props {
+  me: User;
+  /** The workspace's name, which the logo's tooltip shows. */
+  workspaceName: string;
+  current: RailPage;
+  onSignOut: () => Promise<boolean>;
+}
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
-export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; onSignOut: () => Promise<boolean> }) {
+export function Rail({ me, workspaceName, current, onSignOut }: Props) {
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav
       aria-label="Workspace"
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
-      <PageLink href="/" aria-label="Ember home" className="mb-1 flex size-11 shrink-0 items-center justify-center">
+      <PageLink
+        href="/"
+        aria-label="Ember home"
+        title={workspaceName}
+        aria-current={current === "home" ? "page" : undefined}
+        className="mb-1 flex size-11 shrink-0 items-center justify-center"
+      >
         <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
       </PageLink>
-      <RailLink icon={Home} label="Home" href="/" current={current === "home"} />
+      <RailLink icon={Home} label="Home" href="/" current={current === "home" || current === "room"} />
       <UnbuiltRailLink icon={Messages} label="DMs" />
       <UnbuiltRailLink icon={Bell} label="Activity" />
       <UnbuiltRailLink icon={Search} label="Search" />

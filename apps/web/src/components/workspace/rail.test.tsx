@@ -3,15 +3,18 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { guardLeaving } from "@/hooks/use-route";
-import { Rail } from "./rail";
+import { Rail, type RailPage } from "./rail";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
+
+/** The rail for the page `current` names. */
+const railAt = (current: RailPage, onSignOut = vi.fn()) => <Rail me={ada} workspaceName="Analytical Engines" current={current} onSignOut={onSignOut} />;
 
 afterEach(() => history.replaceState(null, "", "/"));
 
 describe(feature("ui.rail"), () => {
   it("puts Home, DMs, Activity, Search, Workspace, appearance and your profile on the rail", () => {
-    render(<Rail me={ada} current="home" onSignOut={vi.fn()} />);
+    render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
     expect([...rail.querySelectorAll("a, button")].map((item) => item.getAttribute("aria-label") ?? item.textContent)).toEqual([
       "Ember home",
@@ -28,18 +31,25 @@ describe(feature("ui.rail"), () => {
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
   });
 
-  it("marks Home for a room, Workspace for its settings, and neither for a room's forms", () => {
-    const { rerender } = render(<Rail me={ada} current="home" onSignOut={vi.fn()} />);
-    const current = () => screen.queryAllByRole("link", { current: "page" }).map((link) => link.textContent);
+  it("titles the logo with the workspace's name", () => {
+    render(railAt("home"));
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+
+  it("marks the logo and Home at home, Home for a room, Workspace for its settings, and nothing for a room's forms", () => {
+    const { rerender } = render(railAt("home"));
+    const current = () => screen.queryAllByRole("link", { current: "page" }).map((link) => link.getAttribute("aria-label") ?? link.textContent);
+    expect(current()).toEqual(["Ember home", "Home"]);
+    rerender(railAt("room"));
     expect(current()).toEqual(["Home"]);
-    rerender(<Rail me={ada} current="workspace" onSignOut={vi.fn()} />);
+    rerender(railAt("workspace"));
     expect(current()).toEqual(["Workspace"]);
-    rerender(<Rail me={ada} current={null} onSignOut={vi.fn()} />);
+    rerender(railAt(null));
     expect(current()).toEqual([]);
   });
 
   it("shows the page a link names in place", async () => {
-    render(<Rail me={ada} current="home" onSignOut={vi.fn()} />);
+    render(railAt("home"));
     const length = history.length;
     await userEvent.click(screen.getByRole("link", { name: "Workspace" }));
     expect(location.pathname).toBe("/account/edit");
@@ -47,7 +57,7 @@ describe(feature("ui.rail"), () => {
   });
 
   it("disables what isn't built yet, and says so", () => {
-    render(<Rail me={ada} current="home" onSignOut={vi.fn()} />);
+    render(railAt("home"));
     for (const label of ["DMs", "Activity", "Search"]) {
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
       expect(screen.getByRole("button", { name: label })).toHaveAttribute("title", `${label} isn't built yet`);
@@ -59,7 +69,7 @@ describe(feature("auth.sign-out"), () => {
   it("signs out from the profile menu, which shows your name", async () => {
     const onSignOut = vi.fn();
     const user = userEvent.setup();
-    render(<Rail me={ada} current="home" onSignOut={onSignOut} />);
+    render(railAt("home", onSignOut));
     await user.click(screen.getByRole("button", { name: "Your profile" }));
     expect(within(screen.getByRole("menu")).getByText("Ada Lovelace")).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Log out" }));
@@ -77,7 +87,7 @@ describe(feature("rooms.unsaved-changes"), () => {
       proceed = go;
       return true;
     });
-    render(<Rail me={ada} current="home" onSignOut={onSignOut} />);
+    render(railAt("home", onSignOut));
     await user.click(screen.getByRole("button", { name: "Your profile" }));
     await user.click(screen.getByRole("menuitem", { name: "Log out" }));
     expect(onSignOut).not.toHaveBeenCalled();
@@ -89,7 +99,7 @@ describe(feature("rooms.unsaved-changes"), () => {
 
 describe(feature("users.avatars"), () => {
   it("shows your initials as your profile picture", () => {
-    render(<Rail me={ada} current="home" onSignOut={vi.fn()} />);
+    render(railAt("home"));
     expect(within(screen.getByRole("button", { name: "Your profile" })).getByText("AL")).toBeInTheDocument();
   });
 });

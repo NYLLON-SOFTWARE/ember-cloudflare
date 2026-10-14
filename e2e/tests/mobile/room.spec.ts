@@ -1,5 +1,6 @@
 import { REACTIONS, type RoomList } from "@ember/protocol";
 import { isolateRoom, openRoom, signInAs } from "../../fixtures";
+import { settle } from "./audits";
 import { expect, hasDrawerLayout, REACTION_CHIPS, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
@@ -75,7 +76,12 @@ test("long room names are truncated, not overflowing", async ({ page, room, scre
 test("the rail's menus fit the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   const rail = page.getByRole("navigation", { name: "Workspace" });
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  if (hasDrawerLayout(page)) {
+    await page.getByRole("button", { name: "Open conversations" }).tap();
+    // Once it has slid in, as a person would wait: tapping a button that's still sliding in has
+    // Playwright scroll it into view first, which can move it up from the bottom of the screen.
+    await settle(page);
+  }
 
   // Where the rail scrolls, as on a phone in landscape, start with the button at the bottom of the
   // screen, where its menu is most likely to open under the home indicator.

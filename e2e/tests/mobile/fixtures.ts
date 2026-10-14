@@ -48,7 +48,7 @@ export const REACTION_CHIPS = "[aria-label=Reactions] button";
 
 /** True when the page uses the drawer layout, which ember-rust switches to at 900px and below. */
 export function hasDrawerLayout(page: Page): boolean {
-  return page.viewportSize()!.width < 900;
+  return page.viewportSize()!.width <= 900;
 }
 
 /** Each page's DevTools session and the insets it reports right now. */

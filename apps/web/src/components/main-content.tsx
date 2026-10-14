@@ -1,0 +1,33 @@
+import type { ComponentProps } from "react";
+import { cn } from "@/lib/utils";
+
+const MAIN_CONTENT = "main-content";
+
+/**
+ * ember-rust's "Skip to main content" (layouts/application.html), first in the tab order and hidden
+ * until it's focused, when it shows as a button below the header's left end, as Campfire's
+ * `.skip-navigation` places it (nav.css). It focuses the page's main content and leaves the address as
+ * it is, where following ember-rust's adds `#main-content`.
+ */
+export function SkipLink() {
+  return (
+    <a
+      href={`#${MAIN_CONTENT}`}
+      onClick={(event) => {
+        event.preventDefault();
+        document.getElementById(MAIN_CONTENT)?.focus();
+      }}
+      className={cn(
+        "sr-only focus:top-16 focus:left-[max(1ch,env(safe-area-inset-left))] focus:z-[11] focus:m-0 focus:h-auto focus:w-auto focus:overflow-visible focus:[clip-path:none]",
+        "focus:rounded-[9px] focus:border focus:bg-background focus:px-[1.1em] focus:py-[0.5em] focus:font-medium focus:text-foreground",
+      )}
+    >
+      Skip to main content
+    </a>
+  );
+}
+
+/** The page's main content, `main#main-content`, which takes focus from the skip link but not from Tab. */
+export function MainContent(props: ComponentProps<"main">) {
+  return <main id={MAIN_CONTENT} tabIndex={-1} {...props} />;
+}

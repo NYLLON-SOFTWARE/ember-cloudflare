@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
 const box = async (locator: Locator) => {
@@ -8,15 +8,26 @@ const box = async (locator: Locator) => {
   return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
 };
 
+/** How far in from its left and right edges an element's content starts. */
+const sides = (locator: Locator) => locator.evaluate((element) => [getComputedStyle(element).paddingLeft, getComputedStyle(element).paddingRight]);
+
+/** How far the page scrolls sideways. */
+const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+
+/** Waits for the drawer to finish sliding in, before pressing outside it or measuring it. */
+const slidIn = (drawer: Locator) => drawer.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+
 test.describe(feature("ui.layout"), () => {
   test("puts the rail, the conversations and the room side by side on a desktop", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const rail = ada.page.getByRole("navigation", { name: "Workspace" });
     const rooms = ada.page.getByRole("region", { name: "Rooms" });
-    const header = ada.page.locator("header");
+    const header = ada.page.getByRole("navigation", { name: "Page" });
 
     expect(await box(rail)).toMatchObject({ x: 0, width: 80, height: 800 });
+    expect(await box(ada.page.getByRole("complementary", { name: "Conversations" }))).toMatchObject({ x: 80, width: 280, height: 800 });
     expect(await box(header)).toMatchObject({ x: 360, y: 0, height: 60, width: 920 });
+    expect(await sides(header)).toEqual(["22px", "22px"]);
     const roomsBox = await box(rooms);
     expect(roomsBox.x).toBeGreaterThan(80);
     expect(roomsBox.x + roomsBox.width).toBeLessThanOrEqual(360);
@@ -31,22 +42,69 @@ test.describe(feature("ui.layout"), () => {
     await expect(ada.page.getByRole("button", { name: "Open conversations" })).toBeHidden();
   });
 
-  test("doesn't scroll sideways on a phone", async ({ members }) => {
+  test("narrows the conversations to 230px from 901 to 1100px wide, and tightens the page's sides", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1100, height: 700 } } });
+    const conversations = ada.page.getByRole("complementary", { name: "Conversations" });
+    const header = ada.page.getByRole("navigation", { name: "Page" });
+    const composer = ada.page.locator("footer").filter({ has: ada.composer() });
+    for (const width of [1100, 1000, 901]) {
+      await ada.page.setViewportSize({ width, height: 700 });
+      expect(await box(conversations), `${width}px`).toMatchObject({ x: 80, width: 230 });
+      expect(await box(header), `${width}px`).toMatchObject({ x: 310, width: width - 310 });
+      expect(await sides(header)).toEqual(["18px", "18px"]);
+      expect(await sides(conversations.locator(":scope > div"))).toEqual(["8px", "8px"]);
+      expect(await sides(composer)).toEqual(["16px", "16px"]);
+    }
+
+    await ada.page.setViewportSize({ width: 1101, height: 700 });
+    expect(await box(conversations)).toMatchObject({ x: 80, width: 280 });
+    expect(await sides(header)).toEqual(["22px", "22px"]);
+  });
+
+  test("doesn't scroll sideways from 320 to 1440px wide, and keeps the composer on a short phone screen", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 320, height: 640 } } });
-    const overflow = await ada.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    expect(overflow).toBeLessThanOrEqual(0);
+    for (const width of [320, 390, 768, 900, 901, 1100, 1440]) {
+      await ada.page.setViewportSize({ width, height: 800 });
+      expect(await overflow(ada.page), `${width}px`).toBeLessThanOrEqual(0);
+    }
+    await ada.page.setViewportSize({ width: 390, height: 420 });
     await expect(ada.composer()).toBeInViewport({ ratio: 1 });
+  });
+
+  test("uses ember-rust's palette and 14px text, light and dark", async ({ members }) => {
+    const palettes = {
+      light: { canvas: "rgb(255, 255, 255)", surface: "rgb(250, 250, 250)", hover: "rgb(242, 242, 242)", border: "rgb(229, 229, 229)", muted: "rgb(115, 115, 115)", ink: "rgb(23, 23, 23)" },
+      dark: { canvas: "rgb(23, 23, 23)", surface: "rgb(28, 28, 28)", hover: "rgb(40, 40, 40)", border: "rgb(52, 52, 52)", muted: "rgb(163, 163, 163)", ink: "rgb(245, 245, 245)" },
+    };
+    for (const [colorScheme, colors] of Object.entries(palettes) as [keyof typeof palettes, (typeof palettes)["light"]][]) {
+      const { page } = await members.signIn(colorScheme === "light" ? "Ada" : "Grace", { context: { colorScheme, viewport: { width: 1280, height: 800 } } });
+      const header = page.getByRole("navigation", { name: "Page" });
+      await expect(page.locator("body")).toHaveCSS("font-size", "14px");
+      await expect(page.locator("body")).toHaveCSS("line-height", "21px");
+      await expect(page.locator("body")).toHaveCSS("background-color", colors.surface);
+      await expect(header).toHaveCSS("background-color", colors.canvas);
+      await expect(header).toHaveCSS("border-bottom-color", colors.border);
+      await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("color", colors.ink);
+      await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.hover);
+      await expect(page.getByText("No direct messages yet.")).toHaveCSS("color", colors.muted);
+    }
   });
 });
 
 test.describe(feature("ui.mobile-drawer"), () => {
   const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
-  test("moves the conversations into a drawer at 899px wide and below", async ({ members }) => {
-    const ada = await members.signIn("Ada", { context: { viewport: { width: 899, height: 700 } } });
+  test("moves the conversations into a drawer at 900px wide and below, opened from a 56px header", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 900, height: 700 } } });
     await expect(ada.page.getByRole("navigation", { name: "Workspace" })).toBeHidden();
-    expect(await box(ada.page.locator("header"))).toMatchObject({ x: 0, height: 56 });
-    expect(await box(ada.page.getByRole("button", { name: "Open conversations" }))).toMatchObject({ width: 44, height: 44 });
+    await expect(ada.page.getByRole("complementary", { name: "Conversations" })).toBeHidden();
+    const header = ada.page.getByRole("navigation", { name: "Page" });
+    expect(await box(header)).toMatchObject({ x: 0, y: 0, height: 56, width: 900 });
+    expect(await sides(header)).toEqual(["8px", "8px"]);
+    // Its 44px buttons sit in the middle of it, the menu button first.
+    expect(await box(ada.page.getByRole("button", { name: "Open conversations" }))).toMatchObject({ x: 8, y: 6, width: 44, height: 44 });
+    expect(await box(header.getByRole("link", { name: "Settings for this room" }))).toMatchObject({ x: 848, y: 6, width: 44, height: 44 });
+    await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("font-size", "16px");
   });
 
   test("opens the drawer from the header and closes it on choosing a room", async ({ members }) => {
@@ -57,12 +115,19 @@ test.describe(feature("ui.mobile-drawer"), () => {
     const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("navigation", { name: "Workspace" })).toBeVisible();
-    // While the drawer is open, everything behind it is hidden from assistive tech, this button too.
-    await expect(ada.page.getByRole("button", { name: "Open conversations", includeHidden: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(drawer.getByRole("complementary", { name: "Conversations" })).toBeVisible();
+    // Opening it focuses its close button. Everything behind it is hidden from assistive tech, the
+    // menu button too, which is named for closing it.
+    await expect(drawer.getByRole("button", { name: "Close conversations" })).toBeFocused();
+    await expect(ada.page.getByRole("button", { name: "Close conversations", expanded: true, includeHidden: true })).toBeAttached();
+    // ember-rust's backdrop dims the page behind it.
+    await expect(ada.page.locator("[data-slot=sheet-overlay]")).toHaveCSS("background-color", "rgba(0, 0, 0, 0.4)");
 
     await drawer.getByRole("region", { name: "Rooms" }).getByRole("link", { name: /random/ }).click();
     await expect(drawer).toHaveCount(0);
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
+    // Focus goes to the new page's menu button.
+    await expect(ada.page.getByRole("button", { name: "Open conversations" })).toBeFocused();
   });
 
   test("closes the drawer with Escape, the close button or a tap outside, giving focus back to its button", async ({ members }) => {
@@ -85,13 +150,14 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await expect(drawer).toBeVisible();
     // Radix starts listening for presses outside a moment after the drawer appears, so press once it
     // has slid in, as a person would.
-    await drawer.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    await slidIn(drawer);
     await ada.page.mouse.click(380, 400);
     await expect(drawer).toHaveCount(0);
+    await expect(open).toBeFocused();
   });
 
   test("closes the drawer when the window widens past 900px, leaving the page usable", async ({ members }) => {
-    const ada = await members.signIn("Ada", { context: { viewport: { width: 899, height: 700 } } });
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 900, height: 700 } } });
     await ada.page.getByRole("button", { name: "Open conversations" }).click();
     await expect(ada.page.getByRole("dialog", { name: "Conversations" })).toBeVisible();
 
@@ -102,7 +168,7 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await expect(ada.composer()).toBeFocused();
 
     // Narrowing again doesn't bring it back.
-    await ada.page.setViewportSize({ width: 899, height: 700 });
+    await ada.page.setViewportSize({ width: 900, height: 700 });
     await expect(ada.page.getByRole("button", { name: "Open conversations" })).toHaveAttribute("aria-expanded", "false");
     await expect(ada.page.getByRole("dialog", { name: "Conversations" })).toHaveCount(0);
   });
@@ -112,9 +178,67 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await ada.page.getByRole("button", { name: "Open conversations" }).click();
     const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
     await expect(drawer).toBeVisible();
-    for (let i = 0; i < 20; i++) {
-      await ada.page.keyboard.press("Tab");
-      expect(await ada.page.evaluate(() => document.activeElement?.closest("[role=dialog]") != null)).toBe(true);
+    for (const key of [...Array<string>(20).fill("Tab"), ...Array<string>(20).fill("Shift+Tab")]) {
+      await ada.page.keyboard.press(key);
+      expect(await ada.page.evaluate(() => document.activeElement?.closest("[role=dialog]") != null), key).toBe(true);
+    }
+  });
+
+  test("slides the drawer in over 180ms, unless reduced motion is asked for", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: phone });
+    await ada.page.getByRole("button", { name: "Open conversations" }).click();
+    const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
+    await expect(drawer).toHaveCSS("animation-duration", "0.18s");
+    await expect(drawer).toHaveCSS("animation-timing-function", "ease");
+
+    const still = await members.signIn("Grace", { context: { ...phone, reducedMotion: "reduce" } });
+    await still.page.getByRole("button", { name: "Open conversations" }).click();
+    await expect(still.page.getByRole("dialog", { name: "Conversations" })).toHaveCSS("animation-name", "none");
+  });
+
+  test("closes the drawer on following a link to the page shown, but not on opening it in a new tab", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { context: phone });
+    await ada.page.getByRole("button", { name: "Open conversations" }).click();
+    const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
+    const general = drawer.getByRole("link", { name: "general" });
+
+    const tab = ada.page.context().waitForEvent("page");
+    await general.click({ modifiers: ["ControlOrMeta"] });
+    await (await tab).close();
+    // Still open, where one sliding out would still show: its button still offers to close it.
+    await expect(ada.page.getByRole("button", { name: "Close conversations", expanded: true, includeHidden: true })).toBeAttached();
+
+    await general.click();
+    await expect(drawer).toHaveCount(0);
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+  });
+
+  // ember-rust's parity/kro/workspace.test.mjs, "mobile and tablet navigation keep the conversation and settings usable".
+  test("keeps the room, the drawer and the settings pages on screen at 320, 390 and 768px wide", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { context: phone });
+    const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
+    for (const width of [320, 390, 768]) {
+      await ada.page.setViewportSize({ width, height: 844 });
+      await ada.page.goto(`/rooms/${rooms.general.id}`);
+      await expect(ada.composer()).toBeInViewport({ ratio: 1 });
+      expect(await overflow(ada.page), `${width}px room`).toBeLessThanOrEqual(0);
+
+      await ada.page.getByRole("button", { name: "Open conversations" }).click();
+      await slidIn(drawer);
+      const bounds = await box(drawer);
+      expect(bounds.x, `${width}px drawer`).toBe(0);
+      expect(bounds.x + bounds.width, `${width}px drawer`).toBeLessThanOrEqual(width - 16);
+      expect(await overflow(ada.page), `${width}px drawer`).toBeLessThanOrEqual(0);
+
+      for (const [path, title] of [
+        ["/account/edit", "Workspace settings"],
+        ["/rooms/opens/new", "New room"],
+      ] as const) {
+        await ada.page.goto(path);
+        await expect(ada.page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+        expect(await overflow(ada.page), `${width}px ${path}`).toBeLessThanOrEqual(0);
+        expect((await box(ada.page.getByRole("main"))).width, `${width}px ${path}`).toBeLessThanOrEqual(width);
+      }
     }
   });
 
@@ -129,6 +253,24 @@ test.describe(feature("ui.mobile-drawer"), () => {
       const name = (await control.getAttribute("aria-label")) ?? (await control.innerText());
       expect((await box(control)).height, name).toBeGreaterThanOrEqual(44);
     }
+  });
+});
+
+test.describe(feature("ui.accessibility"), () => {
+  test("starts Tab at Skip to main content, shown under the header's start, which focuses the main content", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
+    const skip = ada.page.getByRole("link", { name: "Skip to main content" });
+    expect((await box(skip)).width).toBeLessThanOrEqual(1);
+    await ada.page.keyboard.press("Tab");
+    await expect(skip).toBeFocused();
+    expect(await box(skip)).toMatchObject({ y: 64 });
+    await expect(skip).toBeInViewport({ ratio: 1 });
+
+    await ada.page.keyboard.press("Enter");
+    await expect(ada.page.getByRole("main")).toBeFocused();
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await ada.page.keyboard.press("Tab");
+    expect(await ada.page.evaluate(() => document.activeElement?.closest("main") != null)).toBe(true);
   });
 });
 

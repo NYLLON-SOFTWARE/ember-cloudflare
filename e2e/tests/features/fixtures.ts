@@ -70,7 +70,7 @@ export class Member {
 
   /** The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds. */
   connection(): Locator {
-    return this.page.getByRole("banner").getByRole("status");
+    return this.page.getByRole("navigation", { name: "Page" }).getByRole("status");
   }
 
   /** The room's messages, busy until the room lets its socket in. */
