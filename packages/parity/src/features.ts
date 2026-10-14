@@ -1671,7 +1671,7 @@ export const features = [
     id: "realtime.typing",
     title: "Typing indicator",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Typing tells the room at most once a second; emptying the box or sending tells it you've stopped, and leaving the box doesn't.",
       "Others see the typists' names, sorted and comma-separated, with a spinner above the composer and no \"is typing\"; nobody sees their own name. A name goes 5 seconds after they last typed, or as soon as they stop.",
@@ -1679,7 +1679,7 @@ export const features = [
     ],
     sources: ["reference/app/channels/typing_notifications_channel.rb", "crates/ember/src/channels/typing_notifications.rs", "reference/app/javascript/controllers/typing_notifications_controller.js", "reference/app/javascript/models/typing_tracker.js", "crates/views/templates/rooms/show/_composer.html", "reference/app/assets/stylesheets/spinner.css"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs", "parity/screens.yml"],
-    notes: "Typing goes out at most every 3 seconds and lasts 6, and leaving the message box stops it. The indicator reads \"Ada is typing…\", \"Ada and Grace are typing…\" or \"Several people are typing…\" in a polite live region, which ember-rust's isn't. Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once.",
+    notes: "Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once. Sending a message tells everyone else its author stopped as it arrives, rather than with a stop of its own. Without motion, the spinner's dots hold still in a row, where ember-rust's reset stacks them into one dot.",
   },
   {
     id: "realtime.reconnect",

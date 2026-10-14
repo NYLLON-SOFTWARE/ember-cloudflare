@@ -3,12 +3,29 @@ import type { User } from "@ember/protocol";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import { ArrowUp } from "@/components/icons/campfire";
 import { sendsMessage } from "@/lib/keyboard";
+import { cn } from "@/lib/utils";
 
-function typingSentence(users: User[]): string {
-  const names = users.map((u) => u.name);
-  if (names.length === 1) return `${names[0]} is typing…`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
-  return "Several people are typing…";
+/**
+ * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
+ * composer.css): the names of whoever is typing, sorted and comma-separated after a three-dot spinner,
+ * fading in above the composer. Like ember-rust's, it isn't a live region: announced on every change,
+ * a bare list of names would mean nothing out of context.
+ */
+function TypingIndicator({ typists }: { typists: User[] }) {
+  const names = typists
+    .map((u) => u.name)
+    .sort()
+    .join(", ");
+  return (
+    <div
+      className={cn(
+        "absolute -top-[19px] left-0 inline-flex items-center text-[11px] transition-opacity duration-300 motion-reduce:transition-none max-md:-top-[15px]",
+        !names && "opacity-0",
+      )}
+    >
+      <div className={cn("spinner ps-[1.5em] leading-none", !names && "hidden")}>{names}</div>
+    </div>
+  );
 }
 
 /** The composer's place below the messages, which keeps clear of a phone's home bar. */
@@ -44,9 +61,7 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
           submit();
         }}
       >
-        <p aria-live="polite" className="absolute -top-[19px] left-0 m-0 text-[11px] text-muted-foreground max-md:-top-[15px]">
-          {typing.length > 0 && typingSentence(typing)}
-        </p>
+        <TypingIndicator typists={typing} />
         {/* The text field takes the card's top and side padding, so all of the card above the
             buttons is one big tap target. */}
         <div className="flex min-h-[108px] flex-col rounded-xl border bg-surface pb-3 focus-within:border-muted-foreground max-md:min-h-[100px] max-md:pb-2.5">
@@ -64,7 +79,6 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
               setBody(event.target.value);
               onTyping(event.target.value.length > 0);
             }}
-            onBlur={() => onTyping(false)}
             onKeyDown={(event) => {
               if (sendsMessage(event)) {
                 event.preventDefault();
