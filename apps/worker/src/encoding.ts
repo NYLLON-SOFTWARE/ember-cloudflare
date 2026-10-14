@@ -1,4 +1,4 @@
-// Text encodings for random tokens, digests and sealed cookies.
+// Text encodings for random tokens, digests, sealed cookies and QR codes' ids.
 
 /** Base64 without its padding, as the PHC string format writes salts and hashes. */
 export function toBase64(bytes: Uint8Array): string {
@@ -22,6 +22,19 @@ export const toBase64url = (bytes: Uint8Array) => toBase64(bytes).replace(/\+/g,
 
 /** The bytes base64url encodes, or null if `text` isn't any. */
 export const fromBase64url = (text: string) => (/^[\w-]*$/.test(text) ? fromBase64(text.replace(/-/g, "+").replace(/_/g, "/")) : null);
+
+/**
+ * The bytes Ruby's `Base64.urlsafe_decode64` takes from `text`, or null where it raises: it pads text
+ * that isn't padded and reads either alphabet, even mixed, but is strict about everything else.
+ */
+export function urlsafeDecode64(text: string): Uint8Array | null {
+  let standard = text.replace(/-/g, "+").replace(/_/g, "/");
+  if (!text.endsWith("=")) standard = standard.padEnd(Math.ceil(standard.length / 4) * 4, "=");
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(standard)) return null;
+  const binary = atob(standard);
+  // Ruby also refuses bits the last character doesn't need, which encoding again would drop.
+  return btoa(binary) === standard ? Uint8Array.from(binary, (char) => char.charCodeAt(0)) : null;
+}
 
 export const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 

@@ -22,6 +22,7 @@ import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
+import { showQrCode } from "./qr-code";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
@@ -188,6 +189,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (joinCode !== null) return joinPage(request, env, joinCode);
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
+  if (pathname.startsWith("/qr_code/")) return showQrCode(request);
   return env.ASSETS.fetch(request);
 }
 

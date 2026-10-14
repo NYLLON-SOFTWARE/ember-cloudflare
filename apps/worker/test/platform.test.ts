@@ -201,7 +201,7 @@ describe(feature("platform.version"), () => {
 
 describe(feature("platform.browser-support"), () => {
   it("answers an old browser with the upgrade page, status 200, whatever it asked for", async () => {
-    for (const path of ["/", "/rooms/general", "/session/new", "/join/AAAA-BBBB-CCCC", "/first_run", "/api/bootstrap", "/webmanifest.json"]) {
+    for (const path of ["/", "/rooms/general", "/session/new", "/join/AAAA-BBBB-CCCC", "/first_run", "/api/bootstrap", "/webmanifest.json", "/qr_code/aHR0cHM6Ly9lbWJlci50ZXN0"]) {
       const response = await page(path, as(OLD_CHROME, { headers: { Accept: "application/json" } }));
       expect(response.status, path).toBe(200);
       expect(response.headers.get("Content-Type"), path).toBe("text/html; charset=utf-8");

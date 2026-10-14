@@ -290,7 +290,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/_invite.html", "crates/views/src/helpers/application.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/copy_to_clipboard_controller.js", "crates/assets/overrides/controllers/web_share_controller.js", "reference/app/models/account/joinable.rb"],
     upstreamTests: ["reference/test/models/account/joinable_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
-    notes: "Only the welcome card shows the link until workspace settings are ported, and there's no QR code until QR codes are (`accounts.qr-codes`). On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.",
+    notes: "Only the welcome card shows the link until workspace settings are ported. On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.",
   },
   {
     id: "accounts.regenerate-join-link",
@@ -309,7 +309,7 @@ export const features = [
     id: "accounts.qr-codes",
     title: "QR codes for links",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.",
       "It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version=\"1.0\" standalone=\"yes\"?><svg`.",
@@ -319,6 +319,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/qr_code.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs", "crates/views/src/helpers/application.rs", "reference/app/controllers/qr_code_controller.rb"],
     upstreamTests: ["reference/test/controllers/qr_code_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs"],
+    notes: "The welcome card's join link opens its QR code; workspace settings' join link and the sign-in link get theirs when those are ported (`accounts.join-link`, `auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
   },
   {
     id: "accounts.people",
@@ -732,7 +733,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_invitation.html", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs"],
     upstreamTests: ["parity/screens.yml", "parity/kro/workspace.test.mjs"],
-    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`), and has no QR code button until QR codes are (`accounts.qr-codes`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.",
+    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.",
   },
   {
     id: "rooms.member-only-access",
@@ -1413,7 +1414,7 @@ export const features = [
     id: "attachments.lightbox",
     title: "Image viewer",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Clicking an image opens the original file, not its thumbnail, in a dialog (\"Image Viewer (Press escape to close)\") over the blurred page, behind the page's own background color at 66% opacity.",
       "Close (\"Close image viewer\") sits at the top right, Download (\"Download file\", hidden in the iOS home-screen app) at the bottom right and Share (\"Share file\", only where the browser can share) at the top left; Download and Share use the file's download link.",
@@ -1421,6 +1422,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/_lightbox.html", "reference/app/javascript/controllers/lightbox_controller.js", "reference/app/assets/stylesheets/lightbox.css"],
     upstreamTests: ["parity/screens.yml"],
+    notes: "Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
   },
   {
     id: "attachments.svg-preview",

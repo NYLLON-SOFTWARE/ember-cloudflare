@@ -1,10 +1,11 @@
 import type { MouseEvent } from "react";
-import { CopyPaste, Share } from "@/components/icons/campfire";
+import { CopyPaste, QrCode, Share } from "@/components/icons/campfire";
 import { Link } from "@/components/icons/ember";
+import { QrCodeLink } from "@/components/qr-code-link";
 
 // ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
-// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css), with its copy and share
-// controllers. Its QR code button comes with the QR code port.
+// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css), with its QR code link and its
+// copy and share controllers.
 
 /** A `.btn` in `.mb-invite-actions`: a 38px square, 44px for fingers. */
 const BUTTON = "grid size-[38px] flex-none cursor-pointer place-items-center rounded-[9px] border bg-background text-sm touch:size-11";
@@ -43,6 +44,10 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
           />
         </label>
         <div className="flex flex-none items-center gap-2">
+          <QrCodeLink url={url} className={BUTTON}>
+            <span className="sr-only">Show join link QR code</span>
+            <QrCode className="size-[1.3em]" />
+          </QrCodeLink>
           <button type="button" onClick={(event) => void copy(event, url)} className={BUTTON}>
             <span className="sr-only">Copy join link</span>
             <CopyPaste className="size-[1.3em]" />
