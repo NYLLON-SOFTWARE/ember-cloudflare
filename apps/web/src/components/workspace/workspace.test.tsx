@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Room, RoomSettings } from "@ember/protocol";
+import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
 const ada = { id: "u1", name: "Ada" };
@@ -31,8 +32,8 @@ class QuietSocket {
 function showWorkspace(path = "/") {
   const [onSignOut, onSessionChanged] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  render(<Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
-  return { onSignOut, onSessionChanged, user: userEvent.setup() };
+  const { unmount } = render(<Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
+  return { onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
@@ -219,6 +220,27 @@ describe(feature("auth.sessions"), () => {
     const { onSessionChanged } = showWorkspace("/rooms/opens/general/edit");
     await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("goes back to sign-in when a page that was left finds the session gone", async () => {
+    let answer = (_: Response) => {};
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    const { onSessionChanged, user } = showWorkspace("/rooms/opens/new");
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
+    act(() => navigate("/account/edit"));
+    await act(async () => answer(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onSessionChanged).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it("says nothing more once another person's workspace has taken its place", async () => {
+    let answer = (_: Response) => {};
+    serve({ "GET /api/rooms/new": () => Response.json({ people: [ada] }), "POST /api/rooms": () => new Promise((resolve) => (answer = resolve)) });
+    const { onSessionChanged, unmount, user } = showWorkspace("/rooms/opens/new");
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
+    // As App replaces it when another tab signs in as someone else.
+    unmount();
+    await act(async () => answer(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onSessionChanged).not.toHaveBeenCalled();
   });
 });
 

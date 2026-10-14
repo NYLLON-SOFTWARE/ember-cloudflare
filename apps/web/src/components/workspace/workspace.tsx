@@ -3,7 +3,8 @@ import type { Room, User } from "@ember/protocol";
 import { Flash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, fetchRooms } from "@/lib/api";
+import { useMounted } from "@/hooks/use-mounted";
+import { ApiError, fetchRooms, isSignedOut } from "@/lib/api";
 import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
@@ -61,13 +62,17 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   useEffect(() => setDrawerOpen(false), [route]);
 
   const flash = useCallback((text: string) => setAlert((shown) => ({ text, key: (shown?.key ?? 0) + 1 })), []);
-  // A session that's ended goes to sign in; anything else is an alert.
+  const mounted = useMounted();
+  // A session that's ended goes to sign in; anything else is an alert. Once another person's workspace
+  // has taken this one's place, as another tab signing in makes it, what this one's pages hear is
+  // about a session already replaced.
   const failed = useCallback(
     (error: unknown) => {
-      if (error instanceof ApiError && error.status === 401) return onSessionChanged(null);
+      if (!mounted.current) return;
+      if (isSignedOut(error)) return onSessionChanged(null);
       flash(error instanceof ApiError ? error.message : "Couldn't reach Ember. Check your connection and try again.");
     },
-    [flash, onSessionChanged],
+    [flash, onSessionChanged, mounted],
   );
   // As ember-rust redirects home from a room someone can't see (controllers/rooms/mod.rs).
   const missing = useCallback(() => {
