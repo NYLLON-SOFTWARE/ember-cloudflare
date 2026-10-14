@@ -45,6 +45,9 @@ export function withCookies(response: Response, ...cookies: Array<string | null>
 /** Sends the browser to the app's home page. */
 export const home = (request: Request) => new Response(null, { status: 302, headers: { Location: new URL("/", request.url).href } });
 
+/** Sends the browser to sign in, as ember-rust's `request_authentication` does (crates/ember/src/concerns.rs). */
+export const signInFirst = (request: Request) => new Response(null, { status: 302, headers: { Location: new URL("/session/new", request.url).href } });
+
 /** A form's answer, which no cache keeps, since it can sign someone in. */
 export const formAnswer = (data: unknown, status: number, ...cookies: Array<string | null>) =>
   withCookies(Response.json(data, { status, headers: { "Cache-Control": "no-store" } }), ...cookies);

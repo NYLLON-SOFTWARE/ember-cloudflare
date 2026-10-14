@@ -7,6 +7,7 @@ import {
   parseRoomChanges,
   SIGN_IN_REFUSED,
   type Bootstrap,
+  type Directory,
   type NewJoinCode,
   type NewRoomForm,
   type RoomId,
@@ -29,6 +30,7 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
+import { avatarTokenOf, directoryOf, showAvatar } from "./avatars";
 import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed } from "./error-pages";
@@ -184,6 +186,17 @@ async function sidebar(request: Request, env: Env): Promise<Response> {
   return sidebar ? jsonWithETag(request, sidebar satisfies Sidebar, { "Cache-Control": "no-store" }) : problem(401, "Not signed in");
 }
 
+/**
+ * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, for
+ * the app to show people by. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
+ */
+async function directory(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const entries = credentials && (await workspace(env).directory(credentials));
+  if (!entries) return problem(401, "Not signed in");
+  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
+}
+
 /** Creates an open room, or a closed one for the people it names, as New room's forms do. */
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -286,6 +299,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
+  if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
@@ -312,6 +326,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);
+  const avatarToken = avatarTokenOf(pathname);
+  if (avatarToken !== null) return showAvatar(request, env, avatarToken);
   return anyOtherPage(request, env, pathname);
 }
 

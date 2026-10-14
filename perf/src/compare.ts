@@ -73,6 +73,7 @@ function collect({ backend, web }: Results): Map<string, Metric> {
       for (const step of steps) {
         add(`${storage} ${step.tabs} tabs: welcome p50 ms`, step.welcome?.p50, SWINGY);
         add(`${storage} ${step.tabs} tabs: sidebar p50 ms`, step.sidebar?.p50, SWINGY);
+        add(`${storage} ${step.tabs} tabs: directory p50 ms`, step.directory?.p50, SWINGY);
       }
       if (reconnect) {
         // Each socket waits a random time, up to 10 seconds, before connecting again, so the last one
