@@ -1,5 +1,20 @@
 import { DurableObject } from "cloudflare:workers";
-import { CloseCode, isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type RoomList, type User, type UserId } from "@ember/protocol";
+import {
+  CloseCode,
+  isRoomId,
+  type Account,
+  type HelpContact,
+  type NewRoom,
+  type NewRoomForm,
+  type NewWorkspace,
+  type Room,
+  type RoomChanges,
+  type RoomId,
+  type RoomList,
+  type RoomSettings,
+  type User,
+  type UserId,
+} from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -273,6 +288,39 @@ export class Workspace extends DurableObject<Env> {
     const created: Room = { id: sortableId(), kind: room.kind, name: room.name };
     await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
     return created;
+  }
+
+  /** What the New room forms list, everyone active, for the person `credentials` signs in, or null without a valid session. */
+  async newRoomForm(credentials: Credentials): Promise<NewRoomForm | null> {
+    const user = await this.authenticate(credentials);
+    return user && { people: await this.store.activePeople() };
+  }
+
+  /**
+   * Room `roomId`'s settings, as the person `credentials` signs in sees them: "not found" unless
+   * they're in it and it isn't a DM, as ember-rust's `set_room` finds rooms (rooms.rs), or null
+   * without a valid session.
+   */
+  async roomSettings(credentials: Credentials, roomId: RoomId): Promise<RoomSettings | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (await this.store.roomSettings(roomId, user.id)) ?? "not found";
+  }
+
+  /**
+   * Makes `changes` to room `roomId` as the person `credentials` signs in, answering the room as it
+   * is then: "not found" as for its settings, "forbidden" unless they can change it, or null without
+   * a valid session.
+   */
+  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<Room | "not found" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const found = await this.store.roomToChange(roomId, user.id);
+    if (!found) return "not found";
+    if (!found.canAdminister) return "forbidden";
+    if (changes.name === undefined) return found.room;
+    await this.store.renameRoom(roomId, changes.name, new Date().toISOString());
+    return { ...found.room, name: changes.name };
   }
 
   /**

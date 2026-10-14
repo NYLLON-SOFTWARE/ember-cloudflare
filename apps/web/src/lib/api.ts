@@ -1,4 +1,4 @@
-import type { Bootstrap, NewWorkspace, PasswordSignIn, Room, RoomList, SignUp, User } from "@ember/protocol";
+import type { Bootstrap, NewRoom, NewRoomForm, NewWorkspace, PasswordSignIn, Room, RoomChanges, RoomId, RoomList, RoomSettings, SignUp, User } from "@ember/protocol";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and room
 // socket, so nothing here handles a token.
@@ -68,6 +68,26 @@ export async function fetchMe(): Promise<User> {
 /** The rooms this person is in, and the welcome card's invitation when they're in its room. */
 export async function fetchRooms(): Promise<RoomList> {
   return request<RoomList>("/api/rooms");
+}
+
+/** Who the New room forms list: everyone active, by name. */
+export async function fetchNewRoomForm(): Promise<NewRoomForm> {
+  return request<NewRoomForm>("/api/rooms/new");
+}
+
+/** Creates a room, answering it. */
+export async function createRoom(room: NewRoom): Promise<Room> {
+  return (await request<{ room: Room }>("/api/rooms", { method: "POST", body: JSON.stringify(room) })).room;
+}
+
+/** A room's settings. Fails with a 404 ApiError for a room this person isn't in, or a DM. */
+export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
+  return request<RoomSettings>(`/api/rooms/${encodeURIComponent(roomId)}/settings`);
+}
+
+/** Changes a room, answering it as it is then. */
+export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<Room> {
+  return (await request<{ room: Room }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
 }
 
 export function roomSocketUrl(roomId: string): string {

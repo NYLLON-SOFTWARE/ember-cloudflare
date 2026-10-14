@@ -12,6 +12,7 @@ import {
   MAX_ROOM_NAME_LENGTH,
   parseClientFrame,
   parseNewRoom,
+  parseRoomChanges,
   parseSignUp,
   ROOM_ICON_NAMES,
 } from "./index";
@@ -126,6 +127,22 @@ describe(feature("rooms.create-closed"), () => {
       expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds }), JSON.stringify(memberIds).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
     expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds: tooMany.slice(1) })).not.toBeTypeOf("string");
+  });
+});
+
+describe(feature("rooms.settings-page"), () => {
+  it("takes a trimmed name, or nothing to change", () => {
+    expect(parseRoomChanges({ name: "  Design  " })).toEqual({ name: "Design" });
+    expect(parseRoomChanges({})).toEqual({});
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a blank name", { name: "   " }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a name that isn't text", { name: null }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+    ["a name that's too long", { name: "x".repeat(MAX_ROOM_NAME_LENGTH + 1) }, `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseRoomChanges(body)).toBe(error);
   });
 });
 

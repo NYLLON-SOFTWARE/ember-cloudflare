@@ -203,7 +203,7 @@ export const features = [
     id: "accounts.settings-page",
     title: "Workspace settings page",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The rail's Admin link (Workspace for members) opens `/account/edit`, titled \"Account settings\": \"Workspace settings\" / \"Manage your workspace, invitations, and people.\", with \"Ember™ version <version>\" at the foot. Anyone signed in may open it.",
       "Go Back returns to the last room visited, else your oldest room, else `/`. Administrators also get Chat bots and Custom styles buttons, with their labels showing.",
@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail shows Workspace, disabled.",
+    notes: "The rail's Workspace link opens `/account/edit`, titled \"Account settings\", with its heading and the Rooms section's New room. Go Back goes to `/`, which opens your first room (`rooms.last-visited`). Administrators see Workspace rather than Admin, and the version line, Chat bots, Custom styles, the logo, the workspace's name, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -526,7 +526,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/views/templates/rooms/layouts/_new.html", "crates/views/templates/rooms/opens/_form.html", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/opens_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "Only the API makes rooms so far (`POST /api/rooms` with `{ \"kind\": \"open\", \"name\" }`), for the tests and load tests: there's no New room page or icon, and the room shows in sidebars when they next load. Unlike ember-rust's server, it refuses a blank name, or one over 100 characters.",
+    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your own sidebar; other sidebars show it when they next load (`sidebar.live-updates`). There's no icon picker (`rooms.icon-picker`) or unsaved-changes guard (`rooms.unsaved-changes`) yet. Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
   },
   {
     id: "rooms.create-closed",
@@ -541,7 +541,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/closeds.rs", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/closeds/_user.html", "reference/app/controllers/rooms/closeds_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/closeds_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/channels/tests/broadcasts_test.rs"],
-    notes: "Only the API makes them (`POST /api/rooms` with `{ \"kind\": \"closed\", \"name\", \"memberIds\" }`), granting the ids as ember-rust's server does: there's no form, and members see the room when their sidebars next load.",
+    notes: "New room's Everyone switch moves to `/rooms/closeds/new` in place, keeping the name and every switch. The form lists you with a check mark and everyone else with a switch, off, and saving posts `{ \"kind\": \"closed\", \"name\", \"memberIds\" }` with you and the people chosen, then opens the room. The server grants the ids as ember-rust's does. The room shows at once only in your own sidebar; its members see it when their sidebars next load (`sidebar.live-updates`).",
   },
   {
     id: "rooms.creation-permission",
@@ -605,7 +605,7 @@ export const features = [
     id: "rooms.settings-page",
     title: "Room settings page",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The room header's settings button (titled \"Conversation settings\", \"Settings for this room\" to screen readers) opens a page titled \"Edit settings for <name>\" that reads \"Room settings\" / \"Manage the room name, access, and members.\", with Go Back to the last room.",
       "People who can change the room get \"Room name\", the icon picker, the \"Everyone\" switch and Save. The switch flips between the open and private forms, keeping the draft.",
@@ -615,18 +615,20 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`, and the other kind's address moves to the room's own. People who can change the room get \"Room name\" and Save, which renames it and opens the room. An open room lists everyone active with check marks under Everyone; a private room lists its members with check marks, a line, then everyone else, since switches come with `rooms.members`. Everyone else gets the name as a heading and the list. Still to come: the Everyone switch (`rooms.convert-access`), the icon picker (`rooms.icon-picker`), Delete (`rooms.delete`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
   },
   {
     id: "rooms.edit-permissions",
     title: "Who can change a room",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators and the room's creator can change it. Other members can open its settings page, read-only, but saving answers 403 before any input is checked, and nothing changes.",
       "Non-members (administrators included), missing rooms, and a DM's id on the open or private room addresses go to `/` with \"Room not found or inaccessible\".",
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/user.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
+    notes: "`GET /api/rooms/<id>/settings` and `PATCH /api/rooms/<id>` find the room with `WorkspaceStore.roomToChange`, answering 404, then 403, then 422 in ember-rust's order, and the app goes to `/` with the alert on a 404. Renaming is the only change so far; members, access, icons and deletion will go through the same check.",
   },
   {
     id: "rooms.convert-access",
@@ -867,7 +869,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/presenters/accounts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order.",
+    notes: "Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order. A room you create or rename sorts into place in your own sidebar at once.",
   },
   {
     id: "sidebar.dm-order",
@@ -897,6 +899,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/broadcasts.rs", "crates/assets/overrides/controllers/rooms_list_controller.js", "crates/assets/overrides/ember/shell.js", "crates/ember/src/channels/revocation.rs", "crates/views/src/helpers/users.rs", "reference/app/javascript/controllers/refresh_room_controller.js", "crates/assets/overrides/controllers/channel_order_controller.js"],
     upstreamTests: ["crates/ember/src/channels/tests/broadcasts_test.rs", "parity/kro/workspace.test.mjs", "parity/screens.yml", "crates/ember/src/channels/tests/revocation_test.rs"],
+    notes: "Nothing is live yet: a room you create or rename shows at once only in your own tab, and other sidebars show it when they next load.",
   },
   {
     id: "sidebar.unread",
@@ -2240,7 +2243,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.",
+    notes: "Home and Workspace work: Home is marked on a room's page, Workspace on workspace settings, and neither on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.",
   },
   {
     id: "ui.room-header",
@@ -2254,7 +2257,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#` and the name but no star, search, bell or settings. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open.",
+    notes: "The header has the `#`, the name and Conversation settings (\"Settings for this room\" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open.",
   },
   {
     id: "ui.mobile-drawer",
@@ -2338,7 +2341,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Only a refused sign-in's alert is ported yet; notices and the room alert come with the features that show them. Signed-in pages don't show one yet, so it's always centered over the whole window. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
+    notes: "Only alerts so far: a refused sign-in's, \"Room not found or inaccessible\" from a room's settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar from 900px up. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
   },
   {
     id: "ui.accessibility",
@@ -2509,7 +2512,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
-    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. Both shortcuts open the first room until the New room page and profiles are ported (`rooms.create-open`, `users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile opens the first room until profiles are ported (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",

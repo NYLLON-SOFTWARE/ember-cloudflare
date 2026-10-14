@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { MAX_PASSWORD_LENGTH, type User } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
-import { AUTH_FORM, AUTH_INPUT, AuthCard, AuthHeading, AuthPage, Field, Problem, SubmitButton, useTitle, type SignedOutWorkspace } from "@/components/auth-page";
+import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
+import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Input } from "@/components/ui/input";
+import { useTitle } from "@/hooks/use-title";
 import { ApiError, joinWorkspace } from "@/lib/api";
 import { loadPage } from "@/lib/page";
 
@@ -66,7 +68,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               data-1p-ignore
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className={AUTH_INPUT}
+              className={FIELD_INPUT}
             />
           </Field>
           <Field id="user_email_address" label="Email address">
@@ -78,7 +80,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               placeholder="Email address"
               value={emailAddress}
               onChange={(event) => setEmailAddress(event.target.value)}
-              className={AUTH_INPUT}
+              className={FIELD_INPUT}
             />
           </Field>
           <Field id="user_password" label="Password">
@@ -91,7 +93,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               maxLength={MAX_PASSWORD_LENGTH}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className={AUTH_INPUT}
+              className={FIELD_INPUT}
             />
           </Field>
           <SubmitButton disabled={busy}>Create account</SubmitButton>

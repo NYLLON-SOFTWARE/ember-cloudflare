@@ -1,12 +1,17 @@
 import type { ImgHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+import add from "./campfire/add.svg";
 import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
+import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
+import check from "./campfire/check.svg";
 import copyPaste from "./campfire/copy-paste.svg";
 import download from "./campfire/download.svg";
+import everyone from "./campfire/everyone.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
+import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
 import messagesAdd from "./campfire/messages-add.svg";
 import qrCode from "./campfire/qr-code.svg";
 import remove from "./campfire/remove.svg";
@@ -32,6 +37,10 @@ function CampfireIcon({ src, tone = "black", className, ...props }: CampfireIcon
   return <img src={src} alt="" aria-hidden="true" draggable={false} className={cn("select-none", tones[tone], className)} {...props} />;
 }
 
+export function Add(props: CampfireIconProps) {
+  return <CampfireIcon src={add} {...props} />;
+}
+
 export function Alert(props: CampfireIconProps) {
   return <CampfireIcon src={alert} {...props} />;
 }
@@ -40,8 +49,16 @@ export function ArrowDown(props: CampfireIconProps) {
   return <CampfireIcon src={arrowDown} {...props} />;
 }
 
+export function ArrowLeft(props: CampfireIconProps) {
+  return <CampfireIcon src={arrowLeft} {...props} />;
+}
+
 export function ArrowUp(props: CampfireIconProps) {
   return <CampfireIcon src={arrowUp} {...props} />;
+}
+
+export function Check(props: CampfireIconProps) {
+  return <CampfireIcon src={check} {...props} />;
 }
 
 export function CopyPaste(props: CampfireIconProps) {
@@ -52,12 +69,20 @@ export function Download(props: CampfireIconProps) {
   return <CampfireIcon src={download} {...props} />;
 }
 
+export function Everyone(props: CampfireIconProps) {
+  return <CampfireIcon src={everyone} {...props} />;
+}
+
 export function Lifebuoy(props: CampfireIconProps) {
   return <CampfireIcon src={lifebuoy} {...props} />;
 }
 
 export function Logout(props: CampfireIconProps) {
   return <CampfireIcon src={logout} {...props} />;
+}
+
+export function MenuDotsHorizontal(props: CampfireIconProps) {
+  return <CampfireIcon src={menuDotsHorizontal} {...props} />;
 }
 
 export function MessagesAdd(props: CampfireIconProps) {

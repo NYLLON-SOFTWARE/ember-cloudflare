@@ -1,4 +1,4 @@
-import { isPasswordTooLong, isRoomId, parseNewRoom, SIGN_IN_REFUSED, type Bootstrap, type RoomId, type RoomList } from "@ember/protocol";
+import { isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomList, type RoomSettings } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
@@ -126,7 +126,7 @@ async function listRooms(request: Request, env: Env): Promise<Response> {
   return list ? json(list satisfies RoomList, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
 }
 
-/** Creates an open room, or a closed one for the people it names. Only the tests and load tests ask yet. */
+/** Creates an open room, or a closed one for the people it names, as New room's forms do. */
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
@@ -134,6 +134,37 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   if (typeof room === "string") return problem(422, room);
   const created = await workspace(env).createRoom(credentials, room);
   return created ? json({ room: created }, { status: 201 }) : problem(401, "Not signed in");
+}
+
+/** Who New room's forms list: everyone active, by name. */
+async function newRoomForm(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const form = credentials && (await workspace(env).newRoomForm(credentials));
+  return form ? json(form satisfies NewRoomForm) : problem(401, "Not signed in");
+}
+
+/** A room's settings page, for its members, read-only for those who can't change it. */
+async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const settings = credentials && (await workspace(env).roomSettings(credentials, roomId));
+  if (!settings) return problem(401, "Not signed in");
+  return settings === "not found" ? problem(404, ROOM_NOT_FOUND) : json(settings satisfies RoomSettings);
+}
+
+/**
+ * Changes a room, as its settings page saves it. As in ember-rust, someone who can't change it hears
+ * so before anything they sent is checked (rooms/opens.rs).
+ */
+async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseRoomChanges(await request.json().catch(() => null));
+  // Changes that don't parse change nothing, but the room is still checked first.
+  const room = await workspace(env).changeRoom(credentials, roomId, typeof changes === "string" ? {} : changes);
+  if (!room) return problem(401, "Not signed in");
+  if (room === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
+  return typeof changes === "string" ? problem(422, changes) : json({ room });
 }
 
 async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
@@ -170,6 +201,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/me") return me(request, env);
   if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
+  if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
@@ -180,6 +212,10 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
     const roomId = socket[1]!;
     return isRoomId(roomId) ? connectToRoom(request, env, roomId) : problem(404, ROOM_NOT_FOUND);
   }
+  const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
+  if (settings && request.method === "GET") return isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND);
+  const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+  if (room && request.method === "PATCH") return isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
 
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (isSetupPath(pathname)) return setupPage(request, env);

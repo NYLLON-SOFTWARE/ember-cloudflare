@@ -1,7 +1,6 @@
-import { useEffect, type ComponentProps, type ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { Bootstrap } from "@ember/protocol";
 import { HelpContact } from "@/components/help-contact";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // What ember-rust's sign-in and join pages share (sessions/new.html and users/new.html, styled by the
@@ -11,21 +10,8 @@ import { cn } from "@/lib/utils";
 /** What the app knows about the workspace before anyone signs in. */
 export type SignedOutWorkspace = Omit<Bootstrap, "user">;
 
-/** Campfire's `.input` with ember-rust's `.mb-field > .input`: 16px text, so phones don't zoom in. */
-export const AUTH_INPUT =
-  "h-auto min-h-[42px] touch:min-h-11 rounded-[9px] border-border bg-background px-[11px] py-[9px] text-base md:text-base shadow-none focus:border-muted-foreground focus-visible:border-muted-foreground focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-solid focus-visible:outline-foreground";
-
 /** ember-rust's `.mb-auth-form`. */
 export const AUTH_FORM = "flex flex-col gap-5";
-
-/** Names the tab `title` while the page is open. */
-export function useTitle(title: string): void {
-  useEffect(() => {
-    const before = document.title;
-    document.title = title;
-    return () => void (document.title = before);
-  }, [title]);
-}
 
 /** ember-rust's `.mb-auth-page`: what `children` holds, the card and anything above it, then the help contact. */
 export function AuthPage({ workspace, children }: { workspace: SignedOutWorkspace; children: ReactNode }) {
@@ -67,26 +53,5 @@ export function AuthHeading({ title, children }: { title: string; children: Reac
       <h1 className="mb-2 text-2xl leading-tight font-[650]">{title}</h1>
       <p className="text-muted-foreground">{children}</p>
     </header>
-  );
-}
-
-/** ember-rust's `.mb-field`: a 13px label over its input. */
-export function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-[7px] text-start">
-      <label htmlFor={id} className="text-[13px] font-[550]">
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-/** ember-rust's `.mb-primary-button`, which sends the card's form. */
-export function SubmitButton({ disabled, children }: { disabled: boolean; children: ReactNode }) {
-  return (
-    <Button type="submit" disabled={disabled} className="h-auto min-h-[42px] w-full rounded-[9px] border border-primary px-4 py-2.5 text-sm font-[550] touch:min-h-11">
-      {children}
-    </Button>
   );
 }
