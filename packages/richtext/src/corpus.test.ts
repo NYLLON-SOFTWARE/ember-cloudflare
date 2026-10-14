@@ -134,11 +134,14 @@ describe(feature("messages.rich-text"), () => {
     attributes: new Set([...[...AUTO_LINK.attributes].filter((name) => name !== "class"), "content-type", "sgid"]),
   };
 
-  it("stores every body in a safe form that comes back the same when stored again", () => {
+  it("stores every body it renders in a safe form that comes back the same when stored again", () => {
     const problems: string[] = [];
     for (const body of corpus.cases) {
       const prepared = attempt(() => JSON.stringify(prepareBody(parseHtml, body.body, corpusUser)));
-      if (prepared === RAISES || prepared === "null") continue;
+      const renders = attempt(() => presentMessage(parseHtml, body.body, corpusUser, railsMentionPartial)) !== RAISES;
+      const refused = prepared === RAISES || prepared === "null";
+      if (refused === renders) problems.push(`${body.name}: ${renders ? "renders, but was refused" : "doesn't render, but was stored"}`);
+      if (refused) continue;
       const stored = (JSON.parse(prepared) as PreparedBody).html;
       for (const violation of securityViolations(stored, STORED)) problems.push(`${body.name}: ${violation}`);
       for (const [, attributes] of stored.matchAll(/<action-text-attachment([^>]*)>/g)) {
