@@ -2,23 +2,23 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { plainText, prepareBody } from "./body";
 import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
-import { userGid, userIdsIn } from "./mentions";
+import { mentionSgid, userIdsIn } from "./mentions";
 import { parseHtml } from "./parse";
 import { canonicalize, presentMessage } from "./render";
 import { cgiUnescapeHtml } from "./sanitize";
+import { testUserId, testUsers } from "./testing/users";
 import { descendants, getAttr, isElement } from "./tree";
 
 // Ported from ember-rust's crates/richtext/tests/hardening.rs: where the port deliberately
 // diverges from Rails to close a hole or bound the work a message body can cause. Bodies come
 // from clients, and the Durable Object that prepares them has little CPU time to spare.
 
-const users = new Map([[1, { id: 1, name: "David" }]]);
-const resolve = (sgid: string) => users.get(Number(sgid.slice("gid://ember/User/".length)));
+const { resolve } = testUsers("David");
 const none = () => undefined;
 const mentionPartial = (user: { name: string }) => `<span class="mention">${user.name}</span>\n`;
 const presentation = (body: string) => presentMessage(parseHtml, body, resolve, mentionPartial);
-const mention = (id: number) =>
-  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${userGid(id)}"></action-text-attachment>`;
+const mention = (n: number) =>
+  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(n))}"></action-text-attachment>`;
 const galleryAttachment =
   '<action-text-attachment presentation="gallery" content-type="text/html" content="&lt;p&gt;x&lt;/p&gt;"></action-text-attachment>';
 

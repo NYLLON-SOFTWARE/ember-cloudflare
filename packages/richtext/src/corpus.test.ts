@@ -14,6 +14,7 @@ import {
   corpus,
   corpusUser,
   emberUser,
+  emberUserIds,
   railsMentionPartial,
   railsUser,
   UnloggableRailsError,
@@ -64,7 +65,7 @@ describe(feature("messages.plain-text"), () => {
 describe(feature("mentions.render"), () => {
   it("finds the users every body mentions as Rails did", () => {
     expectRailsReadings("mentioned", (body) => ({
-      expected: "ok" in body.mentioned ? JSON.stringify(body.mentioned.ok) : RAISES,
+      expected: "ok" in body.mentioned ? JSON.stringify(emberUserIds(body.mentioned.ok)) : RAISES,
       actual: attempt(() => JSON.stringify(mentionedUsers(parseHtml, body.body, verifiedUser).map((user) => user.id))),
     }));
   });
@@ -145,7 +146,7 @@ describe(feature("messages.rich-text"), () => {
       const stored = (JSON.parse(prepared) as PreparedBody).html;
       for (const violation of securityViolations(stored, STORED)) problems.push(`${body.name}: ${violation}`);
       for (const [, attributes] of stored.matchAll(/<action-text-attachment([^>]*)>/g)) {
-        if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="gid:\/\/ember\/User\/[1-9][0-9]*"$/.test(attributes!)) {
+        if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="[0-9a-z]{16}"$/.test(attributes!)) {
           problems.push(`${body.name}: <action-text-attachment${attributes}>`);
         }
       }

@@ -17,8 +17,8 @@ export interface PreparedBody {
   html: string;
   /** Action Text's plain text of it: for search, notifications, emoji-only bodies and `/play`. */
   plainText: string;
-  /** The users it mentions, once each, in order. */
-  mentions: number[];
+  /** The ids of the users it mentions, once each, in order. */
+  mentions: string[];
   /** Nothing to send: no text but whitespace, and no mentions. */
   blank: boolean;
 }

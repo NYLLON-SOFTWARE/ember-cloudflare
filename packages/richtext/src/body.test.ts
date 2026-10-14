@@ -1,19 +1,16 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { prepareBody } from "./body";
-import { userGid, userIdFromGid } from "./mentions";
+import { mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
+import { testUserId, testUsers } from "./testing/users";
 
-const users = new Map([
-  [1, { id: 1, name: "David" }],
-  [2, { id: 2, name: "Jason" }],
-]);
-const resolve = (sgid: string) => users.get(userIdFromGid(sgid) ?? 0);
+const { resolve } = testUsers("David", "Jason");
 const prepare = (html: string) => prepareBody(parseHtml, html, resolve);
-const mention = (id: number, attributes = "") =>
-  `<action-text-attachment sgid="${userGid(id)}" content-type="application/vnd.campfire.mention"${attributes}></action-text-attachment>`;
-const storedMention = (id: number) =>
-  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${userGid(id)}"></action-text-attachment>`;
+const mention = (n: number, attributes = "") =>
+  `<action-text-attachment sgid="${mentionSgid(testUserId(n))}" content-type="application/vnd.campfire.mention"${attributes}></action-text-attachment>`;
+const storedMention = (n: number) =>
+  `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(n))}"></action-text-attachment>`;
 
 describe(feature("messages.rich-text"), () => {
   it("stores Lexxy's formatting, without classes, styles, targets or scripts", () => {
@@ -39,7 +36,7 @@ describe(feature("messages.rich-text"), () => {
     // and keeps the newlines a code block starts with, which the stored form drops
     const mentionInside = `<action-text-attachment content-type="text/html" content="&lt;p&gt;Hi ${mention(1).replaceAll('"', "&quot;")}&lt;/p&gt;"></action-text-attachment>`;
     const codeAfterBlankLines = `<pre>${"\n".repeat(10)}x = 1</pre>`;
-    expect(prepare(mentionInside)).toMatchObject({ plainText: "Hi @David", mentions: [1] });
+    expect(prepare(mentionInside)).toMatchObject({ plainText: "Hi @David", mentions: [testUserId(1)] });
     expect(prepare(codeAfterBlankLines)).toMatchObject({ html: "<pre>x = 1</pre>", plainText: "x = 1" });
     for (const body of [mentionInside, codeAfterBlankLines]) {
       const prepared = prepare(body)!;
@@ -67,13 +64,22 @@ describe(feature("mentions.render"), () => {
     expect(prepare(body)).toEqual({
       html: `<p>Hi ${storedMention(1)} and ${storedMention(2)}, and ${storedMention(1)}!</p>`,
       plainText: "Hi @David and @Jason, and @David!",
-      mentions: [1, 2],
+      mentions: [testUserId(1), testUserId(2)],
       blank: false,
     });
   });
 
   it("stores ☒ for a mention of someone who doesn't exist", () => {
     expect(prepare(`<p>Hi ${mention(3)}</p>`)).toEqual({ html: "<p>Hi ☒</p>", plainText: "Hi ☒", mentions: [], blank: false });
+  });
+
+  it("keeps a user's id in its attribute, whatever characters it holds", () => {
+    const user = { id: `"><img src=x onerror=alert(1)>`, name: "Odd" };
+    const stored = prepareBody(parseHtml, `<p>${mention(1)}</p>`, () => user);
+    expect(stored?.html).toBe(
+      '<p><action-text-attachment content-type="application/vnd.campfire.mention" sgid="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"></action-text-attachment></p>',
+    );
+    expect(stored?.mentions).toEqual([user.id]);
   });
 });
 

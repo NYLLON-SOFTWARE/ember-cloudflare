@@ -2,9 +2,9 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { plainText } from "./body";
 import { parseHtml } from "./parse";
+import { testUserId, testUsers } from "./testing/users";
 
-const david = { id: 1, name: "David" };
-const resolve = (sgid: string) => (sgid === "gid://ember/User/1" ? david : undefined);
+const { resolve } = testUsers("David");
 const read = (html: string) => plainText(parseHtml, html, resolve);
 
 describe(feature("messages.plain-text"), () => {
@@ -26,7 +26,7 @@ describe(feature("messages.plain-text"), () => {
   });
 
   it("reads mentions, images and captions, and drops scripts", () => {
-    const mention = '<action-text-attachment content-type="application/vnd.campfire.mention" sgid="gid://ember/User/1"></action-text-attachment>';
+    const mention = `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${testUserId(1)}"></action-text-attachment>`;
     expect(read(`<p>Hi ${mention}!</p>`)).toBe("Hi @David!");
     expect(read('<action-text-attachment content-type="image/png" url="https://example.com/a.png"></action-text-attachment>')).toBe("[Image]");
     expect(read('<action-text-attachment content-type="image/png" url="/a.png" caption="Cat"></action-text-attachment>')).toBe("[Cat]");

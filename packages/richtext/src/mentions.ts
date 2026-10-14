@@ -1,22 +1,24 @@
-// Mentions: `<action-text-attachment>` elements whose `sgid` names a user. Ember's sgids are plain
-// global ids, `gid://ember/User/<id>`: ember-rust signs them, but any member can list every
-// user's, so a signature protects nothing.
+// Mentions: `<action-text-attachment>` elements whose `sgid` names a user. Ember's sgid is the
+// user's id. ember-rust's are signed global ids, but any member can list every user's, so a
+// signature protects nothing; and Lexxy, the composer, drops an sgid that starts like a URL, as
+// `gid://` does, since DOMPurify vets every attribute's value as one.
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH } from "./content";
 import { getAttr, type Element } from "./tree";
 import type { MentionUser, ResolveMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 
-const USER_GID = /^gid:\/\/ember\/User\/([1-9][0-9]{0,15})$/;
+/** An Ember id: 16 lowercase base-36 characters (the Worker's `sortableId`). */
+const USER_ID = /^[0-9a-z]{16}$/;
 
-export function userGid(id: number): string {
-  return `gid://ember/User/${id}`;
+/** The sgid that names a user in a mention. */
+export function mentionSgid(userId: string): string {
+  return userId;
 }
 
 /** The id of the user an sgid names, if it names one. */
-export function userIdFromGid(sgid: string): number | undefined {
-  const id = USER_GID.exec(sgid)?.[1];
-  return id === undefined || !Number.isSafeInteger(Number(id)) ? undefined : Number(id);
+export function userIdFromSgid(sgid: string): string | undefined {
+  return USER_ID.test(sgid) ? sgid : undefined;
 }
 
 /**
@@ -25,8 +27,8 @@ export function userIdFromGid(sgid: string): number | undefined {
  * read as parsed, character references and all. Markup past the parser's limits is skipped, since
  * `prepareBody` refuses it anyway.
  */
-export function userIdsIn(parse: HtmlParser, markup: string): number[] {
-  const ids = new Set<number>();
+export function userIdsIn(parse: HtmlParser, markup: string): string[] {
+  const ids = new Set<string>();
   const collect = (markup: string, depth: number) => {
     let attachments: Element[];
     try {
@@ -36,7 +38,7 @@ export function userIdsIn(parse: HtmlParser, markup: string): number[] {
       throw error;
     }
     for (const attachment of attachments) {
-      const id = userIdFromGid(getAttr(attachment, "sgid") ?? "");
+      const id = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
       if (id !== undefined) ids.add(id);
       const content = getAttr(attachment, "content");
       if (content !== undefined && depth < MAX_CONTENT_ATTACHMENT_DEPTH) collect(content, depth + 1);
@@ -56,7 +58,7 @@ export function mentionedUsers(parse: HtmlParser, markup: string, resolve: Resol
 
 /** The users attachments of a loaded body resolve to, once each, in order. */
 export function usersAttached(attachments: Element[], resolve: ResolveMention): MentionUser[] {
-  const users = new Map<number, MentionUser>();
+  const users = new Map<string, MentionUser>();
   for (const node of attachments) {
     const sgid = getAttr(node, "sgid");
     const user = sgid === undefined ? undefined : resolve(sgid);
