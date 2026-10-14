@@ -1,8 +1,13 @@
 import { feature } from "@ember/parity";
-import { SESSION_ENDED, SIGN_IN_REFUSED, type Bootstrap, type NewWorkspace, type User } from "@ember/protocol";
-import { evictDurableObject } from "cloudflare:test";
+import { SESSION_ENDED, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
+import { evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
+import type { Env } from "../src/env";
 import { hashPassword } from "../src/passwords";
+import type { Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
 import { api, apiWith, connect, cookieOf, freshDeploy, freshRoom, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
@@ -194,6 +199,21 @@ describe(feature("auth.sign-out"), () => {
     expect(graceInLobby.log.filter((frame) => frame.type === "presence.left")).toEqual([]);
     expect(graceInAnnex.log.filter((frame) => frame.type === "presence.left")).toHaveLength(1);
   });
+
+  it("refuses a socket the Workspace let through just before the session ended, which reaches the room after", async () => {
+    const { user } = await setUp();
+    const lobby = await freshRoom("lobby");
+    const [{ id: sessionId }] = (await workspaceSql("SELECT id FROM sessions WHERE user_id = ?", user.id)) as [{ id: string }];
+    const room = (env as unknown as Env).CHAT_ROOM.getByName(lobby);
+    // What the Worker sends on once the Workspace has checked the session.
+    const approved = () => room.fetch(`https://room/${lobby}`, { headers: { Upgrade: "websocket", [USER_HEADER]: JSON.stringify(user), [ROOM_HEADER]: lobby, [SESSION_HEADER]: sessionId } });
+
+    await room.endSession(sessionId);
+    expect((await approved()).status).toBe(401);
+    // Another of the person's sessions still gets in.
+    const phone = await signInAsAda();
+    expect((await api(`/api/rooms/${lobby}/socket`, upgrade(phone.cookie))).status).toBe(101);
+  });
 });
 
 describe(feature("auth.help-contact"), () => {
@@ -208,6 +228,20 @@ describe(feature("auth.help-contact"), () => {
     await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", user.id);
     // A Workspace that starts afresh reads them again.
     await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).helpContact).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com" });
+  });
+
+  it("keeps the administrator first run names when a read from before it finishes after it", async () => {
+    // On D1 a read is a network call, during which first run can finish.
+    await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      let finishReading!: (contact: HelpContact | null) => void;
+      vi.spyOn(store, "helpContact").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
+      const reading = workspace.bootstrap(null);
+      await workspace.createWorkspace({ name: ada.name, emailAddress: ada.emailAddress, passwordDigest: await hashPassword(ada.password) }, "digest", { ip: null, userAgent: null });
+      finishReading(null);
+      await reading;
+    });
     expect((await bootstrap()).helpContact).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com" });
   });
 });

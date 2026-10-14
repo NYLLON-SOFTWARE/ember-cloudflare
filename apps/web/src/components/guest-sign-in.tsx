@@ -67,7 +67,7 @@ export function GuestSignIn({ onSignedIn, onUsePassword }: { onSignedIn: (me: Us
           Join <ArrowRight className="size-[18px]" />
         </Button>
       </form>
-      <AuthAlternative question="Have an account?" action="Sign in" onClick={onUsePassword} />
+      <AuthAlternative question="Have an account?" action="Sign in" onClick={onUsePassword} disabled={busy} />
     </>
   );
 }

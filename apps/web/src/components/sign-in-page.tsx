@@ -121,7 +121,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: Workspace; on
                 Sign in
               </Button>
             </form>
-            {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} />}
+            {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} disabled={busy} />}
           </>
         )}
       </section>

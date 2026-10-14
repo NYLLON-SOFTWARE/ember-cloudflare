@@ -89,7 +89,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async helpContact(): Promise<HelpContact | null> {
-    if (this.knownHelpContact === undefined) this.knownHelpContact = await this.store.helpContact();
+    if (this.knownHelpContact === undefined) {
+      const contact = await this.store.helpContact();
+      // On D1, first run can finish while this reads, and what it found is newer.
+      this.knownHelpContact ??= contact;
+    }
     return this.knownHelpContact;
   }
 

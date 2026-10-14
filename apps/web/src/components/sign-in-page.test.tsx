@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignInPage } from "./sign-in-page";
@@ -151,5 +151,19 @@ describe(feature("auth.guest-sign-in"), () => {
   it("only asks for a password when it doesn't", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Join with just a name" })).not.toBeInTheDocument();
+  });
+
+  it("keeps either card from switching while it's signing in, so only one sign-in is on its way", async () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<SignInPage workspace={{ ...workspace, guestSignIn: true }} onSignedIn={vi.fn()} />);
+    await signIn("correct horse");
+    expect(screen.getByRole("button", { name: "Join with just a name" })).toBeDisabled();
+
+    cleanup();
+    render(<SignInPage workspace={{ ...workspace, guestSignIn: true }} onSignedIn={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Join with just a name" }));
+    await user.type(screen.getByLabelText("Your name"), "Ada{Enter}");
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
   });
 });
