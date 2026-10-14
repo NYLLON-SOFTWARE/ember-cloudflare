@@ -304,4 +304,18 @@ describe(feature("rooms.unsaved-changes"), () => {
     expect(onCreated).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
+
+  it("stays on a page opened while signing out after the dialog's Save, should signing out then fail", async () => {
+    serve({ created: { id: "design", name: "Design", kind: "open", icon: null } });
+    const { user } = showPage();
+    await user.type(await roomName(), " team");
+    let signedOut = (_: boolean) => {};
+    const signOut = vi.fn(() => new Promise<boolean>((resolve) => (signedOut = resolve)));
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    act(() => navigate("/account/edit"));
+    await act(async () => signedOut(false));
+    expect(location.pathname).toBe("/account/edit");
+  });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Dismiss, PencilSquare } from "@/components/icons/ember";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useMounted } from "@/hooks/use-mounted";
 import { guardLeaving } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   // Save found a field the form won't accept, which the browser points at once the dialog has closed.
   const invalid = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const mounted = useMounted();
 
   useEffect(() => {
     if (!changed) return;
@@ -84,6 +86,8 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
     proceed.current = null;
     setAsking(false);
     if ((await next?.()) !== false) return;
+    // Nor did it stay if it was left meanwhile, by a link followed while signing out was under way.
+    if (!mounted.current) return;
     // Anywhere `stayed` goes, it goes without asking.
     stayed?.();
     // A sign-out that fails leaves the page as it was, so the form is guarded again, as ember-rust's
