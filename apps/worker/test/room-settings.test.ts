@@ -306,7 +306,7 @@ describe(feature("rooms.members"), () => {
       };
     });
 
-    await expect(change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).rejects.toThrow("The database's answer was lost");
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(500);
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect(await reconnect(room.id, grace)).toBe(CloseCode.NotFound);
   });

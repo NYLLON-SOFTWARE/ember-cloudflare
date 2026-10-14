@@ -1,6 +1,7 @@
 // Checks a deployed Worker without signing in: /api/health answers once SESSION_SECRET is set and
 // the Workspace and a room's Durable Object both read their storage, the app's page loads through
-// the Worker, the API asks for sign-in, and, until Ember is set up, setup takes the private link.
+// the Worker, an address with no page answers Campfire's 404 page, the API asks for sign-in, and,
+// until Ember is set up, setup takes the private link.
 // The Preview workflow runs it after each deploy; it works against `pnpm dev` too:
 //
 //   node apps/worker/scripts/check-deploy.ts http://localhost:8787
@@ -34,6 +35,15 @@ async function checkPage(baseUrl: string): Promise<void> {
   if (!response.ok || !html.includes('<div id="root">')) throw new Error(`The app's page answered ${response.status} without the app`);
   // Only the Worker adds it, so without it the page came straight from the static assets.
   if (response.headers.get("X-Content-Type-Options") !== "nosniff") throw new Error("The app's page skipped the Worker: check run_worker_first");
+}
+
+/** An address with no page answers Campfire's 404 page rather than the app's, as the assets' 404 handling has it. */
+async function checkNotFound(baseUrl: string): Promise<void> {
+  const response = await fetch(new URL("/no-such-page", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const html = await response.text();
+  if (response.status !== 404 || !html.includes("<title>We can’t find that (404)</title>")) {
+    throw new Error(`An address with no page answered ${response.status} without Campfire's 404 page: check not_found_handling`);
+  }
 }
 
 async function checkSignInRequired(baseUrl: string): Promise<void> {
@@ -72,6 +82,8 @@ async function check(baseUrl: string): Promise<void> {
   console.log(`✓ /api/health answers: the Workspace and a room read their storage in ${storage}`);
   await eventually(() => checkPage(baseUrl));
   console.log("✓ The app's page loads, through the Worker");
+  await eventually(() => checkNotFound(baseUrl));
+  console.log("✓ An address with no page answers Campfire's 404 page");
   await eventually(() => checkSignInRequired(baseUrl));
   console.log("✓ The API asks for sign-in");
   console.log(`✓ ${await eventually(() => checkSetup(baseUrl))}`);

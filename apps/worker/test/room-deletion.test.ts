@@ -178,7 +178,7 @@ describe(feature("rooms.delete"), () => {
       };
     });
 
-    await expect(remove(room.id, ada)).rejects.toThrow("The database's answer was lost");
+    expect((await remove(room.id, ada)).status).toBe(500);
     expect(await closed).toMatchObject({ code: CloseCode.NotFound });
     await delivered();
   });

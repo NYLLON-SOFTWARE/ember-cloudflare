@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 27 ported and 56 partial of 172 features; 84 not started, 5 not applicable.
+**Overall:** 28 ported and 56 partial of 172 features; 83 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 3 | 8 | 0 | 0 | 11 |
-| [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
-| **Total** | **27** | **56** | **84** | **5** | **172** |
+| [Platform](#platform) | 8 | 2 | 1 | 4 | 15 |
+| **Total** | **28** | **56** | **83** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2281,7 +2281,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
-| Error pages | `platform.error-pages` | Campfire | ⬜ Not started |  |
+| Error pages | `platform.error-pages` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [error-pages](apps/worker/test/error-pages.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts) |
 | One live connection per tab outside the open room | `platform.live-socket` | This port | ⬜ Not started |  |
@@ -2310,16 +2310,16 @@ Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/
 
 ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
 
-**Error pages** (`platform.error-pages`) ⬜
+**Error pages** (`platform.error-pages`) ✅
 
 - A missing page answers 404, a write refused as cross-site 422 and a server failure 500, each with a standalone page titled "We can’t find that (404)", "That didn’t work (422)" or "Something went wrong (500)": an illustration and a Go back button to `/`, plus Try again, which reloads, on the 422 page.
 - A request for JSON gets `{"status":404,"error":"Not Found"}` instead, with the matching status and reason.
 - The 502 page says "Starting Ember…" with the logo and reloads itself every 10 seconds.
 - `/robots.txt` is served, and allows everything.
 
-Note: Unknown page paths get the app's page with status 200, which goes home, to the last room visited, once you're signed in, and unknown `/api/` paths answer 404 with `{ "error": "Not found" }`. An exception in the Worker reaches Cloudflare's own error page, and there's no `/robots.txt`.
+Note: The Worker serves the app's page only at the addresses the app shows a page at, which `@ember/protocol` lists for the app's router too; the built app answers any other path with one of its files or Campfire's 404 page (`not_found_handling`), and the Worker answers a write to a page, an unknown address under `/first_run` and a QR code's address without a code with the 404 page itself. Rails' unused actions, such as `/rooms/new`, are 404s as in ember-rust, but My profile, New direct message and a DM's settings, which the app links to before it has them, go home for now. Where ember-rust ignores a trailing or doubled slash, the Worker redirects to the page's own address, which the app reads. The setup link's exchange is the only page a cross-site write reaches; the API refuses one with JSON, as it answers every error, an exception's included (`{ "error": "Something went wrong" }`), where ember-rust answers any JSON request with `{"status":…,"error":…}`; elsewhere a JSON request gets the page. On setup's pages and form, an exception's log says only that the request failed, as ember-rust's does. Campfire's pages have no viewport, so a phone shrinks them to fit a 980px layout and Go back is too small to tap; these add one, and a language. An old browser gets the upgrade page even at an unknown address, since that check comes first (`platform.browser-support`). There's no 502 page: a Worker has no start-up to wait through, and a deploy switches over at once.
 
-Sources: [`reference/public/404.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/404.html) · [`reference/public/422.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/422.html) · [`reference/public/500.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/500.html) · [`crates/assets/overrides/public/502.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/public/502.html) · [`reference/public/robots.txt`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/robots.txt) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs)
+Sources: [`reference/public/404.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/404.html) · [`reference/public/422.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/422.html) · [`reference/public/500.html`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/500.html) · [`crates/assets/overrides/public/502.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/public/502.html) · [`reference/public/robots.txt`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/public/robots.txt) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs) · [`crates/kit/src/adapter.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/adapter.rs) · [`crates/kit/src/ctx.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/ctx.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs)
 
 ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/kit/src/exceptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/exceptions.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 

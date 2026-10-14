@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import refusedPage from "../../web/public/422.html";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { apiWith, builtPages, cookieOf, freshDeploy, origin, workspaceSql } from "./support";
@@ -119,7 +120,8 @@ describe(feature("auth.protected-setup"), () => {
   ])("refuses %s", async (_, body, headers, status) => {
     const response = await exchange(body, headers);
     expect(response.status).toBe(status);
-    expect(await response.text()).toBe("");
+    // As in ember-rust, a post refused as cross-site gets Campfire's 422 page, and the others nothing.
+    expect(await response.text()).toBe(status === 422 ? refusedPage : "");
     expect(response.headers.get("Set-Cookie")).toBeNull();
     expectPrivate(response);
   });

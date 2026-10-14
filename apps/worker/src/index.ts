@@ -17,10 +17,12 @@ import {
 } from "./auth";
 import { AUTHORIZED_AT_HEADER, closedAtOnce, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
+import { failed } from "./error-pages";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
+import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
@@ -239,7 +241,19 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);
-  return env.ASSETS.fetch(request);
+  return anyOtherPage(request, env, pathname);
+}
+
+/**
+ * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API, and
+ * Campfire's 500 page otherwise. Setup's pages and form can hold the setup token or the first
+ * administrator's password, so there the log says only that the request failed.
+ */
+function failure(request: Request, env: Env, pathname: string, error: unknown): Response {
+  const isSetup = isSetupPath(pathname) || pathname === "/api/first_run";
+  console.error(`${request.method} ${pathname} failed:`, isSetup ? "500 Internal Server Error" : error);
+  if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
+  return keepSetupPrivate(failed(request), env, pathname);
 }
 
 export default {
@@ -250,7 +264,7 @@ export default {
     const { pathname } = new URL(request.url);
     // /up skips ember-rust's before-actions, so it's never checked and carries no version.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
-    const response = isUp ? up(request) : await route(request, env, pathname);
+    const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, env, pathname, error));
     return withHeaders(response, request, env, { version: !isUp });
   },
 } satisfies ExportedHandler<Env>;

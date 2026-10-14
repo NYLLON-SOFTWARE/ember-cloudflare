@@ -5,6 +5,7 @@
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
+export { isAppPage, KIND_SEGMENTS, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;
