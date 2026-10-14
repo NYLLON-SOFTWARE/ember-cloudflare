@@ -147,3 +147,12 @@ export function Close(props: EmberIconProps) {
     </EmberIcon>
   );
 }
+
+/** The welcome card's link, which ember-rust draws inline in rooms/show/_invitation.html rather than from icons.html. */
+export function Link(props: EmberIconProps) {
+  return (
+    <EmberIcon {...props}>
+      <path d="M10 13a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l2-2" />
+    </EmberIcon>
+  );
+}

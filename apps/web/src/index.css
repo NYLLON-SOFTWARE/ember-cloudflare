@@ -80,6 +80,9 @@
   /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, and a flash fades away. */
   --animate-shake: shake 400ms both;
   --animate-flash: appear-then-fade 3s 300ms both;
+  /* And its `.btn--success` (buttons.css): a button that copied something pulses as its icon floats away. */
+  --animate-success: success 1s ease-out;
+  --animate-zoom-fade: zoom-fade 300ms ease-out;
 
   @keyframes shake {
     0% {
@@ -104,6 +107,25 @@
     5%,
     60% {
       opacity: 1;
+    }
+  }
+
+  /* Campfire's --color-border-darker, which ember-rust makes its muted ink. */
+  @keyframes success {
+    0% {
+      background-color: var(--muted-foreground);
+      scale: 0.8;
+    }
+    20% {
+      background-color: var(--muted-foreground);
+      scale: 1;
+    }
+  }
+
+  @keyframes zoom-fade {
+    100% {
+      transform: translateY(-2em);
+      opacity: 0;
     }
   }
 }

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Message, User } from "@ember/protocol";
+import type { Invitation, Message, User } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,8 +71,8 @@ const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message =>
   boosts: [],
 });
 
-const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn()) => (
-  <MessageList roomName="general" state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} onLoadOlder={onLoadOlder} />
+const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invitation: Invitation | null = null) => (
+  <MessageList roomName="general" invitation={invitation} state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} onLoadOlder={onLoadOlder} />
 );
 
 beforeEach(() => {
@@ -96,6 +96,37 @@ describe(feature("ui.empty-room"), () => {
   it("doesn't claim the room is empty before it has loaded", () => {
     render(list({ status: "connecting", messages: [] }));
     expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("rooms.invitation-card"), () => {
+  const invitation = { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" };
+  const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
+
+  it("welcomes people to the workspace's first room with the card instead, while it's new", () => {
+    render(list({ messages: [], paged: false }, vi.fn(), invitation));
+    expect(card()).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
+  });
+
+  it("puts the card above the room's messages, in the timeline", () => {
+    render(list({ messages: [message("hello")], paged: false }, vi.fn(), invitation));
+    const log = screen.getByRole("log");
+    expect(log).toContainElement(card());
+    expect(card()!.compareDocumentPosition(screen.getByRole("article")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("leaves it out where the room had more than a page when it opened, or hasn't answered yet", () => {
+    const { rerender } = render(list({ messages: [message("hello")], paged: true }, vi.fn(), invitation));
+    expect(card()).not.toBeInTheDocument();
+    rerender(list({ status: "connecting", messages: [], paged: null }, vi.fn(), invitation));
+    expect(card()).not.toBeInTheDocument();
+  });
+
+  it("shows no card in other rooms", () => {
+    render(list({ messages: [], paged: false }));
+    expect(card()).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
   });
 });
 
