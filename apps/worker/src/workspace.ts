@@ -554,6 +554,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The people of `ids` who exist, whatever their status, for a room naming the people a message
+   * mentions, as ember-rust finds a mention's user (`User::find_by_id`).
+   */
+  async mentionedPeople(ids: UserId[]): Promise<User[]> {
+    return this.store.peopleWithIds(ids);
+  }
+
+  /**
    * Who `credentials` signs in, with their session, and whether they're in room `roomId`, as of
    * `authorizedAt`, or null without a valid session.
    */

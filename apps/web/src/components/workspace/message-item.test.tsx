@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import { MAX_MESSAGE_LENGTH, type Boost, type Message, type User } from "@ember/protocol";
+import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,17 +10,24 @@ import { MessageItem } from "./message-item";
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
 
-const message = (overrides: Partial<Message> = {}): Message => ({
-  id: "m1",
-  clientMessageId: "c1",
-  roomId: "general",
-  creator: ada,
-  body: "Hello",
-  createdAt: "2026-10-12T10:00:00.000Z",
-  updatedAt: "2026-10-12T10:00:00.000Z",
-  boosts: [],
-  ...overrides,
-});
+/** A message, whose body is its plain text as typed unless given. */
+const message = (overrides: Partial<Message> = {}): Message => {
+  const plainText = overrides.plainText ?? "Hello";
+  return {
+    id: "m1",
+    clientMessageId: "c1",
+    roomId: "general",
+    creator: ada,
+    body: bodyFromPlainText(plainText),
+    plainText,
+    mentions: [],
+    createdAt: "2026-10-12T10:00:00.000Z",
+    updatedAt: "2026-10-12T10:00:00.000Z",
+    editedAt: null,
+    boosts: [],
+    ...overrides,
+  };
+};
 
 const boost = (id: string, booster: User, content: string): Boost => ({ id, messageId: "m1", booster, content, createdAt: "" });
 
@@ -44,16 +52,27 @@ const onTouchScreen = () => {
 
 describe(feature("messages.create"), () => {
   it("shows the author, the time and the text", () => {
-    const { article } = show(message({ body: "Line one\nLine two" }));
+    const { article } = show(message({ plainText: "Line one\nLine two" }));
     expect(within(article).getByText("Ada")).toBeInTheDocument();
     expect(article.querySelector(".message-content")).toContainHTML("<p>Line one<br>Line two</p>");
     expect(article.querySelector("time")).toHaveAttribute("datetime", "2026-10-12T10:00:00.000Z");
   });
 });
 
+describe(feature("messages.unrenderable"), () => {
+  it("shows a message whose text can't be shown as one that failed to load, with nothing to do to it", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { article } = show(message({ body: `${"<b>".repeat(401)}deep`, plainText: "deep" }));
+    expect(article).toHaveTextContent(/^Failed to load message content$/);
+    expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
+    expect(within(article).queryByRole("button")).not.toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith("Could not show a message", expect.any(Error));
+  });
+});
+
 describe(feature("messages.autolink"), () => {
   it("links the addresses in a message's text", () => {
-    const { article } = show(message({ body: "Docs at www.example.com, or ask ada@example.com" }));
+    const { article } = show(message({ plainText: "Docs at www.example.com, or ask ada@example.com" }));
     expect(within(article).getByRole("link", { name: "www.example.com" })).toHaveAttribute("href", "http://www.example.com");
     expect(within(article).getByRole("link", { name: "ada@example.com" })).toHaveAttribute("href", "mailto:ada@example.com");
   });
@@ -62,10 +81,10 @@ describe(feature("messages.autolink"), () => {
 describe(feature("messages.emoji-only"), () => {
   it("shows a message of nothing but emoji large, pending ones included", () => {
     const large = (m: Message | PendingMessage) => show(m).article.querySelector(".message-content")!.classList.contains("text-[2.4em]");
-    expect(large(message({ body: "😄🤘" }))).toBe(true);
-    expect(large({ ...message({ body: "😄🤘" }), pending: true })).toBe(true);
-    expect(large(message({ body: "Haha! 😄🤘" }))).toBe(false);
-    expect(large(message({ body: "🔥 💯" }))).toBe(false);
+    expect(large(message({ plainText: "😄🤘" }))).toBe(true);
+    expect(large({ ...message({ plainText: "😄🤘" }), pending: true })).toBe(true);
+    expect(large(message({ plainText: "Haha! 😄🤘" }))).toBe(false);
+    expect(large(message({ plainText: "🔥 💯" }))).toBe(false);
   });
 });
 
@@ -106,8 +125,18 @@ describe(feature("messages.edit"), () => {
     expect(editor).toHaveFocus();
     await user.clear(editor);
     await user.type(editor, "  Hello again {Enter}");
-    expect(actions.edit).toHaveBeenCalledWith("m1", "Hello again");
+    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello again</p>");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("edits a message's plain text and sends it as typed, line breaks and all, never as markup", async () => {
+    const { actions, user } = show(message({ body: "<p>Hello <strong>all</strong></p>", plainText: "Hello all" }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByRole("textbox");
+    expect(editor).toHaveValue("Hello all");
+    await user.clear(editor);
+    await user.type(editor, "<b>1</b> < 2 &{Shift>}{Enter}{/Shift}3{Enter}");
+    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>&lt;b&gt;1&lt;/b&gt; &lt; 2 &amp;<br>3</p>");
   });
 
   it("cancels an edit on Escape and ignores unchanged or blank edits", async () => {
@@ -125,7 +154,7 @@ describe(feature("messages.edit"), () => {
   });
 
   it("marks an edited message, including one grouped under the message before it", () => {
-    const edited = message({ updatedAt: "2026-10-12T10:05:00.000Z" });
+    const edited = message({ updatedAt: "2026-10-12T10:05:00.000Z", editedAt: "2026-10-12T10:05:00.000Z" });
     expect(within(show(edited).article).getByText("(edited)")).toBeInTheDocument();
     // A grouped message has no header to hold the mark, so it ends the message's text.
     expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
@@ -145,7 +174,7 @@ describe(feature("messages.edit"), () => {
     fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
     expect(actions.edit).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key: "Enter" });
-    expect(actions.edit).toHaveBeenCalledWith("m1", "こんにちは");
+    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>こんにちは</p>");
     expect(editor).not.toBeInTheDocument();
   });
 
@@ -154,7 +183,7 @@ describe(feature("messages.edit"), () => {
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.clear(screen.getByRole("textbox"));
     await user.type(screen.getByRole("textbox"), "hello{Enter}");
-    expect(actions.edit).toHaveBeenCalledWith("m1", "hello");
+    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>hello</p>");
     expect(screen.getByRole("textbox")).toHaveValue("hello");
   });
 });
@@ -184,7 +213,7 @@ describe(feature("messages.actions"), () => {
 
   it("closes the actions on a click or focus anywhere else, so only one message has them open", () => {
     show(message());
-    show(message({ id: "m2", clientMessageId: "c2", body: "there" }), { threaded: true });
+    show(message({ id: "m2", clientMessageId: "c2", plainText: "there" }), { threaded: true });
     fireEvent.click(optionsOn("Hello"));
     fireEvent.click(screen.getByText("Hello"));
     expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
@@ -291,14 +320,14 @@ describe(feature("mentions.highlight"), () => {
   const highlighted = (article: HTMLElement) => article.querySelector(".border-mention") !== null;
 
   it("highlights messages from others that mention you by name", () => {
-    expect(highlighted(show(message({ creator: grace, body: "Thanks @ada!" })).article)).toBe(true);
+    expect(highlighted(show(message({ creator: grace, plainText: "Thanks @ada!" })).article)).toBe(true);
   });
 
   it.each([
     ["your own messages", ada, "Note to self @Ada"],
     ["other names that start with yours", grace, "Ask @Adam"],
     ["your name without an @", grace, "Ada said so"],
-  ])("leaves %s alone", (_, creator, body) => {
-    expect(highlighted(show(message({ creator, body })).article)).toBe(false);
+  ])("leaves %s alone", (_, creator, plainText) => {
+    expect(highlighted(show(message({ creator, plainText })).article)).toBe(false);
   });
 });

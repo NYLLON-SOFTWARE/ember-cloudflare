@@ -66,8 +66,11 @@ const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message =>
   roomId: "general",
   creator: ada,
   body: id,
+  plainText: id,
+  mentions: [],
   createdAt,
   updatedAt: createdAt,
+  editedAt: null,
   boosts: [],
 });
 

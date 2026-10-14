@@ -174,6 +174,9 @@ const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
 
+/** The people with the ids in a JSON array, whatever their status. */
+export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
+
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
   FROM users LEFT JOIN memberships ON memberships.room_id = ? AND memberships.user_id = users.id
@@ -456,6 +459,11 @@ export class WorkspaceStore {
   /** Everyone active, by name. */
   async activePeople(): Promise<User[]> {
     return this.db.all<User>(ACTIVE_PEOPLE);
+  }
+
+  /** The people with `ids` who exist, active or not. */
+  async peopleWithIds(ids: UserId[]): Promise<User[]> {
+    return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
   }
 
   /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it. */

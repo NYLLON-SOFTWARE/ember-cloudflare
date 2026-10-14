@@ -9,7 +9,7 @@ import {
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
   MAX_LISTED_USERS,
-  MAX_MESSAGE_LENGTH,
+  MAX_MESSAGE_HTML_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseAccountChanges,
   parseClientFrame,
@@ -27,24 +27,25 @@ import {
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 
 describe(feature("messages.create"), () => {
-  it("accepts a well-formed message and trims its body", () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "  hi  " })).toEqual({
-      type: "message.create",
-      clientMessageId: "c1",
-      body: "hi",
-    });
+  it("accepts a well-formed message, leaving its markup for the room to read", () => {
+    for (const body of ["<p>hi</p>", "  <p>hi</p>\n", "", " "]) {
+      expect(parse({ type: "message.create", clientMessageId: "c1", body }), body).toEqual({ type: "message.create", clientMessageId: "c1", body });
+    }
+    expect(parse({ type: "message.update", messageId: "m1", body: "" })).toEqual({ type: "message.update", messageId: "m1", body: "" });
   });
 
-  it("rejects blank bodies, unknown types and invalid JSON", () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "   " })).toBeNull();
+  it("rejects bodies that aren't strings, unknown types and invalid JSON", () => {
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: 7 })).toBeNull();
+    expect(parse({ type: "message.update", messageId: "m1" })).toBeNull();
     expect(parse({ type: "nope" })).toBeNull();
     expect(parseClientFrame("{")).toBeNull();
     expect(parseClientFrame("null")).toBeNull();
   });
 
-  it(`limits messages to ${MAX_MESSAGE_LENGTH} characters and client ids to 64`, () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_LENGTH) })).not.toBeNull();
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_LENGTH + 1) })).toBeNull();
+  it(`limits a message's markup to ${MAX_MESSAGE_HTML_LENGTH} characters and client ids to 64`, () => {
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH) })).not.toBeNull();
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    expect(parse({ type: "message.update", messageId: "m1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
     expect(parse({ type: "message.create", clientMessageId: "c".repeat(65), body: "hi" })).toBeNull();
   });
 });

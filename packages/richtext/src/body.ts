@@ -7,8 +7,9 @@ import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { mentionedUsers, userIdsIn, usersAttached } from "./mentions";
+import { plainParagraphLines } from "./plain-paragraph";
 import { canonicalize } from "./render";
-import { isBlank } from "./ruby";
+import { chompNewlines, isBlank } from "./ruby";
 import { toHtml } from "./serialize";
 import { append, createElement, createText } from "./tree";
 
@@ -38,6 +39,23 @@ export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMen
  * body and shows it as an empty or unrenderable message; Ember refuses it.
  */
 export function prepareBody(parse: HtmlParser, markup: string, resolve: ResolveMention): PreparedBody | null {
+  return preparePlainParagraph(markup) ?? prepareParsedBody(parse, markup, resolve);
+}
+
+/**
+ * What `prepareParsedBody` makes of a plain paragraph, without parsing it: the markup as it is,
+ * already in the stored form, and its plain text as `nodeToPlainText` reads it, without the
+ * newlines that end each line or the whole.
+ */
+function preparePlainParagraph(markup: string): PreparedBody | null {
+  const lines = plainParagraphLines(markup);
+  if (lines === null) return null;
+  const text = chompNewlines(lines.map(chompNewlines).join("\n"));
+  return { html: markup, plainText: text, mentions: [], blank: isBlank(text) };
+}
+
+/** `prepareBody` the long way, parsing the markup, as it has to unless it's a plain paragraph. */
+export function prepareParsedBody(parse: HtmlParser, markup: string, resolve: ResolveMention): PreparedBody | null {
   try {
     const html = canonicalize(parse, markup, resolve);
     const content = loadContent(parse, html);

@@ -1020,7 +1020,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "reference/app/controllers/messages_controller.rb", "reference/app/models/message.rb"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/controllers/messages_controller_test.rb"],
-    notes: "Messages are plain text sent over the room's WebSocket rather than rich text posted over HTTP, and are capped at 10,000 characters.",
+    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.",
   },
   {
     id: "messages.rich-text",
@@ -1036,7 +1036,7 @@ export const features = [
     ],
     sources: ["reference/app/helpers/content_filters.rb", "reference/app/helpers/messages_helper.rb", "crates/richtext/src/sanitizer.rs", "crates/richtext/src/filters.rs", "crates/ember/src/controllers/presenters.rs", "reference/app/javascript/models/message_formatter.js", "reference/app/javascript/initializers/highlight.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/helpers/content_filters_test.rb", "reference/test/system/composer_test.rb", "crates/richtext/tests/corpus.rs"],
-    notes: "Messages here are still plain text, shown as the paragraph Lexxy sends for it: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores rich text with it yet, and the composer can't write any. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes.",
+    notes: "What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. The composer is still a plain-text box, so nothing writes formatting yet.",
   },
   {
     id: "messages.optimistic",
@@ -1068,7 +1068,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/composer.css"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing, and the server saves an unchanged body as an edit, though the app never sends one. Edited messages say \"(edited)\", which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
+    notes: "Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing. The editor edits a message's plain text and sends it as typed text, so saving a formatted message drops its formatting, though nothing can write formatting yet. An edit is refused as a new message is. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
   },
   {
     id: "messages.delete",
@@ -1245,7 +1245,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. Messages are still plain text, so nothing uses it yet, and a body that can't be converted will be refused rather than stored. The plain text kept with a body will be read from the form Ember stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one).",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and mention highlighting read it; nothing searches, pushes or sends it to bots yet.",
   },
   {
     id: "messages.autolink",
@@ -1266,7 +1266,7 @@ export const features = [
     id: "messages.unrenderable",
     title: "Messages that can't be shown",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A message whose author no longer exists, or whose body can't be read (markup nested too deep), shows a centered \"Failed to load message content\" with no avatar, name, time, actions or reactions.",
       "A body that can't be read is still delivered, pushed and sent to bots, but as empty text (or its file's name), so search can't find its words.",
@@ -1275,6 +1275,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/messages/_unrenderable.html", "crates/ember/src/controllers/presenters.rs", "crates/richtext/src/lib.rs", "crates/ember/src/rich_text.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/hardening.rs", "crates/ember/src/controllers/messages/tests.rs"],
+    notes: "The room refuses a body it can't read or show rather than storing it, and each message keeps its author's name, so a stored message can always be shown. A message the web app still can't show, as one stored by a later version might be, shows ember-rust's centered, faded \"Failed to load message content\", wiggling in a dashed red outline. Attachments in the text that can't be resolved show ☒.",
   },
 
   // Reactions
@@ -1362,7 +1363,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/attachables.rs", "crates/views/templates/users/_mention.html", "crates/richtext/src/lib.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"<user id>\">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Messages are still plain text, so nothing shows mentions yet.",
+    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"<user id>\">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Nothing can write a mention until the composer can, and the web app shows each as ☒ until it can look people up.",
   },
 
   // Attachments

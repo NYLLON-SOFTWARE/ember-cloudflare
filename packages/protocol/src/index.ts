@@ -226,14 +226,26 @@ export interface Message {
   clientMessageId: string;
   roomId: RoomId;
   creator: User;
+  /**
+   * Its text as rich text: the markup the room keeps of what the sender wrote (`prepareBody` in
+   * packages/richtext). Clients show it through `displayBody`, never as markup.
+   */
   body: string;
+  /** Its plain text, as Action Text writes it, read from `body` when it was written. */
+  plainText: string;
+  /** The users it mentions, once each, in order. */
+  mentions: UserId[];
   createdAt: string;
   updatedAt: string;
+  /** When its text last changed, or null if it never has. */
+  editedAt: string | null;
   boosts: Boost[];
 }
 
 export type ClientFrame =
+  /** A new message, its body markup, as the composer writes it. The room keeps what it can show of it, or refuses it. */
   | { type: "message.create"; clientMessageId: string; body: string }
+  /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
   | { type: "message.delete"; messageId: string }
   | { type: "boost.create"; messageId: string; content: string }
@@ -305,7 +317,10 @@ interface SearchParams {
 /** What a room socket's address says about its tab, as `roomSocketQuery` wrote it. Without it, the tab counts as shown. */
 export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams => ({ visible: query.get("visible") !== "0" });
 
+/** The most characters a message's plain text can have. */
 export const MAX_MESSAGE_LENGTH = 10_000;
+/** The most characters of markup a message can arrive as: room for the longest message, formatted. */
+export const MAX_MESSAGE_HTML_LENGTH = 100_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
 export const MAX_BOOST_LENGTH = 16;
 export const HISTORY_PAGE_SIZE = 50;
@@ -335,6 +350,9 @@ const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 &&
 /** Whether `v` lists people's ids, as many as one request can name. */
 const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= MAX_LISTED_USERS && v.every(id);
 
+/** Markup no longer than `MAX_MESSAGE_HTML_LENGTH`, or null. Whether it holds a message is the room's to read. */
+const markup = (v: unknown): string | null => (typeof v === "string" && v.length <= MAX_MESSAGE_HTML_LENGTH ? v : null);
+
 /** Trimmed, non-empty text no longer than `max`, or null. */
 const text = (v: unknown, max: number): string | null => {
   if (typeof v !== "string") return null;
@@ -359,12 +377,12 @@ export function parseClientFrame(raw: string): ClientFrame | null {
 
   switch (f.type) {
     case "message.create": {
-      const body = text(f.body, MAX_MESSAGE_LENGTH);
-      return id(f.clientMessageId) && body ? { type: f.type, clientMessageId: f.clientMessageId, body } : null;
+      const body = markup(f.body);
+      return id(f.clientMessageId) && body !== null ? { type: f.type, clientMessageId: f.clientMessageId, body } : null;
     }
     case "message.update": {
-      const body = text(f.body, MAX_MESSAGE_LENGTH);
-      return id(f.messageId) && body ? { type: f.type, messageId: f.messageId, body } : null;
+      const body = markup(f.body);
+      return id(f.messageId) && body !== null ? { type: f.type, messageId: f.messageId, body } : null;
     }
     case "message.delete":
       return id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;

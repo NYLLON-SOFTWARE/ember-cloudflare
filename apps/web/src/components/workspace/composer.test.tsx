@@ -22,10 +22,10 @@ describe(feature("composer.layout"), () => {
 });
 
 describe(feature("composer.send"), () => {
-  it("sends the trimmed text on Enter, then clears the box and keeps focus", async () => {
+  it("sends the trimmed text on Enter, as the paragraph Lexxy sends, then clears the box and keeps focus", async () => {
     const { onSend, input, user } = showComposer();
     await user.type(input, "  Hello there  {Enter}");
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("Hello there");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Hello there</p>");
     expect(input).toHaveValue("");
     expect(input).toHaveFocus();
   });
@@ -37,7 +37,13 @@ describe(feature("composer.send"), () => {
     expect(input).toHaveValue("line one\nline two");
 
     await user.click(screen.getByRole("button", { name: "Send" }));
-    expect(onSend).toHaveBeenCalledWith("line one\nline two");
+    expect(onSend).toHaveBeenCalledWith("<p>line one<br>line two</p>");
+  });
+
+  it("sends what's typed as text, never as markup", async () => {
+    const { onSend, input, user } = showComposer();
+    await user.type(input, "<b>1</b> < 2 & 3{Enter}");
+    expect(onSend).toHaveBeenCalledWith("<p>&lt;b&gt;1&lt;/b&gt; &lt; 2 &amp; 3</p>");
   });
 
   it("won't send a blank message", async () => {

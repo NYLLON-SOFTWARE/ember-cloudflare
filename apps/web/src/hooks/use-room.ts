@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
 import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Me, type Message, type User } from "@ember/protocol";
+import { plainText } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
@@ -9,6 +10,9 @@ import { settledVisibility } from "@/lib/visibility";
 const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
+
+/** Whom a message being sent mentions, which only the room knows: the web app can't look people up yet. */
+const NO_ONE = () => undefined;
 
 /**
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
@@ -133,7 +137,20 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     (body: string) => {
       const clientMessageId = crypto.randomUUID();
       const now = new Date().toISOString();
-      const message: PendingMessage = { id: clientMessageId, clientMessageId, roomId, creator: me, body, createdAt: now, updatedAt: now, boosts: [], pending: true };
+      const message: PendingMessage = {
+        id: clientMessageId,
+        clientMessageId,
+        roomId,
+        creator: me,
+        body,
+        plainText: plainText(body, NO_ONE),
+        mentions: [],
+        createdAt: now,
+        updatedAt: now,
+        editedAt: null,
+        boosts: [],
+        pending: true,
+      };
       // Until the room has let a connection in, it waits, behind any already waiting, and shows as not sent
       // once the page is offline.
       if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;

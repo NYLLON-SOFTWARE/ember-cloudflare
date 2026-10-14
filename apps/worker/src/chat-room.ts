@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
+  MAX_MESSAGE_LENGTH,
   parseClientFrame,
   parseRoomSocketParams,
   type ClientFrame,
@@ -10,6 +11,7 @@ import {
   type User,
   type UserId,
 } from "@ember/protocol";
+import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -37,6 +39,11 @@ export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 const DELETED_ROOM = "deletedRoom";
 /** What a room's object keeps in its own storage while its alarm is to send the Workspace its log: the room's id. */
 const UNDELIVERED_ROOM = "undeliveredRoom";
+
+/** Why the room keeps nothing of a message: it couldn't show it, there's nothing in it, or there's too much. */
+const UNREADABLE = "That message couldn't be saved.";
+const EMPTY = "Your message is empty.";
+const TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
 
 /** How many events of its log a room sends the Workspace in one call, at most. */
 const EVENTS_PER_CALL = 50;
@@ -236,15 +243,20 @@ export class ChatRoom extends DurableObject<Env> {
 
     switch (frame.type) {
       case "message.create": {
-        const message = await store.create(sortableId(), frame.clientMessageId, user, frame.body, now);
+        const body = await this.prepare(frame.body);
+        if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
+        const message = await store.create(sortableId(), frame.clientMessageId, user, body, now);
         this.broadcast({ type: "message.created", message });
         return this.deliver(store.roomId);
       }
       case "message.update": {
         const message = await store.find(frame.messageId);
         if (!message || message.creator.id !== user.id) return this.refuse(ws, "You can only edit your own messages");
-        await store.updateBody(message.id, frame.body, now);
-        return this.broadcast({ type: "message.updated", message: { ...message, body: frame.body, updatedAt: now } });
+        const body = await this.prepare(frame.body);
+        if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
+        // Saved as it was, it stays as it was, its update time included, as Rails saves nothing then.
+        if (body.html === message.body) return;
+        return this.broadcast({ type: "message.updated", message: await store.updateBody(message, body, now) });
       }
       case "message.delete": {
         const message = await store.find(frame.messageId);
@@ -288,6 +300,19 @@ export class ChatRoom extends DurableObject<Env> {
       case "ping":
         return this.send(ws, { type: "pong" });
     }
+  }
+
+  /**
+   * What the room keeps of a body a client sent, naming the people it mentions as they are now, or
+   * why it keeps nothing.
+   */
+  private async prepare(markup: string): Promise<PreparedBody | string> {
+    const ids = userIdsIn(markup);
+    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
+    const body = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
+    if (body === null) return UNREADABLE;
+    if (body.blank) return EMPTY;
+    return body.plainText.length > MAX_MESSAGE_LENGTH ? TOO_LONG : body;
   }
 
   /** The room's database, with its migrations applied first if its storage needs them. */

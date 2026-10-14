@@ -1,5 +1,6 @@
 import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
 import type { ClientFrame, Invitation, Message, ServerFrame, Sidebar, User } from "@ember/protocol";
+import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
 // that the config's webServer runs; nothing here mocks the backend except the room list.
@@ -125,11 +126,11 @@ export class Participant {
     return participant;
   }
 
-  /** Posts a message and resolves once the room has stored it. */
-  async say(body: string): Promise<Message> {
+  /** Posts a message, sending its text as the composer does, and resolves once the room has stored it. */
+  async say(text: string): Promise<Message> {
     const clientMessageId = crypto.randomUUID();
     const created = this.next((frame) => frame.type === "message.created" && frame.message.clientMessageId === clientMessageId);
-    this.send({ type: "message.create", clientMessageId, body });
+    this.send({ type: "message.create", clientMessageId, body: bodyFromPlainText(text) });
     const frame = await created;
     return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
   }

@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { CDPSession, Page } from "puppeteer-core";
-import { atRate, messageBody } from "../load.ts";
+import { atRate, messageText } from "../load.ts";
 import type { RoomClient, Session } from "../room-client.ts";
 import { summarize, type Summary } from "../stats.ts";
 import { signInPage } from "./browser.ts";
@@ -60,7 +60,7 @@ declare global {
 const TIMELINE = '[role="log"]';
 const IDLE_MS = 5_000;
 
-const burstBody = (n: number) => `burst#${n} ${messageBody(n)}`;
+const burstBody = (n: number) => `<p>burst#${n} ${messageText(n)}</p>`;
 let nextBurst = 0;
 
 /**
