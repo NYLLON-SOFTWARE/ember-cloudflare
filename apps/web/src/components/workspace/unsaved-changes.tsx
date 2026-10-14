@@ -17,9 +17,12 @@ interface Props {
   changed: boolean;
   /** Whether going to `path` keeps the form, as the Everyone switch's move to the other form does. */
   stays: (path: string) => boolean;
-  /** Saves the changes, settling once the server has them. */
+  /**
+   * Saves the changes, settling once the server has them, after which the page compares its form with
+   * what's saved, as settings.js does, in case it stays: when signing out fails, say.
+   */
   onSave: () => Promise<unknown>;
-  /** The form, whose fields Save checks first. */
+  /** The form, whose fields Save checks first, and whose own dialogs close for this one. */
   form: RefObject<HTMLFormElement | null>;
 }
 
@@ -47,10 +50,13 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
       if (saving) return true;
       proceed.current = go;
       setFailed(false);
+      // The form's own dialogs, such as the icon picker, are native ones, which would stay above this one
+      // and keep it from being answered, where ember-rust's, native too, opens above them. They close first.
+      for (const dialog of form.current?.querySelectorAll<HTMLDialogElement>("dialog[open]") ?? []) dialog.close();
       setAsking(true);
       return true;
     });
-  }, [changed, stays, saving]);
+  }, [changed, stays, saving, form]);
 
   // Listening only while there's something to lose keeps the page eligible for the browser's
   // back/forward cache, as ember-rust keeps it.

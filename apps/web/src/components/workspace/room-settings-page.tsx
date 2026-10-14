@@ -49,8 +49,9 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Saving or deleting, either of which keeps both buttons from being pressed until it answers.
   const [busy, setBusy] = useState(false);
-  // The form the page opened on, which the Everyone switch can move away from and back to.
-  const [opened] = useState(access);
+  // The form the page opened on, which the Everyone switch can move away from and back to, or the one
+  // last saved.
+  const [opened, setOpened] = useState(access);
   const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
   useTitle(settings && `Edit settings for ${settings.room.name}`);
@@ -93,7 +94,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
 
   /**
    * Saves the form, then lists the room as saved, or takes it out of the sidebar if it's saved without
-   * this person, settling with whether it was.
+   * this person, settling with whether it was. The form is then compared with what's saved.
    */
   const send = () => {
     const changes: RoomChanges = access === "open" ? { name, icon: icon ?? "", kind: access } : { name, icon: icon ?? "", kind: access, memberIds: [...chosen] };
@@ -101,6 +102,9 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
     return changeRoom(roomId, changes).then((room) => {
       if (leaving) onLeft(room.id);
       else onSaved(room);
+      // An open room takes in everyone.
+      setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
+      setOpened(access);
       return leaving;
     });
   };
@@ -127,8 +131,8 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
 
   const open = access === "open";
   const flip = () => navigate(roomSettingsPath(open ? "closed" : "open", roomId), { replace: true });
-  // Whether the form differs from how it loaded, the form its address names included, as ember-rust's
-  // settings.js compares them. Saving or deleting isn't guarded.
+  // Whether the form differs from how it loaded or was last saved, the form its address names included,
+  // as ember-rust's settings.js compares them. Saving or deleting isn't guarded.
   const changed =
     !!settings?.canAdminister &&
     !busy &&

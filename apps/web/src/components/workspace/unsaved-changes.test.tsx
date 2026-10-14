@@ -10,13 +10,14 @@ const SETTINGS_PATH = "/rooms/opens/design/edit";
 
 type Props = Partial<Omit<ComponentProps<typeof UnsavedChanges>, "form">>;
 
-/** A room's form under the guard, as the room pages have it. */
+/** A room's form under the guard, as the room pages have it, with a dialog of its own, as the icon picker's. */
 function RoomForm({ changed = true, stays = () => false, onSave = async () => {} }: Props) {
   const form = useRef<HTMLFormElement>(null);
   return (
     <>
       <form ref={form}>
         <input aria-label="Room name" required defaultValue="Design" />
+        <dialog aria-label="Choose a room icon" />
       </form>
       <UnsavedChanges changed={changed} stays={stays} onSave={onSave} form={form} />
     </>
@@ -134,6 +135,15 @@ describe(feature("rooms.unsaved-changes"), () => {
     await user.click(button("Save"));
     await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
     expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes the form's own dialogs first, which would stay above it, as the icon picker's native one does", async () => {
+    showForm();
+    const picker = document.querySelector("dialog")!;
+    picker.showModal();
+    goTo("/rooms/general");
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(picker.open).toBe(false);
   });
 
   it("has the form point out a field it won't take, rather than saving", async () => {

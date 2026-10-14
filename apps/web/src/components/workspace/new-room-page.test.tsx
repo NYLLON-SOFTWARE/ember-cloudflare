@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import checkMark from "@/components/icons/campfire/check.svg";
-import { navigate, useRoute } from "@/hooks/use-route";
+import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { NewRoomPage } from "./new-room-page";
 
@@ -269,5 +269,26 @@ describe(feature("rooms.unsaved-changes"), () => {
     await waitFor(() => expect(location.pathname).toBe("/account/edit"));
     expect(onCreated).toHaveBeenCalledExactlyOnceWith(created);
     expect(posted()).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [ada.id, grace.id] });
+  });
+
+  it("makes the room once when signing out fails after the dialog's Save, and Save then shows it", async () => {
+    const created = { id: "design", name: "Design", kind: "open", icon: null } satisfies Room;
+    serve({ created });
+    const { onCreated, user } = showPage();
+    await user.clear(await roomName());
+    await user.type(await roomName(), "Design");
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(onCreated).toHaveBeenCalledExactlyOnceWith(created);
+
+    // Nothing's left unsaved, so signing out again doesn't ask.
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(location.pathname).toBe("/rooms/design");
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 });

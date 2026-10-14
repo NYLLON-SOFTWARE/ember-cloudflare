@@ -339,7 +339,13 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     await expect(name).toHaveValue("Working draft");
     expect(await page.evaluate(() => history.length)).toBe(length);
 
+    // The icon picker, a native dialog, which would stay above the question, closes for it.
+    await page.getByRole("button", { name: "Choose room icon" }).click();
+    const picker = page.getByRole("dialog", { name: "Choose a room icon" });
+    await expect(picker).toBeVisible();
     await page.evaluate(() => history.back());
+    await expect(unsaved(page)).toBeVisible();
+    await expect(picker).toBeHidden();
     await unsaved(page).getByRole("button", { name: "Discard" }).click();
     await expect(page).toHaveURL(at(`/rooms/${rooms.general.id}`));
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");

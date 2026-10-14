@@ -36,6 +36,9 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   const [saving, setSaving] = useState(false);
+  // The room the unsaved changes dialog's Save made, should the page stay after all: when signing out
+  // fails, say.
+  const [created, setCreated] = useState<Room | null>(null);
   // The form the page opened on, which the Everyone switch can move away from and back to.
   const [opened] = useState(access);
   const roomForm = useRef<HTMLFormElement>(null);
@@ -57,11 +60,14 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "" } : { kind: access, name, icon: icon ?? "", memberIds: [me.id, ...chosen] };
     return createRoom(room).then((room) => {
       onCreated(room);
+      setCreated(room);
       return room;
     });
   };
 
   const save = () => {
+    // A room made already isn't made twice: Save shows it, as it does a room it makes.
+    if (created) return navigate(roomPath(created.id));
     setSaving(true);
     // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
     send().then(
@@ -77,8 +83,9 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     );
   };
 
-  // Anything filled in, or the other form, which the page didn't open on.
-  const changed = people !== null && !saving && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
+  // Anything filled in, or the other form, which the page didn't open on, until the room's made.
+  const changed =
+    people !== null && !saving && !created && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
       <Panel aria-busy={people === null}>

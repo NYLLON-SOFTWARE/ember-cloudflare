@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import checkMark from "@/components/icons/campfire/check.svg";
 import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
-import { navigate, useRoute } from "@/hooks/use-route";
+import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
@@ -527,6 +527,27 @@ describe(feature("rooms.unsaved-changes"), () => {
     expect(onLeft).toHaveBeenCalledExactlyOnceWith(leads.id);
     expect(onSaved).not.toHaveBeenCalled();
     expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("compares the form with what the dialog saved, should the page stay, as it does when signing out fails", async () => {
+    const saved: Room = { ...leads, kind: "open", name: "Leads team" };
+    serve(closedSettings, { saved });
+    const { user } = showPage(leads);
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("switch", { name: "Give everyone access to this room" }));
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Leads team", icon: "lock", kind: "open" });
+
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
+    await user.type(await roomName(), "s");
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/opens/leads/edit");
   });
 
   it("says when the dialog couldn't save the changes, staying on the page", async () => {
