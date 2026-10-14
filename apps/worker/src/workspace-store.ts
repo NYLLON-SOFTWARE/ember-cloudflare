@@ -149,6 +149,9 @@ export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role =
  */
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
 
+/** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
+const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
+
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
 
@@ -215,6 +218,11 @@ export class WorkspaceStore {
   /** Renames the workspace. */
   async renameAccount(name: string, now: string): Promise<void> {
     await this.db.run(RENAME_ACCOUNT, name, now);
+  }
+
+  /** Gives the join link a new code, so the old one joins no more. */
+  async changeJoinCode(joinCode: string, now: string): Promise<void> {
+    await this.db.run(CHANGE_JOIN_CODE, joinCode, now);
   }
 
   /** Whether someone is one of the workspace's active administrators, as they are when this asks. */

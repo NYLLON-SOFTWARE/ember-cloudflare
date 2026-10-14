@@ -1,0 +1,34 @@
+import { feature } from "@ember/parity";
+import { expect, test } from "@playwright/test";
+import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
+
+test.describe(feature("accounts.regenerate-join-link"), () => {
+  test("the administrator regenerates the join link, and only the new one joins", async ({ page, browser, baseURL }) => {
+    await useOwnAddress(page);
+    await page.goto("/account/edit");
+    await signInAsAdministrator(page);
+    const link = page.getByRole("textbox", { name: "Share to invite more people" });
+    await expect(link).toHaveValue(/\/join\//);
+    const old = await link.inputValue();
+
+    // At once, with nothing to confirm and nothing said after, as in ember-rust.
+    await page.getByRole("button", { name: "Regenerate join link" }).click();
+    await expect(link).not.toHaveValue(old);
+    const regenerated = await link.inputValue();
+    expect(regenerated).toMatch(new RegExp(`^${baseURL}/join/[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$`));
+    await expect(page.getByRole("alert")).toHaveCount(0);
+
+    // The welcome card in the first room has the new link too.
+    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "All Talk" }).click();
+    await expect(page.getByRole("log").getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(regenerated);
+
+    const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+    const gone = await signedOut.request.get(old);
+    expect(gone.status()).toBe(404);
+    expect(await gone.text()).toBe("");
+    const join = await signedOut.newPage();
+    await join.goto(regenerated);
+    await expect(join.getByRole("heading", { level: 1 })).toHaveText(/^Join /);
+    await signedOut.close();
+  });
+});

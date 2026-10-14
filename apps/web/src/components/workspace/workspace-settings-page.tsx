@@ -9,8 +9,9 @@ import { Version } from "@/components/version";
 import { useMounted } from "@/hooks/use-mounted";
 import { newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAccount, fetchWorkspaceSettings, isSignedOut } from "@/lib/api";
+import { changeAccount, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { InviteLink } from "./invite-link";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
@@ -23,19 +24,22 @@ interface Props {
   version: string;
   /** Called with the workspace as the page loads or saves it, for the rail and sidebar to show. */
   onAccountChanged: (account: Account) => void;
+  /** Called with the join link's code as the page loads or regenerates it, for the welcome card to show. */
+  onJoinCodeChanged: (joinCode: string) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
 
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
- * the workspace and members see its name, then everyone gets the Rooms section with New room, and
- * "Ember™ version" at the foot.
+ * the workspace and members see its name, then everyone gets the Rooms section with New room, the join
+ * link, which administrators can regenerate, and "Ember™ version" at the foot.
  */
-export function WorkspaceSettingsPage({ back, version, onAccountChanged, onFailed }: Props) {
+export function WorkspaceSettingsPage({ back, version, onAccountChanged, onJoinCodeChanged, onFailed }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const flash = useFlash();
   const mounted = useMounted();
   useTitle("Account settings");
@@ -48,6 +52,7 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onFaile
         setSettings(settings);
         setName(settings.account.name);
         onAccountChanged(settings.account);
+        onJoinCodeChanged(settings.joinCode);
       },
       (error: unknown) => {
         // A page left before its settings load only reports a session that's ended, which goes to sign in.
@@ -55,7 +60,7 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onFaile
       },
     );
     return () => void (stopped = true);
-  }, [onAccountChanged, onFailed]);
+  }, [onAccountChanged, onJoinCodeChanged, onFailed]);
 
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -71,6 +76,24 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onFaile
       (error: unknown) => {
         if (!mounted.current && !isSignedOut(error)) return;
         setSaving(false);
+        onFailed(error);
+      },
+    );
+  };
+
+  // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
+  const regenerate = () => {
+    setRegenerating(true);
+    regenerateJoinCode().then(
+      (joinCode) => {
+        onJoinCodeChanged(joinCode);
+        if (!mounted.current) return;
+        setRegenerating(false);
+        setSettings((settings) => settings && { ...settings, joinCode });
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setRegenerating(false);
         onFailed(error);
       },
     );
@@ -116,6 +139,12 @@ export function WorkspaceSettingsPage({ back, version, onAccountChanged, onFaile
             </PageLink>
           </div>
         </section>
+        {/* ember-rust's box holds the people list too, under the link (accounts/edit.html). */}
+        {settings && (
+          <div className="my-4 rounded-[10px] border bg-surface px-[1ch] py-4">
+            <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+          </div>
+        )}
       </Panel>
       <footer>
         <Version version={version} className="my-8 text-center" />
