@@ -13,9 +13,11 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function navigate(path: string): void {
+/** Shows `path`, as a new entry in the browser's history unless `replace` says to take the current one's place. */
+export function navigate(path: string, { replace = false } = {}): void {
   if (location.pathname === path) return;
-  history.pushState(null, "", path);
+  if (replace) history.replaceState(null, "", path);
+  else history.pushState(null, "", path);
   listeners.forEach((listener) => listener());
 }
 

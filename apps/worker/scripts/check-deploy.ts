@@ -1,9 +1,11 @@
 // Checks a deployed Worker without signing in: /api/health answers once SESSION_SECRET is set and
-// the Workspace and a room's Durable Object both read their storage, the app's page loads, and the
-// API asks for sign-in. The Preview workflow runs it after each deploy; it works against `pnpm dev`
-// too:
+// the Workspace and a room's Durable Object both read their storage, the app's page loads, the API
+// asks for sign-in, and, until Ember is set up, setup takes the private link. The Preview workflow
+// runs it after each deploy; it works against `pnpm dev` too:
 //
 //   node apps/worker/scripts/check-deploy.ts http://localhost:8787
+
+import type { Bootstrap } from "@ember/protocol";
 
 /**
  * A new Worker's workers.dev hostname, and a secret set just after its deploy, can take a little
@@ -37,6 +39,20 @@ async function checkSignInRequired(baseUrl: string): Promise<void> {
   if (response.status !== 401) throw new Error(`/api/me answered ${response.status} without a session, not 401`);
 }
 
+/**
+ * Until Ember is set up, whoever opens it first becomes its administrator, so anywhere but this
+ * machine setup has to take the private link (EMBER_SETUP_TOKEN). Answers what it found.
+ */
+async function checkSetup(baseUrl: string): Promise<string> {
+  const response = await fetch(new URL("/api/bootstrap", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`/api/bootstrap answered ${response.status}`);
+  const { setup, setupProtected } = (await response.json()) as Bootstrap;
+  if (setup === "complete") return "Ember is set up";
+  if (setupProtected) return "Setup waits for the private link: /first_run/access#token=<EMBER_SETUP_TOKEN>";
+  if (["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseUrl).hostname)) return "Setup is open to the first visitor, which is fine on this machine";
+  throw new Error("Setup is open to whoever visits first: set the EMBER_SETUP_TOKEN secret");
+}
+
 async function check(baseUrl: string): Promise<void> {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   const eventually = async <T>(attempt: () => Promise<T>): Promise<T> => {
@@ -56,6 +72,7 @@ async function check(baseUrl: string): Promise<void> {
   console.log("✓ The app's page loads");
   await eventually(() => checkSignInRequired(baseUrl));
   console.log("✓ The API asks for sign-in");
+  console.log(`✓ ${await eventually(() => checkSetup(baseUrl))}`);
 }
 
 /** An error and its causes, such as fetch's "fetch failed" and the refused connection behind it. */

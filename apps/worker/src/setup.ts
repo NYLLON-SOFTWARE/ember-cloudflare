@@ -1,0 +1,255 @@
+import { isPasswordTooLong, isPasswordTooShort, parseFirstRun, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
+import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
+import type { Env } from "./env";
+import { passwordHasher } from "./passwords";
+import { workspace } from "./workspace";
+
+// First run, which creates the workspace and its first administrator, and the lock that keeps it to
+// whoever has the deployment's private setup link. Ported from ember-rust's
+// crates/ember/src/controllers/first_runs.rs and first_runs/access.rs, path for path, except that
+// the form posts to /api/first_run.
+
+/** EMBER_SETUP_TOKEN's shape, as ember-rust requires it (crates/ember/src/config.rs). */
+const SETUP_TOKEN = /^[0-9a-f]{64}$/;
+/** The cookie that unlocks setup once this browser has opened the private link. */
+const SETUP_COOKIE = "__Host-ember_setup";
+const SETUP_COOKIE_MAX_AGE_SECONDS = 15 * 60;
+const SETUP_COOKIE_ATTRIBUTES = "Path=/; Secure; HttpOnly; SameSite=Strict";
+/** AES-GCM's nonce, at the front of the cookie's value. */
+const IV_BYTES = 12;
+
+/** ember-rust's locked page, word for word, except that there's no installer to print the link. */
+const LOCKED_PAGE =
+  '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember setup</title><h1>Setup is locked</h1><p>Open the private setup link for this deployment.</p></html>';
+
+/** The access page's policy: its own script, posting to this origin, and nothing else (access.rs). */
+const ACCESS_PAGE_POLICY = "default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+/** How EMBER_SETUP_TOKEN protects setup. */
+type Lock =
+  /** It's unset, so the first visitor sets up the workspace, as in Campfire. */
+  | { kind: "open" }
+  /** Setup takes the private link. The fingerprint is the token's SHA-256, which the cookie carries. */
+  | { kind: "locked"; fingerprint: Uint8Array }
+  /** It's set to something that can't be a token, so setup fails closed. */
+  | { kind: "misconfigured" };
+
+/** A lock setup can go on with. */
+type UsableLock = Exclude<Lock, { kind: "misconfigured" }>;
+
+const sha256 = async (text: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
+
+async function lockOf(env: Env): Promise<Lock> {
+  const token = env.EMBER_SETUP_TOKEN;
+  if (token === undefined) return { kind: "open" };
+  return SETUP_TOKEN.test(token) ? { kind: "locked", fingerprint: await sha256(token) } : { kind: "misconfigured" };
+}
+
+/** Whether setup takes the private link, as `/api/bootstrap` tells the app. A malformed token counts. */
+export const isSetupProtected = (env: Env) => env.EMBER_SETUP_TOKEN !== undefined;
+
+/** What's wrong with EMBER_SETUP_TOKEN, for `/api/health`, if it's set to something that can't be a token. */
+export const setupTokenProblem = (env: Env) =>
+  env.EMBER_SETUP_TOKEN === undefined || SETUP_TOKEN.test(env.EMBER_SETUP_TOKEN) ? null : "EMBER_SETUP_TOKEN must be 64 lowercase hex characters";
+
+/** Answers 500 rather than starting setup with a token that can't be right, the nearest a Worker comes to refusing to boot. */
+function misconfigured(): Response {
+  // Never the value, which may be most of a real token.
+  console.error("EMBER_SETUP_TOKEN must be 64 lowercase hex characters (openssl rand -hex 32), so setup is refused");
+  return new Response(null, { status: 500 });
+}
+
+/** The key that seals setup cookies, derived from SESSION_SECRET for this one purpose. */
+async function cookieKey(env: Env): Promise<CryptoKey> {
+  const secret = await crypto.subtle.importKey("raw", encoder.encode(env.SESSION_SECRET), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(), info: encoder.encode("ember setup cookie") },
+    secret,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+/**
+ * The `Set-Cookie` that unlocks setup for 15 minutes: the token's fingerprint, never the token, and
+ * when it expires, encrypted so it can be neither read nor forged, as ember-rust's encrypted cookie is.
+ */
+async function unlockingCookie(fingerprint: Uint8Array, env: Env): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const payload = encoder.encode(JSON.stringify({ fingerprint: toHex(fingerprint), expires: Date.now() + SETUP_COOKIE_MAX_AGE_SECONDS * 1000 }));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await cookieKey(env), payload));
+  const value = new Uint8Array(IV_BYTES + sealed.length);
+  value.set(iv);
+  value.set(sealed, IV_BYTES);
+  return `${SETUP_COOKIE}=${toBase64url(value)}; Max-Age=${SETUP_COOKIE_MAX_AGE_SECONDS}; ${SETUP_COOKIE_ATTRIBUTES}`;
+}
+
+/** Whether the request's setup cookie unlocks setup: issued for this token, under this secret, and not expired. */
+async function isUnlocked(request: Request, env: Env, fingerprint: Uint8Array): Promise<boolean> {
+  const key = await cookieKey(env);
+  for (const value of cookieValues(request, SETUP_COOKIE)) {
+    const bytes = fromBase64url(value);
+    if (!bytes || bytes.length <= IV_BYTES) continue;
+    try {
+      const payload = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.subarray(0, IV_BYTES) }, key, bytes.subarray(IV_BYTES));
+      const cookie = JSON.parse(decoder.decode(payload)) as { fingerprint?: unknown; expires?: unknown };
+      const issuedFor = typeof cookie.fingerprint === "string" ? fromHex(cookie.fingerprint) : null;
+      if (typeof cookie.expires === "number" && cookie.expires > Date.now() && issuedFor && equal(issuedFor, fingerprint)) return true;
+    } catch {
+      // Tampered with, or sealed under another SESSION_SECRET.
+    }
+  }
+  return false;
+}
+
+const equal = (a: Uint8Array, b: Uint8Array) => a.length === b.length && crypto.subtle.timingSafeEqual(a, b);
+
+/** Whether `token` is the setup token, compared by fingerprint so the comparison takes the same time whatever it is. */
+const isSetupToken = async (token: string, fingerprint: Uint8Array) => SETUP_TOKEN.test(token) && equal(await sha256(token), fingerprint);
+
+/** The `Set-Cookie` that forgets the setup cookie, if the request sent one. `__Host-` cookies need `Secure` even then. */
+const forgetUnlocking = (request: Request) => (cookieValues(request, SETUP_COOKIE).length > 0 ? `${SETUP_COOKIE}=; Max-Age=0; ${SETUP_COOKIE_ATTRIBUTES}` : null);
+
+function withCookies(response: Response, ...cookies: Array<string | null>): Response {
+  for (const cookie of cookies) if (cookie) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+
+const empty = (status: number) => new Response(null, { status });
+
+/** ember-rust's `prevent_repeats`: once the workspace exists, setup sends everyone home and forgets its cookie. */
+const home = (request: Request) => withCookies(new Response(null, { status: 302, headers: { Location: new URL("/", request.url).href } }), forgetUnlocking(request));
+
+const isSetUp = async (env: Env) => (await workspace(env).account()) !== null;
+
+/**
+ * ember-rust's `authorize`, for pages: with a token set, setup takes HTTPS, no query string, and the
+ * cookie the private link gives. Answers why not, or null to go on.
+ */
+async function refusal(request: Request, env: Env, fingerprint: Uint8Array): Promise<Response | null> {
+  if (new URL(request.url).search) return empty(400);
+  if (!isHttps(request)) return empty(403);
+  if (await isUnlocked(request, env, fingerprint)) return null;
+  const locked = new Response(LOCKED_PAGE, { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  return withCookies(locked, forgetUnlocking(request));
+}
+
+/** One of the built app's pages, from its static assets, with headers this response can change. */
+async function appPage(request: Request, env: Env, path: string): Promise<Response> {
+  const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method }));
+  return new Response(page.body, page);
+}
+
+/** `/first_run`: the Set up Ember page, which is the app's own, until the workspace exists. */
+async function setupForm(request: Request, env: Env, lock: UsableLock, format: string | undefined): Promise<Response> {
+  if (await isSetUp(env)) return home(request);
+  if (lock.kind === "locked") {
+    const refused = await refusal(request, env, lock.fingerprint);
+    if (refused) return refused;
+  }
+  // The form is a page, like ember-rust's, which answers 406 for `/first_run.json`.
+  if (format !== undefined) return empty(406);
+  const page = await appPage(request, env, "/");
+  page.headers.set("Cache-Control", "no-store");
+  // As ember-rust's does, whose form posts natively, which under no-referrer says it comes from `Origin: null`.
+  if (lock.kind === "locked") page.headers.set("Referrer-Policy", "same-origin");
+  return page;
+}
+
+/** `GET /first_run/access`: the page that trades the private link's token for the setup cookie. */
+async function accessPage(request: Request, env: Env, lock: UsableLock): Promise<Response> {
+  if (new URL(request.url).search) return empty(400);
+  if (await isSetUp(env)) return home(request);
+  if (lock.kind === "open") return empty(404);
+  if (!isHttps(request)) return empty(403);
+  const page = await appPage(request, env, "/first_run/access");
+  page.headers.set("Content-Security-Policy", ACCESS_PAGE_POLICY);
+  page.headers.set("X-Frame-Options", "DENY");
+  return page;
+}
+
+/** `POST /first_run/access`: the token, posted from the access page, for the cookie that unlocks setup. */
+async function unlock(request: Request, env: Env, lock: UsableLock): Promise<Response> {
+  const url = new URL(request.url);
+  if (isCrossSite(request)) return empty(422);
+  if (url.search) return empty(400);
+  if (await isSetUp(env)) return home(request);
+  if (lock.kind === "open") return empty(404);
+  if (!isHttps(request)) return empty(403);
+  // Stricter than the check every write gets: only the access page's own fetch may unlock setup.
+  if (request.headers.get("Sec-Fetch-Site") !== "same-origin" || request.headers.get("Origin") !== url.origin) return empty(422);
+  if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") return empty(415);
+  // Only from the body, never the address, which servers and browsers keep.
+  const body = await request.formData().catch(() => null);
+  if (!body) return empty(400);
+  const [token, ...more] = body.getAll("token");
+  if (typeof token !== "string" || more.length > 0 || !(await isSetupToken(token, lock.fingerprint))) return empty(403);
+  return withCookies(empty(204), await unlockingCookie(lock.fingerprint, env));
+}
+
+/** Whether `pathname` is one of setup's pages: /first_run, anything under /first_run/, or /first_run.<format>. */
+export const isSetupPath = (pathname: string) => /^\/first_run(?:$|[/.])/.test(pathname);
+
+/**
+ * Answers a request for one of setup's pages. While a token is set, every one of them, and the
+ * access page always, is kept out of caches and sends no referrer, as ember-rust's app.rs does;
+ * the unlocked form sends one to its own origin, which its post needs.
+ */
+export async function setupPage(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const lock = await lockOf(env);
+  const response = lock.kind === "misconfigured" ? misconfigured() : await route(request, env, lock, pathname);
+  if (lock.kind !== "open" || pathname === "/first_run/access") {
+    response.headers.set("Cache-Control", "no-store");
+    if (!response.headers.has("Referrer-Policy")) response.headers.set("Referrer-Policy", "no-referrer");
+  }
+  return response;
+}
+
+async function route(request: Request, env: Env, lock: UsableLock, pathname: string): Promise<Response> {
+  const read = request.method === "GET" || request.method === "HEAD";
+  const form = pathname.match(/^\/first_run(?:\.(.+))?$/);
+  if (form && read) return setupForm(request, env, lock, form[1]);
+  if (pathname === "/first_run/access" && read) return accessPage(request, env, lock);
+  if (pathname === "/first_run/access" && request.method === "POST") return unlock(request, env, lock);
+  return empty(404);
+}
+
+const json = (data: unknown, status: number, ...cookies: Array<string | null>) =>
+  withCookies(Response.json(data, { status, headers: { "Cache-Control": "no-store" } }), ...cookies);
+
+/**
+ * `POST /api/first_run`: creates the workspace with the person the Set up Ember form describes as its
+ * first administrator, and signs this browser in as them.
+ */
+export async function firstRun(request: Request, env: Env): Promise<Response> {
+  const lock = await lockOf(env);
+  if (lock.kind === "misconfigured") return misconfigured();
+  const forget = forgetUnlocking(request);
+  const setUp = { error: "Ember is already set up", redirect: "/" };
+  if (await isSetUp(env)) return json(setUp, 409, forget);
+  if (lock.kind === "locked" && !(isHttps(request) && (await isUnlocked(request, env, lock.fingerprint)))) {
+    return json({ error: "Setup is locked" }, 403, forget);
+  }
+
+  const form = parseFirstRun(await request.json().catch(() => null));
+  if (typeof form === "string") return json({ error: form }, 400);
+  // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
+  // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
+  // form can send.
+  if (isPasswordTooLong(form.password)) return json({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
+  if (isPasswordTooShort(form.password)) return json({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
+
+  const passwordDigest = await passwordHasher(env).hash(form.password);
+  const token = newSessionToken();
+  const administrator = { name: form.name, emailAddress: form.emailAddress, passwordDigest };
+  const created = await workspace(env).createWorkspace(administrator, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  // Another first run finished first. Like ember-rust, send this one home without signing it in.
+  if (!created) return json(setUp, 409, forget);
+  return json(created satisfies NewWorkspace, 201, sessionCookie(request, token), forget);
+}

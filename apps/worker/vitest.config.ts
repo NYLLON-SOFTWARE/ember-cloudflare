@@ -1,12 +1,12 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-// The same suite runs once per storage backend.
+// The Worker's suite runs inside workerd once per storage backend; the deploy scripts' tests run in Node.
 const migrations = await readD1Migrations("./migrations");
 
 const backend = (name: "do-sqlite" | "d1") => ({
   extends: true as const,
-  test: { name, setupFiles: name === "d1" ? ["./test/apply-migrations.ts"] : [] },
+  test: { name, include: ["test/**/*.test.ts"], setupFiles: name === "d1" ? ["./test/apply-migrations.ts"] : [] },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
@@ -19,5 +19,7 @@ const backend = (name: "do-sqlite" | "d1") => ({
 });
 
 export default defineConfig({
-  test: { projects: [backend("do-sqlite"), backend("d1")] },
+  test: {
+    projects: [backend("do-sqlite"), backend("d1"), { test: { name: "scripts", include: ["scripts/**/*.test.ts"], environment: "node" } }],
+  },
 });

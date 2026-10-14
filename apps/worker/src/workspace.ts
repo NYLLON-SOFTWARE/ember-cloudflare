@@ -1,10 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import { isRoomId, type NewRoom, type Room, type RoomId, type User } from "@ember/protocol";
+import { isRoomId, type Account, type NewRoom, type NewWorkspace, type Room, type RoomId, type User } from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { SessionCache } from "./session-cache";
-import { WorkspaceStore, type Client, type StoredSession } from "./workspace-store";
+import { WorkspaceStore, type Client, type NewAdministrator, type StoredSession } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -20,18 +20,38 @@ export interface Credentials {
   guests: boolean;
 }
 
+/** What first run names the workspace and its first room, as ember-rust's does (crates/db/src/models/first_run.rs). */
+export const ACCOUNT_NAME = "Ember";
+const FIRST_ROOM_NAME = "All Talk";
+
+const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+/** A join link's code, as ember-rust makes them (account.rs): 12 random letters and digits in fours, like aB3d-Ef5h-iJ7k. */
+function newJoinCode(): string {
+  let code = "";
+  while (code.length < 12) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(12))) {
+      // 248 is the largest multiple of 62 below 256, so every character is as likely as the next.
+      if (byte < 248 && code.length < 12) code += ALPHANUMERICS[byte % ALPHANUMERICS.length];
+    }
+  }
+  return code.match(/.{4}/g)!.join("-");
+}
+
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
 
 /**
- * What a workspace shares across its rooms: its people and their sessions, and its rooms and who is
- * in each, with the account next. There is one, and every request reaches it by name; its tables live
- * in its own SQLite storage, or in D1 with everyone else's.
+ * What a workspace shares across its rooms: its account, its people and their sessions, and its
+ * rooms and who is in each. There is one, and every request reaches it by name; its tables live in
+ * its own SQLite storage, or in D1 with everyone else's.
  */
 export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
+  /** The account once it exists. Nothing deletes it, so once read it needn't be read again. */
+  private knownAccount: Account | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -48,6 +68,39 @@ export class Workspace extends DurableObject<Env> {
   /** Resolves once the workspace's database answers a query. */
   async health(): Promise<void> {
     await this.db.all("SELECT 1");
+  }
+
+  /** The workspace's account, or null until first run creates it. */
+  async account(): Promise<Account | null> {
+    return (this.knownAccount ??= await this.store.account());
+  }
+
+  /** What the app asks first: the account, if it's set up, and who `credentials` signs in, if anyone. */
+  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; user: User | null }> {
+    const [account, user] = await Promise.all([this.account(), credentials && this.authenticate(credentials)]);
+    return { account, user };
+  }
+
+  /**
+   * Creates the workspace, its first administrator, the open room All Talk and the session their
+   * cookie's token opens, as ember-rust's first run does. Answers null if the workspace exists.
+   */
+  async createWorkspace(administrator: Omit<NewAdministrator, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
+    if (await this.account()) return null;
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: administrator.name }, guest: false, lastActiveAt: Date.now() };
+    const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
+    const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME };
+    const now = new Date(session.lastActiveAt).toISOString();
+    try {
+      await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, room, session.id, tokenDigest, client, now);
+    } catch (error) {
+      // On D1 two first runs can overlap, and the account's singleton guard refuses the second.
+      if (await this.store.account()) return null;
+      throw error;
+    }
+    this.knownAccount = { name: account.name };
+    this.sessions.remember(tokenDigest, session);
+    return { user: session.user, room };
   }
 
   /** Adds someone who signs in with just a name, and the session their cookie's token opens. */

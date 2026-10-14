@@ -8,25 +8,28 @@
   // Lets production CPU and heap profiles and exception stacks name our source files.
   "upload_source_maps": true,
 
-  // The Worker serves the built React app and answers /api/* itself.
+  // The Worker serves the built React app and answers /api/* and the setup pages (/first_run...) itself.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/first_run*"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,
-  // and one Workspace object for what the rooms share.
+  // one Workspace object for what the rooms share, and short-lived PasswordHasher objects, which
+  // have the CPU time a password's hash takes.
   "durable_objects": {
     "bindings": [
       { "name": "CHAT_ROOM", "class_name": "ChatRoom" },
-      { "name": "WORKSPACE", "class_name": "Workspace" }
+      { "name": "WORKSPACE", "class_name": "Workspace" },
+      { "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["ChatRoom"] },
-    { "tag": "v2", "new_sqlite_classes": ["Workspace"] }
+    { "tag": "v2", "new_sqlite_classes": ["Workspace"] },
+    { "tag": "v3", "new_sqlite_classes": ["PasswordHasher"] }
   ],
 
   "vars": {

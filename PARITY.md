@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 7 ported and 39 partial of 172 features; 121 not started, 5 not applicable.
+**Overall:** 10 ported and 39 partial of 172 features; 118 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 1 | 4 | 7 | 0 | 12 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 2 | 5 | 5 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
-| [Rooms](#rooms) | 0 | 6 | 12 | 0 | 18 |
+| [Rooms](#rooms) | 1 | 5 | 12 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
@@ -34,15 +34,15 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 8 | 2 | 0 | 11 |
-| [Platform](#platform) | 2 | 1 | 8 | 4 | 15 |
-| **Total** | **7** | **39** | **121** | **5** | **172** |
+| [Platform](#platform) | 3 | 1 | 7 | 4 | 15 |
+| **Total** | **10** | **39** | **118** | **5** | **172** |
 
 ## Sign-in and sessions
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Set up the workspace | `auth.first-run` | Ember | ⬜ Not started |  |
-| Installer-protected setup link | `auth.protected-setup` | Ember | ⬜ Not started |  |
+| Set up the workspace | `auth.first-run` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [passwords](apps/worker/test/passwords.test.ts), [setup](apps/worker/test/setup.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [setup-page](apps/web/src/components/setup-page.test.tsx)<br>E2E: [setup](e2e/tests/first-run/setup.spec.ts) |
+| Installer-protected setup link | `auth.protected-setup` | Ember | ✅ Ported | Worker: [protected-setup](apps/worker/test/protected-setup.test.ts)<br>Web: [setup-access](apps/web/src/lib/setup-access.test.ts)<br>E2E: [setup-link](e2e/tests/protected-setup/setup-link.spec.ts) |
 | Sign in with email and password | `auth.sign-in` | Ember | ⬜ Not started |  |
 | Sign in with a display name | `auth.guest-sign-in` | This port | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [sign-in](apps/web/src/components/sign-in.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Sign-in attempt limit | `auth.rate-limit` | Campfire | ⬜ Not started |  |
@@ -57,7 +57,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 <details>
 <summary>Behaviors and sources</summary>
 
-**Set up the workspace** (`auth.first-run`) ⬜
+**Set up the workspace** (`auth.first-run`) 🟡
 
 - Before setup, `/first_run` (titled "Set up Ember") shows "Set up Ember" / "Create the admin account for your workspace.", a photo picker named "Upload profile image (optional)" with the hint "Add a profile photo (optional).", Name (placeholder "Jane Cooper"), Email address ("jane@company.com"), Password ("••••••••", with the hint "Must be at least 8 characters.") and Continue.
 - While there are no people, `/session/new`, and so a signed-out `/`, redirects to `/first_run`; once the workspace exists, `/first_run` redirects to `/`.
@@ -68,11 +68,13 @@ or when this file is out of date. Tests name the feature they cover with `descri
 - Simultaneous submissions create exactly one account and administrator; the others are redirected to `/` without being signed in.
 - The page follows a saved appearance, or the device's, before it paints, and has no appearance picker.
 
+Note: There's no photo picker until profile photos are stored, and All Talk doesn't say "Welcome to Ember" until the welcome card is ported. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.
+
 Sources: [`crates/views/templates/first_runs/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/first_runs/show.html) · [`crates/views/templates/components/ui.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/ui.html) · [`crates/assets/overrides/basecoat/src/password.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/password.js) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs.rs) · [`crates/db/src/models/first_run.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/first_run.rs) · [`reference/app/models/first_run.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/first_run.rb)
 
 ember-rust tests: [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs.rs) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/first_runs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/first_runs_controller_test.rb)
 
-**Installer-protected setup link** (`auth.protected-setup`) ⬜
+**Installer-protected setup link** (`auth.protected-setup`) ✅
 
 - When `EMBER_SETUP_TOKEN` is set, `/first_run` answers 403 with "Setup is locked" / "Open the private setup link printed by the installer." until this browser has opened the installer's private link `/first_run/access#token=<token>`. Without a token, setup is open as in Campfire and `/first_run/access` answers 404.
 - The token must be 64 lowercase hex characters: any other value, even an empty one, stops the server from starting.
@@ -82,6 +84,8 @@ ember-rust tests: [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SO
 - Setup needs HTTPS (403 over plain HTTP) and refuses any query string (400). The post also needs `Sec-Fetch-Site: same-origin` and the app's own Origin (else 422) and a form body (else 415).
 - `/first_run/access`, and every `/first_run` response while a token is set, sends `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, except the unlocked form and its 422, which send `Referrer-Policy: same-origin`. The access page also sends `Content-Security-Policy: default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` and `X-Frame-Options: DENY`.
 - An expired or tampered cookie, or one issued for an earlier token, locks setup again and is cleared. Creating the account clears the cookie, and every setup URL then redirects to `/`.
+
+Note: There's no installer, so the pages say "Open the private setup link for this deployment." and "Open the complete private HTTPS setup link for this deployment." instead, and whoever sets the `EMBER_SETUP_TOKEN` secret makes the link (`platform.deploy-secrets`). A Worker can't refuse to start, so with a malformed token every setup page answers 500 and `/api/health` 503. The cookie is sealed with AES-GCM under a key derived from `SESSION_SECRET`. The form posts to `/api/first_run`, which takes the same cookie over HTTPS but otherwise only the check every API write gets (`auth.csrf`), and ignores a query string.
 
 Sources: [`crates/ember/src/controllers/first_runs/access.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs/access.rs) · [`crates/assets/overrides/setup_access.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/setup_access.js) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs)
 
@@ -96,7 +100,7 @@ ember-rust tests: [`crates/ember/src/controllers/first_runs/access/tests.rs`](ht
 - Accounts without a password, such as bots and people who joined with an empty one, never sign in this way, and an unknown email still costs a password check, so timing doesn't reveal which addresses have accounts.
 - Email addresses must match exactly, with no trimming or case folding.
 
-Note: People join here with just a display name (`auth.guest-sign-in`); there are no email addresses or passwords.
+Note: People join here with just a display name (`auth.guest-sign-in`). First run gives the administrator an email address and password, but nothing signs in with them yet.
 
 Sources: [`crates/views/templates/sessions/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/sessions/new.html) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/controllers/sessions_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/sessions_controller.rb)
 
@@ -107,7 +111,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.
 - `POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.
 - It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `"true"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on, and so does the preview until email sign-in is ported.
-- This stands in for accounts until `auth.first-run`, `auth.sign-in` and `auth.sign-up` are ported.
+- Once Ember is set up, this stands in for signing in until `auth.sign-in` and `auth.sign-up` are ported.
 
 **Sign-in attempt limit** (`auth.rate-limit`) ⬜
 
@@ -499,7 +503,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | ⬜ Not started |  |
 | Only members see a room | `rooms.member-only-access` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts) |
-| Rooms from before memberships | `rooms.legacy-rooms` | This port | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts) |
+| Rooms from before memberships | `rooms.legacy-rooms` | This port | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -715,14 +719,14 @@ Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
 
-**Rooms from before memberships** (`rooms.legacy-rooms`) 🟡
+**Rooms from before memberships** (`rooms.legacy-rooms`) ✅
 
 - Each room named in `LEGACY_ROOMS` is registered as an open room whose id and name are its old address, so `/rooms/general` keeps its messages and reactions, and everyone is a member.
 - Registering again changes nothing, and an old room that isn't listed can no longer be opened.
 - The people who wrote or reacted in those rooms become deactivated people with the same ids and names, so their names and avatar colors still show.
 - A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.
 
-Note: There's no first run yet, so a fresh deploy starts with no rooms, and `pnpm dev` sets `LEGACY_ROOMS` to general and random to have some.
+Note: The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before.
 
 </details>
 
@@ -2238,7 +2242,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Version | `platform.version` | Ember | ⬜ Not started |  |
 | Supported browsers | `platform.browser-support` | Campfire | ⬜ Not started |  |
 | Security headers and HTTPS | `platform.security-headers` | Campfire | ⬜ Not started |  |
-| Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ⬜ Not started |  |
+| Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
 | Web app manifest | `platform.manifest` | Ember | ⬜ Not started |  |
 | Installable page head | `platform.head-tags` | Campfire | ⬜ Not started |  |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
@@ -2254,7 +2258,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 - `GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style="background-color: green"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{"status":"up","timestamp":…}` with the time to the second.
 - It skips sign-in, ban and browser checks, and carries no version headers.
 
-Note: `/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.
+Note: `/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.
 
 Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 
@@ -2324,14 +2328,14 @@ Sources: [`crates/kit/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust
 
 ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs) · [`crates/kit/src/cookies.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/cookies.rs)
 
-**Deploy secrets and the private setup link** (`platform.deploy-secrets`) ⬜
+**Deploy secrets and the private setup link** (`platform.deploy-secrets`) ✅
 
 - A deploy without `SESSION_SECRET` generates one, and later deploys keep it; a failed lookup of the Worker's secrets stops the deploy rather than replacing one.
 - `EMBER_SETUP_TOKEN` comes from the repository secret when one is set. Otherwise the first deploy stores a random one that nobody sees, so setup stays locked rather than open.
 - Secrets go live with the code in a single deploy, and neither the token nor the setup link appears in logs or the run summary.
 - The deploy check fails when setup is pending and unprotected.
 
-Note: The preview workflow already generates `SESSION_SECRET` on the first deploy and keeps it, stopping if it can't list the Worker's secrets, but it sets the secret only after the code is live, and there's no setup token.
+Note: The Preview workflow's `scripts/preview-secrets.sh` writes the secrets a deploy adds, which `wrangler deploy --secrets-file` uploads with the code. The deploy check lets setup stay open on this machine, for `pnpm dev`.
 
 Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py) · [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs)
 

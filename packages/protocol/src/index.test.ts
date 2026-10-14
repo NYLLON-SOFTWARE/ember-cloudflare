@@ -1,6 +1,18 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { isRoomId, MAX_BOOST_LENGTH, MAX_CHECKED_MESSAGES, MAX_LISTED_USERS, MAX_MESSAGE_LENGTH, MAX_ROOM_NAME_LENGTH, parseClientFrame, parseNewRoom } from "./index";
+import {
+  isPasswordTooLong,
+  isPasswordTooShort,
+  isRoomId,
+  MAX_BOOST_LENGTH,
+  MAX_CHECKED_MESSAGES,
+  MAX_LISTED_USERS,
+  MAX_MESSAGE_LENGTH,
+  MAX_ROOM_NAME_LENGTH,
+  parseClientFrame,
+  parseFirstRun,
+  parseNewRoom,
+} from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 
@@ -99,5 +111,39 @@ describe(feature("rooms.create-closed"), () => {
       expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds }), JSON.stringify(memberIds).slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
     expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds: tooMany.slice(1) })).not.toBeTypeOf("string");
+  });
+});
+
+describe(feature("auth.first-run"), () => {
+  it("takes a name, an email address and a password, trimming only the name", () => {
+    expect(parseFirstRun({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
+      name: "Ada Lovelace",
+      emailAddress: "ada@example.com",
+      password: " secret  words ",
+    });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["no name", { emailAddress: "ada@example.com", password: "12345678" }, "Name, email address and password are required"],
+    ["a blank name", { name: "  ", emailAddress: "ada@example.com", password: "12345678" }, "Name, email address and password are required"],
+    ["no email address", { name: "Ada", emailAddress: "", password: "12345678" }, "Name, email address and password are required"],
+    ["no password", { name: "Ada", emailAddress: "ada@example.com" }, "Name, email address and password are required"],
+    ["a password that isn't text", { name: "Ada", emailAddress: "ada@example.com", password: 12345678 }, "Name, email address and password are required"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseFirstRun(body)).toBe(error);
+  });
+
+  it("counts a password's characters, not its bytes or UTF-16 units", () => {
+    expect(["", "short", "1234567", "éééé", "🔐🔐🔐🔐", "🔐🔐🔐🔐🔐🔐🔐"].filter(isPasswordTooShort)).toHaveLength(6);
+    expect(isPasswordTooShort("12345678")).toBe(false);
+    expect(isPasswordTooShort("🔐".repeat(8))).toBe(false);
+  });
+
+  it("measures a password's length as the form's maxlength does, in UTF-16 units", () => {
+    expect(isPasswordTooLong("x".repeat(72))).toBe(false);
+    expect(isPasswordTooLong("🔐".repeat(36))).toBe(false);
+    expect(isPasswordTooLong("x".repeat(73))).toBe(true);
+    expect(isPasswordTooLong("🔐".repeat(37))).toBe(true);
   });
 });

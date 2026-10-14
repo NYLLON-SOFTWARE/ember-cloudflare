@@ -9,5 +9,6 @@
     "lib": ["ES2024"],
     "types": ["node"]
   },
-  "include": ["."]
+  "include": ["."],
+  "exclude": ["*.test.ts"]
 }

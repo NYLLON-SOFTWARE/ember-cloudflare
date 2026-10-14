@@ -1,8 +1,8 @@
-import type { Room, RoomId, User, UserId } from "@ember/protocol";
+import type { Account, Room, RoomId, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 
-// People, their sessions and their rooms, kept by the Workspace in its own SQLite storage or in D1
-// (see db.ts).
+// The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
+// storage or in D1 (see db.ts).
 
 /** The browser and IP a session records. */
 export interface Client {
@@ -13,6 +13,25 @@ export interface Client {
 /** ember-rust's user statuses (crates/db/src/models/user.rs). Only active people can sign in. */
 const ACTIVE = 0;
 const DEACTIVATED = 1;
+/** ember-rust's role for the people who run the workspace (user.rs). */
+const ADMINISTRATOR = 1;
+
+/** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
+const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
+
+/** The account first run creates. */
+export interface NewAccount extends Account {
+  id: string;
+  joinCode: string;
+}
+
+/** The person first run makes the workspace's first administrator. */
+export interface NewAdministrator {
+  id: UserId;
+  name: string;
+  emailAddress: string;
+  passwordDigest: string;
+}
 
 /** A session and the person it signs in. */
 export interface StoredSession {
@@ -65,6 +84,45 @@ const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, create
 
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
+
+  /** The workspace's account, or null until first run creates it. */
+  async account(): Promise<Account | null> {
+    const [account] = await this.db.all<Account>(`SELECT name FROM accounts`);
+    return account ?? null;
+  }
+
+  /**
+   * Creates the workspace as ember-rust's first run does (crates/db/src/models/first_run.rs): the
+   * account, its first administrator, an open room that takes in every active person, and the
+   * administrator's session, who also joins every other open room. If there's an account already,
+   * its singleton guard refuses the first statement, and so the whole batch.
+   */
+  async createWorkspace(
+    account: NewAccount,
+    administrator: NewAdministrator,
+    room: Pick<Room, "id" | "name">,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO accounts (id, name, join_code, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, account.id, account.name, account.joinCode, NEW_ACCOUNT_SETTINGS, now, now),
+      statement(
+        `INSERT INTO users (id, name, email_address, password_digest, role, created_at, updated_at) VALUES (?, ?, ?, ?, ${ADMINISTRATOR}, ?, ?)`,
+        administrator.id,
+        administrator.name,
+        administrator.emailAddress,
+        administrator.passwordDigest,
+        now,
+        now,
+      ),
+      statement(`INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at) VALUES (?, 'open', ?, ?, ?, ?)`, room.id, room.name, administrator.id, now, now),
+      statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
+      statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+    ]);
+  }
 
   /** Adds a guest, who has a name but no way to sign in again, together with their session and open rooms. */
   async createGuest(user: User, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {

@@ -1,7 +1,8 @@
-import { isRoomId, parseNewRoom, type RoomId } from "@ember/protocol";
+import { isRoomId, parseNewRoom, type Bootstrap, type RoomId } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
+  credentialsFor,
   credentialsOf,
   expiredSessionCookie,
   guestSignIn,
@@ -9,14 +10,17 @@ import {
   isSameOriginUpgrade,
   newSessionToken,
   sessionCookie,
+  sessionToken,
   signOut,
   tokenDigest,
 } from "./auth";
 import { ROOM_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
-import { workspace } from "./workspace";
+import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
+import { ACCOUNT_NAME, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
+export { PasswordHasher } from "./passwords";
 export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
@@ -35,6 +39,8 @@ const problem = (status: number, message: string) => json({ error: message }, { 
 async function health(env: Env): Promise<Response> {
   const storage = env.STORAGE_BACKEND;
   if (!env.SESSION_SECRET) return json({ ok: false, storage, error: "SESSION_SECRET isn't set" }, { status: 503 });
+  const setupToken = setupTokenProblem(env);
+  if (setupToken) return json({ ok: false, storage, error: setupToken }, { status: 503 });
   try {
     await Promise.all([workspace(env).health(), env.CHAT_ROOM.getByName(HEALTH_ROOM).health(HEALTH_ROOM)]);
   } catch (error) {
@@ -55,6 +61,23 @@ async function signInGuest(request: Request, env: Env): Promise<Response> {
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
+}
+
+/** What the app asks first: whether Ember is set up yet, and who this browser is signed in as. */
+async function bootstrap(request: Request, env: Env): Promise<Response> {
+  const token = sessionToken(request);
+  const { account, user } = await workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null);
+  const body: Bootstrap = {
+    setup: account ? "complete" : "pending",
+    setupProtected: isSetupProtected(env),
+    guestSignIn: guestSignIn(env),
+    account: account ?? { name: ACCOUNT_NAME },
+    user,
+  };
+  const headers = new Headers({ "Cache-Control": "no-store" });
+  // The app asks every time it loads, so sending the cookie again keeps it from expiring while it's in use.
+  if (user && token) headers.set("Set-Cookie", sessionCookie(request, token));
+  return json(body, { headers });
 }
 
 async function me(request: Request, env: Env): Promise<Response> {
@@ -109,6 +132,8 @@ export default {
     const write = request.method !== "GET" && request.method !== "HEAD";
     if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
 
+    if (pathname === "/api/bootstrap" && request.method === "GET") return bootstrap(request, env);
+    if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
     if (pathname === "/api/session" && request.method === "POST") return signInGuest(request, env);
     if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
     if (pathname === "/api/me") return me(request, env);
@@ -123,6 +148,7 @@ export default {
     }
 
     if (pathname.startsWith("/api/")) return problem(404, "Not found");
+    if (isSetupPath(pathname)) return setupPage(request, env);
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

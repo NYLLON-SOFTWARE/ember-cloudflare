@@ -2,7 +2,8 @@ name: Preview
 
 # Deploys main to a Worker named ember-preview on the account's workers.dev subdomain, then checks
 # it end to end. It needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets and
-# skips without them, so forks don't try to deploy.
+# skips without them, so forks don't try to deploy. An EMBER_SETUP_TOKEN repository secret, if
+# there is one, becomes the preview's setup token.
 on:
   push:
     branches: [main]
@@ -59,14 +60,22 @@ jobs:
         id: deploy
         working-directory: apps/worker
         env:
-          # Only this step sees the token, not the install or build scripts.
+          # Only this step sees the token and the secrets, not the install or build scripts.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Optional. The preview's private setup link is <url>/first_run/access#token=<this>.
+          EMBER_SETUP_TOKEN: ${{ secrets.EMBER_SETUP_TOKEN }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
         run: |
+          # The secrets this deploy adds (scripts/preview-secrets.sh says which) go up with its code,
+          # so no version runs without them.
+          secrets_file="$RUNNER_TEMP/secrets.json"
+          trap 'rm -f "$secrets_file"' EXIT
+          bash scripts/preview-secrets.sh "$WORKER_NAME" "$secrets_file"
+
           # Until email sign-in lands, the preview lets anyone sign in with just a name. Its general
           # and random rooms date from before the Workspace kept a list, so it registers them.
-          pnpm exec wrangler deploy --name "$WORKER_NAME" --var EMBER_GUEST_SIGN_IN:true --var LEGACY_ROOMS:general,random
+          pnpm exec wrangler deploy --name "$WORKER_NAME" --secrets-file "$secrets_file" --var EMBER_GUEST_SIGN_IN:true --var LEGACY_ROOMS:general,random
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"
@@ -74,15 +83,6 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
-
-          # Sessions are stored keyed with SESSION_SECRET, so changing it would sign everyone out: the
-          # first deploy makes one and later ones keep it. The Worker exists by now, so failing to list
-          # its secrets stops here rather than replacing a secret that may be there.
-          secrets=$(pnpm exec wrangler secret list --name "$WORKER_NAME")
-          has_secret=$(jq 'any(.[]; .name == "SESSION_SECRET")' <<< "$secrets")
-          if [ "$has_secret" = false ]; then
-            openssl rand -hex 32 | pnpm exec wrangler secret put SESSION_SECRET --name "$WORKER_NAME"
-          fi
       - name: Check the preview
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
