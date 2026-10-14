@@ -108,12 +108,21 @@ describe(feature("realtime.keepalive"), () => {
     expect(FakeSocket.all).toHaveLength(2);
   });
 
-  it("sends only while the socket is open", () => {
+  it("sends only while the socket is open and the server has let it in", () => {
     const { live } = connect();
     expect(live.send({ type: "typing.stop" })).toBe(false);
     socket().open();
+    expect(live.send({ type: "typing.stop" })).toBe(false);
+    live.connected();
     expect(live.send({ type: "typing.stop" })).toBe(true);
     expect(socket().sent).toEqual(['{"type":"typing.stop"}']);
+
+    socket().drop();
+    expect(live.send({ type: "typing.stop" })).toBe(false);
+    wait(500);
+    socket().open();
+    expect(live.send({ type: "typing.stop" })).toBe(false);
+    expect(socket().sent).toEqual([]);
   });
 
   it("hands on what the server sends", () => {

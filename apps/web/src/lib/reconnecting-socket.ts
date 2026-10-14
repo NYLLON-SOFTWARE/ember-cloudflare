@@ -40,12 +40,15 @@ export interface ReconnectingSocketOptions {
 }
 
 export interface ReconnectingSocket {
-  /** Sends `frame` if the socket is open, saying whether it did. */
+  /**
+   * Sends `frame` once the server has let the socket in, saying whether it did. Until then a frame could
+   * overtake those the owner is keeping to send once it's in, or go to a server about to refuse it.
+   */
   send(frame: ClientFrame): boolean;
   /**
-   * Says the server has let the connection in, as a room's welcome does: the page is online again, and
-   * the next close starts the back-off over. A server that closes a socket as soon as it opens doesn't
-   * say so, and keeps being backed off from.
+   * Says the server has let the connection in, as a room's welcome does: the page is online again, the
+   * socket sends, and the next close starts the back-off over. A server that closes a socket as soon as
+   * it opens doesn't say so, and keeps being backed off from.
    */
   connected(): void;
   /** Connects again after the usual wait, after a close the owner held on to. */
@@ -71,6 +74,8 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
   let probeDelay: ReturnType<typeof setTimeout> | undefined;
   let offlineTimer: ReturnType<typeof setTimeout> | undefined;
   let offline = false;
+  // Whether the server has let in the socket now open.
+  let admitted = false;
   // Whether anything has come from the server since the last ping.
   let heard = true;
 
@@ -115,6 +120,7 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
 
   const open = () => {
     retryTimer = undefined;
+    admitted = false;
     options.onConnecting(ws === null ? "connecting" : "reconnecting");
     const socket = new WebSocket(options.url());
     ws = socket;
@@ -181,11 +187,12 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
 
   return {
     send(frame) {
-      if (ws?.readyState !== WebSocket.OPEN) return false;
+      if (!admitted || ws?.readyState !== WebSocket.OPEN) return false;
       ws.send(JSON.stringify(frame));
       return true;
     },
     connected() {
+      admitted = true;
       attempt = 0;
       clearTimeout(offlineTimer);
       offlineTimer = undefined;

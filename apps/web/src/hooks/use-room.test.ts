@@ -185,6 +185,19 @@ describe(feature("realtime.reconnect"), () => {
     expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["first", "second"]);
   });
 
+  it("keeps what's written once the socket opens, until the room lets it in, behind what was written before", () => {
+    const { result } = joinGeneral();
+    socket().drop();
+    act(() => result.current.postMessage("Written while away"));
+    wait(500);
+    socket().open();
+    act(() => result.current.postMessage("Written while connecting"));
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    expect(result.current.state.messages).toMatchObject([{ body: "Written while away", queued: true }, { body: "Written while connecting", queued: true }]);
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["Written while away", "Written while connecting"]);
+  });
+
   it(`counts as offline once the connection has been down ${OFFLINE_AFTER_MS / 1000} seconds, until the room lets one in`, () => {
     const { result } = joinGeneral();
     socket().drop();

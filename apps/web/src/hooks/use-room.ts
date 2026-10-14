@@ -120,7 +120,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
       const now = new Date().toISOString();
       const message: PendingMessage = { id: clientMessageId, clientMessageId, roomId, creator: me, body, createdAt: now, updatedAt: now, boosts: [], pending: true };
       lastTypingSent.current = 0;
-      // Without a connection it waits for the room to let one in, and shows as not sent once the page is offline.
+      // Until the room has let a connection in, it waits, behind any already waiting, and shows as not sent
+      // once the page is offline.
       if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;
       dispatch({ type: "pending", message });
     },
