@@ -5,8 +5,10 @@ import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-
 import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { settledVisibility } from "@/lib/visibility";
 
-const TYPING_TTL_MS = 6_000;
-const TYPING_RESEND_MS = 3_000;
+/** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
+const TYPING_TTL_MS = 5_000;
+/** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
+const TYPING_THROTTLE_MS = 1_000;
 
 /**
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
@@ -16,7 +18,7 @@ const TYPING_RESEND_MS = 3_000;
 export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const socket = useRef<ReconnectingSocket | null>(null);
-  const lastTypingSent = useRef(0);
+  const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
 
@@ -132,7 +134,6 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       const clientMessageId = crypto.randomUUID();
       const now = new Date().toISOString();
       const message: PendingMessage = { id: clientMessageId, clientMessageId, roomId, creator: me, body, createdAt: now, updatedAt: now, boosts: [], pending: true };
-      lastTypingSent.current = 0;
       // Until the room has let a connection in, it waits, behind any already waiting, and shows as not sent
       // once the page is offline.
       if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;
@@ -141,12 +142,16 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [me, roomId, send],
   );
 
+  // Starting is throttled, and stopping isn't, as in ember-rust: a start within a second of the last
+  // one goes nowhere, even after a stop. A sent message needs no stop, since everyone else stops
+  // showing its author as typing when it arrives.
   const typing = useCallback(
     (active: boolean) => {
+      if (!active) return void send({ type: "typing.stop" });
       const now = Date.now();
-      if (active && now - lastTypingSent.current < TYPING_RESEND_MS) return;
-      lastTypingSent.current = active ? now : 0;
-      send({ type: active ? "typing.start" : "typing.stop" });
+      if (now - lastTypingStarted.current < TYPING_THROTTLE_MS) return;
+      lastTypingStarted.current = now;
+      send({ type: "typing.start" });
     },
     [send],
   );

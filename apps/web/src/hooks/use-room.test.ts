@@ -513,11 +513,11 @@ describe(feature("messages.optimistic"), () => {
 });
 
 describe(feature("realtime.typing"), () => {
-  it("tells the room you're typing at most every three seconds, and when you stop", () => {
+  it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();
     act(() => result.current.typing(true));
     act(() => result.current.typing(true));
-    wait(2_999);
+    wait(999);
     act(() => result.current.typing(true));
     expect(socket().sentOfType("typing.start")).toHaveLength(1);
     wait(1);
@@ -525,13 +525,26 @@ describe(feature("realtime.typing"), () => {
     expect(socket().sentOfType("typing.start")).toHaveLength(2);
     act(() => result.current.typing(false));
     expect(socket().sentOfType("typing.stop")).toHaveLength(1);
+    // As in ember-rust, stopping doesn't let the next start through any sooner.
+    act(() => result.current.typing(true));
+    expect(socket().sentOfType("typing.start")).toHaveLength(2);
+    wait(1_000);
+    act(() => result.current.typing(true));
+    expect(socket().sentOfType("typing.start")).toHaveLength(3);
   });
 
-  it("forgets people it hasn't heard typing from for six seconds", () => {
+  it("doesn't tell the room you've stopped when you send, since your message says so", () => {
+    const { result } = joinGeneral();
+    act(() => result.current.typing(true));
+    act(() => result.current.postMessage("Hello"));
+    expect(socket().sentOfType("typing.stop")).toEqual([]);
+  });
+
+  it("forgets people it hasn't heard typing from for five seconds", () => {
     const { result } = joinGeneral();
     socket().receive({ type: "typing", user: grace, typing: true });
     expect(Object.keys(result.current.state.typing)).toEqual(["u2"]);
-    wait(5_000);
+    wait(4_000);
     expect(Object.keys(result.current.state.typing)).toEqual(["u2"]);
     wait(2_000);
     expect(result.current.state.typing).toEqual({});

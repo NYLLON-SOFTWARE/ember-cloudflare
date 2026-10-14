@@ -37,29 +37,46 @@ test.describe(feature("realtime.typing"), () => {
     const grace = await members.signIn("Grace");
 
     await grace.composer().fill("Let me think");
-    await expect(ada.typingIndicator()).toHaveText("Grace is typing…");
+    await expect(ada.typingIndicator()).toHaveText("Grace");
+    await expect(ada.typingIndicator()).toBeVisible();
     await expect(grace.typingIndicator()).toHaveText("");
 
     await grace.composer().fill("");
     await expect(ada.typingIndicator()).toHaveText("");
+    await expect(ada.typingIndicator()).toBeHidden();
 
-    await grace.composer().fill("Here's my answer");
-    await expect(ada.typingIndicator()).toHaveText("Grace is typing…");
+    // Typing goes out at most once a second, even after a stop, so Grace shows again as she types on.
+    await grace.composer().pressSequentially("Here's my answer", { delay: 100 });
+    await expect(ada.typingIndicator()).toHaveText("Grace");
     await grace.composer().press("Enter");
     await expect(ada.typingIndicator()).toHaveText("");
   });
 
-  test("names two typists, then summarizes more", async ({ members }) => {
+  test("names everyone typing, sorted and comma-separated", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const linus = await members.signIn("Linus");
     const ken = await members.signIn("Ken");
 
-    await grace.composer().fill("…");
     await linus.composer().fill("…");
-    await expect(ada.typingIndicator()).toHaveText(/^(Grace and Linus|Linus and Grace) are typing…$/);
+    await grace.composer().fill("…");
+    await expect(ada.typingIndicator()).toHaveText("Grace, Linus");
     await ken.composer().fill("…");
-    await expect(ada.typingIndicator()).toHaveText("Several people are typing…");
+    await expect(ada.typingIndicator()).toHaveText("Grace, Ken, Linus");
+  });
+
+  test("keeps names that don't fit on one line, clear of the message box", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 320, height: 640 } } });
+    for (const name of ["Grace Brewster Murray Hopper", "Kenneth Lane Thompson", "Linus Benedict Torvalds"]) {
+      const typist = await members.signIn(name);
+      await typist.composer().fill("…");
+    }
+    await expect(ada.typingIndicator()).toHaveText("Grace Brewster Murray Hopper, Kenneth Lane Thompson, Linus Benedict Torvalds");
+
+    const names = (await ada.typingIndicator().boundingBox())!;
+    const field = (await ada.composer().boundingBox())!;
+    expect(names.height).toBeLessThan(20);
+    expect(names.y + names.height).toBeLessThanOrEqual(field.y);
   });
 });
 
