@@ -1,0 +1,464 @@
+/**
+ * Whether Campfire turns a browser away as too old, and whether a request is Apple Messages fetching a
+ * link preview. Ports ember-rust's `ApplicationPlatform::browser_blocked` and `apple_messages`
+ * (crates/ember/src/concerns/platform.rs) and the parts of its useragent gem port
+ * (crates/ember/src/concerns/user_agent.rs) they read. Those port Rails' `allow_browser`
+ * (`ActionController::AllowBrowser::BrowserBlocker`) with Campfire's `AllowBrowser::VERSIONS`, Campfire's
+ * `ApplicationPlatform#apple_messages?`, and the useragent gem 0.16.11, which reads the header for both.
+ *
+ * The gem splits the header into products ("Chrome/120.0.0.0"), each with an optional comment
+ * ("(Windows NT 10.0; Win64; x64)"), and the first of its browsers to recognize them decides the
+ * browser's name, its version and whether it's a bot. Ruby's `\s` is ASCII-only, so the patterns here
+ * spell it out, and Ruby folds Unicode case in case-insensitive patterns, as JavaScript does with the
+ * `u` flag. Ruby's `^` and `$` also match at line breaks, which a header can't contain.
+ */
+
+/**
+ * Campfire's `AllowBrowser::VERSIONS`: the oldest version it allows of each browser, by lowercase name.
+ * Internet Explorer's `false` turns every version away.
+ */
+const MINIMUM_VERSIONS = new Map<string, string | false>([
+  ["safari", "17.2"],
+  ["chrome", "120"],
+  ["firefox", "121"],
+  ["opera", "104"],
+  ["ie", false],
+]);
+
+/**
+ * Whether Campfire answers "Upgrade to a supported web browser" (`BrowserBlocker#blocked?`). No user
+ * agent, a blank one and one that reports no version get through, as do bots and browsers without a
+ * minimum version. So does an agent Rails raises on, such as one with a version the gem names no
+ * browser for, which Rails answers with an error page.
+ */
+export function isUnsupportedBrowser(userAgent: string | null): boolean {
+  if (userAgent === null || isBlank(userAgent)) return false;
+  const agent = parse(userAgent);
+  // Rails reads the version, then the browser. Reading the browser first answers the same, since a
+  // step that fails or raises lets the agent through either way, and only browsers with a minimum
+  // then need their version read.
+  const browser = browserOf(agent);
+  const minimum = browser === null ? undefined : MINIMUM_VERSIONS.get(normalizedBrowserName(browser));
+  if (minimum === undefined) return false;
+  const version = versionOf(agent);
+  if (version === null || isBlank(version)) return false;
+  return (minimum === false || compareVersions(version, minimum) < 0) && !isBot(agent);
+}
+
+/**
+ * `BrowserBlocker#normalized_browser_name`. Rails looks the minimum up by this name, so an agent that
+ * calls itself "IE" is turned away like Internet Explorer; ember-rust only looks for "internet explorer".
+ */
+function normalizedBrowserName(browser: string): string {
+  const name = browser.toLowerCase();
+  return name === "internet explorer" ? "ie" : name;
+}
+
+/**
+ * Whether this is Apple Messages fetching a link preview, which claims to be both Facebook's and
+ * Twitter's crawlers (`ApplicationPlatform#apple_messages?`).
+ */
+export function isAppleMessages(userAgent: string | null): boolean {
+  const text = userAgent ?? "";
+  return /facebookexternalhit/iu.test(text) && /Twitterbot/iu.test(text);
+}
+
+/** A product of the header, such as `Mozilla/5.0 (Windows NT 10.0; Win64; x64)`. */
+interface Product {
+  product: string;
+  version: string;
+  /** The comment, split at "; ". */
+  comment: string[] | null;
+}
+
+/** The gem's browsers (`UserAgent::Browsers`); an agent none of them recognizes is read as "Base". */
+type Kind =
+  | "Base"
+  | "Edge"
+  | "InternetExplorer"
+  | "Opera"
+  | "WechatBrowser"
+  | "Vivaldi"
+  | "Chrome"
+  | "ITunes"
+  | "PlayStation"
+  | "PodcastAddict"
+  | "Webkit"
+  | "Gecko"
+  | "WindowsMediaPlayer"
+  | "AppleCoreMedia"
+  | "Libavformat";
+
+interface Agent {
+  kind: Kind;
+  products: Product[];
+}
+
+const DEFAULT_USER_AGENT = "Mozilla/4.0 (compatible)";
+
+/** `UserAgent::MATCHER`: a product, its version, and its comment or a ",gzip(gfe)". */
+const PRODUCT = /^['"]*([^/ \t\n\v\f\r]+)\/?([^ \t\n\v\f\r,]*)([ \t\n\v\f\r]\(([^)]*)\)|,gzip\(gfe\))?/;
+/** `PRODUCT` without the comment and the ",gzip(gfe)", neither of which can match without a ")". */
+const PRODUCT_WITHOUT_COMMENT = /^['"]*([^/ \t\n\v\f\r]+)\/?([^ \t\n\v\f\r,]*)/;
+
+/** `UserAgent.parse`, which reads a header that strips to nothing as "Mozilla/4.0 (compatible)". */
+function parse(userAgent: string): Agent {
+  let rest = rubyStrip(userAgent) === "" ? DEFAULT_USER_AGENT : userAgent;
+  // A comment's "(" sends `PRODUCT` looking for its ")" as far as the end of the header, which takes
+  // quadratic time on a header of many "(" and no ")". Once no ")" is left, no comment is looked for.
+  let closers = countOf(rest, ")");
+  const products: Product[] = [];
+  for (let match = matchProduct(rest, closers); match !== null; match = matchProduct(rest, closers)) {
+    const [matched, product = "", version = "", , comment] = match;
+    products.push({ product, version, comment: comment === undefined ? null : rubySplit(comment, "; ") });
+    closers -= countOf(matched, ")");
+    rest = rubyStrip(rest.slice(matched.length));
+  }
+  const kind = BROWSERS.find(([, recognizes]) => recognizes(products))?.[0] ?? "Base";
+  return { kind, products };
+}
+
+/** `UserAgent::MATCHER` at the start of `text`, which holds `closers` ")". */
+function matchProduct(text: string, closers: number): RegExpExecArray | null {
+  return (closers > 0 ? PRODUCT : PRODUCT_WITHOUT_COMMENT).exec(text);
+}
+
+/** `/MicroMessenger/i`. Ruby's folding also matches "ß" to "ss", where JavaScript's doesn't. */
+const MICRO_MESSENGER = /MicroMe(?:ss|ß)enger/iu;
+const WEBKIT_PRODUCT = /^AppleWebKit$/iu;
+const WEBKIT_COMMENT = /^AppleWebKit\/([\d.]+)/iu;
+const WINDOWS_MEDIA_PLAYERS = ["NSPlayer", "Windows-Media-Player", "WMFSDK"];
+/** libavformat's version of NSPlayer, and the two VLC sends. */
+const NOT_WINDOWS_MEDIA_PLAYER = ["4.1.0.3856", "7.10.0.3059", "7.0.0.1956"];
+
+/** `UserAgent::Browsers::ALL` with each one's `extend?`, in the order the gem tries them. */
+const BROWSERS: [Kind, (products: Product[]) => boolean][] = [
+  ["Edge", (products) => products.at(-1)?.product === "Edge"],
+  ["InternetExplorer", ([first]) => isInternetExplorer(first?.comment)],
+  ["Opera", (products) => products[0]?.product === "Opera" || products.at(-1)?.product === "OPR"],
+  ["WechatBrowser", (products) => products.some(({ product }) => MICRO_MESSENGER.test(product))],
+  ["Vivaldi", (products) => products.some(({ product }) => product === "Vivaldi")],
+  ["Chrome", (products) => products.some(({ product }) => product === "Chrome" || product === "CriOS")],
+  ["ITunes", (products) => products.some(({ product }) => product === "iTunes")],
+  ["PlayStation", ([first]) => isPlayStation(first?.comment?.[0])],
+  [
+    "PodcastAddict",
+    ([podcast, addict, dash]) => podcast?.product === "Podcast" && addict?.product === "Addict" && dash?.product === "-",
+  ],
+  ["Webkit", (products) => products.some(isWebKit)],
+  ["Gecko", ([first]) => first?.product === "Mozilla"],
+  [
+    "WindowsMediaPlayer",
+    (products) =>
+      products.some(({ product }) => WINDOWS_MEDIA_PLAYERS.includes(product)) &&
+      !NOT_WINDOWS_MEDIA_PLAYER.includes(products[0]!.version),
+  ],
+  ["AppleCoreMedia", (products) => products.some(({ product }) => product === "AppleCoreMedia")],
+  [
+    "Libavformat",
+    (products) =>
+      products.some(({ product }) => product === "Lavf" || (product === "NSPlayer" && products[0]!.version === "4.1.0.3856")),
+  ],
+];
+
+/** `InternetExplorer.extend?`, on the first product's comment. */
+function isInternetExplorer(comment: string[] | null | undefined): boolean {
+  if (!comment) return false;
+  return comment[1]?.includes("MSIE") || hasTridentThenRv(comment.join("; "));
+}
+
+/**
+ * `/Trident.+rv:/`: whether a line has an "rv:" at least a character after a "Trident". Checking each
+ * line's first "Trident" against its last "rv:" is enough, where the regular expression tries every
+ * "Trident", which takes quadratic time on a comment of many.
+ */
+function hasTridentThenRv(text: string): boolean {
+  // Ruby's `.` matches anything but "\n".
+  return text.split("\n").some((line) => {
+    const trident = line.indexOf("Trident");
+    return trident !== -1 && line.lastIndexOf("rv:") > trident + "Trident".length;
+  });
+}
+
+/** `PlayStation.extend?`, on the first part of the first product's comment. */
+function isPlayStation(system: string | undefined): boolean {
+  if (system === undefined) return false;
+  return system.includes("PLAYSTATION 3") || system.includes("PlayStation Vita") || system.includes("PlayStation 4");
+}
+
+/** `Webkit.extend?`, on one product: an AppleWebKit product, or a comment part naming an AppleWebKit build. */
+function isWebKit({ product, comment }: Product): boolean {
+  return WEBKIT_PRODUCT.test(product) || (comment ?? []).some((part) => WEBKIT_COMMENT.test(part));
+}
+
+/** The browsers whose `application` is their first product with a comment, where the others' is their first. */
+const READ_FROM_FIRST_COMMENT = new Set<Kind>(["Chrome", "Vivaldi", "Webkit", "ITunes", "AppleCoreMedia"]);
+
+/** `application`: the product the browser is read from. */
+function applicationOf({ kind, products }: Agent): Product | undefined {
+  if (!READ_FROM_FIRST_COMMENT.has(kind)) return products[0];
+  return products.find(({ comment }) => comment !== null && comment.length > 0);
+}
+
+/** `browser`, which is null for a PlayStation Vita without Silk and for a header that has no products. */
+function browserOf(agent: Agent): string | null {
+  const { products } = agent;
+  switch (agent.kind) {
+    case "Base":
+      return applicationOf(agent)?.product ?? null;
+    case "Edge":
+      return "Edge";
+    case "InternetExplorer":
+      return "Internet Explorer";
+    case "Opera":
+      return "Opera";
+    case "WechatBrowser":
+      return "Wechat Browser";
+    case "Vivaldi":
+      return "Vivaldi";
+    case "Chrome":
+      return detectProduct(products, "Iron") ? "Iron" : "Chrome";
+    case "ITunes":
+      return "iTunes";
+    case "PlayStation":
+      return playStationBrowser(products);
+    case "PodcastAddict":
+      return "Podcast Addict";
+    case "Webkit":
+      return webkitBrowser(applicationOf(agent));
+    case "Gecko":
+      return geckoBrowser(products);
+    case "WindowsMediaPlayer":
+      return "Windows Media Player";
+    case "AppleCoreMedia":
+      return "AppleCoreMedia";
+    case "Libavformat":
+      return "libavformat";
+  }
+}
+
+/**
+ * `version`, for the browsers that have a minimum version. The others get through whatever their
+ * version, so how the gem reads theirs isn't ported.
+ */
+function versionOf(agent: Agent): string | null {
+  const { products } = agent;
+  const application = applicationOf(agent);
+  switch (agent.kind) {
+    case "Base":
+      return application?.version ?? null;
+    case "InternetExplorer":
+      return /(MSIE[ \t\n\v\f\r]|rv:)([\d.]+)/.exec(application!.comment!.join("; "))?.[2] ?? "";
+    case "Opera":
+      return operaVersion(products);
+    case "Chrome":
+      return (detectProduct(products, "CriOS") ?? detectProduct(products, "Chrome"))!.version;
+    case "Webkit":
+      return webkitVersion(products, application);
+    case "Gecko": {
+      const version = detectProduct(products, geckoBrowser(products))!.version;
+      return isNilVersion(version) ? application!.version : version;
+    }
+    default:
+      return null;
+  }
+}
+
+/** `bot?`: an agent with no application, a comment that mentions a bot, Lighthouse, or a "bot" application. */
+function isBot(agent: Agent): boolean {
+  const application = applicationOf(agent);
+  if (application === undefined) return true;
+  return (
+    agent.products.some(({ comment }) => comment?.some((part) => /bot/iu.test(part))) ||
+    detectProduct(agent.products, "Chrome-Lighthouse") !== undefined ||
+    application.product.includes("bot")
+  );
+}
+
+/** `Opera#version`: Opera Mini's from its comment, else the Version or OPR product's, else its own. */
+function operaVersion(products: Product[]): string {
+  const application = products[0]!;
+  // `mini?` looks for "Opera Mini" in the application's text, where only its comment can hold a space.
+  const mini = application.comment?.find((part) => part.includes("Opera Mini"));
+  if (mini !== undefined) return /Opera Mini\/([\d.]+)/.exec(mini)?.[1] ?? "";
+  return (detectProduct(products, "Version") ?? detectProduct(products, "OPR") ?? application).version;
+}
+
+/** `PlayStation#browser`. */
+function playStationBrowser(products: Product[]): string | null {
+  const system = products[0]!.comment![0]!;
+  if (system.includes("PLAYSTATION 3")) return "PS3 Internet Browser";
+  if (products.at(-1)!.product === "Silk") return "Silk";
+  if (system.includes("PlayStation 4")) return "PS4 Internet Browser";
+  return null;
+}
+
+const GECKO_BROWSERS = ["PaleMoon", "Firefox", "Camino", "Iceweasel", "Seamonkey"];
+
+/** `Gecko#browser`: the first of `GECKO_BROWSERS` the agent has, else its first product, "Mozilla". */
+function geckoBrowser(products: Product[]): string {
+  return GECKO_BROWSERS.find((name) => detectProduct(products, name) !== undefined) ?? products[0]!.product;
+}
+
+/** `Webkit#browser`: Safari, unless its operating system is Android or it's a BlackBerry. */
+function webkitBrowser(application: Product | undefined): string {
+  if (webkitOs(application)?.includes("Android")) return "Android";
+  if (webkitPlatform(application) === "BlackBerry") return "BlackBerry";
+  return "Safari";
+}
+
+/** `Webkit#os`: the operating system named in the application's comment. */
+function webkitOs(application: Product | undefined): string | null {
+  const comment = application?.comment;
+  if (!comment) return null;
+  const [first = "", second, third] = comment;
+  if (first.includes("Windows NT")) return normalizeOs(first);
+  if (third === undefined) return second === undefined ? null : normalizeOs(second);
+  if (second?.includes("Android")) return normalizeOs(second);
+  return normalizeOs(comment.find((part) => IOS_VERSION.test(part)) ?? third);
+}
+
+/** `Webkit#platform`. */
+function webkitPlatform(application: Product | undefined): string | null {
+  const comment = application?.comment;
+  if (!comment) return null;
+  const [first = ""] = comment;
+  if (first.includes("Windows")) return "Windows";
+  if (first === "BB10") return "BlackBerry";
+  if (comment.some((part) => part.includes("Android"))) return "Android";
+  return first;
+}
+
+/**
+ * `Webkit#version`: its Version product's, else Safari's iOS version, else the Safari version of its
+ * WebKit build, which is all Safari reported before Safari 3.
+ */
+function webkitVersion(products: Product[], application: Product | undefined): string {
+  const product = detectProduct(products, "Version");
+  if (product !== undefined) return product.version;
+  const ios = /iOS ([\d.]+)/.exec(webkitOs(application) ?? "");
+  if (ios !== null && webkitBrowser(application) === "Safari") return ios[1]!;
+  return SAFARI_BUILDS.get(webkitBuild(products)) ?? "";
+}
+
+/** `Webkit#build`: the version of the AppleWebKit product, or of the first comment part naming one. */
+function webkitBuild(products: Product[]): string {
+  const product = products.find(({ product }) => WEBKIT_PRODUCT.test(product));
+  if (product !== undefined) return product.version;
+  for (const part of products.flatMap(({ comment }) => comment ?? [])) {
+    const build = WEBKIT_COMMENT.exec(part)?.[1];
+    if (build !== undefined) return build;
+  }
+  return "";
+}
+
+/** `Webkit::BuildVersions`: the Safari version of each WebKit build, from before Safari 3. */
+const SAFARI_BUILDS = new Map([
+  ["85.7", "1.0"],
+  ["85.8.5", "1.0.3"], ["85.8.2", "1.0.3"],
+  ["124", "1.2"],
+  ["125.2", "1.2.2"],
+  ["125.4", "1.2.3"],
+  ["125.5.5", "1.2.4"], ["125.5.6", "1.2.4"], ["125.5.7", "1.2.4"],
+  ["312.1.1", "1.3"], ["312.1", "1.3"],
+  ["312.5", "1.3.1"], ["312.5.1", "1.3.1"], ["312.5.2", "1.3.1"],
+  ["312.8", "1.3.2"], ["312.8.1", "1.3.2"],
+  ["412", "2.0"], ["412.6", "2.0"], ["412.6.2", "2.0"],
+  ["412.7", "2.0.1"],
+  ["416.11", "2.0.2"], ["416.12", "2.0.2"],
+  ["417.9", "2.0.3"], ["418", "2.0.3"],
+  ["418.8", "2.0.4"], ["418.9", "2.0.4"], ["418.9.1", "2.0.4"], ["419", "2.0.4"],
+  ["425.13", "2.2"],
+  ["534.52.7", "5.1.2"],
+]);
+
+/** `OperatingSystems::IOS_VERSION_REGEX`. */
+const IOS_VERSION = /CPU (?:iPhone |iPod )?OS ([\d_]+) like Mac OS X/;
+
+/**
+ * `OperatingSystems.normalize_os`, less the names it gives Windows versions: all that's read of an
+ * operating system here is whether it mentions Android or iOS, and neither those names nor what they
+ * replace do.
+ */
+function normalizeOs(os: string): string {
+  const macOsX = /(?:Intel|PPC) Mac OS X[ \t\n\v\f\r]*([\d_.]+)?/.exec(os);
+  if (macOsX !== null) return macOsX[1] === undefined ? "OS X" : `OS X ${macOsX[1].replaceAll("_", ".")}`;
+  const ios = IOS_VERSION.exec(os);
+  if (ios !== null) return `iOS ${ios[1]!.replaceAll("_", ".")}`;
+  const chromeOs = /CrOS[ \t\n\v\f\r][^ \t\n\v\f\r]+[ \t\n\v\f\r](\d+(?:\.\d+)*)/.exec(os);
+  if (chromeOs !== null) return `ChromeOS ${chromeOs[1]}`;
+  return os;
+}
+
+/**
+ * `UserAgent::Version#<=>`. A version that starts with a number is compared part by part, its first six
+ * parts only, with a missing part as 0 and letters below any number; any other version is below every
+ * version but itself.
+ */
+function compareVersions(version: string, other: string): number {
+  if (!isNumbered(version)) return version === other ? 0 : -1;
+  const [ours, theirs] = [versionParts(version), versionParts(other)];
+  for (let i = 0; i < 6; i++) {
+    const [a, b] = [ours[i] ?? 0n, theirs[i] ?? 0n];
+    if (typeof a === "string" && typeof b === "bigint") return -1;
+    if (typeof a === "bigint" && typeof b === "string") return 1;
+    if (a !== b) return a < b ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * `Version#to_a`: a numbered version's numbers and its trailing letters, or any other version whole.
+ * The gem scans for `/\d+|[A-Za-z][0-9A-Za-z-]*$/`, whose letters can only start in the run of letters,
+ * digits and dashes the version ends with. Trying them anywhere else takes quadratic time on a long
+ * run of letters that ends before the version does, so this reads numbers up to that run's first
+ * letter, and letters from there.
+ */
+function versionParts(version: string): (bigint | string)[] {
+  if (isNilVersion(version)) return [];
+  if (!isNumbered(version)) return [version];
+  const lastRun = version.split(/[^0-9A-Za-z-]/).at(-1)!;
+  const letter = lastRun.search(/[A-Za-z]/);
+  const numbers = letter === -1 ? version : version.slice(0, version.length - lastRun.length + letter);
+  const parts: (bigint | string)[] = (numbers.match(/\d+/g) ?? []).map((digits) => BigInt(digits));
+  return letter === -1 ? parts : [...parts, lastRun.slice(letter)];
+}
+
+/** Whether `Version.new` makes a version comparable: it's a number, or a number and a dot first. */
+const isNumbered = (version: string) => /^\d+(?:\.|$)/.test(version);
+
+/** `Version#nil?`. */
+const isNilVersion = (version: string) => /^[ \t\n\v\f\r]*$/.test(version);
+
+/** `detect_product`: the first product of this name, ignoring case. */
+function detectProduct(products: Product[], name: string): Product | undefined {
+  const lowercase = name.toLowerCase();
+  return products.find(({ product }) => product.toLowerCase() === lowercase);
+}
+
+/** ActiveSupport's `blank?`: nothing but Unicode whitespace. */
+const isBlank = (text: string) => /^\p{White_Space}*$/u.test(text);
+
+const STRIPPED = new Set(["\0", " ", "\t", "\n", "\v", "\f", "\r"]);
+
+/** `String#strip`, which takes NUL and ASCII whitespace off both ends, where `trim` takes Unicode spaces. */
+function rubyStrip(text: string): string {
+  let [start, end] = [0, text.length];
+  while (start < end && STRIPPED.has(text[start]!)) start++;
+  while (end > start && STRIPPED.has(text[end - 1]!)) end--;
+  return text.slice(start, end);
+}
+
+/** How many times `character` appears in `text`. */
+function countOf(text: string, character: string): number {
+  let count = 0;
+  for (let i = text.indexOf(character); i !== -1; i = text.indexOf(character, i + 1)) count++;
+  return count;
+}
+
+/** `String#split`, which drops trailing empty strings. */
+function rubySplit(text: string, separator: string): string[] {
+  const parts = text.split(separator);
+  while (parts.at(-1) === "") parts.pop();
+  return parts;
+}

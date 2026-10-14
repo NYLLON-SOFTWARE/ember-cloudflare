@@ -5,8 +5,8 @@ import { SESSION_REFRESH_MS } from "../src/workspace";
 import { api, apiWith, origin, signIn, upgrade, workspaceSql } from "./support";
 
 const withCookie = (cookie: string) => ({ headers: { Cookie: cookie } });
-/** The same app served over plain HTTP, as `wrangler dev` serves it. */
-const insecureOrigin = "http://ember.test";
+/** The same app served over plain HTTP, as `wrangler dev` serves it, which needn't redirect to HTTPS. */
+const insecureOrigin = "http://localhost:8787";
 const tokenOf = (cookie: string) => cookie.slice(cookie.indexOf("=") + 1);
 
 interface SessionRow {

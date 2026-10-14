@@ -67,7 +67,7 @@ describe(feature("auth.protected-setup"), () => {
     expectPrivate(page);
 
     expect((await request("/first_run/access?token=x")).status).toBe(400);
-    expect((await request("http://ember.test/first_run/access")).status).toBe(403);
+    expect((await request("http://localhost:8787/first_run/access")).status).toBe(403);
     const unprotected = await request("/first_run/access", {}, { EMBER_SETUP_TOKEN: undefined });
     expect(unprotected.status).toBe(404);
     expectPrivate(unprotected);
@@ -126,7 +126,7 @@ describe(feature("auth.protected-setup"), () => {
 
   it("takes the token only from a post's body, over HTTPS, from the access page's own fetch", async () => {
     expect((await exchange(`token=${TOKEN}`, {}, `/first_run/access?token=${TOKEN}`)).status).toBe(400);
-    expect((await exchange(`token=${TOKEN}`, { Origin: "http://ember.test" }, "http://ember.test/first_run/access")).status).toBe(403);
+    expect((await exchange(`token=${TOKEN}`, { Origin: "http://localhost:8787" }, "http://localhost:8787/first_run/access")).status).toBe(403);
     // A fetch always says where it comes from; a request that doesn't isn't the access page's.
     const withoutFetchMetadata = await worker.fetch(
       new Request(`${origin}/first_run/access`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: origin }, body: `token=${TOKEN}` }),
@@ -165,10 +165,10 @@ describe(feature("auth.protected-setup"), () => {
     const query = await request(`/first_run?token=${TOKEN}`, { headers: { Cookie: cookie } });
     expect(query.status).toBe(400);
     expectPrivate(query);
-    expect((await request("http://ember.test/first_run", { headers: { Cookie: cookie } })).status).toBe(403);
-    const overHttp = await request("http://ember.test/api/first_run", {
+    expect((await request("http://localhost:8787/first_run", { headers: { Cookie: cookie } })).status).toBe(403);
+    const overHttp = await request("http://localhost:8787/api/first_run", {
       method: "POST",
-      headers: { Cookie: cookie, Origin: "http://ember.test" },
+      headers: { Cookie: cookie, Origin: "http://localhost:8787" },
       body: JSON.stringify({ name: "Ada", emailAddress: "ada@example.com", password: "12345678" }),
     });
     expect(overHttp.status).toBe(403);
