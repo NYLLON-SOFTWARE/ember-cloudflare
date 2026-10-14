@@ -217,8 +217,10 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   // can't take a tap right now (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
+  // A modal <dialog> makes everything outside it inert, without marking it.
+  const modal = document.querySelector(":modal");
   for (const element of elements(INTERACTIVE)) {
-    if (isDisabled(element) || element.closest("[aria-hidden=true], [inert]") || getComputedStyle(element).pointerEvents === "none") continue;
+    if (isDisabled(element) || element.closest("[aria-hidden=true], [inert]") || (modal && !modal.contains(element)) || getComputedStyle(element).pointerEvents === "none") continue;
     // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
     if (getComputedStyle(element).display === "inline") continue;
     const rect = element.getBoundingClientRect();

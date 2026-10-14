@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isPasswordTooLong,
   isPasswordTooShort,
+  isRoomIcon,
   isRoomId,
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
@@ -10,8 +11,9 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseClientFrame,
-  parseFirstRun,
   parseNewRoom,
+  parseSignUp,
+  ROOM_ICON_NAMES,
 } from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
@@ -79,6 +81,19 @@ describe(feature("rooms.show"), () => {
   });
 });
 
+describe(feature("rooms.icons"), () => {
+  it("takes the name of every icon in the catalog", () => {
+    expect(ROOM_ICON_NAMES).toHaveLength(1869);
+    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash"]));
+    expect(ROOM_ICON_NAMES.filter((name) => !isRoomIcon(name))).toEqual([]);
+  });
+
+  it("refuses anything that isn't exactly one, as ember-rust does", () => {
+    const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
+    expect(values.filter(isRoomIcon)).toEqual([]);
+  });
+});
+
 describe(feature("rooms.create-open"), () => {
   it("takes a kind and a trimmed name", () => {
     expect(parseNewRoom({ kind: "open", name: "  Design  " })).toEqual({ kind: "open", name: "Design" });
@@ -116,7 +131,7 @@ describe(feature("rooms.create-closed"), () => {
 
 describe(feature("auth.first-run"), () => {
   it("takes a name, an email address and a password, trimming only the name", () => {
-    expect(parseFirstRun({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
+    expect(parseSignUp({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
       name: "Ada Lovelace",
       emailAddress: "ada@example.com",
       password: " secret  words ",
@@ -131,7 +146,7 @@ describe(feature("auth.first-run"), () => {
     ["no password", { name: "Ada", emailAddress: "ada@example.com" }, "Name, email address and password are required"],
     ["a password that isn't text", { name: "Ada", emailAddress: "ada@example.com", password: 12345678 }, "Name, email address and password are required"],
   ])("refuses %s and says why", (_, body, error) => {
-    expect(parseFirstRun(body)).toBe(error);
+    expect(parseSignUp(body)).toBe(error);
   });
 
   it("counts a password's characters, not its bytes or UTF-16 units", () => {

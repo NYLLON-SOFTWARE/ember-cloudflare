@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Lucide's icon names (zoom-in, table, italic...) aren't class names, so don't make utilities of them. */
+@source not "./components/icons/lucide";
+
 /* Dark mode follows the `dark` class on <html>, set from the Light / Dark / System picker. */
 @custom-variant dark (&:is(.dark *));
 
@@ -40,6 +43,8 @@
   --mention: oklch(70% 0.2 44);
   /* Campfire's --color-negative, the flash's red, as ember-rust sets --lch-red. */
   --negative: oklch(51% 0.2 31);
+  /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
+  --lightbox: oklch(100% 0 0 / 0.66);
   color-scheme: light;
 }
 
@@ -70,6 +75,7 @@
   --message-divider: #343434;
   --message-hover: #202020;
   --negative: oklch(73.8% 0.184 29.18);
+  --lightbox: oklch(0% 0 0 / 0.66);
   color-scheme: dark;
 }
 
@@ -80,6 +86,9 @@
   /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, and a flash fades away. */
   --animate-shake: shake 400ms both;
   --animate-flash: appear-then-fade 3s 300ms both;
+  /* And its `.btn--success` (buttons.css): a button that copied something pulses as its icon floats away. */
+  --animate-success: success 1s ease-out;
+  --animate-zoom-fade: zoom-fade 300ms ease-out;
 
   @keyframes shake {
     0% {
@@ -106,6 +115,25 @@
       opacity: 1;
     }
   }
+
+  /* Campfire's --color-border-darker, which ember-rust makes its muted ink. */
+  @keyframes success {
+    0% {
+      background-color: var(--muted-foreground);
+      scale: 0.8;
+    }
+    20% {
+      background-color: var(--muted-foreground);
+      scale: 1;
+    }
+  }
+
+  @keyframes zoom-fade {
+    100% {
+      transform: translateY(-2em);
+      opacity: 0;
+    }
+  }
 }
 
 /*
@@ -119,6 +147,15 @@
   }
   @media (pointer: coarse) {
     @slot;
+  }
+}
+
+/* Campfire's `.hide-in-ios-pwa` (utilities.css): Ember added to an iPhone's or iPad's home screen. */
+@custom-variant ios-pwa {
+  @media (display-mode: standalone) {
+    @supports (-webkit-touch-callout: none) {
+      @slot;
+    }
   }
 }
 
@@ -156,6 +193,7 @@
   --color-message-hover: var(--message-hover);
   --color-mention: var(--mention);
   --color-negative: var(--negative);
+  --color-lightbox: var(--lightbox);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar, 60px header. */
   --spacing-rail: 80px;
   --spacing-sidebar: 280px;

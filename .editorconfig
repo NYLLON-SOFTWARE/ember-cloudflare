@@ -9,7 +9,7 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 
 # Byte-for-byte copies of once-campfire's icons, which end without a newline.
-[apps/web/src/components/icons/campfire/*.svg]
+[{apps/web/src/components/icons/campfire,apps/web/public/shortcuts}/*.svg]
 insert_final_newline = false
 
 # Byte-for-byte copies of third-party agent skills and their licenses (.claude/skills/README.md).

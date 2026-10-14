@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, fetchRooms, type Room } from "@/lib/api";
+import { ApiError, fetchRooms, type RoomList } from "@/lib/api";
 import { navigate, useRoomRoute } from "@/hooks/use-route";
 import { Rail } from "./rail";
 import { RoomView } from "./room-view";
@@ -23,15 +23,18 @@ interface Props {
 }
 
 export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
-  const [rooms, setRooms] = useState<Room[] | null>(null);
+  const [list, setList] = useState<RoomList | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const routeRoomId = useRoomRoute();
 
   useEffect(() => {
     fetchRooms()
-      .then(setRooms)
-      .catch((error) => (error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : setRooms([])));
+      .then(setList)
+      .catch((error) => (error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : setList({ rooms: [], invitation: null })));
   }, [onSessionChanged]);
+
+  const rooms = list?.rooms ?? null;
+  const invitation = list?.invitation ?? null;
 
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -80,7 +83,7 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
         </SheetContent>
 
         {room ? (
-          <RoomView key={room.id} room={room} me={me} onSessionChanged={onSessionChanged} />
+          <RoomView key={room.id} room={room} invitation={invitation?.roomId === room.id ? invitation : null} me={me} onSessionChanged={onSessionChanged} />
         ) : (
           <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">
             {rooms ? "No rooms yet." : "Loading…"}

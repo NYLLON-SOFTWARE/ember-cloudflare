@@ -10,6 +10,9 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    // Node runs some of this TypeScript as it is (perf, the deploy check and the protocol they
+    // import), so relative imports there name their .ts files.
+    "allowImportingTsExtensions": true,
     "noEmit": true
   }
 }

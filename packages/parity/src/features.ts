@@ -29,7 +29,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/first_runs/show.html", "crates/views/templates/components/ui.html", "crates/assets/overrides/basecoat/src/password.js", "crates/ember/src/controllers/first_runs.rs", "crates/db/src/models/first_run.rs", "reference/app/models/first_run.rb"],
     upstreamTests: ["parity/kro/first-run.test.mjs", "crates/ember/src/controllers/first_runs.rs", "crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/first_runs_controller_test.rb"],
-    notes: "There's no photo picker until profile photos are stored, and All Talk doesn't say \"Welcome to Ember\" until the welcome card is ported. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.",
+    notes: "There's no photo picker until profile photos are stored. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.",
   },
   {
     id: "auth.protected-setup",
@@ -76,7 +76,6 @@ export const features = [
       "The sign-in page offers \"No account? Join with just a name\", which asks only for the name people will see (1 to 48 characters, trimmed) and then opens the page asked for, or the first room; \"Have an account? Sign in\" goes back.",
       "`POST /api/session` with a `name` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason; without one it's an email sign-in (`auth.sign-in`). Everyone who signs in is someone new, even with a name already in use.",
       "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on; the preview doesn't, since its administrator signs in with a password.",
-      "It stands in for joining until join links are ported (`auth.sign-up`).",
     ],
     sources: [],
   },
@@ -107,7 +106,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/app/tests.rs"],
-    notes: "The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.",
+    notes: "The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet. The Worker redirects a signed-in person's join link to `/`, and the join form's post answers them 409 naming `/`, which the page then loads.",
   },
   {
     id: "auth.sessions",
@@ -156,7 +155,7 @@ export const features = [
     id: "auth.sign-up",
     title: "Sign up with the join link",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/join/<current code>` (titled \"Sign up\") shows \"Join <workspace name>\" / \"Create your account and join the conversation.\", an optional photo (\"Your profile photo\", \"Upload photo\", \"Optional\"), Name, Email address and Password (each with its label as placeholder; the password up to 72 characters), Create account, \"Already have an account? Sign in\" and the help contact.",
       "Any other code answers 404 with an empty body, and every join URL fails with 500 while there's no workspace.",
@@ -166,19 +165,20 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users.rs", "crates/views/templates/users/new.html", "reference/app/controllers/users_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/users_controller_test.rb", "parity/kro/workspace.test.mjs"],
+    notes: "There's no photo until profile photos are stored (`users.avatar-upload`), and it shows Ember's flame until workspace logos are ported (`accounts.logo`). The Worker serves the page, the app's own, only for the current code; the form posts JSON to `/api/join/<code>` and opens the first room without reloading. Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 \"Password can't be blank.\" rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.",
   },
   {
     id: "auth.help-contact",
     title: "Help contact on sign-in pages",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The sign-in and join pages end with a mail button for the first administrator, showing their email address with a lifebuoy icon, titled \"Email <name>\" and linking to `mailto:\"<name>\" <<email>>`, then \"Ember™ version <version>\"; both are left out when there's no administrator.",
       "The first administrator is the earliest-created one, whatever their status, so a removed one still shows, with their scrambled email address.",
     ],
     sources: ["crates/views/templates/accounts/_help_contact.html", "crates/ember/src/controllers/presenters/accounts.rs", "reference/app/views/accounts/_help_contact.html.erb"],
     upstreamTests: ["parity/screens.yml"],
-    notes: "Only the sign-in page has it until the join page is ported (`auth.sign-up`). Nobody can be removed yet, so no scrambled address shows.",
+    notes: "Nobody can be removed yet, so no scrambled address shows.",
   },
   {
     id: "auth.csrf",
@@ -280,7 +280,7 @@ export const features = [
     id: "accounts.join-link",
     title: "Join link",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The workspace has one join code of 12 random letters and digits in groups of four (`XXXX-XXXX-XXXX`), made with the account and kept until an administrator regenerates it.",
       "Workspace settings shows everyone the absolute link `https://<host>/join/<code>` in a read-only field labeled \"Share to invite more people\".",
@@ -290,6 +290,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/_invite.html", "crates/views/src/helpers/application.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/copy_to_clipboard_controller.js", "crates/assets/overrides/controllers/web_share_controller.js", "reference/app/models/account/joinable.rb"],
     upstreamTests: ["reference/test/models/account/joinable_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    notes: "Only the welcome card shows the link until workspace settings are ported. On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.",
   },
   {
     id: "accounts.regenerate-join-link",
@@ -308,7 +309,7 @@ export const features = [
     id: "accounts.qr-codes",
     title: "QR codes for links",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.",
       "It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version=\"1.0\" standalone=\"yes\"?><svg`.",
@@ -318,6 +319,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/qr_code.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs", "crates/views/src/helpers/application.rs", "reference/app/controllers/qr_code_controller.rb"],
     upstreamTests: ["reference/test/controllers/qr_code_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs"],
+    notes: "The welcome card's join link opens its QR code; workspace settings' join link and the sign-in link get theirs when those are ported (`accounts.join-link`, `auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
   },
   {
     id: "accounts.people",
@@ -673,7 +675,7 @@ export const features = [
     id: "rooms.icons",
     title: "Room icons",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.",
       "Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`\" coffee \"`, `\"Coffee\"`, `\"../coffee\"`, `\"<svg></svg>\"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.",
@@ -682,7 +684,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/src/helpers/icons.rs", "crates/assets/overrides/lucide/catalog.json", "crates/views/templates/rooms/show/_nav.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs", "crates/db/src/tests/room_test.rs"],
-    notes: "Every room shows `#` here.",
+    notes: "Only the catalog is here so far: ember-rust's `catalog.json` and its license, copied byte for byte, and `isRoomIcon` in the protocol, which takes exactly its 1,869 names and refuses the values ember-rust refuses. Rooms don't have icons yet, so every room shows `#`.",
   },
   {
     id: "rooms.icon-picker",
@@ -722,7 +724,7 @@ export const features = [
     id: "rooms.invitation-card",
     title: "Welcome and invite card",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The workspace's oldest room, of any kind, shows \"Welcome to Ember\" / \"To invite people to chat, share the join link below.\" while it holds 40 messages or fewer; no other room shows it. The card comes with the page, so it stays until a reload.",
       "It shows the workspace logo, or Ember's mark when there's none, and the absolute join link (`https://<host>/join/<code>`) in a read-only field labelled \"Share to invite more people\" for screen readers.",
@@ -731,7 +733,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_invitation.html", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs"],
     upstreamTests: ["parity/screens.yml", "parity/kro/workspace.test.mjs"],
-    notes: "Every empty room here shows its own welcome instead (`ui.empty-room`).",
+    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.",
   },
   {
     id: "rooms.member-only-access",
@@ -1412,7 +1414,7 @@ export const features = [
     id: "attachments.lightbox",
     title: "Image viewer",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Clicking an image opens the original file, not its thumbnail, in a dialog (\"Image Viewer (Press escape to close)\") over the blurred page, behind the page's own background color at 66% opacity.",
       "Close (\"Close image viewer\") sits at the top right, Download (\"Download file\", hidden in the iOS home-screen app) at the bottom right and Share (\"Share file\", only where the browser can share) at the top left; Download and Share use the file's download link.",
@@ -1420,6 +1422,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/_lightbox.html", "reference/app/javascript/controllers/lightbox_controller.js", "reference/app/assets/stylesheets/lightbox.css"],
     upstreamTests: ["parity/screens.yml"],
+    notes: "Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
   },
   {
     id: "attachments.svg-preview",
@@ -2277,7 +2280,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/appearance.html", "crates/assets/overrides/basecoat/src/appearance.js", "crates/assets/overrides/basecoat/src/workspace-appearance.js", "crates/assets/overrides/ember/appearance.js", "crates/views/templates/layouts/application.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/first-run.test.mjs", "crates/assets/overrides/basecoat/test/lifecycle.test.mjs"],
-    notes: "The button is just \"Appearance\", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance` or theme color.",
+    notes: "The button is just \"Appearance\", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.",
   },
   {
     id: "ui.scroll",
@@ -2299,7 +2302,10 @@ export const features = [
     title: "Empty room",
     origin: "cloudflare",
     status: "ported",
-    behaviors: ["A room nobody has written in says \"Welcome to #<room>\" and \"This is the very beginning of the room. Say hello!\""],
+    behaviors: [
+      "A room nobody has written in says \"Welcome to #<room>\" and \"This is the very beginning of the room. Say hello!\"",
+      "The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).",
+    ],
     sources: [],
   },
   {
@@ -2486,7 +2492,7 @@ export const features = [
     id: "platform.manifest",
     title: "Web app manifest",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/webmanifest.json` answers JSON without sign-in. It names the app after the workspace (\"Ember\" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.",
       "It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description \"A chat app from the makers of Basecamp and HEY.\" and the categories social, business and productivity.",
@@ -2494,19 +2500,21 @@ export const features = [
       "It lists three 1080×2400 narrow screenshots labelled \"Ember is an installable, self-hosted group chat system.\", \"Easily invite people. Make rooms. @mentions, DMs, and mobile support.\" and \"Full support for dark mode, customizable to your brand.\"",
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
-    upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. Both shortcuts open the first room until the New room page and profiles are ported (`rooms.create-open`, `users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",
     title: "Installable page head",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.",
       "`theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.",
     ],
     sources: ["crates/views/templates/layouts/application.html", "reference/app/views/layouts/application.html.erb"],
-    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original.",
+    upstreamTests: ["crates/views/tests/parity_a.rs"],
+    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.",
   },
   {
     id: "platform.limits",

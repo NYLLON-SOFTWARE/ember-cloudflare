@@ -12,7 +12,7 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, setup's pages, static assets) and the `ChatRoom`, `Workspace`, `PasswordHasher` and `Unfurler` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, setup's pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `PasswordHasher` and `Unfurler` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
 
 ```
@@ -161,8 +161,9 @@ per IP address every 3 minutes) or, when `EMBER_GUEST_SIGN_IN` allows it, by dis
 session cookie the Workspace keeps, sign-out, which closes that browser's sockets, open and private
 rooms that only their members can open (made through the API until the New room page lands), live
 messages with optimistic sends, edit and delete your own messages, Ember's quick and tray reactions,
-presence, typing indicators, history paging, reconnects, and the Light / Dark / System appearance
-picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
+presence, typing indicators, history paging, reconnects, the Light / Dark / System appearance
+picker, and the web app manifest that lets browsers install Ember as an app. The rail's DMs,
+Activity, Search and Workspace entries are shown but disabled.
 
 Next, roughly in order: the join link, a workspace directory for creating rooms and private rooms,
 direct messages, unread state and the Activity filter, starred rooms and room order, rich text and

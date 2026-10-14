@@ -90,6 +90,24 @@ test("a control under something floating over its list must still be big enough 
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
 });
 
+test("controls behind a modal dialog are skipped, but the dialog's own must be big enough", async ({ page, safeArea }) => {
+  // A modal <dialog> makes the page behind it inert without marking it, as a menu's aria-hidden does.
+  await page.setContent(
+    phonePage(`
+      <button aria-label="Behind" style="width: 44px; height: 44px"></button>
+      <dialog style="padding: 16px">
+        <div style="display: flex; gap: 40px">
+          <button aria-label="Small" style="width: 32px; height: 32px"></button>
+          <button aria-label="Big" style="width: 44px; height: 44px"></button>
+        </div>
+      </dialog>
+    `),
+  );
+  await page.evaluate(() => document.querySelector("dialog")!.showModal());
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
+});
+
 test("text cut off for good fails, but not text clamped on purpose", async ({ page, safeArea }) => {
   await page.setContent(
     phonePage(`
