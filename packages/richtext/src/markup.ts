@@ -11,9 +11,22 @@ import { append, HTML_NAMESPACE, removeChildren, type Element, type Fragment, ty
 export const MAX_TREE_DEPTH = 400;
 export const MAX_ATTRIBUTES = 400;
 
+/**
+ * Ember's own limit on the formatting elements a parse reopens, which Gumbo doesn't have. Each
+ * paragraph after up to 400 unclosed formatting elements reopens them all, so a few KB could
+ * otherwise parse into megabytes. A misnested message reopens a few per paragraph.
+ */
+export const MAX_REOPENED_ELEMENTS = 1_000;
+
+const LIMIT_MESSAGES = {
+  depth: "Document tree depth limit exceeded",
+  attributes: "Attributes per element limit exceeded",
+  reopened: "Reopened formatting elements limit exceeded",
+};
+
 export class ParseLimitError extends Error {
-  constructor(readonly limit: "depth" | "attributes") {
-    super(limit === "depth" ? "Document tree depth limit exceeded" : "Attributes per element limit exceeded");
+  constructor(readonly limit: keyof typeof LIMIT_MESSAGES) {
+    super(LIMIT_MESSAGES[limit]);
     this.name = "ParseLimitError";
   }
 }

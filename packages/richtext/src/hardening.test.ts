@@ -147,6 +147,14 @@ describe(feature("messages.rich-text"), () => {
     SLOW_TEST_MS,
   );
 
+  it("refuses a body that reopens more formatting elements than a message would", () => {
+    // Parsed in full, as Rails parses them, these 19 KB hold over 600,000 elements
+    const unclosed = Array.from({ length: 390 }, (_, i) => `<b class="b${i}">`).join("");
+    expectRefusedQuickly("390 formatting elements reopened in each of 1,600 paragraphs", `<p>${unclosed}</p>${"<p>x</p>".repeat(1_600)}`);
+    const boldTitle = `<p><b>Title</p>${"<p>line</p>".repeat(500)}`;
+    expect(prepareBody(parseHtml, boldTitle, none)?.html).toBe(`<p><b>Title</b></p>${"<p><b>line</b></p>".repeat(500)}`);
+  });
+
   const hostileBodies = {
     "700 KB of <font>s": `<p>${"<font>x</font>".repeat(50_000)}</p>`,
     "a <font> of 200,000 <br>s": `<p><font>${"<br>".repeat(200_000)}</font></p>`,
@@ -155,6 +163,7 @@ describe(feature("messages.rich-text"), () => {
     "10,000 mentions": `<p>${mention(1).repeat(10_000)}</p>`,
     "2,000 galleries": `<div>${galleryAttachment.repeat(2)}</div>`.repeat(2_000),
     "300 KB of misnested links": `<b>${"<a>x</a><p>y".repeat(25_000)}`,
+    "a misnested <b> around 200,000 <br>s": `<b><div>${"<br>".repeat(200_000)}</b>`,
     "500 KB of escaped ampersands": `<p><a href="${"&amp;#38;".repeat(50_000)}">x</a></p>`,
   };
   for (const [what, body] of Object.entries(hostileBodies)) {

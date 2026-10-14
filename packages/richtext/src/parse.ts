@@ -2,7 +2,15 @@
 // for Action Text, held to Gumbo's limits.
 
 import { html, Parser, TokenizerMode, type Token, type TreeAdapter, type TreeAdapterTypeMap } from "parse5";
-import { BODY, MAX_ATTRIBUTES, MAX_TREE_DEPTH, ParseLimitError, withoutByteOrderMark, type HtmlParser } from "./markup";
+import {
+  BODY,
+  MAX_ATTRIBUTES,
+  MAX_REOPENED_ELEMENTS,
+  MAX_TREE_DEPTH,
+  ParseLimitError,
+  withoutByteOrderMark,
+  type HtmlParser,
+} from "./markup";
 import {
   append,
   createComment,
@@ -116,11 +124,13 @@ const treeAdapter: TreeAdapter<TreeMap> = {
  * pending in a table can reopen formatting elements past the limit unchecked), and counts the
  * open elements, the fragment's root `html` included (nokogiri's ext/nokogiri/gumbo.c). Attributes
  * are counted as the tokenizer finishes each name, before a duplicate is dropped, on end tags too.
+ * It also keeps Ember's limit on reopened formatting elements, and moves children in linear time.
  * parse5 exports its parser class for its own use, so package.json pins the version this hooks into.
  */
 class GumboParser extends Parser<TreeMap> {
   private handling = 0;
   private ended = false;
+  private reopened = 0;
 
   constructor(...args: ConstructorParameters<typeof Parser<TreeMap>>) {
     super(...args);
@@ -168,6 +178,23 @@ class GumboParser extends Parser<TreeMap> {
   override onEof(token: Token.EOFToken) {
     this.ended = true;
     super.onEof(token);
+  }
+
+  /** Reopens the formatting elements a block closed, up to Ember's `MAX_REOPENED_ELEMENTS` in all. */
+  override _reconstructActiveFormattingElements(): void {
+    const open = this.openElements.stackTop;
+    super._reconstructActiveFormattingElements();
+    this.reopened += this.openElements.stackTop - open;
+    if (this.reopened > MAX_REOPENED_ELEMENTS) throw new ParseLimitError("reopened");
+  }
+
+  /**
+   * Moves all of `donor`'s children to `recipient` at once, as ember-rust's `reparent_children`
+   * (crates/richtext/src/dom.rs) does. parse5 detaches them one at a time from the front, so the
+   * adoption agency took time quadratic in the number of children a misnested block had.
+   */
+  override _adoptNodes(donor: Parent, recipient: Parent): void {
+    for (const child of removeChildren(donor)) append(recipient, child);
   }
 }
 

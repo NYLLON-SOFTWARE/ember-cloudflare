@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
+import { MAX_ATTRIBUTES, MAX_REOPENED_ELEMENTS, ParseLimitError } from "./markup";
 import { parseHtml } from "./parse";
 import { toHtml } from "./serialize";
 
@@ -93,6 +93,14 @@ describe(feature("messages.rich-text"), () => {
     expect(failure(`<p ${attributes} a1=again>x</p>`)).toBe("attributes");
     expect(failure(`<p>x</p ${attributes} a401>`)).toBe("attributes");
     expect(failure(`<p ${attributes} a401`)).toBe("attributes");
+  });
+
+  it("limits the formatting elements a parse reopens, which Gumbo doesn't", () => {
+    expect(MAX_REOPENED_ELEMENTS).toBe(1_000);
+    // Each paragraph reopens the three elements the first one left open
+    const paragraphs = (n: number) => `<p><b><i><u>x</p>${"<p>x</p>".repeat(n)}`;
+    expect(failure(paragraphs(333))).toBeUndefined();
+    expect(failure(paragraphs(334))).toBe("reopened");
   });
 
   it("keeps what the tokenizer already deduplicated", () => {
