@@ -131,6 +131,7 @@ describe(feature("accounts.name"), () => {
 
   it.each([
     ["no body", "", "Expected a JSON object"],
+    ["a list", [], "Expected a JSON object"],
     ["a name that isn't text", { name: null }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
     ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s, changing nothing", async (_, body, error) => {

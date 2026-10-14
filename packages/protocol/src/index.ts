@@ -449,7 +449,8 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
  * ember-rust, the name is saved as typed, even blank.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
-  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  // An array is an object too, but not one that can name a change.
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
   const { name } = data as Record<string, unknown>;
   if (name === undefined) return {};
   return typeof name === "string" && name.length <= MAX_ACCOUNT_NAME_LENGTH ? { name } : `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;

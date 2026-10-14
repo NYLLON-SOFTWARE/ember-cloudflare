@@ -238,6 +238,7 @@ describe(feature("accounts.name"), () => {
 
   it.each([
     ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "Ember Studio" }], "Expected a JSON object"],
     ["a name that isn't text", { name: 7 }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
     ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
