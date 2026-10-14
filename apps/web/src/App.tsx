@@ -74,15 +74,19 @@ export function App() {
     loadPage(SIGN_IN_PATH);
   }, []);
   // As in ember-rust, a sign-out that doesn't reach the server leaves this browser signed in; one
-  // that does goes to sign in, from where signing in again goes home.
+  // that does goes to sign in, from where signing in again goes home. It settles with whether it did.
   const signOutHere = useCallback(() => {
     signingOut.current = true;
-    signOut().then(
+    return signOut().then(
       () => {
         forgetReturnPath();
         loadPage(SIGN_IN_PATH);
+        return true;
       },
-      () => void (signingOut.current = false),
+      () => {
+        signingOut.current = false;
+        return false;
+      },
     );
   }, []);
   // As in ember-rust, someone who joins goes home, signed in.

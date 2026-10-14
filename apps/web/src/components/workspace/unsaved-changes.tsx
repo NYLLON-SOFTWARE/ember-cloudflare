@@ -32,8 +32,8 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   // How to go where the person was going, once they decide to.
-  const proceed = useRef<(() => void) | null>(null);
-  // Once Discard or Save lets the page go, nothing asks again.
+  const proceed = useRef<(() => unknown) | null>(null);
+  // Once Discard or Save lets the page go, nothing asks again, unless it doesn't go after all.
   const released = useRef(false);
   // Save found a field the form won't accept, which the browser points at once the dialog has closed.
   const invalid = useRef(false);
@@ -69,12 +69,14 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
     setAsking(false);
   };
 
-  const go = () => {
+  const go = async () => {
     const next = proceed.current;
     released.current = true;
     proceed.current = null;
     setAsking(false);
-    next?.();
+    // A sign-out that fails leaves the page as it was, so the form is guarded again, as ember-rust's
+    // settings.js guards it again when the form it let through isn't sent.
+    if ((await next?.()) === false) released.current = false;
   };
 
   const save = async () => {
@@ -93,7 +95,7 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
     } finally {
       setSaving(false);
     }
-    go();
+    await go();
   };
 
   return (
@@ -142,7 +144,7 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
           </p>
         )}
         <div className="mt-[26px] flex justify-end gap-2.5">
-          <button type="button" disabled={saving} onClick={go} className={cn(ACTION, "bg-background text-foreground")}>
+          <button type="button" disabled={saving} onClick={() => void go()} className={cn(ACTION, "bg-background text-foreground")}>
             Discard
           </button>
           <button

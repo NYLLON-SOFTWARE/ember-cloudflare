@@ -40,7 +40,7 @@ function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
 export type RailPage = "home" | "workspace" | null;
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
-export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; onSignOut: () => void }) {
+export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; onSignOut: () => Promise<boolean> }) {
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav

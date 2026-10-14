@@ -180,6 +180,23 @@ describe(feature("rooms.unsaved-changes"), () => {
     expect(signOut).toHaveBeenCalledOnce();
   });
 
+  it("lets a sign-out through once the changes are discarded, and guards them again if it fails", async () => {
+    let signedOut = (_: boolean) => {};
+    const signOut = vi.fn(() => new Promise<boolean>((resolve) => (signedOut = resolve)));
+    const { user } = showForm();
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(signOut).toHaveBeenCalledOnce();
+    // Signing out goes on to load the sign-in page, which mustn't ask.
+    expect(unloadAsks()).toBe(false);
+
+    await act(async () => signedOut(false));
+    expect(unloadAsks()).toBe(true);
+    goTo("/rooms/general");
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(location.pathname).toBe(SETTINGS_PATH);
+  });
+
   it("has the browser ask before reloading or closing the tab, only while there are changes", () => {
     const { rerender } = showForm({ changed: false });
     expect(unloadAsks()).toBe(false);

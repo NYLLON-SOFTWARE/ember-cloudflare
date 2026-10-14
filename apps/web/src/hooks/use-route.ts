@@ -28,9 +28,9 @@ export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 /**
  * Asked before the app leaves the page shown, with the path it's going to, or null for leaving the app,
  * as signing out does. It answers true to hold the app on the page, and then calls `proceed` if the
- * person decides to go after all.
+ * person decides to go after all, which for leaving the app settles with whether it left.
  */
-export type LeaveGuard = (path: string | null, proceed: () => void) => boolean;
+export type LeaveGuard = (path: string | null, proceed: () => unknown) => boolean;
 
 let guard: LeaveGuard | null = null;
 
@@ -42,9 +42,12 @@ export function guardLeaving(leaveGuard: LeaveGuard): () => void {
   };
 }
 
-/** Calls `go`, which leaves the app, as signing out does, once the page's guard lets it. */
-export function leave(go: () => void): void {
-  if (!guard?.(null, go)) go();
+/**
+ * Leaves the app with `go`, as signing out does, once the page's guard lets it. `go` settles with
+ * whether the app left, since signing out can fail and leave the page as it was.
+ */
+export function leave(go: () => Promise<boolean>): void {
+  if (!guard?.(null, go)) void go();
 }
 
 const listeners = new Set<() => void>();

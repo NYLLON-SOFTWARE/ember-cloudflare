@@ -23,7 +23,8 @@ const RAIL_PAGES = { room: "home", "new-room": null, "room-settings": null, "wor
  */
 interface Props {
   me: User;
-  onSignOut: () => void;
+  /** Signs out, settling with whether it did. */
+  onSignOut: () => Promise<boolean>;
   /**
    * Called when this browser's session stops signing in `me`: with null once it has expired, or with
    * whoever another tab signed in as.
