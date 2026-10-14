@@ -1,8 +1,8 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
-import type { Page, WebSocketRoute } from "@playwright/test";
+import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
 import { cookieHeader, invitation, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, test, type Member } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
   test("lists the rooms the server says you're in", async ({ members, rooms }) => {
@@ -53,20 +53,20 @@ test.describe(feature("sidebar.unread"), () => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     const general = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" });
-    await expect(general(grace.page)).not.toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).not.toHaveAccessibleDescription(/^Unread/);
 
     await ada.send("Lunch?");
-    await expect(general(grace.page)).toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).toHaveAccessibleDescription(/^Unread/);
     await expect(general(grace.page)).toHaveCSS("font-weight", "650");
     await expect(general(grace.page).locator("span").last()).toHaveCSS("width", "7px");
 
     // The server keeps the mark.
     await grace.page.reload();
-    await expect(general(grace.page)).toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).toHaveAccessibleDescription(/^Unread/);
 
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
-    await expect(general(grace.page)).not.toHaveAccessibleDescription("Unread");
+    await expect(general(grace.page)).not.toHaveAccessibleDescription(/^Unread/);
     await expect(general(grace.page)).toHaveCSS("font-weight", "400");
   });
 });
@@ -147,6 +147,75 @@ test.describe(feature("sidebar.favorites"), () => {
     expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
     await expect(star).toHaveAttribute("aria-pressed", "false");
     await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(["#general", "#random"]);
+  });
+});
+
+test.describe(feature("sidebar.favorite-order"), () => {
+  const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
+  const status = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
+
+  /** Stars `roomIds` in turn, as the header's star does. */
+  async function star(request: APIRequestContext, member: Member, ...roomIds: string[]) {
+    for (const roomId of roomIds) {
+      const starred = await request.put(`/api/rooms/${roomId}/favorite`, { data: { favorite: true }, headers: { Cookie: cookieHeader(member.session) } });
+      expect(starred.status(), await starred.text()).toBe(200);
+    }
+  }
+
+  test("drags a starred room held with the mouse to a new place, which every tab of yours shows and a reload keeps", async ({ members, request, rooms }) => {
+    const grace = await members.signIn("Grace");
+    const secondTab = await grace.page.context().newPage();
+    await secondTab.goto(`/rooms/${rooms.random.id}`);
+    await star(request, grace, rooms.general.id, rooms.random.id);
+    for (const page of [grace.page, secondTab]) await expect(rows(page)).toHaveText(["#general★", "#random★"]);
+
+    const from = (await rows(grace.page).last().boundingBox())!;
+    const to = (await rows(grace.page).first().boundingBox())!;
+    await grace.page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await grace.page.mouse.down();
+    await expect(status(grace.page, "Moving random. Release to save, or press Escape to cancel.")).toBeAttached();
+    await grace.page.mouse.move(to.x + to.width / 2, to.y + 2, { steps: 4 });
+    await expect(rows(grace.page)).toHaveText(["#random★", "#general★"]);
+    await grace.page.mouse.up();
+    await expect(status(grace.page, "Starred room order saved.")).toBeAttached();
+    // Letting go over the room's row didn't open it.
+    await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await expect(rows(secondTab)).toHaveText(["#random★", "#general★"]);
+
+    await secondTab.reload();
+    await expect(rows(secondTab)).toHaveText(["#random★", "#general★"]);
+  });
+
+  test("moves a starred room past the next with Alt and an arrow, keeping it focused", async ({ members, request, rooms }) => {
+    const grace = await members.signIn("Grace");
+    await star(request, grace, rooms.general.id, rooms.random.id);
+    await expect(rows(grace.page)).toHaveText(["#general★", "#random★"]);
+    const random = rows(grace.page).filter({ hasText: "random" });
+    await expect(random).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+
+    await random.focus();
+    await grace.page.keyboard.press("Alt+ArrowUp");
+    await expect(rows(grace.page)).toHaveText(["#random★", "#general★"]);
+    await expect(random).toBeFocused();
+    await expect(status(grace.page, "Starred room order saved.")).toBeAttached();
+
+    await grace.page.keyboard.press("Alt+ArrowDown");
+    await expect(rows(grace.page)).toHaveText(["#general★", "#random★"]);
+    await expect(random).toBeFocused();
+    await grace.page.reload();
+    await expect(rows(grace.page)).toHaveText(["#general★", "#random★"]);
+  });
+
+  test("puts the stars back and says so when an order can't be saved", async ({ members, request, rooms }) => {
+    const grace = await members.signIn("Grace");
+    await star(request, grace, rooms.general.id, rooms.random.id);
+    await expect(rows(grace.page)).toHaveText(["#general★", "#random★"]);
+    await grace.page.route("**/api/sidebar/order", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
+
+    await rows(grace.page).last().focus();
+    await grace.page.keyboard.press("Alt+ArrowUp");
+    await expect(status(grace.page, "Couldn’t save room order. Please try again.")).toBeVisible();
+    await expect(rows(grace.page)).toHaveText(["#general★", "#random★"]);
   });
 });
 

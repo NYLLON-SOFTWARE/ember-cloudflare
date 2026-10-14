@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, Favorites, Me, Room, RoomId } from "@ember/protocol";
+import type { Account, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -10,7 +10,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
-import { inSidebarOrder, markedUnread } from "@/lib/room-list";
+import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -41,8 +41,9 @@ interface Redirect {
   alert?: string;
 }
 
-/** The stars of someone whose rooms haven't loaded yet. */
-const NO_FAVORITES: RoomId[] = [];
+/** The rooms, and stars, of someone whose rooms haven't loaded yet. */
+const NO_ROOMS: SidebarRoom[] = [];
+const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
@@ -121,10 +122,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
-  const favorites = list?.favorites.rooms ?? NO_FAVORITES;
-  // The sidebar lists the starred rooms first, then the rest by name.
-  const listed = useMemo(() => inSidebarOrder(rooms ?? [], favorites), [rooms, favorites]);
-  const starred = useMemo(() => new Set(favorites), [favorites]);
+  const favorites = list?.favorites ?? NO_FAVORITES;
+  const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
 
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -242,11 +241,22 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const currentRoomId = room?.id ?? null;
   const activity = {
     on: unreadOnly,
-    unread: listed.filter((r) => markedUnread(r, currentRoomId)).length,
+    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => setUnreadOnly((on) => !on),
   };
   const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onSignOut={onSignOut} />;
-  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} starred={starred} currentRoomId={currentRoomId} unreadOnly={unreadOnly} onSelect={select} />;
+  const sidebar = (
+    <Sidebar
+      workspaceName={workspaceName}
+      rooms={rooms ?? NO_ROOMS}
+      favorites={favorites}
+      currentRoomId={currentRoomId}
+      unreadOnly={unreadOnly}
+      onSelect={select}
+      onStarred={starredRooms}
+      onSessionChanged={onSessionChanged}
+    />
+  );
 
   const page = () => {
     switch (route.page) {

@@ -381,6 +381,8 @@ export const MAX_ROOM_NAME_LENGTH = 100;
 export const MAX_ACCOUNT_NAME_LENGTH = 100;
 /** How many people one request can name: a bound on the request's size, not on a room's. */
 export const MAX_LISTED_USERS = 1_000;
+/** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
+export const MAX_FAVORITES = 4_096;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -529,6 +531,18 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
   return userIds(r.memberIds) ? { ...changes, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/**
+ * Parses an untrusted order for someone's starred rooms, as ember-rust's `parse_order` reads one
+ * (users/sidebars.rs). Returns why it's refused instead of the rooms.
+ */
+export function parseFavoriteOrder(data: unknown): RoomId[] | string {
+  const roomIds = typeof data === "object" && data !== null ? (data as Record<string, unknown>).roomIds : undefined;
+  if (!Array.isArray(roomIds)) return "roomIds must be an array";
+  if (roomIds.length > MAX_FAVORITES) return "too many rooms";
+  const ids = roomIds.filter((id): id is RoomId => typeof id === "string" && isRoomId(id));
+  return ids.length === roomIds.length && new Set(ids).size === ids.length ? ids : "room IDs must be unique and valid";
 }
 
 /**

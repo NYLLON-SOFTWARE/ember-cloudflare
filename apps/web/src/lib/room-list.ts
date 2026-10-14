@@ -25,6 +25,16 @@ export function inSidebarOrder<T extends Room>(rooms: T[], favorites: RoomId[]):
 }
 
 /**
+ * `order` with `roomId` moved to just before `beforeId`, or last when that's null, as
+ * channel_order_controller.js moves a starred room's row.
+ */
+export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | null): RoomId[] {
+  const others = order.filter((id) => id !== roomId);
+  const place = beforeId === null ? -1 : others.indexOf(beforeId);
+  return place === -1 ? [...others, roomId] : [...others.slice(0, place), roomId, ...others.slice(place)];
+}
+
+/**
  * Whether the sidebar marks `room` unread, as rooms_list_controller.js marks its row: never the room
  * the tab shows, `currentRoomId`, which counts as read while it's open.
  */
@@ -74,8 +84,13 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
   switch (change.type) {
     case "saved":
       return { ...list, rooms: withRoom(list.rooms, change.room) };
-    case "gone":
-      return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId) };
+    // A room that's gone takes its star with it, as the server's stars leave out the rooms someone can't
+    // star, so an order saved next lists the stars it knows.
+    case "gone": {
+      const stars = list.favorites.rooms;
+      const favorites = stars.includes(change.roomId) ? { ...list.favorites, rooms: stars.filter((id) => id !== change.roomId) } : list.favorites;
+      return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId), favorites };
+    }
     case "marked":
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
     case "join code":
