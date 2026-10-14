@@ -113,6 +113,22 @@ describe(feature("rooms.show"), () => {
     expect(await roomHeading()).toHaveTextContent("random");
     expect(roomListRequests()).toBe(3);
   });
+
+  it("asks for the list again only once the list it last asked for has come", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    let answer = (_: Response) => {};
+    const answers = [() => Response.json({ rooms }), () => new Promise<Response>((resolve) => (answer = resolve)), () => Response.json({ rooms: [...rooms, design] })];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    showWorkspace("/rooms/secret");
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    act(() => navigate("/rooms/design"));
+    // So an older list can't take the place of a newer one, losing changes made since it was asked for.
+    expect(roomListRequests()).toBe(2);
+    await act(async () => answer(Response.json({ rooms })));
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(roomListRequests()).toBe(3);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe(feature("rooms.last-visited"), () => {

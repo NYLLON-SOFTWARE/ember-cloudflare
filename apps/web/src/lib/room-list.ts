@@ -38,7 +38,8 @@ export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId:
 
 /**
  * Someone's rooms: the server's list, once it arrives, with the changes made here since it was asked
- * for. Asked for again, it keeps the list it has until the new one arrives.
+ * for. Asked for again, it keeps the list it has until the new one arrives. It follows one list on its
+ * way at a time, so it's asked for again only once the last has come or failed to.
  */
 export interface RoomListState {
   list: RoomList | null;

@@ -154,11 +154,12 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
 
   // A room the list doesn't have may be one made, or opened to this person, since it came, which
   // ember-rust's server would know: the list is asked for again before the address counts as naming a
-  // room they can't see, once each time it's visited.
+  // room they can't see, once each time it's visited. One list is on its way at a time, so an older
+  // one can't take the place of a newer one, which has changes made here since the older was asked for.
   const [askedAgain, setAskedAgain] = useState<Route | null>(null);
   const namedId = namedRoomId(route);
   const unlisted = rooms !== null && !goneRoom && namedId !== null && !rooms.some((r) => r.id === namedId);
-  const askAgain = unlisted && askedAgain !== route;
+  const askAgain = unlisted && askedAgain !== route && pending === null;
   useEffect(() => {
     if (!askAgain) return;
     setAskedAgain(route);
