@@ -34,6 +34,16 @@ export function htmlEscape(value: string): string {
   return value.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
 }
 
+/** `ERB::Util.url_encode`: every UTF-8 byte but `a-z`, `A-Z`, `0-9`, `_`, `-`, `.` and `~` as `%XX`. */
+export function urlEncode(value: string): string {
+  let encoded = "";
+  for (const byte of new TextEncoder().encode(value)) {
+    const c = String.fromCharCode(byte);
+    encoded += /[a-zA-Z0-9_.~-]/.test(c) ? c : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+  }
+  return encoded;
+}
+
 /** `String#chomp`: one trailing `\r\n`, `\n` or `\r`. */
 export function chomp(value: string): string {
   if (value.endsWith("\r\n")) return value.slice(0, -2);

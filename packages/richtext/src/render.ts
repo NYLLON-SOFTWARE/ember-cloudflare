@@ -25,8 +25,8 @@ import {
   sanitizeContentAttribute,
 } from "./content";
 import { BODY, parseReplacement, setInnerHtml, type HtmlParser } from "./markup";
-import { userGid } from "./mentions";
-import { chomp, presence, strip } from "./ruby";
+import { mentionSgid } from "./mentions";
+import { chomp, htmlEscape, presence, strip } from "./ruby";
 import { ACTION_TEXT, ATTACHMENT_ATTRIBUTES, AUTO_LINK, CONTENT_FILTER, sanitize, sanitizeTags, scrub } from "./sanitize";
 import { toHtml } from "./serialize";
 import {
@@ -63,19 +63,19 @@ const isMentionMarker = (element: Element) => element.name === MENTION_MARKER;
 /**
  * The form Ember stores a body in: `presentMessage`'s, out of its layout and stripped, with each
  * mention as an empty `<action-text-attachment content-type="application/vnd.campfire.mention"
- * sgid="gid://ember/User/<id>">` that renders the person as they are now, and without three
+ * sgid="<user id>">` that renders the person as they are now, and without three
  * things: `class` attributes, since a message's Tailwind classes could restyle the page, the
  * images of remote image attachments, which a stored body can't hold (SanitizeTags removes
  * `<img>`), and the newlines a `pre` starts with: each parse drops one, so those a body's five
  * parses leave would go when it's stored again. Stored again, the stored form comes back the same.
  */
 export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMention): string {
-  const markers: MentionPartial = (user) => `<${MENTION_MARKER} user="${user.id}"></${MENTION_MARKER}>`;
+  const markers: MentionPartial = (user) => `<${MENTION_MARKER} user="${htmlEscape(user.id)}"></${MENTION_MARKER}>`;
   const content = withoutLayout(renderFiltered(parse, filterMessage(parse, body, resolve), resolve, markers));
   const replacements = new Map<Node, Node[]>();
   for (const node of descendants(content)) {
     if (!isElement(node)) continue;
-    if (isMentionMarker(node)) replacements.set(node, [mentionAttachment(Number(getAttr(node, "user")))]);
+    if (isMentionMarker(node)) replacements.set(node, [mentionAttachment(getAttr(node, "user")!)]);
     else if (node.name === "img") replacements.set(node, []);
     else removeAttr(node, "class");
     if (node.name === "pre") withoutLeadingNewlines(node);
@@ -92,10 +92,10 @@ function withoutLeadingNewlines(pre: Element): void {
   }
 }
 
-function mentionAttachment(userId: number): Element {
+function mentionAttachment(userId: string): Element {
   return createElement(ATTACHMENT_TAG, [
     { name: "content-type", value: MENTION_CONTENT_TYPE },
-    { name: "sgid", value: userGid(userId) },
+    { name: "sgid", value: mentionSgid(userId) },
   ]);
 }
 

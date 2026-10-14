@@ -4,6 +4,7 @@
 
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
+import { autoLink } from "./autolink";
 import { plainText, prepareBody, type PreparedBody } from "./body";
 import { mentionedUsers } from "./mentions";
 import { parseHtml } from "./parse";
@@ -14,11 +15,11 @@ import {
   corpus,
   corpusUser,
   emberUser,
+  emberUserIds,
   railsMentionPartial,
   railsUser,
   UnloggableRailsError,
   verifiedUser,
-  withoutAutolinks,
   withPortDivergences,
   type CorpusCase,
   type Outcome,
@@ -64,7 +65,7 @@ describe(feature("messages.plain-text"), () => {
 describe(feature("mentions.render"), () => {
   it("finds the users every body mentions as Rails did", () => {
     expectRailsReadings("mentioned", (body) => ({
-      expected: "ok" in body.mentioned ? JSON.stringify(body.mentioned.ok) : RAISES,
+      expected: "ok" in body.mentioned ? JSON.stringify(emberUserIds(body.mentioned.ok)) : RAISES,
       actual: attempt(() => JSON.stringify(mentionedUsers(parseHtml, body.body, verifiedUser).map((user) => user.id))),
     }));
   });
@@ -81,11 +82,11 @@ describe(feature("messages.rich-text"), () => {
     }));
   });
 
-  it("renders every body as Rails did before linking its addresses", () => {
+  it("renders every body as Rails did", () => {
     expectRailsReadings("presentation", (body) => {
       let actual: string;
       try {
-        actual = presentMessage(parseHtml, body.body, railsUser, railsMentionPartial);
+        actual = autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial));
       } catch (error) {
         // message_presentation rescues and shows nothing, unless logging the error raises too
         actual = error instanceof UnloggableRailsError ? "(unrenderable)" : "";
@@ -95,15 +96,17 @@ describe(feature("messages.rich-text"), () => {
       if (body.presentation_raised_message?.includes("to_missing_attachable_partial_path")) {
         return { expected: "a rendering with ☒", actual: actual.includes("☒") ? "a rendering with ☒" : actual };
       }
-      const expected = "ok" in body.presentation ? withoutAutolinks(withPortDivergences(body.presentation.ok)) : "(unrenderable)";
+      const expected = "ok" in body.presentation ? withPortDivergences(body.presentation.ok) : "(unrenderable)";
       return { expected, actual };
     });
   });
 
   it("renders nothing a browser could run", () => {
+    // auto_link's own links add `target`
+    const shown: SafeList = { tags: AUTO_LINK.tags, attributes: new Set([...AUTO_LINK.attributes, "target"]) };
     const violations = corpus.cases.flatMap((body) => {
-      const html = attempt(() => presentMessage(parseHtml, body.body, railsUser, railsMentionPartial));
-      return html === RAISES ? [] : securityViolations(html, AUTO_LINK).map((violation) => `${body.name}: ${violation}`);
+      const html = attempt(() => autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial)));
+      return html === RAISES ? [] : securityViolations(html, shown).map((violation) => `${body.name}: ${violation}`);
     });
     expect(violations).toEqual([]);
   });
@@ -145,7 +148,7 @@ describe(feature("messages.rich-text"), () => {
       const stored = (JSON.parse(prepared) as PreparedBody).html;
       for (const violation of securityViolations(stored, STORED)) problems.push(`${body.name}: ${violation}`);
       for (const [, attributes] of stored.matchAll(/<action-text-attachment([^>]*)>/g)) {
-        if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="gid:\/\/ember\/User\/[1-9][0-9]*"$/.test(attributes!)) {
+        if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="[0-9a-z]{16}"$/.test(attributes!)) {
           problems.push(`${body.name}: <action-text-attachment${attributes}>`);
         }
       }

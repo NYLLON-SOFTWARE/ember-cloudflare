@@ -4,5 +4,5 @@ export { MENTION_CONTENT_TYPE, type MentionUser, type ResolveMention } from "./a
 export type { PreparedBody } from "./body";
 export { isAllEmoji } from "./emoji";
 export { MAX_ATTRIBUTES, MAX_REOPENED_ELEMENTS, MAX_TREE_DEPTH, ParseLimitError } from "./markup";
-export { userGid, userIdFromGid } from "./mentions";
+export { mentionSgid, userIdFromSgid } from "./mentions";
 export { pendingSound, soundIn, SOUND_NAMES, SOUNDS, type Sound, type SoundImage } from "./sounds";

@@ -9,7 +9,7 @@ export const MENTION_CONTENT_TYPE = "application/vnd.campfire.mention";
 
 /** Who a mention names, as far as plain text needs to know. */
 export interface MentionUser {
-  id: number;
+  id: string;
   name: string;
 }
 
