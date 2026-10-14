@@ -134,11 +134,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   Workspace has to call, and any call can fail. So the change also writes a `pending_revocations` row
   for each room, in the same batch, and the Workspace's alarm sends each room its own: up to 40 rows
   a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on, and giving
-  it up after 10 tries. Its index on `due_at` finds the rows that are due. A room keeps the time of
-  each revocation it has had in `revocations` for five minutes. It turns away a socket the Workspace
-  let through at or before one of them, which was checked just before the change and slow to arrive,
-  and any socket let through over a minute before it arrives, which a revocation the room has since
-  forgotten could cover.
+  it up after 10 tries. Its index on `due_at` finds the rows that are due. The change sets the alarm
+  even when D1's answer to it is lost, since it may have been saved anyway, and a Workspace that
+  starts sets it for any rows waiting, which one that stopped in between leaves. A room keeps the
+  time of each revocation it has had in `revocations` for five minutes. It turns away a socket the
+  Workspace let through at or before one of them, which was checked just before the change and slow
+  to arrive, and any socket let through over a minute before it arrives, which a revocation the room
+  has since forgotten could cover.
 - **Granting rooms is one statement.** ember-rust reads the ids of everyone a room takes in (or of
   every open room a new person joins) and inserts them 1,000 rows at a time. Our bound-value limit
   would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so

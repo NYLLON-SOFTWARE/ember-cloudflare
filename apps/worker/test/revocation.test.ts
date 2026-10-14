@@ -243,6 +243,20 @@ describe(feature("realtime.connection"), () => {
     expect(await waiting()).toEqual([]);
   });
 
+  it("sets its alarm for the revocations waiting when it starts, in case it stopped before it could", async () => {
+    const ada = await signIn("Ada");
+    const lobby = await freshRoom("lobby");
+    const closed = closeOf((await connect(lobby, ada)).ws);
+    // As a Workspace that stopped between saving a change and setting its alarm leaves it.
+    await queue(lobby, ada.user.id, CloseCode.Reconnect, Date.now());
+    expect(await alarm()).toBeNull();
+
+    await evictDurableObject(workspaceStub());
+    // Anything that reaches the Workspace starts it again.
+    await alarm();
+    expect(await closed).toMatchObject(reconnect);
+  });
+
   it("finds the revocations that are due by their index, however many are waiting", async () => {
     const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${DUE_REVOCATIONS}`, 0, 40)).map((row) => (row as { detail: string }).detail).join("; ");
     expect(plan).toContain("USING INDEX index_pending_revocations_on_due_at (due_at<?)");

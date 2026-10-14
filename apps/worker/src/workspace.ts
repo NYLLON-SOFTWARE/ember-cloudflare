@@ -95,6 +95,11 @@ export class Workspace extends DurableObject<Env> {
     super(ctx, env);
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
+    // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
+    // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
+    // whenever it starts, before answering anything. A failure is only logged; the next change that
+    // queues a revocation, or the next start, sets the alarm.
+    void ctx.blockConcurrencyWhile(() => this.scheduleDelivery().catch((error) => console.error("Could not schedule the outbox's deliveries", error)));
     const legacy = legacyRooms(env);
     // Before anything else is answered, so the first request after a deploy finds them. A failure
     // mustn't keep everyone from signing in, so it's only logged, and the next start tries again.
@@ -239,8 +244,14 @@ export class Workspace extends DurableObject<Env> {
    */
   async signOut(tokenDigest: string): Promise<void> {
     const now = Date.now();
-    const queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
-    if (queued) await this.wakeAt(now);
+    // Until the database says it queued nothing: on D1 a change can be saved, its revocations with it,
+    // and its answer lost on the way back.
+    let queued = true;
+    try {
+      queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
+    } finally {
+      if (queued) await this.wakeAt(now);
+    }
   }
 
   /**
@@ -306,6 +317,11 @@ export class Workspace extends DurableObject<Env> {
     for (const { roomId, tag } of await this.store.settleRevocations(delivered, failed, Date.now())) {
       console.error(`Gave up closing the sockets tagged ${tag} in room ${roomId}`);
     }
+    await this.scheduleDelivery();
+  }
+
+  /** Sets the alarm for the next revocation due, if any is waiting. */
+  private async scheduleDelivery(): Promise<void> {
     const next = await this.store.nextRevocationDue();
     if (next !== null) await this.wakeAt(next);
   }

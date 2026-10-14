@@ -224,6 +224,24 @@ describe(feature("auth.sign-out"), () => {
     const phone = await signInAsAda();
     expect((await connect(lobby, phone)).me).toEqual(laptop.user);
   });
+
+  it("still closes the session's sockets when the database saves the sign-out but its answer is lost", async () => {
+    const laptop = await setUp();
+    const lobby = await freshRoom("lobby");
+    const closed = closeOf((await connect(lobby, laptop)).ws);
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const endSession = store.endSession.bind(store);
+      store.endSession = async (...args) => {
+        await endSession(...args);
+        throw new Error("The database's answer was lost");
+      };
+    });
+
+    await expect(api("/api/session", { method: "DELETE", headers: { Cookie: laptop.cookie } })).rejects.toThrow("The database's answer was lost");
+    expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
+    expect((await api(`/api/rooms/${lobby}/socket`, upgrade(laptop.cookie))).status).toBe(401);
+  });
 });
 
 describe(feature("auth.help-contact"), () => {
