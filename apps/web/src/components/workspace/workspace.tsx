@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { Room, RoomId, User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
+import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useMounted } from "@/hooks/use-mounted";
@@ -11,7 +12,7 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { byName } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
-import { PageHeader } from "./page-header";
+import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView } from "./room-view";
@@ -20,14 +21,14 @@ import { WelcomePage } from "./welcome-page";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 /**
- * The rail's link for each page, as ember-rust's shell.js marks them: Home for a room and the pages
- * that go on to one, and none for a room's forms.
+ * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
+ * a room's page and the pages that go on to one, and nothing on a room's forms.
  */
 const RAIL_PAGES = {
   home: "home",
-  "newest-room": "home",
-  room: "home",
-  "room-of-kind": "home",
+  "newest-room": "room",
+  room: "room",
+  "room-of-kind": "room",
   "new-room": null,
   "room-settings": null,
   "workspace-settings": "workspace",
@@ -80,11 +81,16 @@ function redirectOf(route: Route, rooms: Room[]): Redirect | null {
 }
 
 /**
- * ember-rust's authenticated layout: rail | sidebar | header over main.
- * Below 900px the rail and sidebar move into a drawer opened from the header.
+ * ember-rust's drawer layout (`(max-width: 900px)` in shell.js): `max-md`, 900px wide and below, where
+ * the rail and sidebar move into a drawer opened from the header.
  */
+const DRAWER_LAYOUT = "(width < 56.3125rem)";
+
+/** ember-rust's authenticated layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
   me: User;
+  /** The workspace's name, which the rail's logo is titled with. */
+  workspaceName: string;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /**
@@ -94,9 +100,10 @@ interface Props {
   onSessionChanged: (me: User | null) => void;
 }
 
-export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
+export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Props) {
   const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const route = useRoute();
 
   const rooms = list?.rooms ?? null;
@@ -107,7 +114,7 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
   useEffect(() => {
-    const drawerLayout = matchMedia("(width < 56.25rem)");
+    const drawerLayout = matchMedia(DRAWER_LAYOUT);
     const close = () => setDrawerOpen(false);
     drawerLayout.addEventListener("change", close);
     return () => drawerLayout.removeEventListener("change", close);
@@ -197,19 +204,19 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   // `link_back_to_last_room_visited` does, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
-  // Another room closes the drawer once it shows, which a form with unsaved changes may hold off; the
-  // room shown closes it at once.
-  const select = (roomId: string) => {
-    if (location.pathname === roomPath(roomId)) setDrawerOpen(false);
-    else navigate(roomPath(roomId));
+  const select = (roomId: string) => navigate(roomPath(roomId));
+  // Following a link in the drawer closes it, as ember-rust's shell.js does: one to another page once
+  // that page shows, which unsaved changes hold off while they're asked about, and one to the page
+  // shown at once. One the browser opens somewhere else, such as in a new tab, leaves this page as it
+  // was, so the drawer stays open, where ember-rust's closes it anyway.
+  const closeForLinkHere = (event: MouseEvent) => {
+    // A link followed in place has kept the browser from following it.
+    if (!event.defaultPrevented) return;
+    const link = (event.target as Element).closest("a[href]");
+    if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
-
-  const navigation = (
-    <>
-      <Rail me={me} current={RAIL_PAGES[route.page]} onSignOut={onSignOut} />
-      <Sidebar rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />
-    </>
-  );
+  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} onSignOut={onSignOut} />;
+  const sidebar = <Sidebar rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />;
 
   const page = () => {
     switch (route.page) {
@@ -252,7 +259,7 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
           return (
             <>
               <PageHeader />
-              <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+              <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
                 <div className="grid flex-1 place-content-center justify-items-center gap-4 p-6 text-center">
                   <p role="alert" className="text-muted-foreground">
                     {unansweredHere.reason}
@@ -261,42 +268,62 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
                     Try again
                   </Button>
                 </div>
-              </main>
+              </MainContent>
             </>
           );
         // While the rooms load, or before the page goes on to another, which it does before this paints.
         return (
-          <main className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</main>
+          <MainContent className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</MainContent>
         );
     }
   };
 
   // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives
-  // it aria-expanded and gets focus back to it when the drawer closes.
+  // it aria-expanded and gets focus back to it when the drawer closes. The skip link comes first,
+  // and the rail and conversations are ember-rust's landmarks in either layout.
   return (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-      <div className="grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]">
-        <div className="contents max-md:hidden [&>*]:row-span-2 [&>*:nth-child(2)]:border-r">{navigation}</div>
-
-        <SheetContent side="left" showCloseButton={false} className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 sm:max-w-[calc(100dvw-16px)] md:hidden">
-          <SheetTitle className="sr-only">Conversations</SheetTitle>
-          <SheetDescription className="sr-only">Rooms and direct messages</SheetDescription>
-          <div className="pt-[env(safe-area-inset-top)]">
-            <Rail me={me} current={RAIL_PAGES[route.page]} onSignOut={onSignOut} />
+      <DrawerOpen value={drawerOpen}>
+        <div className="grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]">
+          <SkipLink />
+          <div className="contents max-md:hidden [&>*]:row-span-2">
+            {rail}
+            <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
+              {sidebar}
+            </aside>
           </div>
-          {/* As in ember-rust, the drawer leaves at least 16px of the room showing. */}
-          <div className="relative w-sidebar min-w-0 pt-[env(safe-area-inset-top)]">
-            <Sidebar rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />
-            {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar. */}
-            <SheetClose className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover">
-              <Close className="size-5" />
-              <span className="sr-only">Close conversations</span>
-            </SheetClose>
-          </div>
-        </SheetContent>
 
-        {page()}
-      </div>
+          <SheetContent
+            side="left"
+            showCloseButton={false}
+            // As ember-rust's shell.js does, opening it focuses its close button.
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              closeDrawerButton.current?.focus();
+            }}
+            onClick={closeForLinkHere}
+            className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
+          >
+            <SheetTitle className="sr-only">Conversations</SheetTitle>
+            <SheetDescription className="sr-only">Rooms and direct messages</SheetDescription>
+            <div className="pt-[env(safe-area-inset-top)]">{rail}</div>
+            {/* As in ember-rust, the drawer leaves at least 16px of the room showing. */}
+            <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
+              {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order. */}
+              <SheetClose
+                ref={closeDrawerButton}
+                aria-label="Close conversations"
+                className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
+              >
+                <Close className="size-5" />
+              </SheetClose>
+              {sidebar}
+            </aside>
+          </SheetContent>
+
+          {page()}
+        </div>
+      </DrawerOpen>
     </Sheet>
   );
 }

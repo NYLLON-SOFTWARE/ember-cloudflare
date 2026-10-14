@@ -1,19 +1,27 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { Menu } from "@/components/icons/ember";
 import { SheetTrigger } from "@/components/ui/sheet";
 
+/** Whether the conversations drawer is open, which the header's button for it says in its name. */
+export const DrawerOpen = createContext(false);
+
 /**
- * ember-rust's top bar, `#nav.mb-header` (layouts/application.html), holding what the page puts in
- * it. Below 900px it starts with the button that opens the conversations drawer.
+ * ember-rust's top bar, the navigation landmark "Page" (`nav#nav.mb-header`, layouts/application.html),
+ * holding what the page puts in it. At 900px and below it starts with the button that opens the
+ * conversations drawer, named for what it does next, as ember-rust's shell.js names it.
  */
 export function PageHeader({ children }: { children?: ReactNode }) {
+  const drawerOpen = useContext(DrawerOpen);
   return (
-    <header className="flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]">
-      <SheetTrigger aria-label="Open conversations" className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
+    <nav
+      aria-label="Page"
+      className="flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]"
+    >
+      <SheetTrigger aria-label={drawerOpen ? "Close conversations" : "Open conversations"} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
         <Menu className="size-[22px]" />
       </SheetTrigger>
       {children}
-    </header>
+    </nav>
   );
 }
 

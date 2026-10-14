@@ -1,5 +1,6 @@
 import type { User } from "@ember/protocol";
 import { MessagesEmpty } from "@/components/icons/campfire";
+import { MainContent } from "@/components/main-content";
 import { useTitle } from "@/hooks/use-title";
 import { PageHeader } from "./page-header";
 
@@ -13,14 +14,14 @@ export function WelcomePage({ me }: { me: User }) {
   return (
     <>
       <PageHeader />
-      <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+      <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <div className="grid flex-1 place-items-center p-6 text-center text-muted-foreground">
           <figure className="px-[1ch] py-4">
             <MessagesEmpty className="mx-auto w-16 max-w-[25vw] opacity-20" />
             <span className="sr-only">{me.name}</span>
           </figure>
         </div>
-      </main>
+      </MainContent>
     </>
   );
 }

@@ -31,12 +31,15 @@ test("tapping outside the drawer closes it", async ({ page }) => {
   await expect(page.getByRole("dialog")).toBeHidden();
 });
 
-test("the drawer's close button closes it and returns focus to the menu button", async ({ page }) => {
+test("the drawer opens on its close button, which closes it and returns focus to the menu button", async ({ page }) => {
   const menu = page.getByRole("button", { name: "Open conversations" });
   await menu.tap();
-  // While the drawer is open, everything behind it is hidden from assistive tech, this button too.
-  await expect(page.getByRole("button", { name: "Open conversations", includeHidden: true })).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("dialog").getByRole("button", { name: "Close conversations" }).tap();
+  const close = page.getByRole("dialog").getByRole("button", { name: "Close conversations" });
+  await expect(close).toBeFocused();
+  // While the drawer is open, everything behind it is hidden from assistive tech, the menu button
+  // too, which is named for closing it.
+  await expect(page.getByRole("button", { name: "Close conversations", expanded: true, includeHidden: true })).toBeAttached();
+  await close.tap();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   await expect(menu).toBeFocused();

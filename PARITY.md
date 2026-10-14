@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 28 ported and 58 partial of 172 features; 81 not started, 5 not applicable.
+**Overall:** 30 ported and 56 partial of 172 features; 81 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
-| [Workspace interface](#workspace-interface) | 3 | 8 | 0 | 0 | 11 |
+| [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 8 | 3 | 0 | 4 | 15 |
-| **Total** | **28** | **58** | **81** | **5** | **172** |
+| **Total** | **30** | **56** | **81** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2128,28 +2128,26 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Workspace layout | `ui.layout` | Ember | 🟡 Partial | E2E: [layout](e2e/tests/features/layout.spec.ts) |
+| Workspace layout | `ui.layout` | Ember | ✅ Ported | E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Rail | `ui.rail` | Ember | 🟡 Partial | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Room header | `ui.room-header` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx) |
-| Conversations drawer on phones | `ui.mobile-drawer` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
+| Conversations drawer on phones | `ui.mobile-drawer` | Ember | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Light, dark or system appearance | `ui.appearance` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
 | Stay at the newest message | `ui.scroll` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Empty room | `ui.empty-room` | This port | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Select a field's text on entry | `ui.select-on-entry` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [icon-picker](apps/web/src/components/workspace/icon-picker.test.tsx), [use-select-on-entry](apps/web/src/hooks/use-select-on-entry.test.tsx)<br>E2E: [select-on-entry](e2e/tests/features/select-on-entry.spec.ts) |
 | Saved notices | `ui.flash` | Ember | 🟡 Partial | Web: [App](apps/web/src/App.test.tsx), [flash](apps/web/src/components/flash.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [flash](apps/web/src/lib/flash.test.ts)<br>E2E: [flash](e2e/tests/features/flash.spec.ts) |
-| Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
+| Landmarks and names | `ui.accessibility` | Ember | 🟡 Partial | Web: [sign-in-page](apps/web/src/components/sign-in-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Ember's icons | `ui.icons` | Ember | 🟡 Partial | Web: [icons](apps/web/src/components/icons/icons.test.tsx) |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**Workspace layout** (`ui.layout`) 🟡
+**Workspace layout** (`ui.layout`) ✅
 
 - Signed in, the page is the rail (80px), the conversations sidebar (280px, or 230px from 901 to 1100px wide) and the room, under a header at least 60px tall. Text is 14px with a 1.5 line height.
 - Light and dark palettes: canvas #fff / #171717, surface #fafafa / #1c1c1c, hover #f2f2f2 / #282828, border #e5e5e5 / #343434, muted #737373 / #a3a3a3, ink #171717 / #f5f5f5.
 - Nothing scrolls sideways from 320px to 1440px wide, and the composer stays on screen at 390×420.
-
-Note: The sidebar stays 280px down to 900px wide, and the drawer takes over below 900px rather than at 900px.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
@@ -2161,7 +2159,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.
 - DMs opens the new direct message dialog without leaving the page.
 
-Note: Home and Workspace work: Home is marked on a room's page, Workspace on workspace settings, and neither on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.
+Note: Home and Workspace work: the logo and Home are marked at home, Home on a room's page, Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
@@ -2171,22 +2169,22 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 - The header shows the room's icon (`#` by default, the outlined messages icon for DMs) and its name (17px, bold, cut off with …). DM names read as "Direct message with …" to screen readers.
 - Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as "Settings for this room", or "Settings for this Ping" in a DM.
-- On phones the header is 56px tall and its buttons are 44px squares.
+- On phones the header is 56px tall and its buttons are 44px squares. Up to 500px wide, the labels of the header's links are hidden too, leaving 44px buttons.
 
-Note: The header has the `#`, the name and Conversation settings ("Settings for this room" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open.
+Note: The header has the `#`, the name and Conversation settings ("Settings for this room" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.
 
 Sources: [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Conversations drawer on phones** (`ui.mobile-drawer`) 🟡
+**Conversations drawer on phones** (`ui.mobile-drawer`) ✅
 
 - At 900px wide and below, the rail and conversations become a drawer opened by the header's 44px Open conversations button, which turns into Close conversations (aria-expanded true) while it's open. It leaves at least 16px of the page showing, and slides in over 180ms unless reduced motion is preferred.
 - Opening it dims the page behind, makes the rest of the page inert and focuses its Close conversations button. Tab and Shift+Tab cycle through the rail's and sidebar's controls, and nothing in the drawer can be reached while it's closed.
 - Escape, the close button or the backdrop closes it and returns focus to whatever opened it; while a dialog or the appearance menu is open, Escape and Tab are left to them. Following any link in the rail or sidebar closes it, and so does widening the window past 900px.
 - Rows and buttons in it are at least 44px tall.
 
-Note: The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations, and it slides in over half a second and out over 0.3 seconds, reduced motion or not.
+Note: The drawer is a Radix modal dialog named "Conversations", holding the rail and the conversations, where ember-rust slides in the rail and an `aside` that it keeps inert while they're closed, and makes the page behind inert while they're open. Radix hides the page behind from assistive tech, keeps focus in the drawer and takes it off the page while it's closed, which works the same. When a link in it shows another page, focus goes to that page's menu button, where ember-rust's page load leaves nothing focused. A link in it opened somewhere else, such as in a new tab with a modifier key, leaves it open, where ember-rust's shell.js closes it on any click on a rail or sidebar link.
 
 Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
@@ -2256,7 +2254,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Controls without visible text have names: the message box "Write a message", "Attach a file", "Rich text", "Send Message", "Jump to newest message", "Open conversations" or "Close conversations", and "Your profile".
 - The current room and rail link are marked `aria-current="page"`, toggles such as Activity and the star are `aria-pressed`, focus shows a 2px outline, and status changes and errors are announced.
 
-Note: There's no skip link, and the header and sidebar aren't named landmarks. The rail, Rooms, the message log ("Messages in general") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is "Message #&lt;room&gt;", Send is "Send", and the jump button is "Return to latest messages".
+Note: The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has none yet (`auth.first-run`). The message log ("Messages in general") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is "Message #&lt;room&gt;", Send is "Send", and the jump button is "Return to latest messages". Attach a file, Rich text, Activity and the star aren't built yet.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/assets/stylesheets/nav.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/nav.css)
 

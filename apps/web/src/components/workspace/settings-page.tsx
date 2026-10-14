@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { ArrowLeft } from "@/components/icons/campfire";
+import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { cn } from "@/lib/utils";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
@@ -17,9 +18,9 @@ export function SettingsPage({ back, children }: { back: string; children: React
           <span className="sr-only">Go Back</span>
         </PageLink>
       </PageHeader>
-      <main className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+      <MainContent className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {children}
-      </main>
+      </MainContent>
     </>
   );
 }

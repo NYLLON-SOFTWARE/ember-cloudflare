@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent } from "react";
 import type { Invitation, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
+import { MainContent } from "@/components/main-content";
 import { useRoom } from "@/hooks/use-room";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
@@ -37,7 +38,7 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
     <>
       <RoomHeader room={room} present={state.present} status={state.status} offline={state.offline} />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
-      <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+      <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (
           <div role="alert" className="mx-auto mt-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-[10px] bg-foreground py-2 pr-1 pl-3 text-sm text-background touch:py-0.5">
             {state.notice}
@@ -48,7 +49,7 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
         )}
         <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={gone ? null : messageActions} onLoadOlder={loadOlder} />
         {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.offline} onSend={postMessage} onTyping={typing} />}
-      </main>
+      </MainContent>
     </>
   );
 }

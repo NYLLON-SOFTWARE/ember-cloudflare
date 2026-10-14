@@ -12,7 +12,7 @@ function typingSentence(users: User[]): string {
 }
 
 /** The composer's place below the messages, which keeps clear of a phone's home bar. */
-const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
+const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] narrow:px-4 max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
 
 interface Props {
   roomName: string;
