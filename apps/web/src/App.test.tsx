@@ -430,3 +430,30 @@ describe(feature("ui.flash"), () => {
     expect(await placement()).toHaveClass(BESIDE_THE_RAIL);
   });
 });
+
+describe(feature("ui.select-on-entry"), () => {
+  it("selects what's in a field entered again on the sign-in page, signed out", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    const user = userEvent.setup();
+    const emailAddress = await screen.findByLabelText("Email address");
+    await user.type(emailAddress, "grace@example.com");
+    await user.click(screen.getByLabelText("Password"));
+    await user.click(emailAddress);
+    await user.keyboard("ada@example.com");
+    expect(emailAddress).toHaveValue("ada@example.com");
+  });
+
+  it("leaves what's in Set up Ember's fields alone when they're entered", async () => {
+    history.replaceState(null, "", "/first_run");
+    serve({ signedIn: false, setup: "pending" });
+    render(<App />);
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("Name");
+    await user.type(name, "Ada");
+    await user.click(screen.getByLabelText("Email address"));
+    await user.click(name);
+    await user.keyboard(" Lovelace");
+    expect(name).toHaveValue("Ada Lovelace");
+  });
+});

@@ -6,6 +6,7 @@ import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { Workspace } from "@/components/workspace/workspace";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
+import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
 import { loadPage } from "@/lib/page";
@@ -25,6 +26,8 @@ export function App() {
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
   const signingOut = useRef(false);
+  // Before any page has fields, so even one focused as it opens is selected.
+  useSelectOnEntry();
 
   // Every page keeps up with the device and other tabs, as each of ember-rust's does, rail or not.
   useEffect(() => followAppearance(), []);

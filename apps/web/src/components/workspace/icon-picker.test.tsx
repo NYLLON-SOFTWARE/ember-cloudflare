@@ -1,9 +1,10 @@
 import { feature } from "@ember/parity";
 import type { RoomIconName } from "@ember/protocol";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import catalog from "@/components/icons/lucide/catalog.json";
+import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { IconPicker } from "./icon-picker";
 
 // Part of the catalog: the icons whose names start with "a", which no popular icon's does, and a few others.
@@ -241,5 +242,20 @@ describe(feature("rooms.icon-picker"), () => {
   it("can't be opened while the form saves", () => {
     showPicker("coffee", { disabled: true });
     expect(trigger()).toBeDisabled();
+  });
+});
+
+describe(feature("ui.select-on-entry"), () => {
+  it("leaves what's in the search box alone when it's entered, as ember-rust's does", async () => {
+    serveCatalog();
+    renderHook(() => useSelectOnEntry());
+    const { user } = showPicker();
+    await open(user);
+    const search = within(dialog()).getByRole("searchbox", { name: "Search icons" });
+    await user.type(search, "cof");
+    await user.click(within(dialog()).getByRole("heading", { name: "Choose a room icon" }));
+    await user.click(search);
+    await user.keyboard("fee");
+    expect(search).toHaveValue("coffee");
   });
 });
