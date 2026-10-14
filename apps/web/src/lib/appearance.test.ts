@@ -28,6 +28,21 @@ describe(feature("ui.appearance"), () => {
     expect(isDark()).toBe(true);
   });
 
+  it("colors the browser around the page to match, in place of the colors for the system's scheme", () => {
+    // index.html's, from ember-rust's layout.
+    document.head.innerHTML = `<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">`;
+    const themeColors = () => [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map((meta) => meta.content);
+
+    saveAppearance("dark");
+    expect(themeColors()).toEqual(["#171717", "#171717"]);
+    saveAppearance("light");
+    expect(themeColors()).toEqual(["#ffffff", "#ffffff"]);
+    setPrefersDark(true);
+    applyAppearance("system");
+    expect(themeColors()).toEqual(["#171717", "#171717"]);
+    document.head.innerHTML = "";
+  });
+
   it("treats anything unexpected in storage as System", () => {
     localStorage.setItem("ember:appearance", "sepia");
     expect(savedAppearance()).toBe("system");

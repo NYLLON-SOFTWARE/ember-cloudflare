@@ -9,12 +9,13 @@
   "upload_source_maps": true,
 
   // The Worker serves the built React app and answers /api/*, the setup pages (/first_run...), the
-  // join link's page (/join/<code>) and QR codes (/qr_code/<id>) itself.
+  // join link's page (/join/<code>), the web app manifest (/webmanifest.json) and QR codes
+  // (/qr_code/<id>) itself.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/first_run*", "/join/*", "/qr_code/*"]
+    "run_worker_first": ["/api/*", "/first_run*", "/join/*", "/webmanifest*", "/qr_code/*"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,

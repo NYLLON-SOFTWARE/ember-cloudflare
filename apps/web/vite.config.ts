@@ -16,8 +16,12 @@ export default defineConfig({
     },
   },
   server: {
-    // `wrangler dev` serves the API, room sockets and QR codes on 8787.
-    proxy: { "/api": { target: "http://localhost:8787", ws: true }, "/qr_code": "http://localhost:8787" },
+    // `wrangler dev` serves the API, room sockets, web app manifest and QR codes on 8787.
+    proxy: {
+      "/api": { target: "http://localhost:8787", ws: true },
+      "/webmanifest": "http://localhost:8787",
+      "/qr_code": "http://localhost:8787",
+    },
   },
   test: {
     environment: "jsdom",
