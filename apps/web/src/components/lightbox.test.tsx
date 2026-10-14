@@ -22,34 +22,37 @@ afterEach(() => {
 const viewer = () => document.querySelector("dialog")!;
 
 describe(feature("attachments.lightbox"), () => {
-  it("shows the image with Close and Download, labelled for screen readers", () => {
-    render(<Lightbox src={QR_CODE} onClose={() => {}} />);
+  it("shows the image with Close, and Download saving it under its name, labelled for screen readers", () => {
+    render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
     expect(dialog).toHaveAttribute("open");
     expect(dialog.querySelector(`img[src="${QR_CODE}"]`)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close image viewer" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download file" })).toHaveAttribute("href", QR_CODE);
+    const download = screen.getByRole("link", { name: "Download file" });
+    expect(download).toHaveAttribute("href", QR_CODE);
+    // Without it, a QR code, which isn't served as an attachment, would open in the tab, as ember-rust's does.
+    expect(download).toHaveAttribute("download", "QR code.svg");
   });
 
   it("stays closed with nothing to show", () => {
-    render(<Lightbox src={null} onClose={() => {}} />);
+    render(<Lightbox src={null} filename="QR code.svg" onClose={() => {}} />);
     expect(viewer()).not.toHaveAttribute("open");
     expect(viewer().querySelector("img:not([aria-hidden])")).toBeNull();
   });
 
   it("closes with Close, and clears once it's closed", async () => {
     const onClose = vi.fn();
-    const { rerender } = render(<Lightbox src={QR_CODE} onClose={onClose} />);
+    const { rerender } = render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={onClose} />);
     await userEvent.click(screen.getByRole("button", { name: "Close image viewer" }));
     expect(viewer()).not.toHaveAttribute("open");
     expect(onClose).toHaveBeenCalledOnce();
 
-    rerender(<Lightbox src={null} onClose={onClose} />);
+    rerender(<Lightbox src={null} filename="QR code.svg" onClose={onClose} />);
     expect(viewer().querySelector(`img[src="${QR_CODE}"]`)).toBeNull();
   });
 
   it("offers Share only where the browser can share", () => {
-    render(<Lightbox src={QR_CODE} onClose={() => {}} />);
+    render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Share file" })).not.toBeInTheDocument();
   });
 
@@ -59,7 +62,7 @@ describe(feature("attachments.lightbox"), () => {
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
     vi.stubGlobal("fetch", fetch);
-    render(<Lightbox src={QR_CODE} onClose={() => {}} />);
+    render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Share file" }));
     await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());

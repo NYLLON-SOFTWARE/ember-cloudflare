@@ -5,7 +5,9 @@ import { cn } from "@/lib/utils";
 
 // ember-rust's image viewer (crates/views/templates/layouts/_lightbox.html), opened and cleared as
 // Campfire's lightbox_controller.js does and styled by its lightbox.css. It keeps its buttons clear
-// of a phone's notch, rounded corners and home indicator, which lightbox.css doesn't.
+// of a phone's notch, rounded corners and home indicator, which lightbox.css doesn't, and Download
+// saves even a file that isn't served as an attachment, where ember-rust's leaves the app to show a
+// QR code.
 
 /** A circle `.btn` in a corner: 36px, as zz-ember.css sizes buttons, and 44px for fingers. */
 const BUTTON = "grid size-9 cursor-pointer place-items-center rounded-full border bg-background [grid-area:1/1] touch:size-11";
@@ -13,6 +15,8 @@ const BUTTON = "grid size-9 cursor-pointer place-items-center rounded-full borde
 interface LightboxProps {
   /** The image to show, or null while the viewer is closed. */
   src: string | null;
+  /** The name Download saves it under, unless the server names it. */
+  filename: string;
   /** Called when Escape or Close has closed the viewer. */
   onClose: () => void;
 }
@@ -22,7 +26,7 @@ interface LightboxProps {
  * It's rendered into the body, where ember-rust's layout keeps it, so it takes the page's text size
  * wherever it's opened from.
  */
-export function Lightbox({ src, onClose }: LightboxProps) {
+export function Lightbox({ src, filename, onClose }: LightboxProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   // As ember-rust's web_share_controller.js decides, before it's ever asked to share.
   const canShare = "canShare" in navigator;
@@ -43,7 +47,7 @@ export function Lightbox({ src, onClose }: LightboxProps) {
         <Remove className="w-[1.3em]" />
         <span className="sr-only">Close image viewer</span>
       </button>
-      <a href={src ?? undefined} className={cn(BUTTON, "self-end justify-self-end ios-pwa:hidden")}>
+      <a href={src ?? undefined} download={filename} className={cn(BUTTON, "self-end justify-self-end ios-pwa:hidden")}>
         <Download className="w-[1.3em]" />
         <span className="sr-only">Download file</span>
       </a>

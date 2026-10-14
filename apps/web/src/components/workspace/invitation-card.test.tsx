@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvitationCard } from "./invitation-card";
@@ -86,6 +86,7 @@ describe(feature("accounts.qr-codes"), () => {
     const viewer = screen.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
     expect(viewer).toHaveAttribute("open");
     expect(viewer.querySelector(`img[src="${QR_CODE}"]`)).toBeInTheDocument();
+    expect(within(viewer).getByRole("link", { name: "Download file" })).toHaveAttribute("download", "QR code.svg");
   });
 
   it("puts it before Copy and Share, as ember-rust does", () => {

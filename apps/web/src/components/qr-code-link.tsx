@@ -22,7 +22,7 @@ export function QrCodeLink({ url, className, children }: { url: string; classNam
       >
         {children}
       </a>
-      <Lightbox src={open ? path : null} onClose={() => setOpen(false)} />
+      <Lightbox src={open ? path : null} filename="QR code.svg" onClose={() => setOpen(false)} />
     </>
   );
 }

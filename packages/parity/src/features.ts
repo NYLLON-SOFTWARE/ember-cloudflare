@@ -1422,7 +1422,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/_lightbox.html", "reference/app/javascript/controllers/lightbox_controller.js", "reference/app/assets/stylesheets/lightbox.css"],
     upstreamTests: ["parity/screens.yml"],
-    notes: "Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
+    notes: "Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
   },
   {
     id: "attachments.svg-preview",

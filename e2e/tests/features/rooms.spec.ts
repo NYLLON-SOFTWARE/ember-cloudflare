@@ -143,6 +143,13 @@ test.describe(feature("accounts.qr-codes"), () => {
     await expect(viewer.getByRole("link", { name: "Download file" })).toHaveAttribute("href", qrCode);
     await expect(viewer.getByRole("button", { name: "Close image viewer" })).toBeFocused();
 
+    // It saves the code and stays open, where ember-rust's link leaves the app to show it.
+    const download = ada.page.waitForEvent("download");
+    await viewer.getByRole("link", { name: "Download file" }).click();
+    expect((await download).suggestedFilename()).toBe("QR code.svg");
+    await expect(viewer).toBeVisible();
+    expect(new URL(ada.page.url()).pathname).toBe(`/rooms/${roomId}`);
+
     await ada.page.keyboard.press("Escape");
     await expect(viewer).toBeHidden();
     await expect(show).toBeFocused();
