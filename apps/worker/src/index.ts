@@ -1,6 +1,19 @@
-import { CloseCode, isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomSettings, type Sidebar } from "@ember/protocol";
 import {
-  authenticate,
+  CloseCode,
+  isPasswordTooLong,
+  isRoomId,
+  parseAccountChanges,
+  parseNewRoom,
+  parseRoomChanges,
+  SIGN_IN_REFUSED,
+  type Bootstrap,
+  type NewRoomForm,
+  type RoomId,
+  type RoomSettings,
+  type Sidebar,
+  type WorkspaceSettings,
+} from "@ember/protocol";
+import {
   clientOf,
   credentialsFor,
   credentialsOf,
@@ -104,10 +117,34 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
 }
 
 async function me(request: Request, env: Env): Promise<Response> {
-  const session = await authenticate(request, env);
-  if (!session) return problem(401, "Not signed in");
+  const token = sessionToken(request);
+  const user = token ? await workspace(env).me(await credentialsFor(token, request, env)) : null;
+  if (!token || !user) return problem(401, "Not signed in");
   // The app asks every time it loads, so sending the cookie again keeps it from expiring while it's in use.
-  return json({ user: session.user }, { headers: { "Set-Cookie": sessionCookie(request, session.token) } });
+  return json({ user }, { headers: { "Set-Cookie": sessionCookie(request, token) } });
+}
+
+/** Workspace settings, which anyone signed in may see, read-only unless they're an administrator. */
+async function workspaceSettings(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const settings = credentials && (await workspace(env).workspaceSettings(credentials));
+  if (!settings) return problem(401, "Not signed in");
+  return settings === "not set up" ? problem(404, "Ember isn't set up yet") : json(settings satisfies WorkspaceSettings);
+}
+
+/**
+ * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
+ * hears so before anything they sent is checked (accounts.rs).
+ */
+async function changeAccount(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseAccountChanges(await request.json().catch(() => null));
+  // Changes that don't parse change nothing, but who's asking is still checked first.
+  const account = await workspace(env).changeAccount(credentials, typeof changes === "string" ? {} : changes);
+  if (!account) return problem(401, "Not signed in");
+  if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return typeof changes === "string" ? problem(422, changes) : json({ account });
 }
 
 /**
@@ -230,6 +267,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
   if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
   if (pathname === "/api/me") return me(request, env);
+  if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
+  if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);

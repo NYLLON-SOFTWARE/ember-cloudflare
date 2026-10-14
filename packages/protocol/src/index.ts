@@ -15,6 +15,11 @@ export interface User {
   name: string;
 }
 
+/** Who's signed in, as the app keeps them: someone, and whether they're one of the workspace's administrators. */
+export interface Me extends User {
+  administrator: boolean;
+}
+
 export type RoomKind = "open" | "closed" | "direct";
 
 /** A room's icon: the name of one of the Lucide icons in ember-rust's catalog. */
@@ -90,6 +95,18 @@ export interface Account {
   name: string;
 }
 
+/** What `GET /api/account` answers for workspace settings. */
+export interface WorkspaceSettings {
+  account: Account;
+  /** Whether you can change the workspace, as administrators can. Members see it read-only. */
+  canAdminister: boolean;
+}
+
+/** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name. */
+export interface AccountChanges {
+  name?: string;
+}
+
 /** Whom the sign-in page offers to email for help: the workspace's first administrator. */
 export interface HelpContact {
   name: string;
@@ -110,7 +127,7 @@ export interface Bootstrap {
   helpContact: HelpContact | null;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
   version: string;
-  user: User | null;
+  user: Me | null;
 }
 
 /**
@@ -126,7 +143,7 @@ export interface SignUp {
 
 /** What `POST /api/first_run` answers: the administrator it signed in, and All Talk, which opens first. */
 export interface NewWorkspace {
-  user: User;
+  user: Me;
   room: Room;
 }
 
@@ -247,7 +264,7 @@ export type WorkspaceClientFrame = { type: "ping" };
 /** What the Workspace sends on a tab's workspace socket. */
 export type WorkspaceServerFrame =
   /** Sent as the Workspace lets the socket in: who its session signs in. */
-  | { type: "welcome"; you: User }
+  | { type: "welcome"; you: Me }
   | { type: "error"; message: string }
   | { type: "pong" };
 
@@ -276,6 +293,8 @@ export const HISTORY_PAGE_SIZE = 50;
 export const MAX_CHECKED_MESSAGES = 50;
 /** ember-rust has no limit; this keeps a name to what a sidebar row and a room's header can show. */
 export const MAX_ROOM_NAME_LENGTH = 100;
+/** ember-rust has no limit; this keeps the workspace's name to what the sidebar's heading can show. */
+export const MAX_ACCOUNT_NAME_LENGTH = 100;
 /** How many people one request can name: a bound on the request's size, not on a room's. */
 export const MAX_LISTED_USERS = 1_000;
 
@@ -423,6 +442,17 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
   return userIds(r.memberIds) ? { ...changes, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/**
+ * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
+ * ember-rust, the name is saved as typed, even blank.
+ */
+export function parseAccountChanges(data: unknown): AccountChanges | string {
+  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  const { name } = data as Record<string, unknown>;
+  if (name === undefined) return {};
+  return typeof name === "string" && name.length <= MAX_ACCOUNT_NAME_LENGTH ? { name } : `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
 }
 
 /**

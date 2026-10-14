@@ -2,24 +2,26 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type Message, type Room, type RoomSettings } from "@ember/protocol";
+import { CloseCode, type Me, type Message, type Room, type RoomSettings, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
-const ada = { id: "u1", name: "Ada" };
+const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const rooms: Room[] = [
   { id: "general", name: "general", kind: "open", icon: null },
   { id: "random", name: "random", kind: "open", icon: null },
 ];
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
+const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engines" }, canAdminister: false };
 
 /**
- * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", and
- * the room list for anything else.
+ * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", with
+ * the workspace's settings for "GET /api/account", and the room list for anything else.
  */
-function serve(responses: Record<string, () => Response | Promise<Response>>) {
-  vi.mocked(fetch).mockImplementation(async (input, init) => (responses[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json({ rooms })))());
+function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
+  const answers: typeof responses = { "GET /api/account": () => Response.json(workspaceSettings), ...responses };
+  vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json({ rooms })))());
 }
 
 /** A socket that never connects: these tests are about the layout around the room. */
@@ -52,14 +54,21 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 }
 
 function showWorkspace(path = "/") {
-  const [onSignOut, onSessionChanged] = [vi.fn(), vi.fn()];
+  const [onAccountChanged, onSignOut, onSessionChanged] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
   const { unmount } = render(
     <FlashProvider workspace>
-      <Workspace me={ada} workspaceName="Analytical Engines" onSignOut={onSignOut} onSessionChanged={onSessionChanged} />
+      <Workspace
+        me={ada}
+        workspaceName="Analytical Engines"
+        version="0.1"
+        onAccountChanged={onAccountChanged}
+        onSignOut={onSignOut}
+        onSessionChanged={onSessionChanged}
+      />
     </FlashProvider>,
   );
-  return { onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
+  return { onAccountChanged, onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
@@ -75,7 +84,8 @@ const roomListRequests = () => vi.mocked(fetch).mock.calls.filter(([input]) => S
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ rooms }));
+  vi.spyOn(globalThis, "fetch");
+  serve();
 });
 
 afterEach(() => {
@@ -410,6 +420,14 @@ describe(feature("rooms.member-only-access"), () => {
   });
 });
 
+describe(feature("accounts.name"), () => {
+  it("passes on the workspace's name as its settings load it, which another administrator may have changed", async () => {
+    serve({ "GET /api/account": () => Response.json({ ...workspaceSettings, account: { name: "Difference Engines" } }) });
+    const { onAccountChanged } = showWorkspace("/account/edit");
+    await waitFor(() => expect(onAccountChanged).toHaveBeenCalledExactlyOnceWith({ name: "Difference Engines" }));
+  });
+});
+
 describe(feature("ui.flash"), () => {
   it("alerts with what the server said when something fails", async () => {
     serve({
@@ -491,9 +509,12 @@ describe(feature("auth.sessions"), () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("goes back to sign-in when a page finds the session gone", async () => {
-    serve({ "GET /api/rooms/general/settings": () => Response.json({ error: "Not signed in" }, { status: 401 }) });
-    const { onSessionChanged } = showWorkspace("/rooms/opens/general/edit");
+  it.each([
+    ["a room's settings", "/rooms/opens/general/edit", "GET /api/rooms/general/settings"],
+    ["workspace settings", "/account/edit", "GET /api/account"],
+  ])("goes back to sign-in when %s find the session gone", async (_, path, request) => {
+    serve({ [request]: () => Response.json({ error: "Not signed in" }, { status: 401 }) });
+    const { onSessionChanged } = showWorkspace(path);
     await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

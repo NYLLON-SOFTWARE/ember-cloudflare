@@ -5,11 +5,13 @@ import {
   isPasswordTooShort,
   isRoomIcon,
   isRoomId,
+  MAX_ACCOUNT_NAME_LENGTH,
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
   MAX_LISTED_USERS,
   MAX_MESSAGE_LENGTH,
   MAX_ROOM_NAME_LENGTH,
+  parseAccountChanges,
   parseClientFrame,
   parseNewRoom,
   parseRoomChanges,
@@ -105,7 +107,7 @@ describe(feature("platform.live-socket"), () => {
   });
 
   it("reads the workspace socket's frames as the server sends them", () => {
-    const welcome: WorkspaceServerFrame = { type: "welcome", you: { id: "u1", name: "Ada" } };
+    const welcome: WorkspaceServerFrame = { type: "welcome", you: { id: "u1", name: "Ada", administrator: true } };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
   });
@@ -222,6 +224,24 @@ describe(feature("rooms.members"), () => {
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
       expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
+  });
+});
+
+describe(feature("accounts.name"), () => {
+  it("takes the workspace's name as typed, even blank, or nothing to change", () => {
+    expect(parseAccountChanges({ name: "  Ember Studio " })).toEqual({ name: "  Ember Studio " });
+    expect(parseAccountChanges({ name: "" })).toEqual({ name: "" });
+    expect(parseAccountChanges({ name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH) })).toEqual({ name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH) });
+    expect(parseAccountChanges({})).toEqual({});
+    expect(parseAccountChanges({ logo: "earth.png" })).toEqual({});
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a name that isn't text", { name: 7 }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
+    ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseAccountChanges(body)).toBe(error);
   });
 });
 

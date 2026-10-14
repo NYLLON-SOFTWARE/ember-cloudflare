@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
-import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Message, type User } from "@ember/protocol";
+import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Me, type Message, type User } from "@ember/protocol";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
@@ -13,7 +13,7 @@ const TYPING_RESEND_MS = 3_000;
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
  * or whoever another tab signed in as.
  */
-export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | null) => void) {
+export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const socket = useRef<ReconnectingSocket | null>(null);
   const lastTypingSent = useRef(0);
@@ -67,9 +67,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
       if (!frame) return;
       if (frame.type === "welcome" && isSomeoneElse(frame.you)) {
         // Another tab signed this browser out and in as someone else, and the cookie went with it. Leave
-        // the room rather than show them this person's, or send as them.
-        room.close();
-        return sessionChanged(frame.you);
+        // the room rather than show them this person's, or send as them, and hand over to whoever the
+        // server says is signed in, which the room only partly knows: by then it may be this person again.
+        room.hold();
+        unlessSessionChanged(() => room.retry());
+        return;
       }
       dispatch({ type: "frame", frame, now: Date.now() });
       if (frame.type !== "welcome") return;

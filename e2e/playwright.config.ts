@@ -4,6 +4,7 @@ import { featureProjects } from "./projects/features";
 import { FIRST_RUN, firstRunProjects } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
 import { PROTECTED_SETUP_PORT, PROTECTED_SETUP_TOKEN, protectedSetupProjects } from "./projects/protected-setup";
+import { workspaceSettingsProjects } from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
 /**
@@ -32,6 +33,7 @@ export default defineConfig<MobileOptions>({
   projects: [
     ...firstRunProjects,
     ...protectedSetupProjects,
+    ...workspaceSettingsProjects,
     ...[...featureProjects, ...mobileProjects].map((project) => ({ ...project, dependencies: [FIRST_RUN] })),
   ],
   // The production build and the API on one origin, served by `wrangler dev` the way the deployed
@@ -50,8 +52,8 @@ export default defineConfig<MobileOptions>({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },
-    // The same build again, over HTTPS with a setup token, for the protected-setup project. Servers
-    // start in turn, so the app is built by then.
+    // The same build again, over HTTPS with a setup token, for the protected-setup project and then
+    // the workspace-settings one. Servers start in turn, so the app is built by then.
     {
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/protected-state', { recursive: true, force: true })"`,

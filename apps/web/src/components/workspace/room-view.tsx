@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent } from "react";
-import type { Invitation, User } from "@ember/protocol";
+import type { Invitation, Me, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
 import { useRoom } from "@/hooks/use-room";
@@ -15,7 +15,7 @@ interface Props {
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   me: User;
-  onSessionChanged: (me: User | null) => void;
+  onSessionChanged: (me: Me | null) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
   onGone: (room: Room) => void;
 }

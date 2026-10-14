@@ -263,6 +263,22 @@ describe(feature("realtime.keepalive"), () => {
     expect(FakeSocket.all).toHaveLength(2);
   });
 
+  it("drops a connection its owner can't use, and holds on until it asks to retry", () => {
+    const { live, heard } = connected();
+    live.hold();
+    expect(socket().closedWith).toBe(1000);
+    expect(live.send({ type: "typing.start" })).toBe(false);
+    visibility("visible");
+    window.dispatchEvent(new Event("online"));
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(socket().pings()).toBe(0);
+    expect(heard.offline).toEqual([true]);
+    live.retry();
+    wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
   it("stops for good when closed, whatever the tab or the network does", () => {
     const { live, heard } = connected();
     live.close();

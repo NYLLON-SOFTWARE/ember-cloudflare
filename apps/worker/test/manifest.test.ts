@@ -1,7 +1,6 @@
 import { feature } from "@ember/parity";
-import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, apiWith, builtPages, freshDeploy, workspaceSql, workspaceStub } from "./support";
+import { api, apiWith, builtPages, cookieOf, freshDeploy } from "./support";
 
 const manifest = async (path = "/webmanifest.json") => (await (await api(path)).json()) as Record<string, unknown>;
 
@@ -21,9 +20,8 @@ describe(feature("platform.manifest"), () => {
     expect(setUp.status).toBe(201);
     expect(await manifest()).toMatchObject({ name: "Ember" });
 
-    // Nothing renames a workspace yet, so rename it in its table, and start the Workspace afresh.
-    await workspaceSql("UPDATE accounts SET name = ?", "Analytical Engines");
-    await evictDurableObject(workspaceStub());
+    const rename = await api("/api/account", { method: "PATCH", headers: { Cookie: cookieOf(setUp) }, body: JSON.stringify({ name: "Analytical Engines" }) });
+    expect(rename.status).toBe(200);
     expect(await manifest()).toMatchObject({ name: "Analytical Engines" });
   });
 

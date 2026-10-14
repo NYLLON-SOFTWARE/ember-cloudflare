@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Room, RoomId, User } from "@ember/protocol";
+import type { Account, Me, Room, RoomId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -88,19 +88,23 @@ const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
 /** ember-rust's authenticated layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
-  me: User;
-  /** The workspace's name, which the rail's logo is titled with. */
+  me: Me;
+  /** The workspace's name, which titles the rail's logo and heads the sidebar. */
   workspaceName: string;
+  /** This deployment's version, which workspace settings end with. */
+  version: string;
+  /** Called with the workspace as its settings last loaded or saved it. */
+  onAccountChanged: (account: Account) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /**
    * Called when this browser's session stops signing in `me`: with null once it has expired, or with
    * whoever another tab signed in as.
    */
-  onSessionChanged: (me: User | null) => void;
+  onSessionChanged: (me: Me | null) => void;
 }
 
-export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Props) {
+export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
   const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
@@ -216,7 +220,7 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
   const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} onSignOut={onSignOut} />;
-  const sidebar = <Sidebar rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />;
+  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} currentRoomId={room?.id ?? null} onSelect={select} />;
 
   const page = () => {
     switch (route.page) {
@@ -238,7 +242,7 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
           />
         );
       case "workspace-settings":
-        return <WorkspaceSettingsPage back={back} />;
+        return <WorkspaceSettingsPage back={back} version={version} onAccountChanged={onAccountChanged} onFailed={failed} />;
       default:
         if (room)
           return (
