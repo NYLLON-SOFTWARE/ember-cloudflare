@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Room, RoomSettings } from "@ember/protocol";
@@ -81,6 +81,23 @@ describe(feature("rooms.create-open"), () => {
     await user.type(name, "Design{Enter}");
 
     await waitFor(() => expect(location.pathname).toBe("/rooms/design"));
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+  });
+
+  it("lists a room made before the room list arrived, which the list may not have yet", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open" };
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/rooms": () => new Promise((resolve) => (answer = resolve)),
+      "GET /api/rooms/new": () => Response.json({ people: [ada] }),
+      "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/opens/new");
+    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/design"));
+    // The list answers as it was before the room was made.
+    await act(async () => answer(Response.json({ rooms })));
     expect(await roomHeading()).toHaveTextContent("Design");
     expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
   });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Room, RoomId, RoomSettings } from "@ember/protocol";
+import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, changeRoom, fetchRoomSettings } from "@/lib/api";
@@ -13,6 +14,7 @@ interface Props {
   roomId: RoomId;
   /** Which of the two forms the address names. */
   access: Access;
+  /** Lists the room as saved, for the sidebar. The page then shows it, unless it was left first. */
   onSaved: (room: Room) => void;
   /** For a room this person isn't in, one that doesn't exist, or a DM. */
   onMissing: () => void;
@@ -29,6 +31,7 @@ export function RoomSettingsPage({ roomId, access, onSaved, onMissing, onFailed 
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const mounted = useMounted();
   useTitle(settings && `Edit settings for ${settings.room.name}`);
 
   useEffect(() => {
@@ -51,11 +54,19 @@ export function RoomSettingsPage({ roomId, access, onSaved, onMissing, onFailed 
 
   const save = () => {
     setSaving(true);
-    changeRoom(roomId, { name }).then(onSaved, (error: unknown) => {
-      setSaving(false);
-      if (isMissing(error)) onMissing();
-      else onFailed(error);
-    });
+    // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
+    changeRoom(roomId, { name }).then(
+      (room) => {
+        onSaved(room);
+        if (mounted.current) navigate(roomPath(room.id));
+      },
+      (error: unknown) => {
+        if (!mounted.current) return;
+        setSaving(false);
+        if (isMissing(error)) onMissing();
+        else onFailed(error);
+      },
+    );
   };
 
   const open = kind === "open";

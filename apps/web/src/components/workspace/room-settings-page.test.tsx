@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Room, RoomSettings } from "@ember/protocol";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import checkMark from "@/components/icons/campfire/check.svg";
@@ -41,12 +41,12 @@ function serve(settings: RoomSettings | { status: number; error: string }, { sav
 function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`) {
   const [onSaved, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  render(
+  const { unmount } = render(
     <Sheet>
       <RoomSettingsPage roomId={room.id} access={path.startsWith("/rooms/opens/") ? "open" : "closed"} onSaved={onSaved} onMissing={onMissing} onFailed={onFailed} />
     </Sheet>,
   );
-  return { onSaved, onMissing, onFailed, user: userEvent.setup() };
+  return { onSaved, onMissing, onFailed, unmount, user: userEvent.setup() };
 }
 
 const rowOf = (name: string) => screen.getByText(name).closest("li")!;
@@ -100,6 +100,22 @@ describe(feature("rooms.settings-page"), () => {
     const [path, init] = vi.mocked(fetch).mock.calls.at(-1)!;
     expect(path).toBe("/api/rooms/design");
     expect(JSON.parse(init!.body as string)).toEqual({ name: "Product design" });
+    expect(location.pathname).toBe("/rooms/design");
+  });
+
+  it("lists a rename whose answer comes after the page was left, without taking over the page shown then", async () => {
+    const saved = { ...design, name: "Product design" };
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+      init?.method === "PATCH" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json(openSettings())),
+    );
+    const { onSaved, user, unmount } = showPage(design);
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    unmount();
+    history.replaceState(null, "", "/rooms/random");
+    await act(async () => answer(Response.json({ room: saved })));
+    expect(onSaved).toHaveBeenCalledWith(saved);
+    expect(location.pathname).toBe("/rooms/random");
   });
 
   it("says why a change wasn't saved, and lets you try again", async () => {

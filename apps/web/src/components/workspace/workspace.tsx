@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import type { Room, User } from "@ember/protocol";
 import { Flash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { ApiError, fetchRooms, type RoomList } from "@/lib/api";
-import { withRoom } from "@/lib/room-list";
+import { ApiError, fetchRooms } from "@/lib/api";
+import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { Rail, type RailPage } from "./rail";
@@ -31,7 +31,7 @@ interface Props {
 }
 
 export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
-  const [list, setList] = useState<RoomList | null>(null);
+  const [{ list }, changeRooms] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Keyed, so the same alert twice fades in again.
   const [alert, setAlert] = useState<{ text: string; key: number } | null>(null);
@@ -39,8 +39,10 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
 
   useEffect(() => {
     fetchRooms()
-      .then(setList)
-      .catch((error) => (error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : setList({ rooms: [], invitation: null })));
+      .then((list) => changeRooms({ type: "loaded", list }))
+      .catch((error) =>
+        error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : changeRooms({ type: "loaded", list: { rooms: [], invitation: null } }),
+      );
   }, [onSessionChanged]);
 
   const rooms = list?.rooms ?? null;
@@ -72,11 +74,8 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
     navigate("/", { replace: true });
     flash("Room not found or inaccessible");
   }, [flash]);
-  // A room just made or renamed takes its place in the list, by name, and shows.
-  const showRoom = useCallback((room: Room) => {
-    setList((list) => list && { ...list, rooms: withRoom(list.rooms, room) });
-    navigate(roomPath(room.id));
-  }, []);
+  // A room just made or renamed takes its place in the list, by name.
+  const listRoom = useCallback((room: Room) => changeRooms({ type: "saved", room }), []);
 
   const room = route.page === "room" ? (rooms?.find((r) => r.id === route.roomId) ?? rooms?.[0] ?? null) : null;
   const select = (roomId: string) => {
@@ -95,9 +94,9 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
     switch (route.page) {
       case "new-room":
         // Not keyed, so flipping Everyone, which changes the address, keeps what's filled in.
-        return <NewRoomPage access={route.access} me={me} onCreated={showRoom} onFailed={failed} />;
+        return <NewRoomPage access={route.access} me={me} onCreated={listRoom} onFailed={failed} />;
       case "room-settings":
-        return <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} onSaved={showRoom} onMissing={missing} onFailed={failed} />;
+        return <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} onSaved={listRoom} onMissing={missing} onFailed={failed} />;
       case "workspace-settings":
         return <WorkspaceSettingsPage />;
       case "room":

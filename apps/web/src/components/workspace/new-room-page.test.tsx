@@ -1,11 +1,11 @@
 import { feature } from "@ember/parity";
 import type { Room } from "@ember/protocol";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import checkMark from "@/components/icons/campfire/check.svg";
-import { useRoute } from "@/hooks/use-route";
+import { navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { NewRoomPage } from "./new-room-page";
 
@@ -82,6 +82,23 @@ describe(feature("rooms.create-open"), () => {
     await user.type(await roomName(), "Design{Enter}");
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(posted()).toEqual({ kind: "open", name: "Design" });
+    expect(location.pathname).toBe("/rooms/design");
+  });
+
+  it("lists a room whose answer comes after the page was left, without taking over the page shown then", async () => {
+    const created = { id: "design", name: "Design", kind: "open" } satisfies Room;
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+      init?.method === "POST" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json({ people: [ada, grace, linus] })),
+    );
+    const { onCreated, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    // Leaving for workspace settings, then opening New room again, starts a new form.
+    act(() => navigate("/account/edit"));
+    act(() => navigate("/rooms/opens/new"));
+    await act(async () => answer(Response.json({ room: created }, { status: 201 })));
+    expect(onCreated).toHaveBeenCalledWith(created);
+    expect(location.pathname).toBe("/rooms/opens/new");
   });
 
   it("says why a room wasn't created, and lets you try again", async () => {

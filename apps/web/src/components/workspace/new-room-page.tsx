@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Room, User, UserId } from "@ember/protocol";
-import { navigate, newRoomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
+import { useMounted } from "@/hooks/use-mounted";
+import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { createRoom, fetchNewRoomForm } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
@@ -13,6 +14,7 @@ interface Props {
   /** Which of the two forms the address shows: a room for everyone, or a private one. */
   access: Access;
   me: User;
+  /** Lists the room made, for the sidebar. The page then shows it, unless it was left first. */
   onCreated: (room: Room) => void;
   /** Says why something failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
@@ -28,6 +30,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const [name, setName] = useState(DEFAULT_ROOM_NAME);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   const [saving, setSaving] = useState(false);
+  const mounted = useMounted();
 
   useEffect(() => {
     let stopped = false;
@@ -50,10 +53,18 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     setSaving(true);
     // The private form lists its creator with a check mark and sends them as one of its members.
     const room = access === "open" ? { kind: access, name } : { kind: access, name, memberIds: [me.id, ...chosen] };
-    createRoom(room).then(onCreated, (error) => {
-      setSaving(false);
-      onFailed(error);
-    });
+    // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
+    createRoom(room).then(
+      (room) => {
+        onCreated(room);
+        if (mounted.current) navigate(roomPath(room.id));
+      },
+      (error: unknown) => {
+        if (!mounted.current) return;
+        setSaving(false);
+        onFailed(error);
+      },
+    );
   };
 
   return (
