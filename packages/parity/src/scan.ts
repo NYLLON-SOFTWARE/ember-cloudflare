@@ -5,6 +5,7 @@ import ts from "typescript";
 /** Where each layer's tests live, relative to the repository root. */
 export const LAYERS = [
   { name: "Protocol", dir: "packages/protocol/src", files: /\.test\.ts$/ },
+  { name: "Rich text", dir: "packages/richtext/src", files: /\.test\.ts$/ },
   { name: "Worker", dir: "apps/worker/test", files: /\.test\.ts$/ },
   { name: "Scripts", dir: "apps/worker/scripts", files: /\.test\.ts$/ },
   { name: "Web", dir: "apps/web/src", files: /\.test\.tsx?$/ },
