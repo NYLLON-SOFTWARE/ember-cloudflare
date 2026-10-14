@@ -1,0 +1,114 @@
+import { feature } from "@ember/parity";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import notFoundPage from "../../web/public/404.html";
+import failedPage from "../../web/public/500.html";
+import type { Env } from "../src/env";
+import { api, apiWith, builtPages, origin } from "./support";
+
+type Init = RequestInit<IncomingRequestCfProperties>;
+
+/** `path`, from a Worker whose built app answers each path with its own name. */
+const page = (path: string, init: Init = {}, changes: Partial<Env> = {}) => apiWith({ ASSETS: builtPages, ...changes }, path, { redirect: "manual", ...init });
+
+/** A Workspace that can't be reached, so whatever asks it fails. */
+const unreachable = {
+  getByName: () => {
+    throw new Error("The Workspace is out of reach");
+  },
+} as unknown as Env["WORKSPACE"];
+
+const WRITES = ["POST", "PUT", "PATCH", "DELETE"];
+
+async function expectPage(response: Response, status: number, html: string) {
+  expect(response.status).toBe(status);
+  expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+  expect(await response.text()).toBe(html);
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe(feature("platform.error-pages"), () => {
+  it("serves the app's page at every address the app shows one", async () => {
+    const paths = ["/", "/rooms", "/rooms/general", "/rooms/opens/general", "/rooms/opens/new", "/rooms/closeds/general/edit", "/account/edit", "/session/new"];
+    for (const path of [...paths, "/users/me/profile"]) {
+      const response = await page(path);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toBe("page /");
+    }
+  });
+
+  it("leaves any other path to the built app, which answers Campfire's 404 page for a file it doesn't have", async () => {
+    for (const path of ["/nope", "/rooms/new", "/rooms/general/edit", "/rooms/general/extra", "/rooms/%FF", "/404.html"]) {
+      expect(await (await page(path)).text(), path).toBe(`page ${path}`);
+    }
+  });
+
+  it("answers a write to a page with Campfire's 404 page, as ember-rust's router does", async () => {
+    for (const method of WRITES) {
+      for (const path of ["/", "/rooms/general", "/nope", "/up", "/webmanifest.json", "/qr_code/aGk"]) {
+        await expectPage(await page(path, { method }), 404, notFoundPage);
+      }
+    }
+  });
+
+  it("answers Campfire's 404 page under setup's address, and for a QR code's address with no code", async () => {
+    for (const path of ["/first_run/new", "/first_run/edit", "/first_run/access", "/qr_code/", "/qr_code/a/b"]) {
+      await expectPage(await page(path), 404, notFoundPage);
+    }
+    const head = await page("/first_run/new", { method: "HEAD" });
+    expect(head.status).toBe(404);
+    expect(await head.text()).toBe("");
+  });
+
+  it("sends a page's address with extra slashes to its own", async () => {
+    for (const [path, address] of [
+      ["/rooms/general/", "/rooms/general"],
+      ["//rooms//general?x=1", "/rooms/general?x=1"],
+      ["/session/new/", "/session/new"],
+      ["//", "/"],
+    ]) {
+      // Whole URLs, since a path starting // would name another host.
+      const response = await page(`${origin}${path}`);
+      expect(response.status, path).toBe(307);
+      expect(response.headers.get("Location"), path).toBe(`${origin}${address}`);
+    }
+    expect(await (await page("/nope/")).text()).toBe("page /nope/");
+  });
+
+  it("answers an exception with Campfire's 500 page, and the API with JSON", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expectPage(await page("/join/AAAA-BBBB-CCCC", {}, { WORKSPACE: unreachable }), 500, failedPage);
+    const head = await page("/join/AAAA-BBBB-CCCC", { method: "HEAD" }, { WORKSPACE: unreachable });
+    expect(head.status).toBe(500);
+    expect(await head.text()).toBe("");
+
+    const answer = await apiWith({ WORKSPACE: unreachable }, "/api/bootstrap");
+    expect(answer.status).toBe(500);
+    expect(answer.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(await answer.json()).toEqual({ error: "Something went wrong" });
+    expect(logged).toHaveBeenCalledWith("GET /api/bootstrap failed:", expect.objectContaining({ message: "The Workspace is out of reach" }));
+  });
+
+  it("logs no more than that setup failed, whose pages and form can hold its token or a password", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const changes = { WORKSPACE: unreachable, EMBER_SETUP_TOKEN: "0123456789abcdef".repeat(4) };
+    const failed = await page("/first_run", {}, changes);
+    await expectPage(failed.clone(), 500, failedPage);
+    // Kept as private as setup's other answers.
+    expect(failed.headers.get("Cache-Control")).toBe("no-store");
+    expect(failed.headers.get("Referrer-Policy")).toBe("no-referrer");
+    const posted = await page("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada", emailAddress: "ada@example.com", password: "12345678" }) }, changes);
+    expect(posted.status).toBe(500);
+    expect(logged.mock.calls).toEqual([
+      ["GET /first_run failed:", "500 Internal Server Error"],
+      ["POST /api/first_run failed:", "500 Internal Server Error"],
+    ]);
+  });
+
+  it("answers unknown API paths with JSON, not the page", async () => {
+    const response = await api("/api/nope", { method: "POST" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Not found" });
+  });
+});

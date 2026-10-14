@@ -1,35 +1,22 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { RoomId, RoomKind } from "@ember/protocol";
+import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type WorkspacePage } from "@ember/protocol";
 
-// The app's few pages, at ember-rust's addresses (crates/ember/src/controllers.rs): a small typed
-// router over the History API rather than a library. A page with changes to lose can hold the app on
-// it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
+// The app's few pages, at ember-rust's addresses, which @ember/protocol lists for the Worker too: a
+// small typed router over the History API rather than a library. A page with changes to lose can
+// hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
+
+export { WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
-export type Access = Exclude<RoomKind, "direct">;
+export type Access = RoomAccess;
 
 /** What a signed-in page shows. */
-export type Route =
-  /** `/`, or an address naming nothing here: the last room visited, or a page saying there are no rooms yet. */
-  | { page: "home" }
-  /** `/rooms`: the room made most recently. */
-  | { page: "newest-room" }
-  /** A room, at `/rooms/<id>`. */
-  | { page: "room"; roomId: RoomId }
-  /** A room at the address for a kind of room, such as `/rooms/opens/<id>`, which goes on to the room's own. */
-  | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
-  | { page: "new-room"; access: Access }
-  | { page: "room-settings"; access: Access; roomId: RoomId }
-  | { page: "workspace-settings" };
-
-/** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
-const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
+export type Route = WorkspacePage;
 
 export const roomPath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)}`;
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
 /** A room's settings page, at the address for its kind, as ember-rust's `edit_path` gives it. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
-export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 
 /**
  * Asked before the app leaves the page shown, with the path it's going to, or null for leaving the app,
@@ -130,42 +117,18 @@ export function navigate(path: string, { replace = false } = {}): void {
   if (!guard?.(path, go)) go();
 }
 
-/** A path segment as text, or null for a malformed escape, which names nothing. */
-function decoded(segment: string): string | null {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return null;
-  }
-}
-
 /** The room id in a /rooms/:id path, or null. */
 export function roomIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/rooms\/([^/]+)$/);
-  // A malformed escape names no room, so the address shows home.
-  return match ? decoded(match[1]!) : null;
+  const route = workspacePageOf(pathname);
+  return route?.page === "room" ? route.roomId : null;
 }
 
-const accessOf = (segment: string): Access => (segment === KIND_SEGMENTS.open ? "open" : "closed");
-
-const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct ? "direct" : accessOf(segment));
-
-/** The page a signed-in path shows: anything it doesn't name is home. */
-export function routeOf(pathname: string): Route {
-  if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
-  if (pathname === "/rooms") return { page: "newest-room" };
-  const newRoom = pathname.match(/^\/rooms\/(opens|closeds)\/new$/);
-  if (newRoom) return { page: "new-room", access: accessOf(newRoom[1]!) };
-  const settings = pathname.match(/^\/rooms\/(opens|closeds)\/([^/]+)\/edit$/);
-  const settingsRoomId = settings && decoded(settings[2]!);
-  if (settingsRoomId) return { page: "room-settings", access: accessOf(settings[1]!), roomId: settingsRoomId };
-  // ember-rust's New direct message page, /rooms/directs/new, comes with direct messages (`dms.picker`).
-  const ofKind = pathname.match(/^\/rooms\/(opens|closeds|directs)\/([^/]+)$/);
-  const ofKindRoomId = ofKind && pathname !== "/rooms/directs/new" && decoded(ofKind[2]!);
-  if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
-  const roomId = roomIdFromPath(pathname);
-  return roomId === null ? { page: "home" } : { page: "room", roomId };
-}
+/**
+ * The page a signed-in path shows. The Worker answers 404 for a path that names none, so home stands
+ * in only at the join and setup pages, which someone signed in leaves for home, and under Vite's dev
+ * server, which serves the app at every path.
+ */
+export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ?? { page: "home" };
 
 /** The page the address shows, re-rendering when it changes. */
 export function useRoute(): Route {

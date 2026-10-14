@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { feature } from "@ember/parity";
 import { expect, test, type Page } from "@playwright/test";
 
-// What the Worker answers whoever asks: its headers, /up, and the page for browsers too old to run
-// Ember. These start signed out and need no rooms, so they use Playwright's own fixtures: with the
+// What the Worker answers whoever asks: its headers, /up, its error pages, and the page for browsers
+// too old to run Ember. These start signed out and need no rooms, so they use Playwright's own fixtures: with the
 // app's, making a test's rooms would ask the API as the old browsers below, and get the upgrade page.
 
 /** Chrome 119, a version short of what ember-rust allows. */
@@ -12,6 +14,10 @@ const APPLE_MESSAGES =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0";
 
 const upgradeHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Upgrade to a supported web browser" });
+const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
+
+/** One of the files the web app serves as it is, from apps/web/public/. */
+const publicFile = (name: string) => readFileSync(resolve(import.meta.dirname, "../../../apps/web/public", name), "utf8");
 
 test.describe(feature("platform.browser-support"), () => {
   test.describe("on an old browser", () => {
@@ -114,5 +120,73 @@ test.describe(feature("platform.health"), () => {
     const response = await request.get("/up.json");
     expect(response.headers()["content-type"]).toBe("application/json; charset=utf-8");
     expect(await response.json()).toEqual({ status: "up", timestamp: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/) });
+  });
+});
+
+test.describe(feature("platform.error-pages"), () => {
+  test("an address Ember has no page at answers 404 with Campfire's page, whose Go back goes home", async ({ page }) => {
+    const response = await page.goto("/no-such-page");
+    expect(response!.status()).toBe(404);
+    expect(await response!.text()).toBe(publicFile("404.html"));
+    await expect(page).toHaveTitle("We can’t find that (404)");
+    await expect(page.getByLabel("Not found")).toBeVisible();
+    const back = page.getByRole("link", { name: "Go back" });
+    await expect(back).toBeFocused();
+    await back.click();
+    await expect(signInHeading(page)).toBeVisible();
+  });
+
+  test("so do Rails' unused actions, as in ember-rust, and a write to a page", async ({ request }) => {
+    for (const path of ["/rooms/new", "/rooms/all-talk/edit", "/rooms/all-talk/extra", "/messages"]) {
+      const response = await request.get(path);
+      expect(response.status(), path).toBe(404);
+      expect(await response.text(), path).toBe(publicFile("404.html"));
+    }
+    const write = await request.post("/rooms/all-talk");
+    expect(write.status()).toBe(404);
+    expect(await write.text()).toBe(publicFile("404.html"));
+  });
+
+  test("every address the app shows a page at still loads it", async ({ request }) => {
+    const pages = ["/", "/rooms", "/rooms/all-talk", "/rooms/opens/all-talk", "/rooms/opens/new", "/rooms/closeds/new", "/rooms/opens/all-talk/edit"];
+    for (const path of [...pages, "/account/edit", "/session/new", "/users/me/profile"]) {
+      const response = await request.get(path);
+      expect(response.status(), path).toBe(200);
+      expect(await response.text(), path).toContain('<div id="root">');
+    }
+  });
+
+  test("a page's address with a trailing slash goes to the page's own", async ({ page }) => {
+    await page.goto("/session/new/");
+    await expect(page).toHaveURL(/\/session\/new$/);
+    await expect(signInHeading(page)).toBeVisible();
+  });
+
+  test("Campfire's 500 page is there for failures, and its 422 page has Try again too", async ({ page }) => {
+    await page.goto("/500");
+    await expect(page).toHaveTitle("Something went wrong (500)");
+    await expect(page.getByLabel("Server error")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Go back" })).toHaveAttribute("href", "/");
+
+    await page.goto("/422");
+    await expect(page).toHaveTitle("That didn’t work (422)");
+    await expect(page.getByLabel("That didn’t work")).toBeVisible();
+    const reloaded = page.waitForRequest((request) => new URL(request.url()).pathname === "/422");
+    await page.getByRole("link", { name: "Try again" }).click();
+    await reloaded;
+  });
+
+  test("follows the device into dark mode, as Campfire's pages do", async ({ page }) => {
+    await page.goto("/no-such-page");
+    await expect(page.locator("body")).toHaveCSS("background-color", "oklch(1 0 0)");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(page.locator("body")).toHaveCSS("background-color", "oklch(0 0 0)");
+  });
+
+  test("/robots.txt is Campfire's, which allows everything", async ({ request }) => {
+    const response = await request.get("/robots.txt");
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toMatch(/^text\/plain/);
+    expect(await response.text()).toBe(publicFile("robots.txt"));
   });
 });
