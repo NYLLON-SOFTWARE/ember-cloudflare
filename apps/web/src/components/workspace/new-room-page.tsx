@@ -36,8 +36,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   const [saving, setSaving] = useState(false);
-  // The room the unsaved changes dialog's Save made, should the page stay after all: when signing out
-  // fails, say.
+  // The room the unsaved changes dialog's Save made, while the app goes on to where the person was going.
   const [created, setCreated] = useState<Room | null>(null);
   // The form the page opened on, which the Everyone switch can move away from and back to.
   const [opened] = useState(access);
@@ -112,7 +111,9 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
           />
         )}
       </Panel>
-      <UnsavedChanges changed={changed} stays={isNewRoomPath} onSave={send} form={roomForm} />
+      {/* Should the page stay after the dialog's Save, as it does when signing out fails, it shows the room
+          made, as its own Save does, rather than a form for another. */}
+      <UnsavedChanges changed={changed} stays={isNewRoomPath} onSave={send} onStayAfterSave={(room) => navigate(roomPath(room.id))} form={roomForm} />
     </SettingsPage>
   );
 }

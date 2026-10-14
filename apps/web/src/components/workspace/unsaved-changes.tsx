@@ -12,16 +12,18 @@ import { cn } from "@/lib/utils";
 /** `.mb-unsaved-actions .btn`: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
 const ACTION = "inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border px-[22px] py-[0.5em] font-semibold touch:min-h-11 disabled:cursor-default max-[480px]:flex-1";
 
-interface Props {
+interface Props<T> {
   /** Whether the form holds changes that leaving would lose. */
   changed: boolean;
   /** Whether going to `path` keeps the form, as the Everyone switch's move to the other form does. */
   stays: (path: string) => boolean;
   /**
-   * Saves the changes, settling once the server has them, after which the page compares its form with
-   * what's saved, as settings.js does, in case it stays: when signing out fails, say.
+   * Saves the changes, settling with what's saved once the server has it, after which the page compares
+   * its form with that, as settings.js does, in case it stays: when signing out fails, say.
    */
-  onSave: () => Promise<unknown>;
+  onSave: () => Promise<T>;
+  /** What the page does instead when it stays after Save, with what was saved: New room shows the room it made. */
+  onStayAfterSave?: (saved: T) => void;
   /** The form, whose fields Save checks first, and whose own dialogs close for this one. */
   form: RefObject<HTMLFormElement | null>;
 }
@@ -30,7 +32,7 @@ interface Props {
  * While a room's form holds changes, leaving the page, by a link, Back or Forward, or signing out,
  * first asks whether to save or discard them, and reloading or closing the tab has the browser ask.
  */
-export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
+export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, form }: Props<T>) {
   const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -75,14 +77,18 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
     setAsking(false);
   };
 
-  const go = async () => {
+  /** Goes where the person was going, or, should the page stay after all, does what `stayed` says. */
+  const go = async (stayed?: () => void) => {
     const next = proceed.current;
     released.current = true;
     proceed.current = null;
     setAsking(false);
+    if ((await next?.()) !== false) return;
+    // Anywhere `stayed` goes, it goes without asking.
+    stayed?.();
     // A sign-out that fails leaves the page as it was, so the form is guarded again, as ember-rust's
     // settings.js guards it again when the form it let through isn't sent.
-    if ((await next?.()) === false) released.current = false;
+    released.current = false;
   };
 
   const save = async () => {
@@ -92,8 +98,9 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
     }
     setSaving(true);
     setFailed(false);
+    let saved: T;
     try {
-      await onSave();
+      saved = await onSave();
     } catch {
       // Whatever went wrong, as ember-rust says for anything but a confirmed save.
       setFailed(true);
@@ -101,7 +108,7 @@ export function UnsavedChanges({ changed, stays, onSave, form }: Props) {
     } finally {
       setSaving(false);
     }
-    await go();
+    await go(onStayAfterSave && (() => onStayAfterSave(saved)));
   };
 
   return (

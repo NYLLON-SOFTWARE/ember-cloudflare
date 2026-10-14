@@ -271,7 +271,7 @@ describe(feature("rooms.unsaved-changes"), () => {
     expect(posted()).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [ada.id, grace.id] });
   });
 
-  it("makes the room once when signing out fails after the dialog's Save, and Save then shows it", async () => {
+  it("shows the room the dialog's Save made when signing out then fails, as its own Save does", async () => {
     const created = { id: "design", name: "Design", kind: "open", icon: null } satisfies Room;
     serve({ created });
     const { onCreated, user } = showPage();
@@ -280,15 +280,28 @@ describe(feature("rooms.unsaved-changes"), () => {
     const signOut = vi.fn(async () => false);
     act(() => leave(signOut));
     await user.click(await screen.findByRole("button", { name: "Save" }));
-    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    await waitFor(() => expect(location.pathname).toBe("/rooms/design"));
+    expect(signOut).toHaveBeenCalledOnce();
     expect(onCreated).toHaveBeenCalledExactlyOnceWith(created);
+    expect(screen.queryByRole("textbox", { name: "Room name" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
 
-    // Nothing's left unsaved, so signing out again doesn't ask.
+  it("makes the room once when its own Save is pressed while the dialog's Save goes on", async () => {
+    const created = { id: "design", name: "Design", kind: "open", icon: null } satisfies Room;
+    serve({ created });
+    const { onCreated, user } = showPage();
+    await user.type(await roomName(), " team");
+    let signedOut = (_: boolean) => {};
+    const signOut = vi.fn(() => new Promise<boolean>((resolve) => (signedOut = resolve)));
     act(() => leave(signOut));
-    expect(signOut).toHaveBeenCalledTimes(2);
-    expect(asking()).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    // While signing out is under way, the form's Save shows the room made.
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(location.pathname).toBe("/rooms/design");
+    await act(async () => signedOut(true));
+    expect(onCreated).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 });
