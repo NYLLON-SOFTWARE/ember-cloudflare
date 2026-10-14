@@ -307,4 +307,11 @@ describe(feature("rooms.member-only-access"), () => {
     state = roomReducer(state, { type: "status", status: "gone" });
     expect(state).toMatchObject({ status: "gone", offline: false, present: [], typing: {}, messages: [message()] });
   });
+
+  it("shows what was waiting for a connection as not sent in a room that's gone, which it'll never reach", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "status", status: "gone" });
+    expect(state.messages).toMatchObject([{ clientMessageId: "c1", pending: true, failed: true }]);
+    expect(state.messages[0]).not.toHaveProperty("queued");
+  });
 });

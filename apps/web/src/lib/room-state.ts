@@ -80,11 +80,13 @@ export const isQueued = (m: Message | PendingMessage): m is PendingMessage => is
 
 const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
 
+/** The messages waiting for a connection, shown as not sent. */
+const notSent = (messages: RoomState["messages"]) => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
+
 /** Offline, the messages waiting for a connection show as not sent, and say so. */
 function unsent(state: RoomState): RoomState {
   if (!state.offline || !state.messages.some(isQueued)) return state;
-  const messages = state.messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
-  return { ...state, messages, notice: NOT_SENT };
+  return { ...state, messages: notSent(state.messages), notice: NOT_SENT };
 }
 
 function withoutTyping(typing: RoomState["typing"], userId: string) {
@@ -98,8 +100,11 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "reset":
       return initialRoomState;
     case "status":
-      // Nobody shows as here with this person in a room that's gone, which nothing connects to again.
-      return action.status === "gone" ? { ...state, status: action.status, offline: false, present: [], typing: {} } : { ...state, status: action.status };
+      // Nobody shows as here with this person in a room that's gone, which nothing connects to again, so
+      // what was waiting for a connection shows as not sent.
+      return action.status === "gone"
+        ? { ...state, status: action.status, offline: false, present: [], typing: {}, messages: notSent(state.messages) }
+        : { ...state, status: action.status };
     case "offline":
       return action.offline ? unsent({ ...state, offline: true }) : { ...state, offline: false };
     case "pending":

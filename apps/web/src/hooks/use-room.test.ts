@@ -592,6 +592,19 @@ describe(feature("rooms.member-only-access"), () => {
     expect(onSessionChanged).not.toHaveBeenCalled();
   });
 
+  it("shows what was waiting to be sent as not sent once the room turns out to be gone", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: ada })));
+    const { result } = joinGeneral();
+    socket().drop();
+    act(() => result.current.postMessage("still here?"));
+    wait(500);
+    socket().open();
+    socket().drop(CloseCode.NotFound);
+    await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
+    expect(result.current.state.messages).toMatchObject([{ body: "still here?", failed: true }]);
+    expect(result.current.state.messages[0]).not.toHaveProperty("queued");
+  });
+
   it("calls a room gone when it can't tell who the browser is signed in as", async () => {
     const { result } = joinGeneral();
     socket().drop(CloseCode.NotFound);
