@@ -7,6 +7,7 @@ import {
   expiredSessionCookie,
   guestSignIn,
   isCrossSite,
+  isHttps,
   isSameOriginUpgrade,
   newSessionToken,
   sessionCookie,
@@ -16,12 +17,15 @@ import {
 } from "./auth";
 import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
+import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
+import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
-import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
+import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { unfurlLink } from "./unfurl";
+import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
 
@@ -31,31 +35,11 @@ export { Unfurler } from "./unfurl";
 export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
-/** The room object /api/health reads from. No room can have this name, since room ids can't hold "_". */
-const HEALTH_ROOM = "_health";
 /** ember-rust's alert for a room someone can't open, whether it's missing or they aren't in it. */
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 
 const json = (data: unknown, init?: ResponseInit) => Response.json(data, init);
 const problem = (status: number, message: string) => json({ error: message }, { status });
-
-/**
- * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
- * their storage, so a deploy can be checked without signing in.
- */
-async function health(env: Env): Promise<Response> {
-  const storage = env.STORAGE_BACKEND;
-  if (!env.SESSION_SECRET) return json({ ok: false, storage, error: "SESSION_SECRET isn't set" }, { status: 503 });
-  const setupToken = setupTokenProblem(env);
-  if (setupToken) return json({ ok: false, storage, error: setupToken }, { status: 503 });
-  try {
-    await Promise.all([workspace(env).health(), env.CHAT_ROOM.getByName(HEALTH_ROOM).health(HEALTH_ROOM)]);
-  } catch (error) {
-    console.error("Health check failed", error);
-    return json({ ok: false, storage, error: "Storage isn't answering" }, { status: 503 });
-  }
-  return json({ ok: true, storage });
-}
 
 /** Signs in with an email address and password, or with just a name when the body gives one. */
 async function signIn(request: Request, env: Env): Promise<Response> {
@@ -174,39 +158,53 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
   return env.CHAT_ROOM.getByName(roomId).fetch(new Request(request, { headers }));
 }
 
+/** What the app's routes answer, before the headers every answer gets. */
+async function route(request: Request, env: Env, pathname: string): Promise<Response> {
+  // The deploy check isn't a browser's, any more than /up is.
+  if (pathname === "/api/health") return health(env);
+  // First, where ember-rust checks after sign-in and the forgery check: a browser too old for the
+  // app has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
+  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
+  const write = request.method !== "GET" && request.method !== "HEAD";
+  if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
+
+  if (pathname === "/api/bootstrap" && request.method === "GET") return bootstrap(request, env);
+  if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
+  if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
+  if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
+  if (pathname === "/api/me") return me(request, env);
+  if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
+  if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
+  const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
+  if (joining && request.method === "POST") return join(request, env, joining[1]!);
+  if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
+
+  const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
+  if (socket) {
+    // Room ids never need percent-encoding, so an encoded segment can only be an unknown room.
+    const roomId = socket[1]!;
+    return isRoomId(roomId) ? connectToRoom(request, env, roomId) : problem(404, ROOM_NOT_FOUND);
+  }
+
+  if (pathname.startsWith("/api/")) return problem(404, "Not found");
+  if (isSetupPath(pathname)) return setupPage(request, env);
+  const joinCode = joinCodeOf(pathname);
+  if (joinCode !== null) return joinPage(request, env, joinCode);
+  const manifestFormat = manifestFormatOf(pathname);
+  if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
+  if (pathname.startsWith("/qr_code/")) return showQrCode(request);
+  return env.ASSETS.fetch(request);
+}
+
 export default {
+  // Everything but the built app's static files comes here first (`run_worker_first`), page loads
+  // included, so each answer gets ember-rust's headers.
   async fetch(request, env): Promise<Response> {
+    if (!isHttps(request) && requiresHttps(request, env)) return redirectToHttps(request);
     const { pathname } = new URL(request.url);
-
-    if (pathname === "/api/health") return health(env);
-    const write = request.method !== "GET" && request.method !== "HEAD";
-    if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
-
-    if (pathname === "/api/bootstrap" && request.method === "GET") return bootstrap(request, env);
-    if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
-    if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
-    if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
-    if (pathname === "/api/me") return me(request, env);
-    if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
-    if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
-    const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
-    if (joining && request.method === "POST") return join(request, env, joining[1]!);
-    if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
-
-    const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
-    if (socket) {
-      // Room ids never need percent-encoding, so an encoded segment can only be an unknown room.
-      const roomId = socket[1]!;
-      return isRoomId(roomId) ? connectToRoom(request, env, roomId) : problem(404, ROOM_NOT_FOUND);
-    }
-
-    if (pathname.startsWith("/api/")) return problem(404, "Not found");
-    if (isSetupPath(pathname)) return setupPage(request, env);
-    const joinCode = joinCodeOf(pathname);
-    if (joinCode !== null) return joinPage(request, env, joinCode);
-    const manifestFormat = manifestFormatOf(pathname);
-    if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
-    if (pathname.startsWith("/qr_code/")) return showQrCode(request);
-    return env.ASSETS.fetch(request);
+    // /up skips ember-rust's before-actions, so it's never checked and carries no version.
+    const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
+    const response = isUp ? up(request) : await route(request, env, pathname);
+    return withHeaders(response, request, env, { version: !isUp });
   },
 } satisfies ExportedHandler<Env>;

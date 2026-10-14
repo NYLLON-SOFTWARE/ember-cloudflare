@@ -28,7 +28,8 @@ describe(feature("auth.first-run"), () => {
     // The app's own page, which shows the form at /first_run.
     expect(await response.text()).toBe("page /");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(response.headers.get("Referrer-Policy")).toBeNull();
+    // Rails' default, as any page has, since nothing private is on the way.
+    expect(response.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
   });
 
   it("creates the workspace, its administrator and All Talk, and signs them in", async () => {

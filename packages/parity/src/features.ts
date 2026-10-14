@@ -2372,7 +2372,7 @@ export const features = [
     id: "platform.health",
     title: "Health check",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{\"status\":\"up\",\"timestamp\":…}` with the time to the second.",
       "It skips sign-in, ban and browser checks, and carries no version headers.",
@@ -2380,7 +2380,7 @@ export const features = [
     sources: ["crates/ember/src/controllers.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs"],
     notes:
-      "`/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.",
+      "`/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.",
   },
   {
     id: "platform.error-pages",
@@ -2445,13 +2445,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/concerns.rs", "crates/views/src/helpers/application.rs", "crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/_help_contact.html", "reference/config/initializers/version.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/app/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "The sign-in page shows it under the help contact, worked out as ember-rust does, with this port's own release (\"0.1\", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. The X-Version and X-Rev headers and workspace settings aren't ported yet.",
+    notes: "Worked out as ember-rust does, with this port's own release (\"0.1\", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. Every answer from the Worker carries the headers but `/up`'s and a room socket's upgrade, `/api/health` included; static files come straight from the assets. Workspace settings, and their line, come with Phase 5.",
   },
   {
     id: "platform.browser-support",
     title: "Supported browsers",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Safari before 17.2, Chrome before 120, Firefox before 121, Opera before 104, and Internet Explorer get \"Upgrade to a supported web browser\" with status 200, whatever was asked for, the manifest and JSON requests included. Signed out, it shows in place of the sign-in page.",
       "Chromium Edge, Chrome on iOS and Samsung Internet count as Chrome, by their Chrome version; Firefox on iOS counts as Safari at the iOS version, and Edge on iOS by its Safari version.",
@@ -2460,18 +2460,22 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns/platform.rs", "crates/ember/src/concerns/user_agent.rs", "crates/ember/src/concerns.rs", "crates/views/templates/sessions/incompatible_browser.html", "crates/views/src/sessions.rs", "reference/app/controllers/concerns/allow_browser.rb"],
     upstreamTests: ["crates/ember/src/concerns/platform.rs", "crates/ember/src/app/tests.rs", "vectors/campfire_user_agents.json", "reference/test/controllers/sessions_controller_test.rb", "parity/screens.yml"],
+    notes:
+      "Every user agent in ember-rust's vectors gets its verdict. Where ember-rust's reading parts from Rails', this follows Rails: an agent calling itself \"IE\" is turned away, and a \"MicroMeßenger\" is WeChat, as Ruby folds case. An agent Rails fails to read, which Campfire answers with an error page, gets through. The Worker writes the page itself in plain CSS, since the app's stylesheet needs a supported browser, and always with the signed-out layout, where ember-rust puts a signed-in person's rail around it: nothing past the page runs in that browser. It checks before anything but `/up` and `/api/health`, where ember-rust checks after sign-in and its forgery check, so a signed-out request for the API gets the page rather than 401. The logos are Campfire's, served from `/browsers/`. The translation globe stays hidden until `accounts.translation-buttons`.",
   },
   {
     id: "platform.security-headers",
     title: "Security headers and HTTPS",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Pages and other responses the app renders (not static files, streamed files or error pages) carry `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 0`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none` and `Referrer-Policy: strict-origin-when-cross-origin`.",
       "Unless `DISABLE_SSL` is set, plain HTTP redirects to the same URL over HTTPS, every HTTPS response carries `Strict-Transport-Security: max-age=63072000; includeSubDomains`, and every cookie is `Secure`.",
     ],
     sources: ["crates/kit/src/app.rs", "crates/kit/src/ctx.rs", "crates/kit/src/adapter.rs", "crates/kit/src/front/tls.rs", "reference/config/environments/production.rb"],
     upstreamTests: ["crates/kit/tests/http.rs", "crates/kit/src/cookies.rs"],
+    notes:
+      "Page loads go through the Worker (`run_worker_first`, all but the built app's static files), which adds Rails' headers to everything it answers, its errors included, where ember-rust's error pages go without; a room socket's upgrade gets none. Plain HTTP gets ember-rust's TLS front's answer: 301 to the same address over HTTPS for every method, with a link for a GET, and setup's addresses kept out of caches and referrers and refused with a query. HSTS goes on every HTTPS answer from the Worker, but static files go without it. Localhost and loopback addresses are never redirected and get no HSTS, so `wrangler dev` works as it is and HSTS never sticks to them; `DISABLE_SSL` turns both off anywhere else. Cookies are `Secure` whenever the request is HTTPS, which away from loopback it always is unless `DISABLE_SSL` is set.",
   },
   {
     id: "platform.deploy-secrets",

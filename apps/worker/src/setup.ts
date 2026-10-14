@@ -184,19 +184,24 @@ async function unlock(request: Request, env: Env, lock: UsableLock): Promise<Res
 export const isSetupPath = (pathname: string) => /^\/first_run(?:$|[/.])/.test(pathname);
 
 /**
- * Answers a request for one of setup's pages. While a token is set, every one of them, and the
- * access page always, is kept out of caches and sends no referrer, as ember-rust's app.rs does;
- * the unlocked form sends one to its own origin, which its post needs.
+ * Keeps an answer for one of setup's pages out of caches and referrers, as ember-rust's app.rs does
+ * whatever answers it there, the page for old browsers included: every one of them while a token is
+ * set, and the access page always. The unlocked form sends a referrer to its own origin, which its
+ * post needs, so a policy the answer sets itself stays.
  */
+export function keepSetupPrivate(response: Response, env: Env, pathname: string): Response {
+  if (!isSetupPath(pathname) || (!isSetupProtected(env) && pathname !== "/first_run/access")) return response;
+  response.headers.set("Cache-Control", "no-store");
+  if (!response.headers.has("Referrer-Policy")) response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
+/** Answers a request for one of setup's pages. */
 export async function setupPage(request: Request, env: Env): Promise<Response> {
   const { pathname } = new URL(request.url);
   const lock = await lockOf(env);
   const response = lock.kind === "misconfigured" ? misconfigured() : await route(request, env, lock, pathname);
-  if (lock.kind !== "open" || pathname === "/first_run/access") {
-    response.headers.set("Cache-Control", "no-store");
-    if (!response.headers.has("Referrer-Policy")) response.headers.set("Referrer-Policy", "no-referrer");
-  }
-  return response;
+  return keepSetupPrivate(response, env, pathname);
 }
 
 async function route(request: Request, env: Env, lock: UsableLock, pathname: string): Promise<Response> {

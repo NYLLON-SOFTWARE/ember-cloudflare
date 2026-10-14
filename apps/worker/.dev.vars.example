@@ -5,3 +5,6 @@ EMBER_GUEST_SIGN_IN=true
 # Makes setup take the private link /first_run/access#token=<this>, as a deployment on the internet
 # should; make one with `openssl rand -hex 32`. Setup then needs HTTPS: `wrangler dev --local-protocol https`.
 # EMBER_SETUP_TOKEN=
+# Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
+# reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
+# DISABLE_SSL=true
