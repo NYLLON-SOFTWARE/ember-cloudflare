@@ -1694,7 +1694,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/refreshes.rs", "crates/db/src/models/message.rs", "crates/views/templates/rooms/refreshes/show.turbo_stream.html", "crates/views/templates/rooms/show.html", "crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/refresh_room_controller.js", "reference/app/controllers/rooms/refreshes_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms/refreshes_controller_test.rb", "parity/screens.yml"],
-    notes: "The room sends a fresh welcome on every connection instead: the newest 50 messages replace the timeline, older pages already loaded are dropped, and messages that never got through stay, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with \"Your message was sent. Scroll up to see it.\", and if not, it shows as not sent. Send is disabled as soon as the connection drops, though the message box stays editable, and hidden tabs don't refresh.",
+    notes: "The room sends a fresh welcome on every connection instead: the newest 50 messages replace the timeline, older pages already loaded are dropped, and messages that never got through stay, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with \"Your message was sent. Scroll up to see it.\", and if not, it shows as not sent. A message written while the connection is down stays as sending, and goes, in order, once the room lets the page in again. After 5 seconds without a connection, the header says \"Reconnecting…\" (\"Connecting…\" before the first), Send is disabled, and any message still waiting shows as not sent; the message box stays editable, where ember-rust disables the whole composer. Hidden tabs don't refresh.",
   },
   {
     id: "realtime.connection",
@@ -1715,7 +1715,7 @@ export const features = [
     id: "realtime.keepalive",
     title: "Keeping the connection alive",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The server pings every connection every 3 seconds. A connection that has heard nothing for 6 seconds is stale and is reopened; the check runs about every 6 seconds, 15% less often with each failed attempt (for up to 10), with jitter.",
       "When the tab becomes visible, or the browser comes back online while it's visible, a stale or closed connection is reopened after 200ms.",
@@ -1723,7 +1723,7 @@ export const features = [
     ],
     sources: ["crates/cable/src/protocol.rs", "crates/cable/src/server.rs", "crates/cable/src/connection.rs", "crates/assets/vendor/actioncable/app/assets/javascripts/action_cable.js", "crates/ember/src/app.rs", "reference/app/javascript/controllers/refresh_room_controller.js"],
     upstreamTests: ["crates/cable/tests/protocol.rs", "crates/ember/src/channels/tests/channels_test.rs"],
-    notes: "The room socket pings every 25 seconds, answered by the runtime without waking the room, and reconnects when a ping goes unanswered. Reconnecting waits half a second, doubling up to 15 seconds, give or take a quarter. Nothing reacts to the tab becoming visible or the browser coming back online. A deploy closes every WebSocket, and tabs reconnect within about half a second.",
+    notes: "The app pings each room socket every 25 seconds, answered by the runtime without waking the room, and reopens one whose ping goes unanswered: the server doesn't ping, since a Durable Object that did couldn't hibernate. When the tab is shown, or the network or the back-forward cache brings the page back, the app waits 200ms, then pings an open socket and reopens it unless the server answers within 3 seconds, or connects at once if it was waiting to. Reconnecting waits half a second, doubling up to 15 seconds, give or take a quarter, and a socket that hasn't opened in 10 seconds is tried again. In place of a restart's message, a deploy closes every WebSocket, so the first try after a socket that was open over a minute closes is spread over a quarter of a second to two. Nothing in the app closes a socket that falls behind.",
   },
 
   // Notifications

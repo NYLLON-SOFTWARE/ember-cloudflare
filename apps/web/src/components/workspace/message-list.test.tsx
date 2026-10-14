@@ -99,6 +99,19 @@ describe(feature("ui.empty-room"), () => {
   });
 });
 
+describe(feature("realtime.reconnect"), () => {
+  it("marks the timeline busy until the room lets the socket in, which brings its messages afresh", () => {
+    const { rerender } = render(list({ status: "connecting", messages: [] }));
+    expect(screen.getByRole("log")).toHaveAttribute("aria-busy", "true");
+    rerender(list({ messages: [message("m1")] }));
+    expect(screen.getByRole("log")).not.toHaveAttribute("aria-busy");
+    rerender(list({ status: "reconnecting", messages: [message("m1")] }));
+    expect(screen.getByRole("log")).toHaveAttribute("aria-busy", "true");
+    rerender(list({ status: "gone", messages: [message("m1")] }));
+    expect(screen.getByRole("log")).not.toHaveAttribute("aria-busy");
+  });
+});
+
 describe(feature("rooms.invitation-card"), () => {
   const invitation = { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" };
   const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });

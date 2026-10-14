@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 27 ported and 56 partial of 172 features; 84 not started, 5 not applicable.
+**Overall:** 28 ported and 56 partial of 172 features; 83 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -29,13 +29,13 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
-| [Presence, typing and live updates](#presence-typing-and-live-updates) | 1 | 4 | 1 | 0 | 6 |
+| [Presence, typing and live updates](#presence-typing-and-live-updates) | 2 | 4 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 3 | 8 | 0 | 0 | 11 |
 | [Platform](#platform) | 8 | 2 | 1 | 4 | 15 |
-| **Total** | **27** | **56** | **84** | **5** | **172** |
+| **Total** | **28** | **56** | **83** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1596,9 +1596,9 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 | Presence | `realtime.presence` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Who's here | `realtime.who-is-here` | This port | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Typing indicator | `realtime.typing` | Campfire | 🟡 Partial | Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
-| Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
+| Catch up after a reconnect | `realtime.reconnect` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [realtime](apps/worker/test/realtime.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [reconnecting-socket](apps/web/src/lib/reconnecting-socket.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [realtime](e2e/tests/features/realtime.spec.ts) |
 | Connection sign-in and revocation | `realtime.connection` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts), [revocation](apps/worker/test/revocation.test.ts)<br>Web: [use-room](apps/web/src/hooks/use-room.test.ts), [api](apps/web/src/lib/api.test.ts) |
-| Keeping the connection alive | `realtime.keepalive` | Campfire | ⬜ Not started |  |
+| Keeping the connection alive | `realtime.keepalive` | Campfire | ✅ Ported | Web: [use-room](apps/web/src/hooks/use-room.test.ts), [reconnecting-socket](apps/web/src/lib/reconnecting-socket.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1640,7 +1640,7 @@ ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://g
 - Coming back to a tab hidden for more than 60 seconds fetches the same way.
 - The composer is disabled 5 seconds after the connection drops, until it returns.
 
-Note: The room sends a fresh welcome on every connection instead: the newest 50 messages replace the timeline, older pages already loaded are dropped, and messages that never got through stay, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with "Your message was sent. Scroll up to see it.", and if not, it shows as not sent. Send is disabled as soon as the connection drops, though the message box stays editable, and hidden tabs don't refresh.
+Note: The room sends a fresh welcome on every connection instead: the newest 50 messages replace the timeline, older pages already loaded are dropped, and messages that never got through stay, marked as not sent. A message sent before the drop that the new page doesn't confirm stays as sending while the app asks the room whether it stored it: if it did, the message leaves the bottom of the timeline with "Your message was sent. Scroll up to see it.", and if not, it shows as not sent. A message written while the connection is down stays as sending, and goes, in order, once the room lets the page in again. After 5 seconds without a connection, the header says "Reconnecting…" ("Connecting…" before the first), Send is disabled, and any message still waiting shows as not sent; the message box stays editable, where ember-rust disables the whole composer. Hidden tabs don't refresh.
 
 Sources: [`crates/ember/src/controllers/rooms/refreshes.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/refreshes.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/templates/rooms/refreshes/show.turbo_stream.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/refreshes/show.turbo_stream.html) · [`crates/views/templates/rooms/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show.html) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js) · [`reference/app/controllers/rooms/refreshes_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/refreshes_controller.rb)
 
@@ -1659,13 +1659,13 @@ Sources: [`crates/ember/src/channels/connection.rs`](https://github.com/NYLLON-S
 
 ember-rust tests: [`reference/test/channels/application_cable/connection_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/application_cable/connection_test.rb) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs) · [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/tests/protocol.rs)
 
-**Keeping the connection alive** (`realtime.keepalive`) ⬜
+**Keeping the connection alive** (`realtime.keepalive`) ✅
 
 - The server pings every connection every 3 seconds. A connection that has heard nothing for 6 seconds is stale and is reopened; the check runs about every 6 seconds, 15% less often with each failed attempt (for up to 10), with jitter.
 - When the tab becomes visible, or the browser comes back online while it's visible, a stale or closed connection is reopened after 200ms.
 - A server restart tells every connection to reconnect, and so does falling more than 256 messages behind.
 
-Note: The room socket pings every 25 seconds, answered by the runtime without waking the room, and reconnects when a ping goes unanswered. Reconnecting waits half a second, doubling up to 15 seconds, give or take a quarter. Nothing reacts to the tab becoming visible or the browser coming back online. A deploy closes every WebSocket, and tabs reconnect within about half a second.
+Note: The app pings each room socket every 25 seconds, answered by the runtime without waking the room, and reopens one whose ping goes unanswered: the server doesn't ping, since a Durable Object that did couldn't hibernate. When the tab is shown, or the network or the back-forward cache brings the page back, the app waits 200ms, then pings an open socket and reopens it unless the server answers within 3 seconds, or connects at once if it was waiting to. Reconnecting waits half a second, doubling up to 15 seconds, give or take a quarter, and a socket that hasn't opened in 10 seconds is tried again. In place of a restart's message, a deploy closes every WebSocket, so the first try after a socket that was open over a minute closes is spread over a quarter of a second to two. Nothing in the app closes a socket that falls behind.
 
 Sources: [`crates/cable/src/protocol.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/protocol.rs) · [`crates/cable/src/server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/server.rs) · [`crates/cable/src/connection.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/cable/src/connection.rs) · [`crates/assets/vendor/actioncable/app/assets/javascripts/action_cable.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/actioncable/app/assets/javascripts/action_cable.js) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/javascript/controllers/refresh_room_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/refresh_room_controller.js)
 

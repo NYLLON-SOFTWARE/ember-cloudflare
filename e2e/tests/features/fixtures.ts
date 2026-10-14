@@ -68,15 +68,20 @@ export class Member {
     return this.message(text).getByRole("group", { name: "Message actions" });
   }
 
-  /** The header's Connecting… or Reconnecting… badge, shown while the room's socket is down. */
+  /** The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds. */
   connection(): Locator {
     return this.page.getByRole("banner").getByRole("status");
   }
 
+  /** The room's messages, busy until the room lets its socket in. */
+  timeline(): Locator {
+    return this.page.getByRole("log", { name: /^Messages in / });
+  }
+
   /** Waits until the room's history has loaded and its socket is open. */
   async connected(): Promise<void> {
-    await expect(this.page.getByRole("log", { name: /^Messages in / })).toBeVisible();
-    await expect(this.connection()).toHaveCount(0);
+    await expect(this.timeline()).toBeVisible();
+    await expect(this.timeline()).not.toHaveAttribute("aria-busy");
   }
 
   presence(): Locator {

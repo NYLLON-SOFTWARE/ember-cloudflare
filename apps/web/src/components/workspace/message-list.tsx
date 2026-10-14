@@ -85,12 +85,14 @@ export function MessageList({ roomName, invitation, state, me, actions, onLoadOl
   const items = timeline(state.messages);
   // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome.
   const welcomeCard = invitation !== null && state.paged === false;
+  // Until the room lets the socket in, which brings its messages afresh.
+  const waiting = state.status === "connecting" || state.status === "reconnecting";
 
   return (
     <div className="relative min-h-0 flex-1">
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so the return button
           below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
-      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`}>
+      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`} aria-busy={waiting || undefined}>
         <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
