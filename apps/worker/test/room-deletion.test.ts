@@ -217,6 +217,43 @@ describe(feature("rooms.delete"), () => {
     await delivered();
   });
 
+  it("still deletes the room when it's deleted while a revocation in it is on its way", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const adaInRoom = await connect(room.id, ada);
+    await post(adaInRoom, "Gone soon");
+    const graceInRoom = await connect(room.id, grace);
+    // Holds the Workspace's delivery of Grace's revocation, the newest in its outbox, between reading
+    // it and delivering it, until the room is deleted, or for a second.
+    const race = { alarmHasRead: false, roomIsDeleted: false };
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const dueRevocations = store.dueRevocations.bind(store);
+      store.dueRevocations = async (...args) => {
+        const due = await dueRevocations(...args);
+        if (race.alarmHasRead || !due.some(({ tag }) => tag === grace.user.id)) return due;
+        race.alarmHasRead = true;
+        for (let waited = 0; !race.roomIsDeleted && waited < 1_000; waited += 10) await scheduler.wait(10);
+        return due;
+      };
+    });
+    const closed = [closeOf(adaInRoom.ws), closeOf(graceInRoom.ws)];
+
+    const takeGraceOut = { kind: "closed", memberIds: [ada.user.id] };
+    const changed = await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify(takeGraceOut) });
+    expect(changed.status).toBe(200);
+    await vi.waitFor(() => expect(race.alarmHasRead).toBe(true));
+    expect((await remove(room.id, ada)).status).toBe(204);
+    race.roomIsDeleted = true;
+
+    // Settling Grace's delivery leaves the deletion queued, to be delivered in turn.
+    await delivered();
+    expect(await countIn(room.id, "messages")).toBe(0);
+    const [adaClosed, graceClosed] = await Promise.all(closed);
+    expect(adaClosed).toMatchObject({ code: CloseCode.NotFound });
+    expect(graceClosed).toMatchObject({ code: CloseCode.Reconnect });
+  });
+
   it("turns away a socket let through at or before the room was deleted, telling it to reconnect", async () => {
     const ada = await signIn("Ada");
     const room = await createRoom("Design", { as: ada });

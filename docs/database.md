@@ -133,8 +133,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   (`crates/ember/src/channels/revocation.rs`). Ours are spread over rooms' Durable Objects, which the
   Workspace has to call, and any call can fail. So the change also writes a `pending_revocations` row
   for each room, in the same batch, and the Workspace's alarm sends each room its own: up to 40 rows
-  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on, and giving
-  it up after 10 tries. Its index on `due_at` finds the rows that are due. The change sets the alarm
+  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on up to 5
+  minutes, and giving it up after 10 tries, unless it deletes a room, which would leave the room's
+  messages stored. Its index on `due_at` finds the rows that are due. The change sets the alarm
   even when D1's answer to it is lost, since it may have been saved anyway, and a Workspace that
   starts sets it for any rows waiting, which one that stopped in between leaves. A room keeps the
   time of each revocation it has had in `revocations` for five minutes. It turns away a socket the
