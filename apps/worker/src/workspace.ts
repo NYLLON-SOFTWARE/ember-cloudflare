@@ -14,6 +14,12 @@ const CACHED_SESSIONS = 10_000;
 /** ember-rust's sign-in limit: 10 attempts from an IP address in a fixed 3-minute window (sessions.rs). */
 const SIGN_IN_ATTEMPTS = 10;
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
+/**
+ * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
+ * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
+ */
+const UNFURLS = 30;
+const UNFURL_WINDOW_MS = 60 * 1000;
 
 /** What a request brings to say who it's from. */
 export interface Credentials {
@@ -67,6 +73,7 @@ export class Workspace extends DurableObject<Env> {
   /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
   private knownHelpContact: HelpContact | null | undefined;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
+  private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -164,6 +171,16 @@ export class Workspace extends DurableObject<Env> {
   async beginSignIn(ip: string, emailAddress: string | null): Promise<"limited" | { userId: UserId; passwordDigest: string } | null> {
     if (!this.signInAttempts.attempt(ip)) return "limited";
     return emailAddress === null ? null : this.store.passwordFor(emailAddress);
+  }
+
+  /**
+   * Counts a link preview against the limit of the person `credentials` signs in: "limited" past it,
+   * null without a valid session.
+   */
+  async beginUnfurl(credentials: Credentials): Promise<"allowed" | "limited" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.unfurls.attempt(user.id) ? "allowed" : "limited";
   }
 
   /** Signs in someone whose password checked out, unless they've stopped being active since. */

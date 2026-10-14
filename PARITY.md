@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 17 ported and 52 partial of 172 features; 98 not started, 5 not applicable.
+**Overall:** 19 ported and 52 partial of 172 features; 96 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -27,7 +27,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
-| [Link previews](#link-previews) | 0 | 0 | 4 | 0 | 4 |
+| [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 1 | 4 | 1 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
 | [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
-| **Total** | **17** | **52** | **98** | **5** | **172** |
+| **Total** | **19** | **52** | **96** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1005,7 +1005,7 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
 - While a message is sending, its pending copy shows the formatting as typed.
 
-Note: Messages here are still plain text: line breaks are kept and nothing else is formatted. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores or shows rich text with it yet. It will store each body as it renders, less `class` attributes and the pictures of remote image attachments, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. There's no code highlighting yet.
+Note: Messages here are still plain text: line breaks are kept and nothing else is formatted. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores or shows rich text with it yet. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. There's no code highlighting yet.
 
 Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
@@ -1453,8 +1453,8 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Link previews while writing | `unfurl.composer` | Campfire | ⬜ Not started |  |
-| Link preview lookup | `unfurl.endpoint` | Campfire | ⬜ Not started |  |
-| Link preview safety limits | `unfurl.guard` | Campfire | ⬜ Not started |  |
+| Link preview lookup | `unfurl.endpoint` | Campfire | ✅ Ported | Worker: [unfurl-cases](apps/worker/test/unfurl-cases.test.ts), [unfurl-parsing](apps/worker/test/unfurl-parsing.test.ts), [unfurl](apps/worker/test/unfurl.test.ts) |
+| Link preview safety limits | `unfurl.guard` | Campfire | ✅ Ported | Worker: [unfurl-guard](apps/worker/test/unfurl-guard.test.ts), [unfurl-parsing](apps/worker/test/unfurl-parsing.test.ts), [unfurl](apps/worker/test/unfurl.test.ts) |
 | Link previews in messages | `unfurl.render` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -1473,7 +1473,7 @@ Sources: [`reference/app/javascript/controllers/unfurl_controller.js`](https://g
 
 ember-rust tests: [`reference/test/system/unfurling_links_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unfurling_links_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
-**Link preview lookup** (`unfurl.endpoint`) ⬜
+**Link preview lookup** (`unfurl.endpoint`) ✅
 
 - `POST /unfurl_link` needs a session and takes `url` as JSON or a form. A missing or blank `url` is 400, and one sent as a hash or an array is 204.
 - It answers 200 JSON (title, url, image, description) when, after tags are stripped, the page has a title, a description and a URL. Otherwise it answers 204, as it does when the whole lookup, image check included, takes over 10 seconds.
@@ -1484,11 +1484,13 @@ ember-rust tests: [`reference/test/system/unfurling_links_test.rb`](https://gith
 - An image is kept when a HEAD request (following redirects, whatever its status) answers a type that lowercases to exactly `image/jpeg`, `image/png`, `image/gif` or `image/webp`.
 - X and Twitter post URLs are read through fxtwitter.com. When fxtwitter has nothing, the endpoint answers 500, as it does for a URL like `mailto:foo`.
 
+Note: `POST /api/unfurl` takes JSON `{url}` from the app's own pages, not a form, and its tests replay ember-rust's 90 recorded previews (`apps/worker/test/fixtures`). It answers 429 to anyone who asks for more than 30 previews in a minute, which ember-rust doesn't limit, and 204 for this Ember's own links, which the app never shows a preview of. Titles and descriptions come back as plain text rather than HTML-escaped, so "Tom & Jerry" can show as written, and a page keeps its non-ASCII characters without a meta charset. X and Twitter posts are read through fxtwitter.com whatever the case of their host, where ember-rust only rewrites a lowercase one. Where ember-rust answers 500 (`mailto:foo`, an X post fxtwitter has nothing for, markup Gumbo refuses), this answers 204. A title or description is cut to 4,096 UTF-16 code units before its tags are stripped, as the app shows at most 560 characters. Each preview is made in a short-lived `Unfurler` Durable Object, whose requests get the CPU time a 5 MiB page takes.
+
 Sources: [`crates/ember/src/controllers/unfurl_links.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/unfurl_links.rs) · [`crates/ember/src/integrations/opengraph.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph.rs) · [`crates/ember/src/integrations/opengraph/metadata.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/metadata.rs) · [`crates/ember/src/integrations/opengraph/document.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/document.rs) · [`crates/ember/src/integrations/opengraph/html.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/html.rs) · [`crates/ember/src/integrations/opengraph/entities.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/entities.rs) · [`reference/app/controllers/unfurl_links_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/unfurl_links_controller.rb)
 
 ember-rust tests: [`reference/test/controllers/unfurl_links_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/unfurl_links_controller_test.rb) · [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/tests.rs) · [`crates/ember/src/controllers/unfurl_links.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/unfurl_links.rs) · [`crates/ember/src/integrations/opengraph/html.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/html.rs) · [`crates/ember/src/integrations/opengraph/document.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/document.rs) · [`crates/ember/src/integrations/opengraph/metadata.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/metadata.rs)
 
-**Link preview safety limits** (`unfurl.guard`) ⬜
+**Link preview safety limits** (`unfurl.guard`) ✅
 
 - Only http(s) URLs are fetched, and only when their host is a public address or a plain name (ASCII letters, digits, hyphens and dots, up to 255 bytes) resolving to one. Numeric hosts such as `2130706433` or `0x7f.1` count as addresses, and `http://127.0.0.1/secret` gets no preview.
 - Private, loopback, link-local, CGNAT, documentation, multicast and other reserved addresses are refused in IPv4 and IPv6, as are IPv4-mapped and IPv4-compatible IPv6 addresses (even of public IPv4) and IPv6 outside IANA's allocated unicast space; well-known NAT64 addresses are judged by the IPv4 they carry.
@@ -1497,6 +1499,8 @@ ember-rust tests: [`reference/test/controllers/unfurl_links_controller_test.rb`]
 - Pages must answer exactly 200 with a media type of exactly `text/html`, compared case-sensitively with parameters allowed, and be at most 5 MiB (5,242,880 bytes) by Content-Length and once decompressed.
 - URLs naming files or media (zip, tar, gz, dmg, exe, jpg, png, mp4, mov, mp3 and the like) aren't fetched. The match is case-sensitive and can fall anywhere in the URL, and redirect targets aren't checked against it.
 - ember-rust allows 10 seconds per preview, 5 per connect or read, and 16 previews at a time, and sends `Accept: */*` with `User-Agent: Ruby`.
+
+Note: A Worker's `fetch` connects by name, so the address the guard checked can't be pinned: a host must resolve only to public addresses (one with a private answer too is refused), a host written as an address is never fetched, public or not, and a name whose answers change between the guard's lookup and the fetch's own (DNS rebinding) isn't caught the way pinning catches it. Names are looked up once per preview with Cloudflare's DNS over HTTPS, and the `global_fetch_strictly_public` flag sends every fetch over the public Internet, even to this Worker's own zone. A preview makes at most 45 subrequests, of the 50 a request gets on Workers Free, and goes on without anything past them. The 10 seconds per preview stand, 5 seconds bound the wait for each response and each read of its body, and a limit of 30 previews a minute per person stands in for 16 at a time. Requests send `Accept: */*` and an Emberbot User-Agent, since sites that serve their tags only to bots, fxtwitter among them, look for "bot".
 
 Sources: [`crates/ember/src/integrations/net/guard.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/guard.rs) · [`crates/ember/src/integrations/net/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/http.rs) · [`crates/ember/src/integrations/opengraph/fetch.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/fetch.rs) · [`crates/ember/src/integrations/opengraph/location.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/location.rs) · [`reference/lib/restricted_http/private_network_guard.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/restricted_http/private_network_guard.rb)
 

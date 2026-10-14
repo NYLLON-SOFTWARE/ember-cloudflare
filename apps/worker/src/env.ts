@@ -1,5 +1,6 @@
 import type { ChatRoom } from "./chat-room";
 import type { PasswordHasher } from "./passwords";
+import type { Unfurler } from "./unfurl";
 import type { Workspace } from "./workspace";
 
 export type StorageBackend = "do-sqlite" | "d1";
@@ -9,6 +10,7 @@ export interface Env {
   CHAT_ROOM: DurableObjectNamespace<ChatRoom>;
   WORKSPACE: DurableObjectNamespace<Workspace>;
   PASSWORD_HASHER: DurableObjectNamespace<PasswordHasher>;
+  UNFURLER: DurableObjectNamespace<Unfurler>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   STORAGE_BACKEND: StorageBackend;
