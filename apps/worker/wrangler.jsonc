@@ -9,14 +9,14 @@
   "upload_source_maps": true,
 
   // The built React app. Everything but its static files goes to the Worker first, page loads
-  // included, so each answer carries ember-rust's headers and old browsers get the upgrade page; the
-  // Worker answers /api/*, /up and the setup and join pages itself, and fetches the app's page for
-  // the rest.
+  // included, so each answer carries ember-rust's headers and old browsers get the upgrade page;
+  // the Worker answers /api/*, /up, the setup and join pages and the web app manifest
+  // (/webmanifest.json) itself, and fetches the app's page for the rest.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/logos/*", "!/ember-icon.png"]
+    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/logos/*", "!/shortcuts/*", "!/ember-icon.png"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,

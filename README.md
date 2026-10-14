@@ -12,7 +12,7 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers, the web app manifest, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
 
 ```
@@ -166,9 +166,9 @@ by email address and password (10 tries per IP address every 3 minutes) or, when
 sign-out, which closes that browser's sockets, open and private rooms that only their members can
 open (made through the API until the New room page lands), live messages with optimistic sends, edit
 and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history
-paging, reconnects, the Light / Dark / System appearance picker, ember-rust's security headers and
-HTTPS, and its page for browsers too old to run Ember. The rail's DMs, Activity, Search and
-Workspace entries are shown but disabled.
+paging, reconnects, the Light / Dark / System appearance picker, the web app manifest that lets
+browsers install Ember as an app, ember-rust's security headers and HTTPS, and its page for browsers
+too old to run Ember. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 
 Next, roughly in order: a workspace directory for creating rooms and private rooms, direct messages,
 unread state and the Activity filter, starred rooms and room order, rich text and attachments (R2),

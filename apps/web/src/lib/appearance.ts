@@ -17,6 +17,9 @@ export function savedAppearance(): Appearance {
 export function applyAppearance(appearance: Appearance): void {
   const dark = appearance === "dark" || (appearance === "system" && media().matches);
   document.documentElement.classList.toggle("dark", dark);
+  // The browser around the page takes its background, as ember-rust's appearance.js has it, in
+  // place of index.html's colors for the system's scheme.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = dark ? "#171717" : "#ffffff";
 }
 
 export function saveAppearance(appearance: Appearance): void {

@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 import { expect, test, type Member } from "./fixtures";
 
 const isDark = (page: Page) => page.locator("html").evaluate((html) => html.classList.contains("dark"));
+const themeColors = (page: Page) => page.locator('meta[name="theme-color"]').evaluateAll((metas) => metas.map((meta) => (meta as HTMLMetaElement).content));
 
 async function choose(member: Member, appearance: "Light" | "Dark" | "System") {
   await member.page.getByRole("button", { name: "Appearance" }).click();
@@ -51,6 +52,19 @@ test.describe(feature("ui.appearance"), () => {
     await ada.page.reload();
     await ada.connected();
     expect(await isDark(ada.page)).toBe(false);
+  });
+
+  test("colors the browser around the page to match, from the moment it loads", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { colorScheme: "dark" } });
+    expect(await themeColors(ada.page)).toEqual(["#171717", "#171717"]);
+    await choose(ada, "Light");
+    expect(await themeColors(ada.page)).toEqual(["#ffffff", "#ffffff"]);
+
+    // With the app's scripts blocked, only the inline script in index.html can set it.
+    await ada.page.route("**/assets/*.js", (route) => route.abort());
+    await ada.page.reload();
+    await expect(ada.page.locator("#root")).toBeEmpty();
+    expect(await themeColors(ada.page)).toEqual(["#ffffff", "#ffffff"]);
   });
 
   test("keeps every open tab in step", async ({ members }) => {

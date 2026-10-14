@@ -20,6 +20,7 @@ import type { Env } from "./env";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
+import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage } from "./setup";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
@@ -185,6 +186,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
+  const manifestFormat = manifestFormatOf(pathname);
+  if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
   return env.ASSETS.fetch(request);
 }
 

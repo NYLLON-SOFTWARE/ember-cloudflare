@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 16 ported and 43 partial of 172 features; 108 not started, 5 not applicable.
+**Overall:** 17 ported and 45 partial of 172 features; 105 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 0 | 1 | 13 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
-| [Rooms](#rooms) | 1 | 6 | 11 | 0 | 18 |
+| [Rooms](#rooms) | 1 | 7 | 10 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
-| [Platform](#platform) | 6 | 1 | 4 | 4 | 15 |
-| **Total** | **16** | **43** | **108** | **5** | **172** |
+| [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
+| **Total** | **17** | **45** | **105** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -505,7 +505,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Switch a room between open and private | `rooms.convert-access` | Campfire | ⬜ Not started |  |
 | Add and remove private room members | `rooms.members` | Campfire | ⬜ Not started |  |
 | Delete a room | `rooms.delete` | Campfire | ⬜ Not started |  |
-| Room icons | `rooms.icons` | Ember | ⬜ Not started |  |
+| Room icons | `rooms.icons` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Web: [catalog](apps/web/src/components/icons/catalog.test.ts) |
 | Room icon picker | `rooms.icon-picker` | Ember | ⬜ Not started |  |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
@@ -661,14 +661,14 @@ Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOF
 
 ember-rust tests: [`reference/test/controllers/rooms_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Room icons** (`rooms.icons`) ⬜
+**Room icons** (`rooms.icons`) 🟡
 
 - A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.
 - Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`" coffee "`, `"Coffee"`, `"../coffee"`, `"<svg></svg>"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.
 - The icon shows on the room's sidebar row and in its header. A change reaches its members' sidebars and open headers at once, except one saved together with an access switch (`rooms.convert-access`).
 - The icon survives switching access, and DMs never have one.
 
-Note: Every room shows `#` here.
+Note: Only the catalog is here so far: ember-rust's `catalog.json` and its license, copied byte for byte, and `isRoomIcon` in the protocol, which takes exactly its 1,869 names and refuses the values ember-rust refuses. Rooms don't have icons yet, so every room shows `#`.
 
 Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/src/helpers/icons.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/icons.rs) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html)
 
@@ -2166,7 +2166,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance` or theme color.
+Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.
 
 Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
@@ -2244,17 +2244,17 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Error pages | `platform.error-pages` | Campfire | ⬜ Not started |  |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts) |
 | One live connection per tab outside the open room | `platform.live-socket` | This port | ⬜ Not started |  |
-| Version | `platform.version` | Ember | 🟡 Partial | Worker: [platform](apps/worker/test/platform.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
-| Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
-| Security headers and HTTPS | `platform.security-headers` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Version | `platform.version` | Ember | 🟡 Partial | Worker: [platform](apps/worker/test/platform.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
+| Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
+| Security headers and HTTPS | `platform.security-headers` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
-| Web app manifest | `platform.manifest` | Ember | ⬜ Not started |  |
-| Installable page head | `platform.head-tags` | Campfire | ⬜ Not started |  |
+| Web app manifest | `platform.manifest` | Ember | 🟡 Partial | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Installable page head | `platform.head-tags` | Campfire | ✅ Ported | E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
 | Install commands and the private setup link | `platform.install-commands` | Ember | ➖ Not applicable |  |
 | Runs on a Campfire install | `platform.rails-compat` | Campfire | ➖ Not applicable |  |
@@ -2357,25 +2357,29 @@ Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py) · [`deploy/installer/tests/test_install_recovery.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_install_recovery.py)
 
-**Web app manifest** (`platform.manifest`) ⬜
+**Web app manifest** (`platform.manifest`) 🟡
 
 - `/webmanifest.json` answers JSON without sign-in. It names the app after the workspace ("Ember" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.
 - It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description "A chat app from the makers of Basecamp and HEY." and the categories social, business and productivity.
 - Its shortcuts are New chat room (`rooms/opens/new`, "Open Ember and start a new chat room") and My profile (`/users/me/profile`, "Open Ember and view your profile"), each with an icon.
 - It lists three 1080×2400 narrow screenshots labelled "Ember is an installable, self-hosted group chat system.", "Easily invite people. Make rooms. @mentions, DMs, and mobile support." and "Full support for dark mode, customizable to your brand."
 
+Note: The app is named after the workspace, which first run names "Ember", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, "A real-time chat app that runs entirely on Cloudflare.", and there are no screenshots yet, since ember-rust's show Campfire's Android app. Both shortcuts open the first room until the New room page and profiles are ported (`rooms.create-open`, `users.profile`). `/webmanifest` answers JSON whatever the request accepts.
+
 Sources: [`crates/views/templates/pwa/manifest.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/manifest.json) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/views/pwa/manifest.json.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/manifest.json.erb)
 
-ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
+ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs)
 
-**Installable page head** (`platform.head-tags`) ⬜
+**Installable page head** (`platform.head-tags`) ✅
 
 - Every page links the manifest at `/webmanifest.json` and uses the workspace logo as its icon and Apple touch icon.
 - `theme-color` is #ffffff when the system prefers a light scheme and #000000 when it prefers dark, and `apple-mobile-web-app-capable` is yes.
 
-Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original.
+Note: The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/app/views/layouts/application.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/layouts/application.html.erb)
+
+ember-rust tests: [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs)
 
 **Request and connection limits** (`platform.limits`) ➖
 
