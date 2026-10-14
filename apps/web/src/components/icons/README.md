@@ -10,8 +10,11 @@ other file does, and it checks every Lucide icon here against ember-rust's catal
 | `lucide.ts` | Lucide, pinned to 1.53.0: message actions and the appearance menu | `h::lucide_icon("name")`, from the generated `crates/assets/overrides/lucide/catalog.json` (lucide-static 1.53.0) |
 | `campfire.tsx`, `campfire/*.svg` | Campfire's filled icons, drawn as black `<img>`s and inverted where the background is dark | `ctx.asset("name.svg")` or `h::image_tag(ctx, "name.svg", …)`, served from its `reference/` submodule: basecamp/once-campfire `app/assets/images/` at `90b3300` |
 
-The brand images live in `apps/web/public`. `logos/app-icon.png` is ember-rust's
-`crates/assets/overrides/logos/app-icon.png`, used as the home-screen icon. The favicon,
+The brand images live in `apps/web/public`, with the icons the web app manifest lists.
+`logos/app-icon.png` and `logos/app-icon-192.png` are ember-rust's `crates/assets/overrides/logos/`
+icons, byte for byte: the home-screen icon and the installed app's. `shortcuts/add.svg` and
+`shortcuts/person.svg` are Campfire's, for the installed app's New chat room and My profile
+shortcuts. The favicon,
 `logos/app-icon-48.png`, is the same image scaled from 512px down to 48px: browsers fetch the favicon
 while the page loads, and in Lighthouse the 121 KB original delayed a room's largest paint by about
 390 ms on mobile and 80 ms on desktop.

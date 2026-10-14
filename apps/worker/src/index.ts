@@ -16,6 +16,7 @@ import {
 } from "./auth";
 import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
+import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
 import { versionOf } from "./version";
@@ -193,6 +194,8 @@ export default {
 
     if (pathname.startsWith("/api/")) return problem(404, "Not found");
     if (isSetupPath(pathname)) return setupPage(request, env);
+    const manifestFormat = manifestFormatOf(pathname);
+    if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

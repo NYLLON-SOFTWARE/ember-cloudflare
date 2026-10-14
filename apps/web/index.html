@@ -7,16 +7,24 @@
          page above the on-screen keyboard instead of covering the composer. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="light dark" />
+    <!-- What lets browsers install Ember as an app, as in ember-rust's layout. The script below
+         matches the theme color to the page's appearance at once. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/webmanifest.json" />
     <link rel="icon" type="image/png" sizes="48x48" href="/logos/app-icon-48.png" />
     <link rel="apple-touch-icon" href="/logos/app-icon.png" />
     <title>Ember</title>
     <script>
-      // Apply the saved appearance before first paint, as ember-rust's theme-init.js does.
+      // Apply the saved appearance before first paint, as ember-rust's theme-init.js does, and color
+      // the browser around the page to match, as its appearance.js does once the page is running.
       (function () {
         var saved;
         try { saved = localStorage.getItem("ember:appearance"); } catch (e) {}
         var dark = saved === "dark" || (saved !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.classList.toggle("dark", dark);
+        document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) { meta.content = dark ? "#171717" : "#ffffff"; });
       })();
     </script>
   </head>

@@ -8,12 +8,13 @@
   // Lets production CPU and heap profiles and exception stacks name our source files.
   "upload_source_maps": true,
 
-  // The Worker serves the built React app and answers /api/* and the setup pages (/first_run...) itself.
+  // The Worker serves the built React app and answers /api/*, the setup pages (/first_run...) and the
+  // web app manifest (/webmanifest.json) itself.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/first_run*"]
+    "run_worker_first": ["/api/*", "/first_run*", "/webmanifest*"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,
