@@ -3,6 +3,7 @@ import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, t
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { settledVisibility } from "@/lib/visibility";
 
 const TYPING_TTL_MS = 6_000;
 const TYPING_RESEND_MS = 3_000;
@@ -42,6 +43,14 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
   useEffect(() => {
     let closed = false;
 
+    // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
+    // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
+    let told: boolean;
+    const tellVisibility = (visible: boolean) => {
+      if (visible !== told && room.send({ type: "presence.visible", visible })) told = visible;
+    };
+    const visibility = settledVisibility(tellVisibility);
+
     // Asks who this browser is signed in as now and hands over to them, or to sign in, unless it's still
     // this person or it can't tell, when it does `then`. A session check that answers once this room
     // has closed is dropped: by then it may be about a session that has since been replaced.
@@ -65,6 +74,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
       dispatch({ type: "frame", frame, now: Date.now() });
       if (frame.type !== "welcome") return;
       room.connected();
+      tellVisibility(visibility.visible);
       checkUnconfirmed(room, frame.messages);
       sendQueued(room);
     };
@@ -95,7 +105,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
 
     dispatch({ type: "reset" });
     const room = reconnectingSocket({
-      url: () => roomSocketUrl(roomId),
+      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible) }),
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
       onOffline: (offline) => dispatch({ type: "offline", offline }),
@@ -107,6 +117,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
     return () => {
       closed = true;
       clearInterval(expire);
+      visibility.stop();
       room.close();
       socket.current = null;
     };

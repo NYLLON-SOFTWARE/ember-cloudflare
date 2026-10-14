@@ -1,4 +1,4 @@
-import type { ClientFrame, Room, RoomIconChoice, RoomId, ServerFrame, User, UserId } from "@ember/protocol";
+import { roomSocketQuery, type ClientFrame, type Room, type RoomIconChoice, type RoomId, type RoomSocketParams, type ServerFrame, type User, type UserId } from "@ember/protocol";
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
@@ -120,10 +120,13 @@ export const freshRoom = async (label: string): Promise<RoomId> => (await create
 
 export type Client = Awaited<ReturnType<typeof connect>>;
 
-/** Opens a room socket as `name` (or in an existing session) and queues every frame it receives. */
-export async function connect(room: string, as: string | Session) {
+/**
+ * Opens a room socket as `name` (or in an existing session) and queues every frame it receives. Its
+ * address says whether its tab is shown only when `params` does.
+ */
+export async function connect(room: string, as: string | Session, params?: RoomSocketParams) {
   const session = typeof as === "string" ? await signIn(as) : as;
-  const response = await api(`/api/rooms/${room}/socket`, upgrade(session.cookie));
+  const response = await api(`/api/rooms/${room}/socket${params ? roomSocketQuery(params) : ""}`, upgrade(session.cookie));
   const ws = response.webSocket;
   if (!ws) throw new Error(`No socket: ${response.status} ${await response.text()}`);
   ws.accept();

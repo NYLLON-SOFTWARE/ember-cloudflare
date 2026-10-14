@@ -13,10 +13,12 @@ import {
   parseClientFrame,
   parseNewRoom,
   parseRoomChanges,
+  parseRoomSocketParams,
   parseServerFrame,
   parseSignUp,
   parseWorkspaceClientFrame,
   ROOM_ICON_NAMES,
+  roomSocketQuery,
   type WorkspaceServerFrame,
 } from "./index";
 
@@ -69,6 +71,27 @@ describe(feature("realtime.reconnect"), () => {
     for (const clientMessageIds of [[], "c1", ["c1", 2], ["c1", ""], ["x".repeat(65)], Array.from({ length: MAX_CHECKED_MESSAGES + 1 }, (_, i) => `c${i}`)]) {
       expect(check(clientMessageIds), JSON.stringify(clientMessageIds)).toBeNull();
     }
+  });
+});
+
+describe(feature("realtime.presence"), () => {
+  it("takes whether a tab is shown, as a boolean", () => {
+    expect(parse({ type: "presence.visible", visible: false })).toEqual({ type: "presence.visible", visible: false });
+    expect(parse({ type: "presence.visible", visible: true, extra: 1 })).toEqual({ type: "presence.visible", visible: true });
+    for (const visible of [undefined, null, 1, "true", "visible"]) {
+      expect(parse({ type: "presence.visible", visible }), String(visible)).toBeNull();
+    }
+  });
+
+  it("carries whether a tab is shown on its room socket's address, which counts it as shown when it doesn't say", () => {
+    expect(roomSocketQuery({ visible: true })).toBe("?visible=1");
+    expect(roomSocketQuery({ visible: false })).toBe("?visible=0");
+    // As the worker's URLSearchParams reads them.
+    const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
+    expect(read({ visible: "1" })).toEqual({ visible: true });
+    expect(read({ visible: "0" })).toEqual({ visible: false });
+    expect(read({})).toEqual({ visible: true });
+    expect(read({ visible: "yes" })).toEqual({ visible: true });
   });
 });
 

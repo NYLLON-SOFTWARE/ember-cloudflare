@@ -3,6 +3,7 @@ import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type U
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
+import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
 import { useRoom } from "./use-room";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -62,6 +63,12 @@ class FakeSocket {
 
 const socket = () => FakeSocket.all.at(-1)!;
 const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+const visibility = (state: DocumentVisibilityState) =>
+  act(() => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue(state);
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+const welcome = (): ServerFrame => ({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false });
 
 const message = (id: string, overrides: Partial<Message> = {}): Message => ({
   id,
@@ -104,7 +111,7 @@ afterEach(() => {
 describe(feature("realtime.reconnect"), () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -573,6 +580,51 @@ describe(feature("realtime.presence"), () => {
     expect(result.current.state.present).toEqual([ada, grace]);
     socket().receive({ type: "presence.left", userId: grace.id });
     expect(result.current.state.present).toEqual([ada]);
+  });
+
+  it("tells the room whether the tab is shown as it connects", () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    joinGeneral({ connect: false });
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0");
+  });
+
+  it("tells the room once the tab has been hidden for 5 seconds, and once it has been shown for 5 again", () => {
+    joinGeneral();
+    visibility("hidden");
+    wait(VISIBILITY_CHANGE_DELAY_MS - 1);
+    expect(socket().sentOfType("presence.visible")).toEqual([]);
+    wait(1);
+    expect(socket().sentOfType("presence.visible")).toEqual([{ type: "presence.visible", visible: false }]);
+
+    visibility("visible");
+    // Showing the tab checks the connection, which the room answers.
+    wait(200);
+    socket().receive({ type: "pong" });
+    wait(VISIBILITY_CHANGE_DELAY_MS - 200);
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(socket().sentOfType("presence.visible")).toEqual([
+      { type: "presence.visible", visible: false },
+      { type: "presence.visible", visible: true },
+    ]);
+  });
+
+  it("tells a room it was connecting to once the room lets the socket in, unless the socket's address said so", () => {
+    joinGeneral();
+    socket().drop();
+    visibility("hidden");
+    // The room is connected to again before the tab has been hidden long enough to count.
+    wait(VISIBILITY_CHANGE_DELAY_MS);
+    expect(socket().url).toMatch(/visible=1$/);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("presence.visible")).toEqual([{ type: "presence.visible", visible: false }]);
+
+    socket().drop();
+    wait(500);
+    expect(socket().url).toMatch(/visible=0$/);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("presence.visible")).toEqual([]);
   });
 });
 
