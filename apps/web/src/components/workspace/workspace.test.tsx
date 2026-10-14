@@ -565,15 +565,23 @@ describe(feature("sidebar.activity-filter"), () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(activity());
-    act(() => navigate("/rooms/opens/general/edit"));
-    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
+    const changeSettings = async () => {
+      act(() => navigate("/rooms/opens/general/edit"));
+      await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
+    };
+    await changeSettings();
 
-    await user.click(roomLink(/random/));
+    await user.click(roomLink(/general/));
     await user.click(await screen.findByRole("button", { name: "Keep editing" }));
     expect(location.pathname).toBe("/rooms/opens/general/edit");
     expect(activity()).toHaveAttribute("aria-pressed", "true");
+    // Going there afterwards some other way leaves it on.
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await user.click(await screen.findByRole("button", { name: "Discard" }));
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(activity()).toHaveAttribute("aria-pressed", "true");
 
-    // Home goes on to the room visited last before the page paints.
+    await changeSettings();
     await user.click(screen.getByRole("link", { name: "Home" }));
     await user.click(await screen.findByRole("button", { name: "Discard" }));
     expect(await roomHeading()).toHaveTextContent("general");

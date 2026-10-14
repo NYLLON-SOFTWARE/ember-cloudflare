@@ -10,7 +10,7 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { byName, markedUnread } from "@/lib/room-list";
-import { navigate, roomPath, useRoute, useShownPath, type Route } from "@/hooks/use-route";
+import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
@@ -112,7 +112,6 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const route = useRoute();
-  const shownPath = useShownPath();
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
@@ -130,15 +129,6 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   // Another page starts with the drawer closed, as each of ember-rust's does.
   useEffect(() => setDrawerOpen(false), [route]);
-
-  // A link in the rail or the sidebar that unsaved changes held the app back from turns Activity off if
-  // its page shows next, once they've been let go. The path the page shows with is compared rather than
-  // the address, since home goes on to a room before the page paints.
-  const followed = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    if (followed.current === shownPath) setUnreadOnly(false);
-    followed.current = null;
-  }, [shownPath]);
 
   const flash = useFlash();
   const mounted = useMounted();
@@ -238,11 +228,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // there, so keeping unsaved changes, which holds it here, keeps Activity on, where shell.js turns it
   // off anyway. One the browser opens somewhere else leaves this page as it was, as it leaves the drawer.
   const showAllForLink = (event: MouseEvent) => {
-    const link = (event.target as Element).closest("a[href]");
-    if (!event.defaultPrevented || !(link instanceof HTMLAnchorElement)) return;
-    // The address is the link's once the app has gone there, as it is for a link to the page shown.
-    if (link.pathname === location.pathname) setUnreadOnly(false);
-    else followed.current = link.pathname;
+    if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
   };
   const currentRoomId = room?.id ?? null;
   const activity = {

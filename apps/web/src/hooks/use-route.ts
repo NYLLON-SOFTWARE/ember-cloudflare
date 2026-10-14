@@ -75,6 +75,12 @@ function shownPath(): string {
   return shown;
 }
 
+// Each page asked for is numbered, so what's to follow the last one asked for runs only if the app goes
+// there: not while the page's guard holds it, nor if the person stays or another page is asked for.
+let asked = 0;
+let gone = 0;
+let followUp: (() => void) | null = null;
+
 // The guard's own trips through the history: back to the page it holds, which changes nothing the app
 // shows, and on again once the person decides to go.
 let returning = false;
@@ -100,6 +106,7 @@ window.addEventListener("popstate", (event) => {
   }
   proceeding = false;
   if (next !== null) position = next;
+  followUp = null;
   notify();
 });
 
@@ -108,13 +115,32 @@ window.addEventListener("popstate", (event) => {
  * place, once the page's guard lets it.
  */
 export function navigate(path: string, { replace = false } = {}): void {
-  if (shownPath() === path) return;
+  const navigation = ++asked;
+  followUp = null;
+  if (shownPath() === path) {
+    gone = navigation;
+    return;
+  }
   const go = () => {
     if (replace) history.replaceState({ position }, "", path);
     else history.pushState({ position: ++position }, "", path);
+    gone = navigation;
+    if (navigation === asked) {
+      followUp?.();
+      followUp = null;
+    }
     notify();
   };
   if (!guard?.(path, go)) go();
+}
+
+/**
+ * Calls `then` once the app shows the page `navigate` was last asked for: now, if it does already, or
+ * when the page's guard lets it go there, but never if the person stays or another page is asked for.
+ */
+export function afterNavigating(then: () => void): void {
+  if (gone === asked) then();
+  else followUp = then;
 }
 
 /** The room id in a /rooms/:id path, or null. */
@@ -130,12 +156,9 @@ export function roomIdFromPath(pathname: string): string | null {
  */
 export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ?? { page: "home" };
 
-/** The path of the page the app shows, re-rendering when it changes. */
-export const useShownPath = (): string => useSyncExternalStore(subscribe, shownPath);
-
 /** The page the address shows, re-rendering when it changes. */
 export function useRoute(): Route {
-  const pathname = useShownPath();
+  const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
 }
 
