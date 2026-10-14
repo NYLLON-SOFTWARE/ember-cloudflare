@@ -4,7 +4,7 @@ import { Logout } from "@/components/icons/campfire";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { leave, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { UserAvatar } from "./user-avatar";
@@ -40,16 +40,16 @@ function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
 export type RailPage = "home" | "workspace" | null;
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
-export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; onSignOut: () => void }) {
+export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; onSignOut: () => Promise<boolean> }) {
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav
       aria-label="Workspace"
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
-      <a href="/" aria-label="Ember home" className="mb-1 flex size-11 shrink-0 items-center justify-center">
+      <PageLink href="/" aria-label="Ember home" className="mb-1 flex size-11 shrink-0 items-center justify-center">
         <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
-      </a>
+      </PageLink>
       <RailLink icon={Home} label="Home" href="/" current={current === "home"} />
       <UnbuiltRailLink icon={Messages} label="DMs" />
       <UnbuiltRailLink icon={Bell} label="Activity" />
@@ -64,7 +64,8 @@ export function Rail({ me, current, onSignOut }: { me: User; current: RailPage; 
         <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-48 rounded-xl p-2">
           <DropdownMenuLabel className="truncate">{me.name}</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onSignOut}>
+          {/* A form with unsaved changes asks first, as ember-rust's settings.js asks before another form is sent. */}
+          <DropdownMenuItem onSelect={() => leave(onSignOut)}>
             <Logout className="size-[18px]" /> Log out
           </DropdownMenuItem>
         </DropdownMenuContent>

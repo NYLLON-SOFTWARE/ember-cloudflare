@@ -47,9 +47,10 @@
   --negative-button: #b91c1c;
   /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
   --lightbox: oklch(100% 0 0 / 0.66);
-  /* What ember-rust's dialogs lay over the page, and the icon picker's shadow (zz-ember.css), in both modes. */
+  /* What ember-rust's dialogs lay over the page, and their shadows (zz-ember.css), in both modes. */
   --dialog-backdrop: #0005;
   --dialog-shadow: #0003;
+  --dialog-shadow-faint: #0001;
   color-scheme: light;
 }
 
@@ -205,6 +206,7 @@
   --color-lightbox: var(--lightbox);
   --color-dialog-backdrop: var(--dialog-backdrop);
   --color-dialog-shadow: var(--dialog-shadow);
+  --color-dialog-shadow-faint: var(--dialog-shadow-faint);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar, 60px header. */
   --spacing-rail: 80px;
   --spacing-sidebar: 280px;

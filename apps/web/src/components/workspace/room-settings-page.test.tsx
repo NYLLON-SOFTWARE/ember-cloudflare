@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import checkMark from "@/components/icons/campfire/check.svg";
 import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
-import { useRoute } from "@/hooks/use-route";
+import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
@@ -76,6 +76,7 @@ const roomName = () => screen.findByRole("textbox", { name: "Room name" });
 const accessSwitch = (person: { name: string }) => screen.getByRole("switch", { name: `Give ${person.name} access to this room` });
 /** What the page asked the server to change. */
 const sent = () => JSON.parse(vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH")![1]!.body as string) as unknown;
+const asking = () => screen.queryByRole("dialog", { name: "Unsaved Changes" });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -186,6 +187,26 @@ describe(feature("rooms.icon-picker"), () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
     expect(sent()).toEqual({ name: "Leads", icon: "", kind: "closed", memberIds: [ada.id, linus.id] });
+  });
+
+  it("counts an icon put in the form as a change until it's put back", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).endsWith("catalog.json") ? Response.json([{ name: "lock", label: "Lock", svg: "<svg></svg>" }]) : Response.json(closedSettings),
+    );
+    const { user } = showPage(leads);
+    const pick = async (name: string) => {
+      await user.click(await screen.findByRole("button", { name: "Choose room icon" }));
+      await user.click(await screen.findByRole("button", { name }));
+      await user.click(screen.getByRole("button", { name: "Use icon" }));
+    };
+    await pick("Use default icon");
+    act(() => navigate("/rooms/general"));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+
+    await pick("Use Lock icon");
+    act(() => navigate("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
   });
 });
 
@@ -434,5 +455,120 @@ describe(feature("rooms.delete"), () => {
     await answer(deleted());
     expect(onLeft).toHaveBeenCalledWith(design.id);
     expect(location.pathname).toBe("/rooms/random");
+  });
+});
+
+describe(feature("rooms.unsaved-changes"), () => {
+  it("asks before leaving a change, and not once it's undone", async () => {
+    serve(openSettings());
+    const { user } = showPage(design);
+    await user.type(await roomName(), " team");
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/opens/design/edit");
+
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    await user.clear(await roomName());
+    await user.type(await roomName(), "Design");
+    act(() => navigate("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("counts a private room's people as changes, and the Everyone switch, which moves to the other form without asking", async () => {
+    serve(closedSettings);
+    const { user } = showPage(leads);
+    await user.click(await screen.findByRole("switch", { name: `Give ${grace.name} access to this room` }));
+    act(() => navigate("/rooms/general"));
+    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
+    await user.click(accessSwitch(grace));
+
+    await user.click(screen.getByRole("switch", { name: "Give everyone access to this room" }));
+    expect(location.pathname).toBe("/rooms/opens/leads/edit");
+    expect(asking()).not.toBeInTheDocument();
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await user.click(screen.getByRole("switch", { name: "Give only some access to this room" }));
+    act(() => navigate("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("takes the form the address names as the form opened, as ember-rust does", async () => {
+    serve(openSettings());
+    showPage(design, "/rooms/closeds/design/edit");
+    await roomName();
+    act(() => navigate("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(asking()).not.toBeInTheDocument();
+  });
+
+  it("saves the changes from the dialog, then goes where you were going", async () => {
+    const saved = { ...design, name: "Design team" };
+    serve(openSettings(), { saved });
+    const { onSaved, user } = showPage(design);
+    await user.type(await roomName(), " team");
+    act(() => navigate("/account/edit"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(location.pathname).toBe("/account/edit"));
+    expect(onSaved).toHaveBeenCalledExactlyOnceWith(saved);
+    expect(sent()).toEqual({ name: "Design team", icon: "", kind: "open" });
+  });
+
+  it("takes a room saved from the dialog without you out of the sidebar, going where you were going", async () => {
+    serve(closedSettings, { saved: leads });
+    const { onLeft, onMissing, onSaved, user } = showPage(leads);
+    await user.click(await screen.findByRole("switch", { name: `Give ${ada.name} access to this room` }));
+    act(() => navigate("/rooms/general"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(onLeft).toHaveBeenCalledExactlyOnceWith(leads.id);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("compares the form with what the dialog saved, should the page stay, as it does when signing out fails", async () => {
+    const saved: Room = { ...leads, kind: "open", name: "Leads team" };
+    serve(closedSettings, { saved });
+    const { user } = showPage(leads);
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("switch", { name: "Give everyone access to this room" }));
+    const signOut = vi.fn(async () => false);
+    act(() => leave(signOut));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(signOut).toHaveBeenCalledOnce());
+    expect(sent()).toEqual({ name: "Leads team", icon: "lock", kind: "open" });
+
+    act(() => leave(signOut));
+    expect(signOut).toHaveBeenCalledTimes(2);
+    expect(asking()).not.toBeInTheDocument();
+    await user.type(await roomName(), "s");
+    act(() => navigate("/rooms/general"));
+    expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/opens/leads/edit");
+  });
+
+  it("says when the dialog couldn't save the changes, staying on the page", async () => {
+    serve(openSettings(), { refusal: { status: 422, error: "Name must be 1 to 100 characters" } });
+    const { onFailed, user } = showPage(design);
+    await user.type(await roomName(), " team");
+    act(() => navigate("/rooms/general"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your changes couldn’t be saved.");
+    expect(location.pathname).toBe("/rooms/opens/design/edit");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("doesn't ask when the room's deleted, which Delete asks about itself", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const answer = holdChange(openSettings(), "DELETE");
+    const { user } = showPage(design);
+    await user.type(await roomName(), " team");
+    await user.click(screen.getByRole("button", { name: "Delete Design" }));
+    await answer(new Response(null, { status: 204 }));
+    expect(location.pathname).toBe("/");
+    expect(asking()).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,8 @@ import { useMemo, useSyncExternalStore } from "react";
 import type { RoomId, RoomKind } from "@ember/protocol";
 
 // The app's few pages, at ember-rust's addresses (crates/ember/src/controllers.rs): a small typed
-// router over the History API rather than a library.
+// router over the History API rather than a library. A page with changes to lose can hold the app on
+// it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = Exclude<RoomKind, "direct">;
@@ -24,23 +25,103 @@ export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 
+/**
+ * Asked before the app leaves the page shown, with the path it's going to, or null for leaving the app,
+ * as signing out does. It answers true to hold the app on the page, and then calls `proceed` if the
+ * person decides to go after all, which for leaving the app settles with whether it left.
+ */
+export type LeaveGuard = (path: string | null, proceed: () => unknown) => boolean;
+
+let guard: LeaveGuard | null = null;
+
+/** Has `leaveGuard` asked before the app leaves the page shown, until the function returned is called. */
+export function guardLeaving(leaveGuard: LeaveGuard): () => void {
+  guard = leaveGuard;
+  return () => {
+    if (guard === leaveGuard) guard = null;
+  };
+}
+
+/**
+ * Leaves the app with `go`, as signing out does, once the page's guard lets it. `go` settles with
+ * whether the app left, since signing out can fail and leave the page as it was.
+ */
+export function leave(go: () => Promise<boolean>): void {
+  if (!guard?.(null, go)) void go();
+}
+
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  window.addEventListener("popstate", listener);
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("popstate", listener);
-  };
+  return () => void listeners.delete(listener);
 }
 
-/** Shows `path`, as a new entry in the browser's history unless `replace` says to take the current one's place. */
+const notify = () => listeners.forEach((listener) => listener());
+
+/** The number the app gave a history entry, or null for one it didn't number. */
+function positionOf(state: unknown): number | null {
+  const position = (state as { position?: unknown } | null)?.position;
+  return typeof position === "number" ? position : null;
+}
+
+// Each entry the app adds to this tab's history is numbered one past the entry it follows, so the
+// distance Back or Forward went is known, and the guard can go back by it, as ember-rust reads Turbo's
+// restorationIndex. The browser keeps the numbers through a reload.
+let position = positionOf(history.state) ?? 0;
+history.replaceState({ ...history.state, position }, "");
+
+// While the guard turns Back or Forward around, the address briefly names where the person was going,
+// and the app goes on showing the page it was on.
+let turningBack = false;
+let shown = location.pathname;
+
+/** The path of the page the app shows. */
+function shownPath(): string {
+  if (!turningBack) shown = location.pathname;
+  return shown;
+}
+
+// The guard's own trips through the history: back to the page it holds, which changes nothing the app
+// shows, and on again once the person decides to go.
+let returning = false;
+let proceeding = false;
+
+window.addEventListener("popstate", (event) => {
+  if (returning) {
+    returning = false;
+    turningBack = false;
+    return;
+  }
+  const next = positionOf(event.state);
+  const distance = next === null ? 0 : next - position;
+  const proceed = () => {
+    proceeding = true;
+    history.go(distance);
+  };
+  if (!proceeding && distance !== 0 && guard?.(location.pathname, proceed)) {
+    turningBack = true;
+    returning = true;
+    history.go(-distance);
+    return;
+  }
+  proceeding = false;
+  if (next !== null) position = next;
+  notify();
+});
+
+/**
+ * Shows `path`, as a new entry in the browser's history unless `replace` says to take the current one's
+ * place, once the page's guard lets it.
+ */
 export function navigate(path: string, { replace = false } = {}): void {
-  if (location.pathname === path) return;
-  if (replace) history.replaceState(null, "", path);
-  else history.pushState(null, "", path);
-  listeners.forEach((listener) => listener());
+  if (shownPath() === path) return;
+  const go = () => {
+    if (replace) history.replaceState({ position }, "", path);
+    else history.pushState({ position: ++position }, "", path);
+    notify();
+  };
+  if (!guard?.(path, go)) go();
 }
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
@@ -74,7 +155,7 @@ export function routeOf(pathname: string): Route {
 
 /** The page the address shows, re-rendering when it changes. */
 export function useRoute(): Route {
-  const pathname = useSyncExternalStore(subscribe, () => location.pathname);
+  const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
 }
 
@@ -87,10 +168,10 @@ export function joinCodeFromPath(pathname: string): string | null {
 }
 
 export function useJoinRoute(): string | null {
-  return joinCodeFromPath(useSyncExternalStore(subscribe, () => location.pathname));
+  return joinCodeFromPath(useSyncExternalStore(subscribe, shownPath));
 }
 
 /** Whether the address is `path`, re-rendering only when that changes. */
 export function useIsAt(path: string): boolean {
-  return useSyncExternalStore(subscribe, () => location.pathname === path);
+  return useSyncExternalStore(subscribe, () => shownPath() === path);
 }

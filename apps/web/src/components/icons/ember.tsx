@@ -158,10 +158,11 @@ export function Link(props: EmberIconProps) {
 }
 
 /**
- * The room icon picker's own drawings, inline in ember-rust's rooms/layouts/_icon_picker.html rather
- * than from icons.html, with a 1.75 stroke.
+ * Drawings inline in ember-rust's templates rather than from icons.html, with a 1.75 stroke: the room
+ * icon picker's (rooms/layouts/_icon_picker.html) and the unsaved changes dialog's
+ * (components/unsaved_changes.html).
  */
-function PickerIcon(props: EmberIconProps) {
+function InlineIcon(props: EmberIconProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -179,25 +180,35 @@ function PickerIcon(props: EmberIconProps) {
 
 export function IconPickerChevron(props: EmberIconProps) {
   return (
-    <PickerIcon strokeLinejoin="round" {...props}>
+    <InlineIcon strokeLinejoin="round" {...props}>
       <path d="m9 5 7 7-7 7" />
-    </PickerIcon>
+    </InlineIcon>
   );
 }
 
-export function IconPickerClose(props: EmberIconProps) {
+/** The × that closes the icon picker and the unsaved changes dialog. */
+export function Dismiss(props: EmberIconProps) {
   return (
-    <PickerIcon {...props}>
+    <InlineIcon {...props}>
       <path d="m6 6 12 12M18 6 6 18" />
-    </PickerIcon>
+    </InlineIcon>
   );
 }
 
 export function IconPickerSearch(props: EmberIconProps) {
   return (
-    <PickerIcon {...props}>
+    <InlineIcon {...props}>
       <circle cx="10.5" cy="10.5" r="6.5" />
       <path d="m16 16 5 5" />
-    </PickerIcon>
+    </InlineIcon>
+  );
+}
+
+/** The unsaved changes dialog's square and pencil. */
+export function PencilSquare(props: EmberIconProps) {
+  return (
+    <InlineIcon strokeLinejoin="round" {...props}>
+      <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l-1 4 4-1L22 8a2.1 2.1 0 0 0-3-3Z" />
+    </InlineIcon>
   );
 }

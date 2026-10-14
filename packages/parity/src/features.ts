@@ -526,7 +526,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/views/templates/rooms/layouts/_new.html", "crates/views/templates/rooms/opens/_form.html", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/opens_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your own sidebar; other sidebars show it when they next load (`sidebar.live-updates`). There's no unsaved-changes guard (`rooms.unsaved-changes`) yet. Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
+    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your own sidebar; other sidebars show it when they next load (`sidebar.live-updates`). Leaving with anything filled in asks first (`rooms.unsaved-changes`). Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
   },
   {
     id: "rooms.create-closed",
@@ -615,7 +615,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it. An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the icon picker (`rooms.icon-picker`), the unsaved-changes guard (`rooms.unsaved-changes`) and the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
   },
   {
     id: "rooms.edit-permissions",
@@ -695,7 +695,7 @@ export const features = [
     id: "rooms.icon-picker",
     title: "Room icon picker",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "New room and room settings have a \"Room icon\" field: a \"Choose room icon\" button showing the current icon and its label (\"Default hashtag\" for `#`) with \"Choose from Lucide icons\", above \"Shown beside this room for everyone in the workspace.\"",
       "It opens \"Choose a room icon\" / \"A little personality for your room.\" with \"Search icons, e.g. coffee or rocket\" focused, loading the catalog the first time (\"Loading icons…\"). If that fails: \"Icons couldn’t load. Try again; your current icon is unchanged.\" with Try again.",
@@ -707,13 +707,13 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/icon_picker_controller.js", "crates/views/templates/rooms/layouts/_icon_picker.html", "crates/views/src/helpers/icons.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/assets/overrides/basecoat/test/lucide.test.mjs"],
-    notes: "Ported from ember-rust's controller and template, loading the catalog once for the page as it does. The close button and footer buttons grow to 44px wherever fingers are likely, where ember-rust grows them on screens up to 600px, and its search box is a label, so a tap anywhere on it reaches the field. It keeps clear of the notch and home indicator, and on screens under 500px tall, such as a phone in landscape, it tightens its spacing and lets the icons shrink below the 150px ember-rust keeps, which pushes the footer off the screen. There's no `<select>` to fall back on, which ember-rust keeps for pages without JavaScript, since this app needs it. Forms don't yet ask before leaving unsaved changes (`rooms.unsaved-changes`), which an icon picked counts as.",
+    notes: "Ported from ember-rust's controller and template, loading the catalog once for the page as it does. The close button and footer buttons grow to 44px wherever fingers are likely, where ember-rust grows them on screens up to 600px, and its search box is a label, so a tap anywhere on it reaches the field. It keeps clear of the notch and home indicator, and on screens under 500px tall, such as a phone in landscape, it tightens its spacing and lets the icons shrink below the 150px ember-rust keeps, which pushes the footer off the screen. There's no `<select>` to fall back on, which ember-rust keeps for pages without JavaScript, since this app needs it.",
   },
   {
     id: "rooms.unsaved-changes",
     title: "Unsaved changes guard",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Leaving a changed room form, by a link, another form, Back or Forward, opens \"Unsaved Changes\" / \"You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.\" with Discard and Save (focused). Changing a field back clears the guard.",
       "The dialog's × (\"Keep editing\") and Escape return to the form, and Tab stays within the dialog.",
@@ -725,6 +725,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/settings.js", "crates/views/templates/components/unsaved_changes.html", "crates/views/templates/rooms/layouts/_form.html", "crates/ember/src/controllers/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/ember/src/controllers/rooms/tests.rs"],
+    notes: "New room and room settings compare the form with how it opened, as settings.js does, and ask in a dialog ported from `unsaved_changes.html` and styled as `zz-ember.css` styles it (`.mb-unsaved-*`). Links, the sidebar, Back and Forward, and Log out ask; the app numbers its history entries, as Turbo does, so Back and Forward go back to the form until the person decides, leaving the history as it was. Save from the dialog saves as the form's own Save does, and any failure, a session that's ended included, shows the error. The dialog is a Radix dialog where ember-rust's is a native one, so it can open over the drawer, which is a Radix dialog too. Delete isn't guarded, where ember-rust's guard asks about the changes before Delete's own question: deleting the room makes them moot. Still to come: the New direct message dialog (`dms.picker`), which this guard lets open but asks before it starts a conversation.",
   },
   {
     id: "rooms.invitation-card",

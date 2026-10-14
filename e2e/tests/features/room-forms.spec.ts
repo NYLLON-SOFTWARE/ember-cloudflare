@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { cookieHeader, createRoom, createSession, signInAs, type Session, type TestRoom } from "../../fixtures";
 import { expect, Member, test } from "./fixtures";
 
@@ -252,6 +252,186 @@ test.describe(feature("rooms.icon-picker"), () => {
     expect(svg.status()).toBe(200);
     expect(svg.headers()["content-type"]).toContain("image/svg+xml");
     expect(await svg.text()).toContain("<svg");
+  });
+});
+
+test.describe(feature("rooms.unsaved-changes"), () => {
+  /** The dialog that asks before leaving a room's form with changes. */
+  const unsaved = (page: Page) => page.getByRole("dialog", { name: "Unsaved Changes" });
+  /** The rail's link to workspace settings: somewhere to go from a room's form. */
+  const workspaceLink = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" });
+  const at = (path: string) => new RegExp(`${path}$`);
+
+  test("asks before leaving a room's changed settings, then keeps editing, discards, points out a blank name, says a save failed, or saves", async ({ page, rooms, session }) => {
+    // As the person who made this test's rooms, who can change them.
+    await signInAs(page, session);
+    const editPath = `/rooms/opens/${rooms.general.id}/edit`;
+    await page.goto(editPath);
+    const name = page.getByRole("textbox", { name: "Room name" });
+    await expect(name).toHaveValue("general");
+    await name.fill("A draft room");
+    await workspaceLink(page).click();
+    await expect(unsaved(page)).toBeVisible();
+    await expect(page).toHaveURL(at(editPath));
+    await expect(unsaved(page).getByRole("button", { name: "Save" })).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(unsaved(page)).toBeHidden();
+    await expect(name).toHaveValue("A draft room");
+    await workspaceLink(page).click();
+    await unsaved(page).getByRole("button", { name: "Discard" }).click();
+    await expect(page).toHaveURL(/\/account\/edit$/);
+    // Discarded changes don't come back.
+    await page.goBack();
+    await expect(name).toHaveValue("general");
+
+    await name.fill("");
+    await workspaceLink(page).click();
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(unsaved(page)).toBeHidden();
+    await expect(name).toBeFocused();
+    expect(await name.evaluate((field: HTMLInputElement) => field.validity.valueMissing)).toBe(true);
+    await expect(page).toHaveURL(at(editPath));
+
+    await name.fill("Saved from the dialog");
+    const room = `**/api/rooms/${rooms.general.id}`;
+    await page.route(room, (route) => (route.request().method() === "PATCH" ? route.fulfill({ status: 422, json: { error: "Refused for this test" } }) : route.fallback()));
+    await workspaceLink(page).click();
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(unsaved(page).getByRole("alert")).toHaveText("Your changes couldn’t be saved. Please try again, or keep editing.");
+    // Behind the dialog, which hides the page from assistive tech.
+    await expect(page.getByRole("textbox", { name: "Room name", includeHidden: true })).toHaveValue("Saved from the dialog");
+    await expect(page).toHaveURL(at(editPath));
+    await page.unroute(room);
+    let writes = 0;
+    page.on("request", (request) => void (request.method() === "PATCH" && writes++));
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(page).toHaveURL(/\/account\/edit$/);
+    expect(writes).toBe(1);
+
+    await page.goto(editPath);
+    await expect(name).toHaveValue("Saved from the dialog");
+    await name.fill("Changed, then changed back");
+    await name.fill("Saved from the dialog");
+    await workspaceLink(page).click();
+    await expect(page).toHaveURL(/\/account\/edit$/);
+    await expect(unsaved(page)).toHaveCount(0);
+  });
+
+  test("keeps the draft through the Everyone switch, and turns Back around until you decide", async ({ page, rooms, session }) => {
+    await signInAs(page, session);
+    await page.goto(`/rooms/${rooms.general.id}`);
+    await new Member(page, session).connected();
+    await page.getByRole("link", { name: "Settings for this room" }).click();
+    const name = page.getByRole("textbox", { name: "Room name" });
+    await name.fill("Working draft");
+    await page.getByRole("switch", { name: "Give only some access to this room" }).click();
+    const closedPath = `/rooms/closeds/${rooms.general.id}/edit`;
+    await expect(page).toHaveURL(at(closedPath));
+    await expect(name).toHaveValue("Working draft");
+    await expect(unsaved(page)).toHaveCount(0);
+
+    const length = await page.evaluate(() => history.length);
+    await page.evaluate(() => history.back());
+    await expect(unsaved(page)).toBeVisible();
+    await expect(page).toHaveURL(at(closedPath));
+    await unsaved(page).getByRole("button", { name: "Keep editing" }).click();
+    await expect(name).toHaveValue("Working draft");
+    expect(await page.evaluate(() => history.length)).toBe(length);
+
+    // The icon picker, a native dialog, which would stay above the question, closes for it.
+    await page.getByRole("button", { name: "Choose room icon" }).click();
+    const picker = page.getByRole("dialog", { name: "Choose a room icon" });
+    await expect(picker).toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect(unsaved(page)).toBeVisible();
+    await expect(picker).toBeHidden();
+    await unsaved(page).getByRole("button", { name: "Discard" }).click();
+    await expect(page).toHaveURL(at(`/rooms/${rooms.general.id}`));
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(at(closedPath));
+    await expect(name).toHaveValue("general");
+  });
+
+  test("saves a change of access, and then an icon, from the dialog before going on", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const leads = await createPrivateRoom(request, ada.session, unique("Leads"), [ada.session]);
+    const { page } = ada;
+    await page.goto(`/rooms/closeds/${leads.id}/edit`);
+    await page.getByRole("switch", { name: "Give everyone access to this room" }).click();
+    await expect(page).toHaveURL(at(`/rooms/opens/${leads.id}/edit`));
+    await workspaceLink(page).click();
+    await expect(unsaved(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(unsaved(page)).toBeHidden();
+
+    await page.getByRole("button", { name: "Choose room icon" }).click();
+    const picker = page.getByRole("dialog", { name: "Choose a room icon" });
+    await picker.getByRole("searchbox", { name: "Search icons" }).fill("coffee");
+    await picker.getByRole("button", { name: "Use Coffee icon" }).click();
+    await picker.getByRole("button", { name: "Use icon" }).click();
+    await workspaceLink(page).click();
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(page).toHaveURL(/\/account\/edit$/);
+
+    const settings = await request.get(`/api/rooms/${leads.id}/settings`, { headers: { Cookie: cookieHeader(ada.session) } });
+    expect(((await settings.json()) as { room: TestRoom }).room).toEqual({ ...leads, kind: "open", icon: "coffee" });
+  });
+
+  test("has the browser ask before a reload loses the changes, keeping them if you stay", async ({ page, rooms, session }) => {
+    await signInAs(page, session);
+    await page.goto(`/rooms/opens/${rooms.general.id}/edit`);
+    const name = page.getByRole("textbox", { name: "Room name" });
+    await name.fill("Keep this draft");
+    // Reloading from the page, since Playwright's own reload waits for a load that staying cancels.
+    const warning = page.waitForEvent("dialog");
+    const reloading = page.evaluate(() => location.reload());
+    const prompt = await warning;
+    expect(prompt.type()).toBe("beforeunload");
+    await prompt.dismiss();
+    await reloading;
+    await expect(name).toHaveValue("Keep this draft");
+
+    await name.fill("general");
+    await page.reload();
+    await expect(name).toHaveValue("general");
+  });
+
+  test("saves from the dialog after you take away your own access, and never counts an ended session as saved", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const grace = await createSession(request, unique("Grace"));
+    const leads = await createPrivateRoom(request, ada.session, unique("Leads"), [ada.session, grace]);
+    const { page } = ada;
+    await page.goto(`/rooms/closeds/${leads.id}/edit`);
+    await page.getByRole("switch", { name: `Give ${ada.name} access to this room` }).click();
+    await workspaceLink(page).click();
+    const room = `**/api/rooms/${leads.id}`;
+    await page.route(room, (route) => (route.request().method() === "PATCH" ? route.fulfill({ status: 401, json: { error: "Sign in to continue" } }) : route.fallback()));
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(unsaved(page).getByRole("alert")).toBeVisible();
+    await expect(page).toHaveURL(at(`/rooms/closeds/${leads.id}/edit`));
+
+    await page.unroute(room);
+    await unsaved(page).getByRole("button", { name: "Save" }).click();
+    await expect(page).toHaveURL(/\/account\/edit$/);
+    await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
+    expect(await canSee(request, ada.session, leads.id)).toBe(false);
+    expect(await canSee(request, grace, leads.id)).toBe(true);
+  });
+
+  test("asks before signing out, and signs out once the changes are discarded", async ({ members, request }) => {
+    // Someone of their own, so signing out ends no other test's session.
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const design = await createRoom(request, ada.session, unique("Design"));
+    const { page } = ada;
+    await page.goto(`/rooms/opens/${design.id}/edit`);
+    await page.getByRole("textbox", { name: "Room name" }).fill("A draft room");
+    await page.getByRole("button", { name: "Your profile" }).click();
+    await page.getByRole("menuitem", { name: "Log out" }).click();
+    await expect(unsaved(page)).toBeVisible();
+    await unsaved(page).getByRole("button", { name: "Discard" }).click();
+    await expect(page).toHaveURL(/\/session\/new$/);
   });
 });
 

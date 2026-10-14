@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode, type Ref } from "react";
 import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Check, Everyone } from "@/components/icons/campfire";
@@ -33,16 +33,18 @@ interface Props<Person extends User> {
   mark: (person: Person) => ReactNode;
   saving: boolean;
   onSave: () => void;
+  /** The form, which the unsaved-changes guard checks before saving from its dialog. */
+  ref?: Ref<HTMLFormElement>;
 }
 
-export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, groups, mark, saving, onSave }: Props<Person>) {
+export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, groups, mark, saving, onSave, ref }: Props<Person>) {
   const save = (event: FormEvent) => {
     event.preventDefault();
     onSave();
   };
 
   return (
-    <form onSubmit={save}>
+    <form ref={ref} onSubmit={save}>
       {canAdminister ? (
         <Field id="room_name" label="Room name">
           <Input

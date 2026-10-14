@@ -1,7 +1,20 @@
 import { feature } from "@ember/parity";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { joinCodeFromPath, navigate, newRoomPath, roomIdFromPath, roomPath, roomSettingsPath, routeOf, useJoinRoute, useRoute } from "./use-route";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  guardLeaving,
+  joinCodeFromPath,
+  leave,
+  navigate,
+  newRoomPath,
+  roomIdFromPath,
+  roomPath,
+  roomSettingsPath,
+  routeOf,
+  useJoinRoute,
+  useRoute,
+  type LeaveGuard,
+} from "./use-route";
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -98,5 +111,122 @@ describe(feature("auth.sign-up"), () => {
     expect(result.current).toBe("aB3d-Ef5h-iJ7k");
     act(() => navigate("/", { replace: true }));
     expect(result.current).toBeNull();
+  });
+});
+
+describe(feature("rooms.unsaved-changes"), () => {
+  /** A guard that holds the app on its page, keeping how to go on. */
+  function holdingGuard() {
+    const asked: (string | null)[] = [];
+    let proceed = () => {};
+    const guard = vi.fn<LeaveGuard>((path, go) => {
+      asked.push(path);
+      proceed = go;
+      return true;
+    });
+    const stop = guardLeaving(guard);
+    return { asked, guard, stop, proceed: () => act(() => proceed()) };
+  }
+
+  /** The app at `from`, then at `to`, two entries it numbered in the history. */
+  function visit(from: string, to: string) {
+    navigate(from, { replace: true });
+    navigate(to);
+    return renderHook(() => useRoute());
+  }
+
+  it("asks the page's guard before showing another page, and shows it once the guard lets it go", () => {
+    history.replaceState(null, "", "/rooms/opens/design/edit");
+    const { result } = renderHook(() => useRoute());
+    const { asked, stop, proceed } = holdingGuard();
+    act(() => navigate("/rooms/general"));
+    expect(asked).toEqual(["/rooms/general"]);
+    expect(location.pathname).toBe("/rooms/opens/design/edit");
+    expect(result.current).toEqual({ page: "room-settings", access: "open", roomId: "design" });
+
+    proceed();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(result.current).toEqual({ page: "room", roomId: "general" });
+    stop();
+  });
+
+  it("goes straight on when the guard doesn't hold the page, or once it's gone", () => {
+    history.replaceState(null, "", "/rooms/opens/design/edit");
+    const guard = vi.fn<LeaveGuard>(() => false);
+    const stop = guardLeaving(guard);
+    navigate("/rooms/closeds/design/edit", { replace: true });
+    expect(guard).toHaveBeenCalledWith("/rooms/closeds/design/edit", expect.any(Function));
+    expect(location.pathname).toBe("/rooms/closeds/design/edit");
+
+    stop();
+    const { guard: stale } = holdingGuard();
+    // Taking away a guard that's been replaced leaves the one in its place.
+    stop();
+    navigate("/rooms/general");
+    expect(stale).toHaveBeenCalledOnce();
+    expect(location.pathname).toBe("/rooms/closeds/design/edit");
+  });
+
+  it("asks with no page before leaving the app, as signing out does", () => {
+    const signOut = vi.fn();
+    const { asked, stop, proceed } = holdingGuard();
+    leave(signOut);
+    expect(asked).toEqual([null]);
+    expect(signOut).not.toHaveBeenCalled();
+    proceed();
+    expect(signOut).toHaveBeenCalledOnce();
+
+    stop();
+    leave(signOut);
+    expect(signOut).toHaveBeenCalledTimes(2);
+  });
+
+  it("turns Back around, showing the page all along, until the guard lets it go", async () => {
+    const { result } = visit("/rooms/general", "/rooms/opens/design/edit");
+    const length = history.length;
+    const { asked, stop, proceed } = holdingGuard();
+    // What the app shows each time the address changes, read as soon as it has.
+    const shown: unknown[] = [];
+    const read = () => shown.push(renderHook(() => useRoute()).result.current);
+    window.addEventListener("popstate", read);
+
+    act(() => history.back());
+    await waitFor(() => expect(shown).toHaveLength(2));
+    expect(asked).toEqual(["/rooms/general"]);
+    expect(location.pathname).toBe("/rooms/opens/design/edit");
+    expect(shown).toEqual([result.current, result.current]);
+    expect(result.current).toEqual({ page: "room-settings", access: "open", roomId: "design" });
+    expect(history.length).toBe(length);
+
+    proceed();
+    await waitFor(() => expect(result.current).toEqual({ page: "room", roomId: "general" }));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(asked).toHaveLength(1);
+    window.removeEventListener("popstate", read);
+    stop();
+  });
+
+  it("turns Forward around too", async () => {
+    const { result } = visit("/rooms/opens/design/edit", "/rooms/general");
+    act(() => history.back());
+    await waitFor(() => expect(result.current).toEqual({ page: "room-settings", access: "open", roomId: "design" }));
+    const { asked, stop, proceed } = holdingGuard();
+
+    act(() => history.forward());
+    await waitFor(() => expect(asked).toEqual(["/rooms/general"]));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/opens/design/edit"));
+    expect(result.current).toEqual({ page: "room-settings", access: "open", roomId: "design" });
+
+    proceed();
+    await waitFor(() => expect(result.current).toEqual({ page: "room", roomId: "general" }));
+    stop();
+  });
+
+  it("follows Back when the guard lets it", async () => {
+    const { result } = visit("/rooms/general", "/rooms/opens/design/edit");
+    const stop = guardLeaving(() => false);
+    act(() => history.back());
+    await waitFor(() => expect(result.current).toEqual({ page: "room", roomId: "general" }));
+    stop();
   });
 });
