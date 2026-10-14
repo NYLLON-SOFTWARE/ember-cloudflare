@@ -213,6 +213,21 @@ describe(feature("platform.browser-support"), () => {
     }
   });
 
+  it("keeps the page in setup's place as private as setup's own", async () => {
+    // Otherwise its logos would send the address as their referrer, with any token put in its query.
+    const protectedSetup = { EMBER_SETUP_TOKEN: "a".repeat(64) };
+    for (const [path, changes] of [
+      ["/first_run/access?token=PRIVATE_SETUP_CREDENTIAL", {}],
+      ["/first_run", protectedSetup],
+      ["/first_run.json?token=PRIVATE_SETUP_CREDENTIAL", protectedSetup],
+    ] as const) {
+      const response = await apiWith({ ASSETS: builtPages, ...changes }, path, as(OLD_CHROME));
+      expect(await response.text(), path).toContain("<h1>Upgrade to a supported web browser</h1>");
+      expect(response.headers.get("Cache-Control"), path).toBe("no-store");
+      expect(response.headers.get("Referrer-Policy"), path).toBe("no-referrer");
+    }
+  });
+
   it("lists the browsers Ember supports, with Campfire's icons", async () => {
     const html = await (await page("/", as(INTERNET_EXPLORER))).text();
     expect(html).toContain("Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.");

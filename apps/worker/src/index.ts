@@ -22,7 +22,7 @@ import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
-import { firstRun, isSetupPath, isSetupProtected, setupPage } from "./setup";
+import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
@@ -160,8 +160,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // The deploy check isn't a browser's, any more than /up is.
   if (pathname === "/api/health") return health(env);
   // First, where ember-rust checks after sign-in and the forgery check: a browser too old for the
-  // app has nothing to sign in to.
-  if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request);
+  // app has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
+  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
   const write = request.method !== "GET" && request.method !== "HEAD";
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
 
