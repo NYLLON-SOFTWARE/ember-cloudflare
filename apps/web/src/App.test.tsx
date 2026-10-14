@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, SIGN_IN_REFUSED } from "@ember/protocol";
 import { loadPage } from "@/lib/page";
+import { setPrefersDark } from "@/test-media";
 import { App } from "./App";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -364,5 +365,25 @@ describe(feature("auth.sign-out"), () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" })));
     expect(screen.getByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("ui.appearance"), () => {
+  it("keeps pages without the rail, such as sign-in, in step with other tabs and the device", async () => {
+    serve({ signedIn: false });
+    render(<App />);
+    await signInPage();
+    const isDark = () => document.documentElement.classList.contains("dark");
+
+    localStorage.setItem("ember:appearance", "dark");
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "ember:appearance", newValue: "dark" })));
+    expect(isDark()).toBe(true);
+
+    // Another tab clears the site's storage, which goes back to System.
+    localStorage.clear();
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
+    expect(isDark()).toBe(false);
+    act(() => setPrefersDark(true));
+    expect(isDark()).toBe(true);
   });
 });

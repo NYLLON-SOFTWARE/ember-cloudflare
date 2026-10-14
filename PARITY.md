@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 24 ported and 57 partial of 172 features; 86 not started, 5 not applicable.
+**Overall:** 25 ported and 56 partial of 172 features; 86 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -33,9 +33,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
-| [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
+| [Workspace interface](#workspace-interface) | 2 | 8 | 1 | 0 | 11 |
 | [Platform](#platform) | 7 | 2 | 2 | 4 | 15 |
-| **Total** | **24** | **57** | **86** | **5** | **172** |
+| **Total** | **25** | **56** | **86** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2131,7 +2131,7 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 | Rail | `ui.rail` | Ember | 🟡 Partial | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Room header | `ui.room-header` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx) |
 | Conversations drawer on phones | `ui.mobile-drawer` | Ember | 🟡 Partial | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
-| Light, dark or system appearance | `ui.appearance` | Ember | 🟡 Partial | Web: [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
+| Light, dark or system appearance | `ui.appearance` | Ember | ✅ Ported | Web: [App](apps/web/src/App.test.tsx), [appearance-menu](apps/web/src/components/workspace/appearance-menu.test.tsx), [appearance](apps/web/src/lib/appearance.test.ts)<br>E2E: [appearance](e2e/tests/features/appearance.spec.ts) |
 | Stay at the newest message | `ui.scroll` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Empty room | `ui.empty-room` | This port | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Select a field's text on entry | `ui.select-on-entry` | Ember | ⬜ Not started |  |
@@ -2191,16 +2191,17 @@ Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SO
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Light, dark or system appearance** (`ui.appearance`) 🟡
+**Light, dark or system appearance** (`ui.appearance`) ✅
 
 - The rail's appearance button, above your avatar, shows a sun, moon or monitor and is named and titled "Appearance: Light", "Appearance: Dark" or "Appearance: System". It opens a small menu, a dialog named Appearance, with Light, Dark and System radio buttons under the legend "Appearance", the current one checked.
-- A choice applies at once and is kept in this browser (`ember:appearance`, System as `system`). It's applied before the page paints, so dark never flashes light, and other open tabs follow, also when the site's storage is cleared. System follows the device as it changes.
+- A choice applies at once and leaves the menu open, and the arrow keys move between the choices.
+- A choice is kept in this browser (`ember:appearance`, System as `system`) and applied before the page paints, so dark never flashes light. Other open tabs follow, also when the site's storage is cleared, and System follows the device as it changes. Where storage is refused, a choice still holds for the page.
 - `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The button is just "Appearance", and the choices are menu items rather than radio buttons in a form. Choosing System removes the saved choice rather than saving `system`, other tabs don't follow a cleared storage, and there's no `data-appearance`. Pages without the rail, such as sign-in, take the appearance and theme color as they load but don't follow changes until they're reloaded.
+Note: The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`).
 
-Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
+Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/basecoat/src/theme-init.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/theme-init.js) · [`crates/assets/overrides/basecoat/src/lifecycle.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/lifecycle.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/assets/overrides/basecoat/test/lifecycle.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/test/lifecycle.test.mjs)
 

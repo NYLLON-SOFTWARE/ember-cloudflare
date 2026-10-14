@@ -41,5 +41,8 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   setPrefersDark(false);
+  // What the appearance puts on <html>.
   document.documentElement.className = "";
+  document.documentElement.removeAttribute("data-appearance");
+  document.documentElement.removeAttribute("style");
 });

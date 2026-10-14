@@ -21,11 +21,16 @@
     <script>
       // Apply the saved appearance before first paint, as ember-rust's theme-init.js does, and color
       // the browser around the page to match, as its appearance.js does once the page is running.
+      // src/lib/appearance.ts does the same for each change from then on.
       (function () {
         var saved;
         try { saved = localStorage.getItem("ember:appearance"); } catch (e) {}
-        var dark = saved === "dark" || (saved !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.toggle("dark", dark);
+        var mode = saved === "light" || saved === "dark" ? saved : "system";
+        var dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        var html = document.documentElement;
+        html.classList.toggle("dark", dark);
+        html.setAttribute("data-appearance", mode);
+        html.style.colorScheme = dark ? "dark" : "light";
         document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) { meta.content = dark ? "#171717" : "#ffffff"; });
       })();
     </script>
