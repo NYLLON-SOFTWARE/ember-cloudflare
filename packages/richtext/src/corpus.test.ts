@@ -4,14 +4,15 @@
 
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { plainText } from "./body";
+import { plainText, prepareBody, type PreparedBody } from "./body";
 import { mentionedUsers } from "./mentions";
 import { parseHtml } from "./parse";
-import { canonicalize, filterMessage, presentMessage } from "./render";
+import { filterMessage, presentMessage } from "./render";
 import { AUTO_LINK, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
 import {
   corpus,
+  corpusUser,
   emberUser,
   railsMentionPartial,
   railsUser,
@@ -136,16 +137,17 @@ describe(feature("messages.rich-text"), () => {
   it("stores every body in a safe form that comes back the same when stored again", () => {
     const problems: string[] = [];
     for (const body of corpus.cases) {
-      const stored = attempt(() => canonicalize(parseHtml, body.body, railsUser));
-      if (stored === RAISES) continue;
+      const prepared = attempt(() => JSON.stringify(prepareBody(parseHtml, body.body, corpusUser)));
+      if (prepared === RAISES || prepared === "null") continue;
+      const stored = (JSON.parse(prepared) as PreparedBody).html;
       for (const violation of securityViolations(stored, STORED)) problems.push(`${body.name}: ${violation}`);
       for (const [, attributes] of stored.matchAll(/<action-text-attachment([^>]*)>/g)) {
         if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="gid:\/\/ember\/User\/[1-9][0-9]*"$/.test(attributes!)) {
           problems.push(`${body.name}: <action-text-attachment${attributes}>`);
         }
       }
-      const again = attempt(() => canonicalize(parseHtml, stored, emberUser));
-      if (again !== stored) problems.push(`${body.name}\n  stored:       ${JSON.stringify(stored)}\n  stored again: ${JSON.stringify(again)}`);
+      const again = attempt(() => JSON.stringify(prepareBody(parseHtml, stored, emberUser)));
+      if (again !== prepared) problems.push(`${body.name}\n  stored:       ${prepared}\n  stored again: ${again}`);
     }
     expect(problems).toEqual([]);
   });

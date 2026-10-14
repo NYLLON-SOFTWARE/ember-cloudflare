@@ -185,6 +185,11 @@ export function emberUser(sgid: string): CorpusUser | undefined {
   return id === undefined ? undefined : users.get(Number(id));
 }
 
+/** A user named as a corpus body names them (`railsUser`), or as the form Ember stores it in does. */
+export function corpusUser(sgid: string): CorpusUser | undefined {
+  return sgid.startsWith("gid://ember/") ? emberUser(sgid) : railsUser(sgid);
+}
+
 const INSERTED_LINK = '<a target="_blank" href="';
 
 /**

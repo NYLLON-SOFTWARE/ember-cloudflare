@@ -9,11 +9,11 @@ import { parseHtml } from "./parse";
 import { presentMessage } from "./render";
 import { toHtml } from "./serialize";
 import { HTML_NAMESPACE, SVG_NAMESPACE, textContent } from "./tree";
-import { corpus, railsMentionPartial, railsUser } from "./testing/corpus";
+import { corpus, corpusUser, railsMentionPartial, railsUser } from "./testing/corpus";
 
 const readings: Record<string, (parse: HtmlParser, body: string) => unknown> = {
   presentation: (parse, body) => presentMessage(parse, body, railsUser, railsMentionPartial),
-  "prepared body": (parse, body) => prepareBody(parse, body, railsUser),
+  "prepared body": (parse, body) => prepareBody(parse, body, corpusUser),
 };
 
 function outcome(read: () => unknown): string {

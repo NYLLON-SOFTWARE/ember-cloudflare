@@ -33,6 +33,7 @@ import {
   createElement,
   createFragment,
   descendants,
+  detach,
   getAttr,
   isElement,
   removeAttr,
@@ -62,27 +63,33 @@ const isMentionMarker = (element: Element) => element.name === MENTION_MARKER;
 /**
  * The form Ember stores a body in: `presentMessage`'s, out of its layout and stripped, with each
  * mention as an empty `<action-text-attachment content-type="application/vnd.campfire.mention"
- * sgid="gid://ember/User/<id>">` that renders the person as they are now, and without two things:
- * `class` attributes, since a message's Tailwind classes could restyle the page, and the images
- * of remote image attachments, which a stored body can't hold (SanitizeTags removes `<img>`).
+ * sgid="gid://ember/User/<id>">` that renders the person as they are now, and without three
+ * things: `class` attributes, since a message's Tailwind classes could restyle the page, the
+ * images of remote image attachments, which a stored body can't hold (SanitizeTags removes
+ * `<img>`), and the newlines a `pre` starts with: each parse drops one, so those a body's five
+ * parses leave would go when it's stored again. Stored again, the stored form comes back the same.
  */
 export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMention): string {
-  return canonicalForm(parse, filterMessage(parse, body, resolve), resolve);
-}
-
-/** `canonicalize`, from what `filterMessage` or `filteredContent` left of the body. */
-export function canonicalForm(parse: HtmlParser, filtered: Fragment, resolve: ResolveMention): string {
   const markers: MentionPartial = (user) => `<${MENTION_MARKER} user="${user.id}"></${MENTION_MARKER}>`;
-  const content = withoutLayout(renderFiltered(parse, filtered, resolve, markers));
+  const content = withoutLayout(renderFiltered(parse, filterMessage(parse, body, resolve), resolve, markers));
   const replacements = new Map<Node, Node[]>();
   for (const node of descendants(content)) {
     if (!isElement(node)) continue;
     if (isMentionMarker(node)) replacements.set(node, [mentionAttachment(Number(getAttr(node, "user")))]);
     else if (node.name === "img") replacements.set(node, []);
     else removeAttr(node, "class");
+    if (node.name === "pre") withoutLeadingNewlines(node);
   }
   replaceEach(replacements);
   return strip(toHtml(content, { escapeAttributeBrackets: true }));
+}
+
+function withoutLeadingNewlines(pre: Element): void {
+  for (let first = pre.children[0]; first?.kind === "text"; first = pre.children[0]) {
+    first.value = first.value.replace(/^\n+/, "");
+    if (first.value !== "") return;
+    detach(first);
+  }
 }
 
 function mentionAttachment(userId: number): Element {
@@ -93,20 +100,12 @@ function mentionAttachment(userId: number): Element {
 }
 
 /**
- * `TextMessagePresentationFilters.apply(message.body.body)`. RemoveSoloUnfurledLinkText only reads
- * the body's plain text, which can raise, since Ember has no link previews for it to remove text in
- * favor of (they render nothing).
+ * `TextMessagePresentationFilters.apply(message.body.body)`: SanitizeTags, then SanitizeAttributes.
+ * RemoveSoloUnfurledLinkText only reads the body's plain text, which can raise, since Ember has no
+ * link previews for it to remove text in favor of (they render nothing).
  */
 export function filterMessage(parse: HtmlParser, body: string, resolve: ResolveMention): Fragment {
   contentToPlainText(parse, loadContent(parse, body), resolve);
-  return filteredContent(parse, body);
-}
-
-/**
- * What the filters leave of a body once its plain text has been read: SanitizeTags, then
- * SanitizeAttributes.
- */
-export function filteredContent(parse: HtmlParser, body: string): Fragment {
   const content = loadContent(parse, body);
   sanitizeTags(content);
   return parse(strip(sanitize(parse, toHtml(content), CONTENT_FILTER)), BODY);

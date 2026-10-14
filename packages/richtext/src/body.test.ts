@@ -31,7 +31,20 @@ describe(feature("messages.rich-text"), () => {
   it("stores rendered attachments, with an image's caption but not its image", () => {
     expect(prepare('<action-text-attachment content-type="text/html" content="&lt;hr&gt;"></action-text-attachment>')?.html).toBe("<hr>");
     const image = '<action-text-attachment content-type="image/png" url="https://example.com/a.png" caption="Cat"></action-text-attachment>';
-    expect(prepare(image)).toMatchObject({ html: "Cat", plainText: "[Cat]" });
+    expect(prepare(image)).toMatchObject({ html: "Cat", plainText: "Cat" });
+  });
+
+  it("keeps the plain text and mentions of what it stores, so storing that again changes nothing", () => {
+    // Rails reads both from the body as sent, so it misses a mention inside a content attachment
+    // and keeps the newlines a code block starts with, which the stored form drops
+    const mentionInside = `<action-text-attachment content-type="text/html" content="&lt;p&gt;Hi ${mention(1).replaceAll('"', "&quot;")}&lt;/p&gt;"></action-text-attachment>`;
+    const codeAfterBlankLines = `<pre>${"\n".repeat(10)}x = 1</pre>`;
+    expect(prepare(mentionInside)).toMatchObject({ plainText: "Hi @David", mentions: [1] });
+    expect(prepare(codeAfterBlankLines)).toMatchObject({ html: "<pre>x = 1</pre>", plainText: "x = 1" });
+    for (const body of [mentionInside, codeAfterBlankLines]) {
+      const prepared = prepare(body)!;
+      expect(prepare(prepared.html), body).toEqual(prepared);
+    }
   });
 
   it("is blank when there's no text but whitespace and no attachment", () => {
@@ -60,7 +73,7 @@ describe(feature("mentions.render"), () => {
   });
 
   it("stores ☒ for a mention of someone who doesn't exist", () => {
-    expect(prepare(`<p>Hi ${mention(3)}</p>`)).toEqual({ html: "<p>Hi ☒</p>", plainText: "Hi ", mentions: [], blank: false });
+    expect(prepare(`<p>Hi ${mention(3)}</p>`)).toEqual({ html: "<p>Hi ☒</p>", plainText: "Hi ☒", mentions: [], blank: false });
   });
 });
 

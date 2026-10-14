@@ -5,17 +5,21 @@ import { RenderError, type MentionUser, type ResolveMention } from "./attachment
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { ParseLimitError, type HtmlParser } from "./markup";
 import { mentionedUsers, userIdsIn, usersAttached } from "./mentions";
-import { canonicalForm, filteredContent } from "./render";
+import { canonicalize } from "./render";
 import { isBlank } from "./ruby";
 
+/**
+ * A body as Ember keeps it. Everything but `html` is read from `html`, so it matches what shows,
+ * and preparing `html` again gives the same.
+ */
 export interface PreparedBody {
   /** The body in the form Ember stores and clients render (`canonicalize`). */
   html: string;
-  /** Action Text's plain text of the body: for search, notifications, emoji-only bodies and `/play`. */
+  /** Action Text's plain text of it: for search, notifications, emoji-only bodies and `/play`. */
   plainText: string;
   /** The users it mentions, once each, in order. */
   mentions: number[];
-  /** Nothing to send: no text but whitespace, and no attachments. */
+  /** Nothing to send: no text but whitespace, and no mentions. */
   blank: boolean;
 }
 
@@ -31,16 +35,12 @@ export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMen
  */
 export function prepareBody(parse: HtmlParser, markup: string, resolve: ResolveMention): PreparedBody | null {
   try {
-    const content = loadContent(parse, markup);
+    const html = canonicalize(parse, markup, resolve);
+    const content = loadContent(parse, html);
     const attachments = attachmentNodes(content);
     const mentions = usersAttached(attachments, resolve).map((user) => user.id);
     const text = contentToPlainText(parse, content, resolve);
-    return {
-      html: canonicalForm(parse, filteredContent(parse, markup), resolve),
-      plainText: text,
-      mentions,
-      blank: isBlank(text) && attachments.length === 0,
-    };
+    return { html, plainText: text, mentions, blank: isBlank(text) && attachments.length === 0 };
   } catch (error) {
     if (error instanceof ParseLimitError || error instanceof RenderError) return null;
     throw error;

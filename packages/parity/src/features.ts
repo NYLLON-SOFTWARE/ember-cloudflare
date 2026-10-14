@@ -1233,7 +1233,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. Messages are still plain text, so nothing uses it yet, and a body that can't be converted will be refused rather than stored.",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. Messages are still plain text, so nothing uses it yet, and a body that can't be converted will be refused rather than stored. The plain text kept with a body will be read from the form Ember stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one).",
   },
   {
     id: "messages.autolink",
@@ -1349,7 +1349,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/attachables.rs", "crates/views/templates/users/_mention.html", "crates/richtext/src/lib.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"gid://ember/User/<id>\">`, which shows the person as they are when it's rendered. The id isn't signed, as any member can list everyone's. A mention of someone who doesn't exist is stored as ☒. Messages are still plain text, so nothing shows mentions yet.",
+    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"gid://ember/User/<id>\">`, which shows the person as they are when it's rendered. The id isn't signed, as any member can list everyone's. A mention of someone who doesn't exist is stored as ☒. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Messages are still plain text, so nothing shows mentions yet.",
   },
 
   // Attachments
