@@ -1,5 +1,6 @@
 import type { HelpContact as Contact } from "@ember/protocol";
 import { Lifebuoy } from "@/components/icons/campfire";
+import { Version } from "@/components/version";
 
 /**
  * Whom to ask for help, under the sign-in card: the first administrator, by email, and the version,
@@ -17,9 +18,7 @@ export function HelpContact({ contact, version }: { contact: Contact | null; ver
         <Lifebuoy className="size-[1.3em] flex-none" />
         <span className="min-w-0 break-words">{contact.emailAddress}</span>
       </a>
-      <div className="my-4 text-muted-foreground">
-        Ember&trade; version <span className="rounded-[0.3em] border border-muted-foreground px-[0.5ch] py-[0.1em]">{version}</span>
-      </div>
+      <Version version={version} className="my-4" />
     </div>
   );
 }

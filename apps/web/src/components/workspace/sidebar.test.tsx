@@ -11,8 +11,8 @@ const rooms = [
 
 describe(feature("sidebar.rooms"), () => {
   it("lists the rooms under the workspace name and marks the one you're in", () => {
-    render(<Sidebar rooms={rooms} currentRoomId="random" onSelect={vi.fn()} />);
-    expect(screen.getByRole("heading", { level: 2, name: "Ember" })).toBeInTheDocument();
+    render(<Sidebar workspaceName="Analytical Engines" rooms={rooms} currentRoomId="random" onSelect={vi.fn()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     const links = within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link");
     expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("aria-current")])).toEqual([
       ["#general", "/rooms/general", null],
@@ -22,7 +22,7 @@ describe(feature("sidebar.rooms"), () => {
 
   it("switches rooms in place, but leaves modified clicks to the browser", async () => {
     const onSelect = vi.fn();
-    render(<Sidebar rooms={rooms} currentRoomId="general" onSelect={onSelect} />);
+    render(<Sidebar workspaceName="Ember" rooms={rooms} currentRoomId="general" onSelect={onSelect} />);
     await userEvent.click(screen.getByRole("link", { name: /random/ }));
     expect(onSelect).toHaveBeenCalledWith("random");
 
@@ -37,7 +37,7 @@ describe(feature("sidebar.rooms"), () => {
 
 describe(feature("rooms.icons"), () => {
   it("shows each room's icon before its name, or `#`", () => {
-    render(<Sidebar rooms={[{ ...rooms[0]!, icon: "coffee" }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
+    render(<Sidebar workspaceName="Ember" rooms={[{ ...rooms[0]!, icon: "coffee" }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
     const [coffee, random] = within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link");
     expect(coffee).toHaveAccessibleName("general");
     expect(coffee!.querySelector('[data-icon="coffee"]')).toHaveStyle({ width: "19px", height: "19px" });
@@ -47,7 +47,7 @@ describe(feature("rooms.icons"), () => {
 
 describe(feature("sidebar.unread"), () => {
   it("makes an unread room's row bold, with a dot, and says so to screen readers", () => {
-    render(<Sidebar rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId={null} onSelect={vi.fn()} />);
+    render(<Sidebar workspaceName="Ember" rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId={null} onSelect={vi.fn()} />);
     const [general, random] = within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link");
     expect(general).toHaveClass("font-[650]");
     expect(general).toHaveAccessibleName("general");
@@ -61,7 +61,7 @@ describe(feature("sidebar.unread"), () => {
   });
 
   it("never marks the room the tab shows", () => {
-    render(<Sidebar rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
+    render(<Sidebar workspaceName="Ember" rooms={[{ ...rooms[0]!, unread: true }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
     const general = screen.getByRole("link", { current: "page" });
     expect(general).not.toHaveClass("font-[650]");
     expect(general).not.toHaveAttribute("aria-description");

@@ -44,6 +44,8 @@ export interface NewPerson {
 export interface StoredSession {
   id: string;
   user: User;
+  /** Whether the person is one of the workspace's administrators. */
+  administrator: boolean;
   /** Whether the person signed in with just a name. */
   guest: boolean;
   /** When the session was last refreshed, in milliseconds since the epoch. */
@@ -61,6 +63,7 @@ interface SessionRow {
   last_active_at: string;
   user_id: string;
   name: string;
+  administrator: number;
   guest: number;
 }
 
@@ -72,7 +75,8 @@ const INSERT_SESSION_IF_ACTIVE = `INSERT INTO sessions (id, user_id, token_diges
   SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE}`;
 
 /** The session a token's digest names, if its person is still active. */
-const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name, users.guest
+const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
+    users.role = ${ADMINISTRATOR} AS administrator, users.guest
   FROM sessions JOIN users ON users.id = sessions.user_id
   WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
 
@@ -85,6 +89,7 @@ const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.
 const storedSession = (row: SessionRow): StoredSession => ({
   id: row.session_id,
   user: { id: row.user_id, name: row.name },
+  administrator: row.administrator === 1,
   guest: row.guest === 1,
   lastActiveAt: Date.parse(row.last_active_at),
 });
@@ -154,6 +159,15 @@ export const MARK_READ = `UPDATE memberships SET unread_at = NULL
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   RETURNING user_id`;
 
+/** Whether someone is one of the workspace's active administrators. */
+export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role = ${ADMINISTRATOR} AND status = ${ACTIVE}`;
+
+/**
+ * Renames the workspace and records when, unless it has that name already, as ember-rust's
+ * `Account::update` changes only what differs (account.rs).
+ */
+const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
+
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
 
@@ -215,6 +229,16 @@ export class WorkspaceStore {
   async account(): Promise<JoinableAccount | null> {
     const [row] = await this.db.all<{ name: string; join_code: string }>(`SELECT name, join_code FROM accounts`);
     return row ? { name: row.name, joinCode: row.join_code } : null;
+  }
+
+  /** Renames the workspace. */
+  async renameAccount(name: string, now: string): Promise<void> {
+    await this.db.run(RENAME_ACCOUNT, name, now);
+  }
+
+  /** Whether someone is one of the workspace's active administrators, as they are when this asks. */
+  async isAdministrator(userId: UserId): Promise<boolean> {
+    return (await this.db.all(ACTIVE_ADMINISTRATOR, userId)).length > 0;
   }
 
   /**

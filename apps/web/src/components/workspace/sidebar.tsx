@@ -4,16 +4,25 @@ import { RoomIcon } from "@/components/icons/room-icon";
 import { roomPath } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
+interface Props {
+  /** The workspace's name, which heads the list, as ember-rust's users/sidebars/show.html has it. */
+  workspaceName: string;
+  rooms: SidebarRoom[];
+  currentRoomId: string | null;
+  onSelect: (roomId: string) => void;
+}
+
 /**
  * The conversation list: rooms, then DMs, under the workspace name. A room marked unread is bold with
  * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css),
  * except the room the tab shows, which rooms_list_controller.js never marks.
  */
-export function Sidebar({ rooms, currentRoomId, onSelect }: { rooms: SidebarRoom[]; currentRoomId: string | null; onSelect: (roomId: string) => void }) {
+export function Sidebar({ workspaceName, rooms, currentRoomId, onSelect }: Props) {
   return (
     <div className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
-      {/* At 900px and below the drawer's close button sits at the end of this row. */}
-      <h2 className="flex min-h-7 items-center gap-2 px-1.5 text-[17px] leading-6 font-[650] max-md:pr-10">Ember</h2>
+      {/* At 900px and below the drawer's close button sits at the end of this row. A long name wraps where
+          ember-rust's runs under the sidebar's edge. */}
+      <h2 className="flex min-h-7 items-center gap-2 px-1.5 text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
 
       <section aria-label="Rooms" className="flex flex-col gap-[3px]">
         {rooms.map((room) => {

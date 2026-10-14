@@ -4,7 +4,9 @@ import {
   isRoomId,
   parseWorkspaceClientFrame,
   type Account,
+  type AccountChanges,
   type HelpContact,
+  type Me,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
@@ -16,6 +18,7 @@ import {
   type User,
   type UserId,
   type WorkspaceServerFrame,
+  type WorkspaceSettings,
 } from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
@@ -104,6 +107,9 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
   }
 }
 
+/** Who a session signs in, as the app keeps them. */
+const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
 
@@ -117,14 +123,19 @@ export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
-  /** The account once it exists. Nothing deletes it or changes its join code yet, so once read it needn't be read again. */
+  /**
+   * The account once it exists. Renaming it keeps this current, and nothing deletes it or changes its
+   * join code yet, so once read it needn't be read again.
+   */
   private knownAccount: JoinableAccount | null = null;
+  /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
+  private accountChanges = 0;
   /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
   private knownHelpContact: HelpContact | null | undefined;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
-  /** The last room change asked for, which the next one waits for (see `oneAtATime`). */
-  private lastRoomChange: Promise<unknown> = Promise.resolve();
+  /** The last change asked for, which the next one waits for (see `oneAtATime`). */
+  private lastChange: Promise<unknown> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -162,7 +173,7 @@ export class Workspace extends DurableObject<Env> {
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
-    if (await this.session(credentials)) send(server, { type: "welcome", you: session.user });
+    if (await this.session(credentials)) send(server, { type: "welcome", you: meOf(session) });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -196,7 +207,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async joinableAccount(): Promise<JoinableAccount | null> {
-    return (this.knownAccount ??= await this.store.account());
+    if (this.knownAccount) return this.knownAccount;
+    const changes = this.accountChanges;
+    const account = await this.store.account();
+    if (changes === this.accountChanges) this.knownAccount = account;
+    return account;
   }
 
   /** Whether `code` is the workspace's join code, which it can't be before first run. */
@@ -206,9 +221,48 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
-  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; helpContact: HelpContact | null; user: User | null }> {
-    const [account, helpContact, user] = await Promise.all([this.account(), this.helpContact(), credentials && this.authenticate(credentials)]);
+  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; helpContact: HelpContact | null; user: Me | null }> {
+    const [account, helpContact, user] = await Promise.all([this.account(), this.helpContact(), credentials && this.me(credentials)]);
     return { account, helpContact, user };
+  }
+
+  /**
+   * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
+   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session.
+   */
+  async workspaceSettings(credentials: Credentials): Promise<WorkspaceSettings | "not set up" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [account, canAdminister] = await Promise.all([this.account(), this.store.isAdministrator(user.id)]);
+    return account ? { account, canAdminister } : "not set up";
+  }
+
+  /**
+   * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
+   * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
+   * (accounts.rs), or null without a valid session.
+   */
+  async changeAccount(credentials: Credentials, changes: AccountChanges): Promise<Account | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      // First run made the account with its first administrator.
+      const account = (await this.joinableAccount())!;
+      if (changes.name === undefined) return { name: account.name };
+      this.accountChanges++;
+      try {
+        await this.store.renameAccount(changes.name, new Date().toISOString());
+      } catch (error) {
+        // On D1 the name can be saved and its answer lost, so it's read again.
+        this.knownAccount = null;
+        throw error;
+      } finally {
+        this.accountChanges++;
+      }
+      this.knownAccount = { ...account, name: changes.name };
+      return { name: changes.name };
+    });
   }
 
   private async helpContact(): Promise<HelpContact | null> {
@@ -226,7 +280,13 @@ export class Workspace extends DurableObject<Env> {
    */
   async createWorkspace(administrator: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
     if (await this.account()) return null;
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: administrator.name }, guest: false, lastActiveAt: Date.now() };
+    const session: StoredSession = {
+      id: sortableId(),
+      user: { id: sortableId(), name: administrator.name },
+      administrator: true,
+      guest: false,
+      lastActiveAt: Date.now(),
+    };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
     const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME, icon: null };
     const now = new Date(session.lastActiveAt).toISOString();
@@ -240,7 +300,7 @@ export class Workspace extends DurableObject<Env> {
     this.knownAccount = { name: account.name, joinCode: account.joinCode };
     this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
-    return { user: session.user, room };
+    return { user: meOf(session), room };
   }
 
   /**
@@ -248,8 +308,8 @@ export class Workspace extends DurableObject<Env> {
    * cookie's token opens, as ember-rust's `users#create` does. Answers null if someone already has
    * their email address.
    */
-  async join(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<User | null> {
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, guest: false, lastActiveAt: Date.now() };
+  async join(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | null> {
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
     try {
       await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
     } catch (error) {
@@ -257,7 +317,7 @@ export class Workspace extends DurableObject<Env> {
       throw error;
     }
     this.sessions.remember(tokenDigest, session);
-    return session.user;
+    return meOf(session);
   }
 
   /**
@@ -281,18 +341,18 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Signs in someone whose password checked out, unless they've stopped being active since. */
-  async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<User | null> {
+  async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
     const session = await this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString());
     if (session) this.sessions.remember(tokenDigest, session);
-    return session?.user ?? null;
+    return session && meOf(session);
   }
 
   /** Adds someone who signs in with just a name, and the session their cookie's token opens. */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<User> {
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, guest: true, lastActiveAt: Date.now() };
+  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me> {
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
     await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
     this.sessions.remember(tokenDigest, session);
-    return session.user;
+    return meOf(session);
   }
 
   /**
@@ -301,6 +361,12 @@ export class Workspace extends DurableObject<Env> {
    */
   async authenticate(credentials: Credentials): Promise<User | null> {
     return (await this.session(credentials))?.user ?? null;
+  }
+
+  /** The same, as the app keeps them. */
+  async me(credentials: Credentials): Promise<Me | null> {
+    const session = await this.session(credentials);
+    return session && meOf(session);
   }
 
   private async session({ tokenDigest, client, guests }: Credentials): Promise<StoredSession | null> {
@@ -405,14 +471,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Makes room changes and deletions one at a time, each once the one before has finished. Each reads
-   * who may make it before it writes, and on D1 other requests run in between: without this, someone
-   * another change had just taken out of a room could still open it to everyone, and a change could
-   * write to a room deleted since it looked.
+   * Makes changes to rooms and to the workspace one at a time, each once the one before has finished.
+   * Each reads who may make it before it writes, and on D1 other requests run in between: without
+   * this, someone another change had just taken out of a room could still open it to everyone, and a
+   * change could write to a room deleted since it looked.
    */
   private oneAtATime<T>(change: () => Promise<T>): Promise<T> {
-    const result = this.lastRoomChange.then(change);
-    this.lastRoomChange = result.catch(() => undefined);
+    const result = this.lastChange.then(change);
+    this.lastChange = result.catch(() => undefined);
     return result;
   }
 

@@ -10,8 +10,8 @@ import { App } from "./App";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
-const ada = { id: "u1", name: "Ada" };
-const grace = { id: "u2", name: "Grace" };
+const ada = { id: "u1", name: "Ada", administrator: true };
+const grace = { id: "u2", name: "Grace", administrator: false };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
@@ -52,15 +52,18 @@ class RoomSocket extends QuietSocket {
 
 /**
  * Plays the server, which may be waiting to be set up, and whose session cookie this browser starts
- * out with or without. Ada signs in as ada@example.com with "correct horse".
+ * out with or without. Ada, its administrator, signs in as ada@example.com with "correct horse", and
+ * Grace joins.
  */
 function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn: boolean; setup?: "pending" | "complete"; guestSignIn?: boolean }) {
   let rooms = [general];
+  let account = { name: "Ember" };
+  let me = ada;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupProtected: false, guestSignIn, account: { name: "Ember" }, helpContact, version: "0.1", user: signedIn ? ada : null });
+      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, [allTalk]];
@@ -70,7 +73,7 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
       const fields = JSON.parse(String(init?.body)) as Record<string, string>;
       const isAda = fields.emailAddress === "ada@example.com" && fields.password === "correct horse";
       if (!("name" in fields) && !isAda) return Response.json({ error: SIGN_IN_REFUSED }, { status: 401 });
-      signedIn = true;
+      [signedIn, me] = [true, ada];
       return Response.json({ user: ada }, { status: 201 });
     }
     if (route === "DELETE /api/session") {
@@ -80,11 +83,16 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
     if (route === `POST /api/join/${JOIN_CODE}`) {
       const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
-      signedIn = true;
+      [signedIn, me] = [true, grace];
       return Response.json({ user: grace }, { status: 201 });
     }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
-    if (route === "GET /api/me") return Response.json({ user: ada });
+    if (route === "GET /api/me") return Response.json({ user: me });
+    if (route === "GET /api/account") return Response.json({ account, canAdminister: me.administrator });
+    if (route === "PATCH /api/account") {
+      account = JSON.parse(String(init?.body)) as typeof account;
+      return Response.json({ account });
+    }
     return Response.json({ rooms, invitation: null });
   });
 }
@@ -183,11 +191,12 @@ describe(feature("auth.sessions"), () => {
   it("follows another tab that signs this browser in as someone else", async () => {
     RoomSocket.all = [];
     vi.stubGlobal("WebSocket", RoomSocket);
-    serve({ signedIn: true });
+    const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
 
-    // The other tab's cookie reaches the room when this tab's socket reconnects.
+    // Another tab joins as Grace, whose cookie reaches the room when this tab's socket reconnects.
+    await fetch(`/api/join/${JOIN_CODE}`, { method: "POST", body: JSON.stringify({ emailAddress: "grace@example.com" }) });
     act(() => RoomSocket.all[0]!.welcome(grace));
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace"));
     // Grace's workspace opens its own socket to the room.
@@ -216,6 +225,24 @@ describe(feature("auth.sessions"), () => {
     act(() => RoomSocket.all[0]!.end(CloseCode.Reconnect));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
+  });
+});
+
+describe(feature("accounts.name"), () => {
+  it("renames the workspace from its settings, and the rail and sidebar take the new name", async () => {
+    history.replaceState(null, "", "/account/edit");
+    serve({ signedIn: true });
+    render(<App />);
+    const user = userEvent.setup();
+    const name = await screen.findByRole("textbox", { name: "Workspace name" });
+    expect(name).toHaveValue("Ember");
+    await user.clear(name);
+    await user.type(name, "Analytical Engines{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
   });
 });
 

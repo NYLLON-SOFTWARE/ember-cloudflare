@@ -52,7 +52,7 @@ describe(feature("auth.sign-up"), () => {
     const response = await join(await joinCode(), grace);
     expect(response.status).toBe(201);
     const { user } = (await response.json()) as { user: User };
-    expect(user).toEqual({ id: expect.any(String), name: "Grace Hopper" });
+    expect(user).toEqual({ id: expect.any(String), name: "Grace Hopper", administrator: false });
     expect(response.headers.getSetCookie()).toEqual([expect.stringMatching(/^__Host-session_token=[\w-]{43}; Path=\/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure$/)]);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
 

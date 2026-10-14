@@ -1,6 +1,7 @@
 import {
   roomSocketQuery,
   type ClientFrame,
+  type Me,
   type Room,
   type RoomIconChoice,
   type RoomId,
@@ -61,12 +62,15 @@ export interface Session {
 /** The `name=value` a response's `Set-Cookie` sets. */
 export const cookieOf = (response: Response) => response.headers.get("Set-Cookie")!.split(";")[0]!;
 
+/** Someone as rooms and lists show them, without what the app keeps about whoever is signed in. */
+export const shown = ({ id, name }: User | Me): User => ({ id, name });
+
 /** Signs in as a guest named `name`. */
 export async function signIn(name: string): Promise<Session> {
   const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name }) });
   expect(response.status).toBe(201);
-  const { user } = (await response.json()) as { user: User };
-  return { user, cookie: cookieOf(response) };
+  const { user } = (await response.json()) as { user: Me };
+  return { user: shown(user), cookie: cookieOf(response) };
 }
 
 /** A room socket's upgrade request from the app's own pages, signed in with `cookie` if given. */

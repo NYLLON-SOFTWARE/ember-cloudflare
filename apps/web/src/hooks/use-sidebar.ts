@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useReducer, useState } from "react";
-import { CloseCode, parseServerFrame, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
@@ -51,7 +51,7 @@ function oneAtATime(task: () => Promise<void>): () => Promise<void> {
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
  * or whoever another tab signed in as.
  */
-export function useSidebar(me: User, onSessionChanged: (me: User | null) => void) {
+export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.

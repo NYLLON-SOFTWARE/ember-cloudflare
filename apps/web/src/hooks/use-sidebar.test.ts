@@ -1,11 +1,11 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Sidebar, type SidebarRoom, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
 
-const ada: User = { id: "u1", name: "Ada" };
-const grace: User = { id: "u2", name: "Grace" };
+const ada: Me = { id: "u1", name: "Ada", administrator: false };
+const grace: Me = { id: "u2", name: "Grace", administrator: true };
 const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null, unread: false };
 const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
 
@@ -62,7 +62,7 @@ class FakeSocket {
 const server = {
   sidebar: { rooms: [design], invitation: null } as Sidebar,
   version: 1,
-  signedIn: ada as User | null,
+  signedIn: ada as Me | null,
   held: null as Promise<void> | null,
   change(sidebar: Sidebar) {
     this.sidebar = sidebar;
@@ -106,7 +106,7 @@ const visibility = (state: DocumentVisibilityState) =>
   });
 
 /** Ada's sidebar, loaded. */
-async function showSidebar(onSessionChanged: (me: User | null) => void = () => {}) {
+async function showSidebar(onSessionChanged: (me: Me | null) => void = () => {}) {
   const hook = renderHook(() => useSidebar(ada, onSessionChanged));
   await settle();
   return hook;

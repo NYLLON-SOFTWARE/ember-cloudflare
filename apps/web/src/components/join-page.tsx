@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MAX_PASSWORD_LENGTH, type User } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -16,7 +16,7 @@ interface Props {
   workspace: SignedOutWorkspace;
   /** The code from the join link, which the Worker checked before serving the page. */
   joinCode: string;
-  onJoined: (me: User) => void;
+  onJoined: (me: Me) => void;
 }
 
 /** Creates an account with the join link, as a member in every open room, and signs in as it. */

@@ -57,6 +57,11 @@ export interface ReconnectingSocket {
   connected(): void;
   /** Connects again after the usual wait, after a close the owner held on to. */
   retry(): void;
+  /**
+   * Closes a connection the owner can't use, such as one the server let in as someone else, and holds
+   * on to it as it would a close: connecting again waits for `retry()`.
+   */
+  hold(): void;
   /** Closes the socket for good. */
   close(): void;
 }
@@ -206,6 +211,14 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
     },
     retry() {
       if (!stopped) reconnect(backoff());
+    },
+    hold() {
+      if (stopped || !ws) return;
+      stopChecking();
+      startOfflineClock();
+      admitted = false;
+      ws.onclose = null;
+      ws.close(1000);
     },
     close() {
       if (stopped) return;
