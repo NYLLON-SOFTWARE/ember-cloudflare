@@ -17,6 +17,29 @@ export function workspaceSocketUrl(baseUrl: string): string {
   return url.toString();
 }
 
+/** Opens `session`'s workspace socket, as a tab does, and resolves with it once its welcome comes, and how long that took in milliseconds. */
+export function connectWorkspace(baseUrl: string, session: Session): Promise<{ ws: WebSocket; ms: number }> {
+  const started = performance.now();
+  const ws = new NodeWebSocket(workspaceSocketUrl(baseUrl), { headers: { Cookie: session.cookie, Origin: new URL(baseUrl).origin } });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => fail(new Error(`No welcome from the Workspace after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS);
+    const fail = (error: Error) => {
+      clearTimeout(timer);
+      ws.onerror = ws.onclose = ws.onmessage = null;
+      ws.close();
+      reject(error);
+    };
+    ws.onerror = () => fail(new Error("Workspace socket failed"));
+    ws.onclose = (event) => fail(new Error(`Workspace socket closed (${event.code}) before its welcome`));
+    ws.onmessage = (event) => {
+      if ((JSON.parse(event.data as string) as WorkspaceServerFrame).type !== "welcome") return;
+      clearTimeout(timer);
+      ws.onerror = ws.onclose = ws.onmessage = null;
+      resolve({ ws, ms: performance.now() - started });
+    };
+  });
+}
+
 /** How long each socket waits before connecting again, in milliseconds. */
 export interface Delays {
   room: number;
@@ -102,27 +125,10 @@ export class TabClient {
   }
 
   /** Opens the workspace socket and resolves with the milliseconds to its welcome. */
-  private connectWorkspace(): Promise<number> {
-    const started = performance.now();
-    const ws = new NodeWebSocket(workspaceSocketUrl(this.baseUrl), { headers: { Cookie: this.session.cookie, Origin: new URL(this.baseUrl).origin } });
+  private async connectWorkspace(): Promise<number> {
+    const { ws, ms } = await connectWorkspace(this.baseUrl, this.session);
     this.workspace = ws;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => fail(new Error(`No welcome from the Workspace after ${CONNECT_TIMEOUT_MS}ms`)), CONNECT_TIMEOUT_MS);
-      const fail = (error: Error) => {
-        clearTimeout(timer);
-        ws.onerror = ws.onclose = ws.onmessage = null;
-        ws.close();
-        reject(error);
-      };
-      ws.onerror = () => fail(new Error("Workspace socket failed"));
-      ws.onclose = (event) => fail(new Error(`Workspace socket closed (${event.code}) before its welcome`));
-      ws.onmessage = (event) => {
-        if ((JSON.parse(event.data as string) as WorkspaceServerFrame).type !== "welcome") return;
-        clearTimeout(timer);
-        ws.onerror = ws.onclose = ws.onmessage = null;
-        resolve(performance.now() - started);
-      };
-    });
+    return ms;
   }
 
   /** Loads the sidebar and the people directory at once, as the app does, and resolves with how long each took. */

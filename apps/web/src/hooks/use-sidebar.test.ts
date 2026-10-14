@@ -1,13 +1,13 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Me, type Room, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
-const design: Room = { id: "r1", name: "Design", kind: "open", icon: null };
-const general: Room = { id: "r2", name: "general", kind: "open", icon: null };
+const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null, unread: false };
+const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -220,6 +220,28 @@ describe(feature("sidebar.live-updates"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([design, general]);
+  });
+});
+
+describe(feature("sidebar.unread"), () => {
+  it("marks rooms unread and read as the workspace socket says", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.unread", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+    socket().receive({ type: "room.read", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([design]);
+  });
+
+  it("keeps a mark that comes while a list is on its way that may not show it", async () => {
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "room.unread", roomId: design.id });
+    await release();
+    await settle();
+    expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
   });
 });
 

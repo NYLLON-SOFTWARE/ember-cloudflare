@@ -21,13 +21,14 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
-import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./chat-room";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
+import type { RoomEvent } from "./room-log";
 import { SessionCache } from "./session-cache";
+import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./sockets";
 import { WorkspaceStore, type AvatarOwner, type Client, type DirectoryEntry, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
@@ -551,6 +552,21 @@ export class Workspace extends DurableObject<Env> {
       }
       return "deleted";
     });
+  }
+
+  /**
+   * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing
+   * the room as it sends them: a new message marks the room unread for its members who aren't, and
+   * someone opening it clears their mark. Each event is applied once, however often it's sent. Whoever's
+   * mark changes hears of it on their workspace sockets, and nobody else does.
+   */
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<void> {
+    if (events.length === 0) return;
+    const marks = await this.store.applyRoomEvents(roomId, events, viewerIds);
+    for (const [userId, unread] of marks) {
+      const frame: WorkspaceServerFrame = { type: unread ? "room.unread" : "room.read", roomId };
+      for (const socket of this.ctx.getWebSockets(userId)) send(socket, frame);
+    }
   }
 
   /**

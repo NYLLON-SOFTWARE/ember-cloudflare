@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 36 ported and 53 partial of 172 features; 78 not started, 5 not applicable.
+**Overall:** 37 ported and 53 partial of 172 features; 77 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -22,7 +22,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 0 | 2 | 8 | 0 | 10 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 1 | 2 | 7 | 0 | 10 |
 | [Messages](#messages) | 2 | 13 | 4 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **36** | **53** | **78** | **5** | **172** |
+| **Total** | **37** | **53** | **77** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -842,7 +842,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | Room order | `sidebar.room-order` | Ember | ⬜ Not started |  |
 | DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts)<br>Web: [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Unread rooms | `sidebar.unread` | Campfire | ⬜ Not started |  |
+| Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Activity filter | `sidebar.activity-filter` | Ember | ⬜ Not started |  |
 | Star rooms | `sidebar.favorites` | Ember | ⬜ Not started |  |
 | Reorder starred rooms | `sidebar.favorite-order` | Ember | ⬜ Not started |  |
@@ -901,7 +901,7 @@ Sources: [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-S
 
 ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`crates/ember/src/channels/tests/revocation_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/revocation_test.rs)
 
-**Unread rooms** (`sidebar.unread`) ⬜
+**Unread rooms** (`sidebar.unread`) ✅
 
 - A new message, from a person, a bot or a webhook, marks its room unread for every member except its author, people who've hidden the room and people viewing it. Edits, deletions and reactions mark nothing.
 - You're viewing a room while a tab shows it, from when it opens until 5 seconds after the tab is hidden, and again from 5 seconds after it's shown; a connection that dropped without closing counts for up to 60 seconds.
@@ -909,6 +909,8 @@ ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https:/
 - The row also turns bold, until the sidebar next reloads, in tabs of members the message didn't mark: the author's other tabs, and tabs of members viewing the room elsewhere.
 - Opening the room clears the mark in all your tabs once its live connection is up; a request for the room's page alone doesn't. Coming back to a tab showing the room clears it 5 seconds after the tab is shown.
 - A tab never shows its own room bold, even while it's hidden and the room is marked.
+
+Note: Each room logs its new messages, in the transaction that stores them, and each time someone opens it in a shown tab (`room_events`), and sends the log to the Workspace in order, up to 50 events a call, trying again with backoff while it can't. The Workspace applies each event once: a message marks the room unread, as of when it was written, for its members but its author, those who've hidden the room and those viewing it as the event arrives (`realtime.presence`), and a read clears the reader's mark. Only the people whose marks change hear of it, on their workspace sockets (`platform.live-socket`). Unlike ember-rust, a row turns bold only where the server marked it, not also, until the sidebar reloads, in the tabs of the author and of members viewing the room elsewhere; and a room opened in a tab that loads hidden stays marked until the tab is shown. A marked row also says "Unread" to screen readers, which ember-rust's doesn't. Every message is logged as it's stored, so bots' and webhooks' messages will mark rooms as people's do once they exist.
 
 Sources: [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/ember/src/channels/unread_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/unread_rooms.rs) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/rooms_list_controller.js) · [`reference/app/channels/unread_rooms_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/unread_rooms_channel.rb) · [`crates/ember/src/channels/presence.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/presence.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`reference/app/javascript/controllers/presence_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/presence_controller.js) · [`reference/app/javascript/controllers/read_rooms_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/read_rooms_controller.js)
 
@@ -1618,7 +1620,7 @@ ember-rust tests: [`crates/ember/src/controllers/searches.rs`](https://github.co
 - A connection that dropped without closing counts for up to 60 seconds, and a server restart clears every count.
 - Only members are counted, and a non-member's attempt changes nothing. Members connected to a room get no unread marks or push notifications from it.
 
-Note: Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Nothing uses the count yet, so there are no unread marks or pushes for it to hold back. Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.
+Note: Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Opening a room in a shown tab, or showing a tab that has it open, clears its unread mark in all your tabs, and members viewing a room get no unread mark from its messages (`sidebar.unread`). There are no push notifications yet for the count to hold back. Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.
 
 Sources: [`crates/ember/src/channels/presence.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/presence.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/channels/presence_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/presence_channel.rb) · [`reference/app/models/membership/connectable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/membership/connectable.rb) · [`reference/app/javascript/controllers/presence_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/presence_controller.js)
 
@@ -2289,7 +2291,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Error pages | `platform.error-pages` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [error-pages](apps/worker/test/error-pages.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
-| Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts), [viewing](apps/worker/test/viewing.test.ts) |
+| Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts), [unread](apps/worker/test/unread.test.ts), [viewing](apps/worker/test/viewing.test.ts) |
 | One live connection per tab outside the open room | `platform.live-socket` | This port | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [live-socket](apps/worker/test/live-socket.test.ts)<br>Web: [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Version | `platform.version` | Ember | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
@@ -2346,7 +2348,7 @@ ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SO
 - Nobody hears about a room they aren't in, and an event reaches only the members whose sidebar it changes.
 - Signing out or losing access to a room closes it as `realtime.connection` describes, and nothing more about a room you've left reaches you.
 
-Note: Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. Nothing else travels on it yet: unread and read marks, DM activity, sidebar and star changes and reload requests are still to come.
+Note: Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. It also tells each person when a room is marked unread or read for them (`sidebar.unread`). DM activity, sidebar and star changes and reload requests are still to come.
 
 Sources: [`crates/ember/src/channels.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels.rs) · [`crates/ember/src/channels/unread_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/unread_rooms.rs) · [`crates/ember/src/channels/read_rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/read_rooms.rs) · [`reference/app/channels/unread_rooms_channel.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/channels/unread_rooms_channel.rb)
 

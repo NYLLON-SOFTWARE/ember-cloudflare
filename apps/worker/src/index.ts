@@ -31,7 +31,7 @@ import {
   tokenDigest,
 } from "./auth";
 import { avatarTokenOf, directoryOf, showAvatar } from "./avatars";
-import { AUTHORIZED_AT_HEADER, closedAtOnce, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
+import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed } from "./error-pages";
 import { jsonWithETag } from "./etag";
@@ -43,6 +43,7 @@ import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
+import { closedAtOnce } from "./sockets";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
