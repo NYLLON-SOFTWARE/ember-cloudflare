@@ -75,18 +75,20 @@ describe(feature("rooms.open"), () => {
     expect((await membersOf(room.id)).map((m) => m.user_id)).not.toContain(former);
   });
 
-  it("lists rooms by name, ignoring case", async () => {
-    const ada = await signIn("Ada");
-    const as = { closedTo: [ada.user.id] };
-    const [beta, alpha, gamma] = [await createRoom("beta", as), await createRoom("Alpha", as), await createRoom("gamma", as)];
-    expect(await listed(ada, beta.id, alpha.id, gamma.id)).toEqual([alpha, beta, gamma]);
-  });
-
   it("finds a membership by its key and someone's rooms by their index, however many there are", async () => {
     const plan = async (query: string, ...params: string[]) =>
       (await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
     expect(await plan(MEMBERSHIP, "room", "user")).toMatch(/INDEX sqlite_autoindex_memberships_1 \(room_id=\? AND user_id=\?\)/);
     expect(await plan(ROOMS_FOR_USER, "user")).toContain("index_memberships_on_user_id_and_room_id (user_id=?)");
+  });
+});
+
+describe(feature("rooms.index"), () => {
+  it("lists someone's rooms in the order they were made, for the app to find the oldest and newest", async () => {
+    const ada = await signIn("Ada");
+    const as = { closedTo: [ada.user.id] };
+    const [beta, alpha, gamma] = [await createRoom("beta", as), await createRoom("Alpha", as), await createRoom("gamma", as)];
+    expect(await listed(ada, gamma.id, alpha.id, beta.id)).toEqual([beta, alpha, gamma]);
   });
 });
 
@@ -236,6 +238,18 @@ describe(feature("rooms.legacy-rooms"), () => {
 
     await workspaceStub().registerLegacyRooms([room.id, room.id]);
     expect(await snapshot()).toEqual(before);
+  });
+
+  it("lists each room by when it was listed, though its id doesn't sort by time", async () => {
+    const ada = await signIn("Ada");
+    const before = await createRoom("Before", { closedTo: [ada.user.id] });
+    const room = await legacyRoom();
+    // Apart from the rooms made around it by a moment, so it's never listed at the same time as one.
+    await scheduler.wait(2);
+    await workspaceStub().registerLegacyRooms([room.id]);
+    await scheduler.wait(2);
+    const after = await createRoom("After", { closedTo: [ada.user.id] });
+    expect((await listed(ada, after.id, room.id, before.id)).map((listedRoom) => listedRoom.id)).toEqual([before.id, room.id, after.id]);
   });
 
   it("keeps an old room it wasn't told about out of reach", async () => {

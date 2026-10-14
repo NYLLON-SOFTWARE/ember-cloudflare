@@ -9,7 +9,7 @@ function showPage() {
   history.replaceState(null, "", "/account/edit");
   render(
     <Sheet>
-      <WorkspaceSettingsPage />
+      <WorkspaceSettingsPage back="/rooms/general" />
     </Sheet>,
   );
 }
@@ -17,12 +17,12 @@ function showPage() {
 afterEach(() => history.replaceState(null, "", "/"));
 
 describe(feature("accounts.settings-page"), () => {
-  it("reads Workspace settings, titled Account settings, with Go Back home", () => {
+  it("reads Workspace settings, titled Account settings, with Go Back to the last room visited", () => {
     showPage();
     expect(document.title).toBe("Account settings");
     expect(screen.getByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
     expect(screen.getByText("Manage your workspace, invitations, and people.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
   });
 });
 

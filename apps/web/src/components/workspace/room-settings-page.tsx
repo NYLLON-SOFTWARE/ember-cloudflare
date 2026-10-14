@@ -24,6 +24,8 @@ interface Props {
   /** Which of the two forms the address names. */
   access: Access;
   me: User;
+  /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
+  back: string;
   /** Lists the room as saved, for the sidebar. The page then shows it, unless it was left first. */
   onSaved: (room: Room) => void;
   /** Takes a room out of the sidebar once it's saved without this person, or deleted. The page then goes home, unless it was left first. */
@@ -41,7 +43,7 @@ interface Props {
  * whose switches are on; under the form, they can delete it. Leaving with changes asks first. Everyone
  * else sees its name and people, in the form for the room's kind.
  */
-export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissing, onFailed }: Props) {
+export function RoomSettingsPage({ roomId, access, me, back, onSaved, onLeft, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
@@ -140,7 +142,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
   // The Everyone switch moves between the room's two forms, keeping the draft.
   const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
-    <SettingsPage back={roomPath(roomId)}>
+    <SettingsPage back={back}>
       <Panel aria-busy={settings === null}>
         <PageHeading title="Room settings">Manage the room name, access, and members.</PageHeading>
         {settings && (

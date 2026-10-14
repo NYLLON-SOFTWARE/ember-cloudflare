@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
-import { invitation } from "../../fixtures";
+import type { RoomList } from "@ember/protocol";
+import { invitation, signInAs } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
@@ -34,9 +35,66 @@ test.describe(feature("rooms.show"), () => {
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
   });
 
-  test("opens the first room for an address naming a room that doesn't exist", async ({ members }) => {
+  test("goes home with an alert for an address naming a room that doesn't exist", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: "/rooms/nowhere" });
+    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
+    // Home, which is their oldest room, since this browser has shown them none yet.
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await expect(ada.page).toHaveTitle("general");
+  });
+});
+
+test.describe(feature("rooms.last-visited"), () => {
+  test("goes home to the room you were in last, as Go Back from settings does", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });
+    await ada.page.goto("/");
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
+
+    await ada.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
+    await expect(ada.page).toHaveURL(/\/account\/edit$/);
+    await ada.page.getByRole("link", { name: "Go Back" }).click();
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
+  });
+
+  test("shows someone in no rooms a picture of an empty room, with their name for screen readers", async ({ page, session }) => {
+    await signInAs(page, session);
+    await page.route("**/api/rooms", (route) =>
+      route.request().method() === "GET" ? route.fulfill({ json: { rooms: [], invitation: null } satisfies RoomList }) : route.fallback(),
+    );
+    await page.goto("/");
+    await expect(page).toHaveTitle("No rooms yet");
+    const main = page.getByRole("main");
+    await expect(main.locator("img")).toBeVisible();
+    await expect(main).toHaveText(session.user.name);
+    await expect(page).toHaveURL(/\/$/);
+  });
+});
+
+test.describe(feature("rooms.index"), () => {
+  test("opens your newest room at /rooms", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { path: "/rooms" });
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
+  });
+
+  test("opens a room from the address for its kind, which Back then skips", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada");
+    await ada.page.goto(`/rooms/opens/${rooms.random.id}`);
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
+
+    await ada.page.goBack();
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+  });
+
+  test("reads /rooms/opens as a room's address, naming none", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada", { path: "/rooms/opens" });
+    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });
 });
 

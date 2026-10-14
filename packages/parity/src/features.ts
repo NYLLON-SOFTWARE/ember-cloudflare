@@ -165,7 +165,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users.rs", "crates/views/templates/users/new.html", "reference/app/controllers/users_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/users_controller_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "There's no photo until profile photos are stored (`users.avatar-upload`), and it shows Ember's flame until workspace logos are ported (`accounts.logo`). The Worker serves the page, the app's own, only for the current code; the form posts JSON to `/api/join/<code>` and opens the first room without reloading. Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 \"Password can't be blank.\" rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.",
+    notes: "There's no photo until profile photos are stored (`users.avatar-upload`), and it shows Ember's flame until workspace logos are ported (`accounts.logo`). The Worker serves the page, the app's own, only for the current code; the form posts JSON to `/api/join/<code>` and goes home without reloading, to the last room visited (`rooms.last-visited`). Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 \"Password can't be blank.\" rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.",
   },
   {
     id: "auth.help-contact",
@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Workspace link opens `/account/edit`, titled \"Account settings\", with its heading and the Rooms section's New room. Go Back goes to `/`, which opens your first room (`rooms.last-visited`). Administrators see Workspace rather than Admin, and the version line, Chat bots, Custom styles, the logo, the workspace's name, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Workspace link opens `/account/edit`, titled \"Account settings\", with its heading and the Rooms section's New room. Go Back returns to the last room visited (`rooms.last-visited`). Administrators see Workspace rather than Admin, and the version line, Chat bots, Custom styles, the logo, the workspace's name, the translation setting, the invite link and the people list aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -568,13 +568,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/templates/rooms/show.html", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms_controller_test.rb", "parity/screens.yml"],
-    notes: "Rooms open at `/rooms/<id>` and show the newest 50 messages. An address naming a room you aren't in quietly opens your first room, and the page title is always \"Ember\". There are no unread marks yet.",
+    notes: "Rooms open at `/rooms/<id>`, titled with the room's name, and show the newest 50 messages. An address naming a room you aren't in, or one that doesn't exist, goes to `/` with \"Room not found or inaccessible\", once the room list, asked for again, hasn't got it either, since the app keeps the list from when it loaded and the room may be newer. When the list can't be asked for again, the address stays and the page says Ember can't be reached, with Try again to ask again. Room ids are strings here, so there's no malformed id but a malformed escape, which goes home without the alert. Opening a room remembers it (`rooms.last-visited`). DMs' titles come with direct messages, and there are no unread marks yet.",
   },
   {
     id: "rooms.last-visited",
     title: "Go back to the last room",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`/` goes to the room you visited last while you're still in it, otherwise to your oldest room by creation, which can be a DM or a hidden room.",
       "With no rooms, `/` shows an empty-state picture with your name for screen readers; \"No rooms yet\" is only the page title.",
@@ -584,13 +584,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/welcome.rs", "crates/ember/src/concerns.rs", "crates/views/templates/welcome/show.html", "crates/views/src/helpers/application.rs", "reference/app/controllers/concerns/tracked_room_visit.rb"],
     upstreamTests: ["reference/test/controllers/welcome_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "`/` always opens the first room here, and with no rooms the page says \"No rooms yet.\"",
+    notes: "The last room is this browser's, as the cookie is, but kept in its storage (`ember:last-room`) rather than a cookie, since only the app reads it, and written only when it changes. Without storage, `/` goes to your oldest room. Your oldest room is the one made first, as the room list comes in the order rooms were made; rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed. The no-rooms page is Campfire's `messages-empty.svg`, 64px wide and faint, in the middle of the page. Message links, DM settings and Push Notification Subscriptions come with their own features, and will remember and go back to the same room.",
   },
   {
     id: "rooms.index",
     title: "Room addresses",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`/rooms` goes to the newest room you're in, the one created last; with no rooms, ember-rust answers 500.",
       "`/rooms/opens/<id>` and `/rooms/closeds/<id>` remember the room as your last one and redirect to `/rooms/<id>`; a DM's id, or a room you're not in, goes to `/` with \"Room not found or inaccessible\".",
@@ -599,7 +599,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/controllers/rooms/directs.rs", "crates/ember/src/controllers.rs", "reference/config/routes.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/controllers.rs", "reference/test/controllers/rooms_controller_test.rb", "reference/test/controllers/rooms/opens_controller_test.rb", "reference/test/controllers/rooms/closeds_controller_test.rb"],
-    notes: "Here `/rooms` and the `/rooms/opens`, `/rooms/closeds` and `/rooms/directs` addresses all open the first room, and the address stays as typed.",
+    notes: "Each address takes the place of the one typed, as a redirect does. With no rooms, `/rooms` goes to `/`, which says there are none, rather than failing. `/rooms/directs/new`, the New direct message page, shows home until direct messages come (`dms.picker`).",
   },
   {
     id: "rooms.settings-page",
@@ -615,7 +615,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the room whose settings these are rather than the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
   },
   {
     id: "rooms.edit-permissions",
@@ -860,7 +860,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms with a `#` and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), room icons, DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which opens the first room instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms with a `#` and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), room icons, DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
   },
   {
     id: "sidebar.room-order",
@@ -2346,7 +2346,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Only alerts so far: a refused sign-in's, \"Room not found or inaccessible\" from a room's settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar from 900px up. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
+    notes: "Only alerts so far: a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar from 900px up. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
   },
   {
     id: "ui.accessibility",
@@ -2407,7 +2407,7 @@ export const features = [
     ],
     sources: ["reference/public/404.html", "reference/public/422.html", "reference/public/500.html", "crates/assets/overrides/public/502.html", "reference/public/robots.txt", "crates/ember/src/app.rs", "crates/kit/src/exceptions.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs", "crates/kit/src/exceptions.rs", "parity/screens.yml"],
-    notes: "Unknown page paths get the app's page with status 200, which shows the first room once you're signed in, and unknown `/api/` paths answer 404 with `{ \"error\": \"Not found\" }`. An exception in the Worker reaches Cloudflare's own error page, and there's no `/robots.txt`.",
+    notes: "Unknown page paths get the app's page with status 200, which goes home, to the last room visited, once you're signed in, and unknown `/api/` paths answer 404 with `{ \"error\": \"Not found\" }`. An exception in the Worker reaches Cloudflare's own error page, and there's no `/robots.txt`.",
   },
   {
     id: "platform.storage",
@@ -2517,7 +2517,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
-    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile opens the first room until profiles are ported (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile goes home, to the last room visited, until profiles are ported (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",

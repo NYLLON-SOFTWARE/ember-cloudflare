@@ -88,9 +88,14 @@ const storedSession = (row: SessionRow): StoredSession => ({
   lastActiveAt: Date.parse(row.last_active_at),
 });
 
-/** The rooms someone is in, by name as ember-rust's sidebar sorts them (membership.rs). */
+/**
+ * The rooms someone is in, in the order they were made, for the app to go home to the oldest and to
+ * `/rooms` to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs).
+ * Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have ids that don't sort by time, so
+ * they go by when they were listed.
+ */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon FROM memberships JOIN rooms ON rooms.id = memberships.room_id
-  WHERE memberships.user_id = ? ORDER BY rooms.name COLLATE NOCASE, rooms.id`;
+  WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
 /**
  * The workspace's first room, where the welcome card shows, as ember-rust's `Room::original` finds it

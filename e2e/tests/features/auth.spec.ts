@@ -63,7 +63,7 @@ test.describe(feature("auth.sign-up"), () => {
     await page.getByRole("button", { name: "Create account" }).click();
   }
 
-  test("someone new joins with the welcome card's link, signs out and signs back in", async ({ browser, baseURL, page, request, session }) => {
+  test("someone new joins with the welcome card's link, signs out and signs back in", async ({ browser, baseURL, page, request, rooms, session }) => {
     const { roomId } = await invitation(request, session);
     const administrator = await administratorOn(browser, baseURL!, { id: roomId, name: "All Talk" });
     const link = await administrator.getByRole("textbox", { name: "Share to invite more people" }).inputValue();
@@ -75,8 +75,9 @@ test.describe(feature("auth.sign-up"), () => {
     await expect(page.getByLabel("Name")).toBeFocused();
     const emailAddress = `grace-${crypto.randomUUID()}@example.com`;
     await join(page, emailAddress);
+    // Home, which is their oldest room, since this browser has shown them none yet.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
-    expect(new URL(page.url()).pathname).toBe("/");
+    await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
 
     await page.getByRole("button", { name: "Your profile" }).click();
@@ -103,11 +104,12 @@ test.describe(feature("auth.sign-up"), () => {
     expect(await response.text()).toBe("");
   });
 
-  test("sends someone who's signed in home", async ({ members, request }) => {
+  test("sends someone who's signed in home", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     await ada.page.goto(`/join/${(await invitation(request, ada.session)).joinCode}`);
+    // Home, which is the room they were in.
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
-    expect(new URL(ada.page.url()).pathname).toBe("/");
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });
 });
 

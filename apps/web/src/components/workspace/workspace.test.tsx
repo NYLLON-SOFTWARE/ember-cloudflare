@@ -62,6 +62,8 @@ const roomHeading = () => screen.findByRole("heading", { level: 1 });
 const sidebarRooms = () => within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link").map((link) => link.textContent!.replace(/^#/, ""));
 /** The rail's link for the page shown, if any. */
 const railCurrent = () => within(screen.getByRole("navigation", { name: "Workspace" })).queryAllByRole("link", { current: "page" }).map((link) => link.textContent);
+/** How many times the room list was asked for. */
+const roomListRequests = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/rooms" && (init?.method ?? "GET") === "GET").length;
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
@@ -75,14 +77,172 @@ afterEach(() => {
 });
 
 describe(feature("rooms.show"), () => {
-  it("opens the room in the address", async () => {
+  it("opens the room in the address, named in the tab", async () => {
     showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(document.title).toBe("random");
+  });
+
+  it("goes home with ember-rust's alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
+    showWorkspace("/rooms/secret");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
+    expect(roomListRequests()).toBe(2);
+  });
+
+  it("opens a room made since the list came, which the list asked again has", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    const lists = [{ rooms }, { rooms: [...rooms, design] }];
+    serve({ "GET /api/rooms": () => Response.json(lists.shift()) });
+    showWorkspace("/rooms/design");
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("asks for the list again each time the address names a room it hasn't got", async () => {
+    const { user } = showWorkspace("/rooms/secret");
+    await screen.findByRole("alert");
+    await roomHeading();
+    act(() => navigate("/rooms/secret"));
+    await waitFor(() => expect(roomListRequests()).toBe(3));
+    expect(await roomHeading()).toHaveTextContent("general");
+    // A room it has asks nothing.
+    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(roomListRequests()).toBe(3);
+  });
+
+  it("stays at a room's address, saying Ember can't be reached, when the list can't be asked for again", async () => {
+    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch"))];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    showWorkspace("/rooms/design");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    // In the page, where it stays while the page does, rather than in an alert that fades.
+    expect(screen.getByRole("main")).toContainElement(alert);
+    // For trying again, and with the header's way to the other rooms.
+    expect(location.pathname).toBe("/rooms/design");
+    expect(screen.getByRole("button", { name: "Open conversations" })).toBeInTheDocument();
+  });
+
+  it("asks for the list again when you try again, once it couldn't be asked for", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch")), () => Response.json({ rooms: [...rooms, design] })];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    const { user } = showWorkspace("/rooms/design");
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(roomListRequests()).toBe(3);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("asks for the list again only once the list it last asked for has come", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    let answer = (_: Response) => {};
+    const answers = [() => Response.json({ rooms }), () => new Promise<Response>((resolve) => (answer = resolve)), () => Response.json({ rooms: [...rooms, design] })];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    showWorkspace("/rooms/secret");
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    act(() => navigate("/rooms/design"));
+    // So an older list can't take the place of a newer one, losing changes made since it was asked for.
+    expect(roomListRequests()).toBe(2);
+    await act(async () => answer(Response.json({ rooms })));
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(roomListRequests()).toBe(3);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("rooms.last-visited"), () => {
+  it("goes from / to the room visited last", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    act(() => navigate("/"));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("goes from / to your oldest room when you haven't visited one, which isn't the first by name", async () => {
+    const zebra: Room = { id: "zebra", name: "Zebra", kind: "closed", icon: null };
+    serve({ "GET /api/rooms": () => Response.json({ rooms: [zebra, ...rooms] }) });
+    showWorkspace("/");
+    expect(await roomHeading()).toHaveTextContent("Zebra");
+    expect(location.pathname).toBe("/rooms/zebra");
+    expect(sidebarRooms()).toEqual(["general", "random", "Zebra"]);
+  });
+
+  it("says there are no rooms yet, with your name for screen readers, under Home", async () => {
+    serve({ "GET /api/rooms": () => Response.json({ rooms: [] }) });
+    showWorkspace("/");
+    await waitFor(() => expect(document.title).toBe("No rooms yet"));
+    expect(screen.getByRole("main")).toHaveTextContent("Ada");
+    expect(screen.getByRole("main").querySelector("img")).toHaveAttribute("aria-hidden", "true");
+    expect(location.pathname).toBe("/");
+    expect(railCurrent()).toEqual(["Home"]);
+  });
+
+  it("goes back from workspace settings and a room's settings to the room visited last", async () => {
+    serve({ "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    act(() => navigate("/rooms/opens/general/edit"));
+    await screen.findByRole("textbox", { name: "Room name" });
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await roomHeading()).toHaveTextContent("random");
   });
 
-  it("opens the first room when the address names none, or one you can't see", async () => {
-    showWorkspace("/rooms/secret");
-    expect(await roomHeading()).toHaveTextContent("general");
+  it("goes back home from workspace settings when you have no rooms", async () => {
+    serve({ "GET /api/rooms": () => Response.json({ rooms: [] }) });
+    showWorkspace("/account/edit");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/"));
+  });
+});
+
+describe(feature("rooms.index"), () => {
+  it("goes from /rooms to the room made most recently", async () => {
+    showWorkspace("/rooms");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("goes from /rooms home when you have no rooms", async () => {
+    serve({ "GET /api/rooms": () => Response.json({ rooms: [] }) });
+    showWorkspace("/rooms");
+    await waitFor(() => expect(location.pathname).toBe("/"));
+    expect(document.title).toBe("No rooms yet");
+  });
+
+  it("goes from a room's address for its kind to the room's own, and remembers it", async () => {
+    showWorkspace("/rooms/opens/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+    act(() => navigate("/"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+  });
+
+  it("goes home with the alert from the address for a kind of room you can't see", async () => {
+    showWorkspace("/rooms/closeds/secret");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+  });
+
+  it("goes from a direct message's address to the room's own without looking, which then looks", async () => {
+    showWorkspace("/rooms/directs/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("reads /rooms/opens as a room's id, as ember-rust does", async () => {
+    showWorkspace("/rooms/opens");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
   });
 });
 
@@ -147,9 +307,28 @@ describe(feature("rooms.settings-page"), () => {
     expect(sidebarRooms()).toEqual(["lobby", "random"]);
   });
 
-  it("goes back to the room", async () => {
+  it("keeps a room opened to you since the list came where it was made, once you save its settings", async () => {
+    const older: Room = { id: "older", name: "older", kind: "closed", icon: null };
+    const lists = [{ rooms }];
+    serve({
+      "GET /api/rooms": () => Response.json(lists.shift() ?? { rooms: [older, ...rooms] }),
+      "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
+    });
+    const { user } = showWorkspace("/rooms/closeds/older/edit");
+    const name = await screen.findByRole("textbox", { name: "Room name" });
+    await user.clear(name);
+    await user.type(name, "elder{Enter}");
+    expect(await roomHeading()).toHaveTextContent("elder");
+    // The room made last is still the newest.
+    act(() => navigate("/rooms"));
+    expect(await roomHeading()).toHaveTextContent("random");
+  });
+
+  it("goes back to the room it was opened from", async () => {
     serve({ "GET /api/rooms/random/settings": () => Response.json({ ...generalSettings, room: rooms[1] }) });
-    const { user } = showWorkspace("/rooms/opens/random/edit");
+    const { user } = showWorkspace("/rooms/random");
+    await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     await screen.findByRole("textbox", { name: "Room name" });
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await roomHeading()).toHaveTextContent("random");
@@ -162,8 +341,8 @@ describe(feature("rooms.edit-permissions"), () => {
     serve({ "GET /api/rooms/secret/settings": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }) });
     showWorkspace("/rooms/opens/secret/edit");
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    expect(location.pathname).toBe("/");
     expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
   });
 });
 
@@ -179,8 +358,8 @@ describe(feature("rooms.members"), () => {
     await user.click(await screen.findByRole("switch", { name: "Give Ada access to this room" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    expect(location.pathname).toBe("/");
     expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
     expect(sidebarRooms()).toEqual(["general", "random"]);
   });
 });
@@ -211,13 +390,15 @@ describe(feature("rooms.member-only-access"), () => {
     expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
 
-  it("keeps the first room on screen when it goes while shown at /", async () => {
+  it("keeps a room / went to on screen when it goes, without asking for the list again", async () => {
     vi.stubGlobal("WebSocket", goneRoom("general"));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/");
     await waitFor(() => expect(sidebarRooms()).toEqual(["random"]));
     expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
+    expect(roomListRequests()).toBe(1);
   });
 });
 
@@ -290,6 +471,14 @@ describe(feature("auth.sessions"), () => {
     expect(onSignOut).not.toHaveBeenCalled();
   });
 
+  it("goes back to sign-in when asking for the list again finds the session gone", async () => {
+    const answers = [Response.json({ rooms }), Response.json({ error: "Not signed in" }, { status: 401 })];
+    serve({ "GET /api/rooms": () => answers.shift()! });
+    const { onSessionChanged } = showWorkspace("/rooms/secret");
+    await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("goes back to sign-in when a page finds the session gone", async () => {
     serve({ "GET /api/rooms/general/settings": () => Response.json({ error: "Not signed in" }, { status: 401 }) });
     const { onSessionChanged } = showWorkspace("/rooms/opens/general/edit");
@@ -313,6 +502,17 @@ describe(feature("auth.sessions"), () => {
     const { onSessionChanged, unmount, user } = showWorkspace("/rooms/opens/new");
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     // As App replaces it when another tab signs in as someone else.
+    unmount();
+    await act(async () => answer(Response.json({ error: "Not signed in" }, { status: 401 })));
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says nothing of the list asked again once another person's workspace has taken its place", async () => {
+    let answer = (_: Response) => {};
+    const answers = [() => Response.json({ rooms }), () => new Promise<Response>((resolve) => (answer = resolve))];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    const { onSessionChanged, unmount } = showWorkspace("/rooms/secret");
+    await waitFor(() => expect(roomListRequests()).toBe(2));
     unmount();
     await act(async () => answer(Response.json({ error: "Not signed in" }, { status: 401 })));
     expect(onSessionChanged).not.toHaveBeenCalled();
