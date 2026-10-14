@@ -149,6 +149,47 @@ describe(feature("realtime.reconnect"), () => {
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2", "c4"]);
   });
 
+  it("keeps messages written without a connection as sending, and as waiting until they're sent", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true, queued: true } });
+    expect(state.messages[0]).not.toHaveProperty("failed");
+    state = roomReducer(state, { type: "sent", clientMessageIds: ["c1"] });
+    expect(state.messages.map((m) => [m.clientMessageId, isPending(m) && m.queued === true])).toEqual([
+      ["c1", false],
+      ["c2", true],
+    ]);
+    expect(state.messages[0]).toMatchObject({ pending: true });
+    expect(state.messages[0]).not.toHaveProperty("queued");
+    expect(state.notice).toBeNull();
+  });
+
+  it("shows only the messages still waiting as not sent once the page is offline, and says so", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "offline", offline: true });
+    // The first went before the connection dropped, so it waits for the room's answer.
+    expect(state.messages.map((m) => [m.clientMessageId, isPending(m) && m.failed === true])).toEqual([
+      ["c1", false],
+      ["c2", true],
+    ]);
+    expect(state.messages[1]).not.toHaveProperty("queued");
+    expect(state.notice).toBe("Not connected. Your message wasn't sent.");
+
+    state = roomReducer(state, { type: "dismiss-notice" });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true, queued: true } });
+    expect(state.messages[2]).toMatchObject({ pending: true, failed: true });
+    expect(state.notice).toBe("Not connected. Your message wasn't sent.");
+
+    state = roomReducer(state, { type: "offline", offline: false });
+    expect(state.offline).toBe(false);
+    expect(state.messages.map((m) => isPending(m) && m.failed === true)).toEqual([false, true, true]);
+  });
+
+  it("says nothing on going offline with nothing waiting", () => {
+    const state = roomReducer(initialRoomState, { type: "offline", offline: true });
+    expect(state).toEqual({ ...initialRoomState, offline: true });
+  });
+
   it("drops a copy marked unsent once older history turns up the stored message", () => {
     // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect, and the
     // room couldn't check it.
@@ -259,10 +300,18 @@ describe(feature("rooms.invitation-card"), () => {
 });
 
 describe(feature("rooms.member-only-access"), () => {
-  it("shows nobody here, or typing, in a room that's gone, and keeps its messages", () => {
+  it("shows nobody here, or typing, in a room that's gone, nor that it's offline, and keeps its messages", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada, grace], hasMore: false }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
+    state = roomReducer(state, { type: "offline", offline: true });
     state = roomReducer(state, { type: "status", status: "gone" });
-    expect(state).toMatchObject({ status: "gone", present: [], typing: {}, messages: [message()] });
+    expect(state).toMatchObject({ status: "gone", offline: false, present: [], typing: {}, messages: [message()] });
+  });
+
+  it("shows what was waiting for a connection as not sent in a room that's gone, which it'll never reach", () => {
+    let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true, queued: true } });
+    state = roomReducer(state, { type: "status", status: "gone" });
+    expect(state.messages).toMatchObject([{ clientMessageId: "c1", pending: true, failed: true }]);
+    expect(state.messages[0]).not.toHaveProperty("queued");
   });
 });

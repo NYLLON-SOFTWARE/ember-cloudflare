@@ -16,7 +16,7 @@ afterEach(() => history.replaceState(null, "", "/"));
 function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
   return render(
     <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader room={general} present={[]} status="open" {...props} />
+      <RoomHeader room={general} present={[]} status="open" offline={false} {...props} />
     </Sheet>,
   );
 }
@@ -60,9 +60,14 @@ describe(feature("realtime.reconnect"), () => {
   it.each([
     ["connecting", "Connecting…"],
     ["reconnecting", "Reconnecting…"],
-  ] as const)("says when the room is %s", (status, label) => {
-    renderHeader({ status });
+  ] as const)("says when the room is %s, once it has been without a connection a while", (status, label) => {
+    renderHeader({ status, offline: true });
     expect(screen.getByRole("status")).toHaveTextContent(label);
+  });
+
+  it("says nothing while the connection has only just dropped", () => {
+    renderHeader({ status: "reconnecting" });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("shows no status once connected", () => {

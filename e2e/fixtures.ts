@@ -90,8 +90,9 @@ export async function invitation(request: APIRequestContext, session: Session): 
 /** Opens a room and waits until its socket has connected and the history has loaded. */
 export async function openRoom(page: Page, room: TestRoom): Promise<void> {
   await page.goto(`/rooms/${room.id}`);
-  await expect(page.getByRole("log", { name: `Messages in ${room.name}` })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("status")).toHaveCount(0);
+  const timeline = page.getByRole("log", { name: `Messages in ${room.name}` });
+  await expect(timeline).toBeVisible();
+  await expect(timeline).not.toHaveAttribute("aria-busy");
 }
 
 /**

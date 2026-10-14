@@ -12,10 +12,17 @@ export const WELCOME_CARD_MESSAGES = 40;
 export interface PendingMessage extends Message {
   pending: true;
   failed?: boolean;
+  /** Written without a connection, to send once the room lets one in again, unless the page goes offline first. */
+  queued?: boolean;
 }
+
+/** What a message that couldn't go says, as the room's own refusals do. */
+const NOT_SENT = "Not connected. Your message wasn't sent.";
 
 export interface RoomState {
   status: ConnectionStatus;
+  /** Whether the room has been without a connection for 5 seconds, which stops sending until it's back. */
+  offline: boolean;
   messages: Array<Message | PendingMessage>;
   present: User[];
   /** Who is typing, with when we last heard so stale entries can expire. */
@@ -33,14 +40,17 @@ export interface RoomState {
 export type RoomAction =
   | { type: "reset" }
   | { type: "status"; status: ConnectionStatus }
+  | { type: "offline"; offline: boolean }
   | { type: "frame"; frame: ServerFrame; now: number }
   | { type: "pending"; message: PendingMessage }
+  | { type: "sent"; clientMessageIds: string[] }
   | { type: "loading-older" }
   | { type: "expire-typing"; before: number }
   | { type: "dismiss-notice" };
 
 export const initialRoomState: RoomState = {
   status: "connecting",
+  offline: false,
   messages: [],
   present: [],
   typing: {},
@@ -66,6 +76,19 @@ export const unconfirmed = (messages: RoomState["messages"], snapshot: Message[]
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
 
+export const isQueued = (m: Message | PendingMessage): m is PendingMessage => isPending(m) && m.queued === true;
+
+const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
+
+/** The messages waiting for a connection, shown as not sent. */
+const notSent = (messages: RoomState["messages"]) => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
+
+/** Offline, the messages waiting for a connection show as not sent, and say so. */
+function unsent(state: RoomState): RoomState {
+  if (!state.offline || !state.messages.some(isQueued)) return state;
+  return { ...state, messages: notSent(state.messages), notice: NOT_SENT };
+}
+
 function withoutTyping(typing: RoomState["typing"], userId: string) {
   if (!(userId in typing)) return typing;
   const { [userId]: _, ...rest } = typing;
@@ -77,10 +100,19 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "reset":
       return initialRoomState;
     case "status":
-      // Nobody shows as here with this person in a room that's gone.
-      return action.status === "gone" ? { ...state, status: action.status, present: [], typing: {} } : { ...state, status: action.status };
+      // Nobody shows as here with this person in a room that's gone, which nothing connects to again, so
+      // what was waiting for a connection shows as not sent.
+      return action.status === "gone"
+        ? { ...state, status: action.status, offline: false, present: [], typing: {}, messages: notSent(state.messages) }
+        : { ...state, status: action.status };
+    case "offline":
+      return action.offline ? unsent({ ...state, offline: true }) : { ...state, offline: false };
     case "pending":
-      return { ...state, messages: [...state.messages, action.message] };
+      return unsent({ ...state, messages: [...state.messages, action.message] });
+    case "sent": {
+      const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
+      return { ...state, messages: state.messages.map((m) => (sent(m) ? dequeued(m) : m)) };
+    }
     case "loading-older":
       return { ...state, loadingOlder: true };
     case "dismiss-notice":
