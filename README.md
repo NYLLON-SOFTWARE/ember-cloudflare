@@ -12,7 +12,7 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, setup's pages, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers, static assets) and the `ChatRoom`, `Workspace` and `PasswordHasher` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both. |
 
 ```
@@ -125,9 +125,13 @@ so keep the link to yourself. Without `EMBER_SETUP_TOKEN`, setup is open to whoe
 as in Campfire: fine on your own machine, but not on the internet.
 
 The administrator then signs in at `/session/new` with the email address and password they set up
-with. Join links haven't landed yet, so for now a deploy that other people should be able to use
-needs the Worker's `EMBER_GUEST_SIGN_IN` variable set to `"true"` in `vars` in
-`apps/worker/wrangler.jsonc`: the sign-in page then lets anyone with the link join with just a name.
+with, and invites people with the join link on All Talk's welcome card.
+
+Ember insists on HTTPS, as ember-rust does: plain HTTP is redirected to the same address over HTTPS,
+and every answer from the Worker carries HSTS, except on `localhost` and loopback addresses, where
+`wrangler dev` serves. To serve plain HTTP anywhere else, such as `wrangler dev --ip 0.0.0.0` for a
+phone on your network, set the `DISABLE_SSL` variable to any value. `/up` answers 200 for uptime
+checks, as Rails' does, without touching storage.
 
 ### A preview from GitHub Actions
 
@@ -144,26 +148,28 @@ first deploy gives the preview a token nobody knows, so setup stays locked until
 and run the workflow again. The secrets go up with each deploy, never in its logs. The first deploy
 makes the Worker's `SESSION_SECRET`, and later ones keep it.
 
-The preview is a private workspace: until join links land, only its administrator can sign in. Its
-`LEGACY_ROOMS` keeps the general and random rooms it had before the Workspace kept a list of rooms,
-and its version, under the sign-in page's help contact, is the commit it deployed. After each
+The preview is a private workspace, which its administrator invites people to with the join link.
+Its `LEGACY_ROOMS` keeps the general and random rooms it had before the Workspace kept a list of
+rooms, and its version, under the sign-in page's help contact, is the commit it deployed. After each
 deploy, `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that
 `/api/health` answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object
-reading their storage), that the page loads, that the API asks for sign-in, and that setup, until
-it's done, takes the private link. The link is on the run's summary and under the repository's
-Deployments.
+reading their storage), that the page loads through the Worker with its headers, that the API asks
+for sign-in, and that setup, until it's done, takes the private link. The link is on the run's
+summary and under the repository's Deployments.
 
 ## Status
 
 This is the starter. Working now: first-run setup, which creates the administrator and All Talk and
-can be kept to whoever has the private setup link, sign-in by email address and password (10 tries
-per IP address every 3 minutes) or, when `EMBER_GUEST_SIGN_IN` allows it, by display name, with a
-session cookie the Workspace keeps, sign-out, which closes that browser's sockets, open and private
-rooms that only their members can open (made through the API until the New room page lands), live
-messages with optimistic sends, edit and delete your own messages, Ember's quick and tray reactions,
-presence, typing indicators, history paging, reconnects, and the Light / Dark / System appearance
-picker. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
+can be kept to whoever has the private setup link, the join link on All Talk's welcome card, sign-in
+by email address and password (10 tries per IP address every 3 minutes) or, when
+`EMBER_GUEST_SIGN_IN` allows it, by display name, with a session cookie the Workspace keeps,
+sign-out, which closes that browser's sockets, open and private rooms that only their members can
+open (made through the API until the New room page lands), live messages with optimistic sends, edit
+and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history
+paging, reconnects, the Light / Dark / System appearance picker, ember-rust's security headers and
+HTTPS, and its page for browsers too old to run Ember. The rail's DMs, Activity, Search and
+Workspace entries are shown but disabled.
 
-Next, roughly in order: the join link, a workspace directory for creating rooms and private rooms,
-direct messages, unread state and the Activity filter, starred rooms and room order, rich text and
-attachments (R2), search, and Web Push.
+Next, roughly in order: a workspace directory for creating rooms and private rooms, direct messages,
+unread state and the Activity filter, starred rooms and room order, rich text and attachments (R2),
+search, and Web Push.

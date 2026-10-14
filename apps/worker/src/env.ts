@@ -29,4 +29,10 @@ export interface Env {
   APP_VERSION?: string;
   /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */
   GIT_REVISION?: string;
+  /**
+   * Any value but a blank one lets plain HTTP through rather than redirecting it to HTTPS, and leaves
+   * out HSTS, as ember-rust's `DISABLE_SSL` does. Loopback addresses, where `wrangler dev` serves,
+   * never need it.
+   */
+  DISABLE_SSL?: string;
 }

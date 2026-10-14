@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 13 ported and 44 partial of 172 features; 110 not started, 5 not applicable.
+**Overall:** 16 ported and 43 partial of 172 features; 108 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
-| [Platform](#platform) | 3 | 2 | 6 | 4 | 15 |
-| **Total** | **13** | **44** | **110** | **5** | **172** |
+| [Platform](#platform) | 6 | 1 | 4 | 4 | 15 |
+| **Total** | **16** | **43** | **108** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2244,14 +2244,14 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Health check | `platform.health` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts) |
+| Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Error pages | `platform.error-pages` | Campfire | ⬜ Not started |  |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts) |
 | One live connection per tab outside the open room | `platform.live-socket` | This port | ⬜ Not started |  |
-| Version | `platform.version` | Ember | 🟡 Partial | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx) |
-| Supported browsers | `platform.browser-support` | Campfire | ⬜ Not started |  |
-| Security headers and HTTPS | `platform.security-headers` | Campfire | ⬜ Not started |  |
+| Version | `platform.version` | Ember | 🟡 Partial | Worker: [platform](apps/worker/test/platform.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Security headers and HTTPS | `platform.security-headers` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
 | Web app manifest | `platform.manifest` | Ember | ⬜ Not started |  |
 | Installable page head | `platform.head-tags` | Campfire | ⬜ Not started |  |
@@ -2263,12 +2263,12 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 <details>
 <summary>Behaviors and sources</summary>
 
-**Health check** (`platform.health`) 🟡
+**Health check** (`platform.health`) ✅
 
 - `GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style="background-color: green"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{"status":"up","timestamp":…}` with the time to the second.
 - It skips sign-in, ban and browser checks, and carries no version headers.
 
-Note: `/up` isn't served yet. This port's health check is `GET /api/health`, which goes deeper than `/up`: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. The deploy check relies on it instead of signing in.
+Note: `/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.
 
 Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 
@@ -2314,27 +2314,31 @@ ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://g
 - `/up`, static files and the live connection carry neither header.
 - Workspace settings show "Ember™ version &lt;same value&gt;" at the bottom, and so do the sign-in and join pages under the help contact, when there's an administrator to contact.
 
-Note: The sign-in page shows it under the help contact, worked out as ember-rust does, with this port's own release ("0.1", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. The X-Version and X-Rev headers and workspace settings aren't ported yet.
+Note: Worked out as ember-rust does, with this port's own release ("0.1", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. Every answer from the Worker carries the headers but `/up`'s and a room socket's upgrade, `/api/health` included; static files come straight from the assets. Workspace settings, and their line, come with Phase 5.
 
 Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`reference/config/initializers/version.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/version.rb)
 
 ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Supported browsers** (`platform.browser-support`) ⬜
+**Supported browsers** (`platform.browser-support`) ✅
 
 - Safari before 17.2, Chrome before 120, Firefox before 121, Opera before 104, and Internet Explorer get "Upgrade to a supported web browser" with status 200, whatever was asked for, the manifest and JSON requests included. Signed out, it shows in place of the sign-in page.
 - Chromium Edge, Chrome on iOS and Samsung Internet count as Chrome, by their Chrome version; Firefox on iOS counts as Safari at the iOS version, and Edge on iOS by its Safari version.
 - Legacy Edge, other browsers, bots, user agents without a version and requests without a user agent get through, and `/up` is never checked.
 - The page is titled "Unsupported browser" ("Ember" for Apple Messages' link previews), says "Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled." and lists Safari 17.2+, Chrome 120+, Firefox 121+ and Opera 104+ with their icons.
 
+Note: Every user agent in ember-rust's vectors gets its verdict. Where ember-rust's reading parts from Rails', this follows Rails: an agent calling itself "IE" is turned away, and a "MicroMeßenger" is WeChat, as Ruby folds case. An agent Rails fails to read, which Campfire answers with an error page, gets through. The Worker writes the page itself in plain CSS, since the app's stylesheet needs a supported browser, and always with the signed-out layout, where ember-rust puts a signed-in person's rail around it: nothing past the page runs in that browser. It checks before anything but `/up` and `/api/health`, where ember-rust checks after sign-in and its forgery check, so a signed-out request for the API gets the page rather than 401. The logos are Campfire's, served from `/browsers/`. The translation globe stays hidden until `accounts.translation-buttons`.
+
 Sources: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/concerns/user_agent.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/user_agent.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/sessions/incompatible_browser.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/sessions/incompatible_browser.html) · [`crates/views/src/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/sessions.rs) · [`reference/app/controllers/concerns/allow_browser.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/allow_browser.rb)
 
 ember-rust tests: [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`vectors/campfire_user_agents.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/vectors/campfire_user_agents.json) · [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Security headers and HTTPS** (`platform.security-headers`) ⬜
+**Security headers and HTTPS** (`platform.security-headers`) ✅
 
 - Pages and other responses the app renders (not static files, streamed files or error pages) carry `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 0`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none` and `Referrer-Policy: strict-origin-when-cross-origin`.
 - Unless `DISABLE_SSL` is set, plain HTTP redirects to the same URL over HTTPS, every HTTPS response carries `Strict-Transport-Security: max-age=63072000; includeSubDomains`, and every cookie is `Secure`.
+
+Note: Page loads go through the Worker (`run_worker_first`, all but the built app's static files), which adds Rails' headers to everything it answers, its errors included, where ember-rust's error pages go without; a room socket's upgrade gets none. Plain HTTP gets ember-rust's TLS front's answer: 301 to the same address over HTTPS for every method, with a link for a GET, and setup's addresses kept out of caches and referrers and refused with a query. HSTS goes on every HTTPS answer from the Worker, but static files go without it. Localhost and loopback addresses are never redirected and get no HSTS, so `wrangler dev` works as it is and HSTS never sticks to them; `DISABLE_SSL` turns both off anywhere else. Cookies are `Secure` whenever the request is HTTPS, which away from loopback it always is unless `DISABLE_SSL` is set.
 
 Sources: [`crates/kit/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/app.rs) · [`crates/kit/src/ctx.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/ctx.rs) · [`crates/kit/src/adapter.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/adapter.rs) · [`crates/kit/src/front/tls.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/front/tls.rs) · [`reference/config/environments/production.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/environments/production.rb)
 
