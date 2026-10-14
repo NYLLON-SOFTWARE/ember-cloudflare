@@ -2,6 +2,12 @@ import type { Message, ServerFrame, User } from "@ember/protocol";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
 
+/**
+ * ember-rust's page of messages (`Message::PAGE_SIZE`). The welcome card shows only in a room with no
+ * more than this, which the room's first page, being longer, can tell.
+ */
+export const WELCOME_CARD_MESSAGES = 40;
+
 export interface PendingMessage extends Message {
   pending: true;
   failed?: boolean;
@@ -16,6 +22,11 @@ export interface RoomState {
   hasMore: boolean;
   loadingOlder: boolean;
   notice: string | null;
+  /**
+   * Whether the room had more than `WELCOME_CARD_MESSAGES` when it first answered, or null until then.
+   * As ember-rust decides when it renders the room's page, it holds until the room is opened again.
+   */
+  paged: boolean | null;
 }
 
 export type RoomAction =
@@ -35,6 +46,7 @@ export const initialRoomState: RoomState = {
   hasMore: false,
   loadingOlder: false,
   notice: null,
+  paged: null,
 };
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
@@ -96,6 +108,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         // A history request on the old socket will never be answered.
         loadingOlder: false,
         typing: {},
+        paged: state.paged ?? (frame.hasMore || frame.messages.length > WELCOME_CARD_MESSAGES),
       };
     }
     case "message.created": {

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-// An app of a few routes (/, /rooms/:id and /session/new) doesn't need a router yet.
+// An app of a few routes (/, /rooms/:id, /session/new and /join/:code) doesn't need a router yet.
 
 const listeners = new Set<() => void>();
 
@@ -35,6 +35,18 @@ export function roomIdFromPath(pathname: string): string | null {
 
 export function useRoomRoute(): string | null {
   return roomIdFromPath(useSyncExternalStore(subscribe, () => location.pathname));
+}
+
+/**
+ * The join code in a join link's path, `/join/<code>`, or null. It's the path's own segment, as the
+ * Worker matched it before serving the page: codes are letters, digits and dashes, which nothing escapes.
+ */
+export function joinCodeFromPath(pathname: string): string | null {
+  return pathname.match(/^\/join\/([^/]+)$/)?.[1] ?? null;
+}
+
+export function useJoinRoute(): string | null {
+  return joinCodeFromPath(useSyncExternalStore(subscribe, () => location.pathname));
 }
 
 /** Whether the address is `path`, re-rendering only when that changes. */

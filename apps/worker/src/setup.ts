@@ -1,7 +1,8 @@
-import { isPasswordTooLong, isPasswordTooShort, parseFirstRun, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
+import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
 import type { Env } from "./env";
+import { appPage, empty, formAnswer, home, withCookies } from "./pages";
 import { passwordHasher } from "./passwords";
 import { workspace } from "./workspace";
 
@@ -115,15 +116,8 @@ const isSetupToken = async (token: string, fingerprint: Uint8Array) => SETUP_TOK
 /** The `Set-Cookie` that forgets the setup cookie, if the request sent one. `__Host-` cookies need `Secure` even then. */
 const forgetUnlocking = (request: Request) => (cookieValues(request, SETUP_COOKIE).length > 0 ? `${SETUP_COOKIE}=; Max-Age=0; ${SETUP_COOKIE_ATTRIBUTES}` : null);
 
-function withCookies(response: Response, ...cookies: Array<string | null>): Response {
-  for (const cookie of cookies) if (cookie) response.headers.append("Set-Cookie", cookie);
-  return response;
-}
-
-const empty = (status: number) => new Response(null, { status });
-
 /** ember-rust's `prevent_repeats`: once the workspace exists, setup sends everyone home and forgets its cookie. */
-const home = (request: Request) => withCookies(new Response(null, { status: 302, headers: { Location: new URL("/", request.url).href } }), forgetUnlocking(request));
+const setUpAlready = (request: Request) => withCookies(home(request), forgetUnlocking(request));
 
 const isSetUp = async (env: Env) => (await workspace(env).account()) !== null;
 
@@ -139,15 +133,9 @@ async function refusal(request: Request, env: Env, fingerprint: Uint8Array): Pro
   return withCookies(locked, forgetUnlocking(request));
 }
 
-/** One of the built app's pages, from its static assets, with headers this response can change. */
-async function appPage(request: Request, env: Env, path: string): Promise<Response> {
-  const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method }));
-  return new Response(page.body, page);
-}
-
 /** `/first_run`: the Set up Ember page, which is the app's own, until the workspace exists. */
 async function setupForm(request: Request, env: Env, lock: UsableLock, format: string | undefined): Promise<Response> {
-  if (await isSetUp(env)) return home(request);
+  if (await isSetUp(env)) return setUpAlready(request);
   if (lock.kind === "locked") {
     const refused = await refusal(request, env, lock.fingerprint);
     if (refused) return refused;
@@ -164,7 +152,7 @@ async function setupForm(request: Request, env: Env, lock: UsableLock, format: s
 /** `GET /first_run/access`: the page that trades the private link's token for the setup cookie. */
 async function accessPage(request: Request, env: Env, lock: UsableLock): Promise<Response> {
   if (new URL(request.url).search) return empty(400);
-  if (await isSetUp(env)) return home(request);
+  if (await isSetUp(env)) return setUpAlready(request);
   if (lock.kind === "open") return empty(404);
   if (!isHttps(request)) return empty(403);
   const page = await appPage(request, env, "/first_run/access");
@@ -178,7 +166,7 @@ async function unlock(request: Request, env: Env, lock: UsableLock): Promise<Res
   const url = new URL(request.url);
   if (isCrossSite(request)) return empty(422);
   if (url.search) return empty(400);
-  if (await isSetUp(env)) return home(request);
+  if (await isSetUp(env)) return setUpAlready(request);
   if (lock.kind === "open") return empty(404);
   if (!isHttps(request)) return empty(403);
   // Stricter than the check every write gets: only the access page's own fetch may unlock setup.
@@ -220,9 +208,6 @@ async function route(request: Request, env: Env, lock: UsableLock, pathname: str
   return empty(404);
 }
 
-const json = (data: unknown, status: number, ...cookies: Array<string | null>) =>
-  withCookies(Response.json(data, { status, headers: { "Cache-Control": "no-store" } }), ...cookies);
-
 /**
  * `POST /api/first_run`: creates the workspace with the person the Set up Ember form describes as its
  * first administrator, and signs this browser in as them.
@@ -232,24 +217,24 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   if (lock.kind === "misconfigured") return misconfigured();
   const forget = forgetUnlocking(request);
   const setUp = { error: "Ember is already set up", redirect: "/" };
-  if (await isSetUp(env)) return json(setUp, 409, forget);
+  if (await isSetUp(env)) return formAnswer(setUp, 409, forget);
   if (lock.kind === "locked" && !(isHttps(request) && (await isUnlocked(request, env, lock.fingerprint)))) {
-    return json({ error: "Setup is locked" }, 403, forget);
+    return formAnswer({ error: "Setup is locked" }, 403, forget);
   }
 
-  const form = parseFirstRun(await request.json().catch(() => null));
-  if (typeof form === "string") return json({ error: form }, 400);
+  const form = parseSignUp(await request.json().catch(() => null));
+  if (typeof form === "string") return formAnswer({ error: form }, 400);
   // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
   // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
   // form can send.
-  if (isPasswordTooLong(form.password)) return json({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
-  if (isPasswordTooShort(form.password)) return json({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
+  if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
+  if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);
   const token = newSessionToken();
   const administrator = { name: form.name, emailAddress: form.emailAddress, passwordDigest };
   const created = await workspace(env).createWorkspace(administrator, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   // Another first run finished first. Like ember-rust, send this one home without signing it in.
-  if (!created) return json(setUp, 409, forget);
-  return json(created satisfies NewWorkspace, 201, sessionCookie(request, token), forget);
+  if (!created) return formAnswer(setUp, 409, forget);
+  return formAnswer(created satisfies NewWorkspace, 201, sessionCookie(request, token), forget);
 }

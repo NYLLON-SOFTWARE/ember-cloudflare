@@ -37,6 +37,9 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("All Talk");
     await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
     await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
+    // All Talk welcomes them with the link that invites everyone else.
+    await expect(page.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(/\/join\/[A-Za-z\d]{4}-[A-Za-z\d]{4}-[A-Za-z\d]{4}$/);
     // Setup took the page's place, so Back doesn't return to it.
     expect(await page.evaluate(() => history.length)).toBe(2);
 

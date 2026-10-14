@@ -1,4 +1,5 @@
 import { feature } from "@ember/parity";
+import { invitation } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
@@ -49,5 +50,76 @@ test.describe(feature("rooms.open"), () => {
 
     await grace.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: /random/ }).click();
     await expect(grace.message("Only in random")).toBeVisible();
+  });
+});
+
+test.describe(feature("rooms.invitation-card"), () => {
+  test("welcomes people to the first room with the workspace's join link", async ({ baseURL, members, request, session }) => {
+    const { roomId, joinCode } = await invitation(request, session);
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true });
+    const log = ada.page.getByRole("log", { name: "Messages in All Talk" });
+    await expect(log.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
+    await expect(log.getByText("To invite people to chat, share the join link below.")).toBeVisible();
+    await expect(log.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(new URL(`/join/${joinCode}`, baseURL).href);
+    // It takes the place of the welcome an empty room has.
+    await expect(log.getByText("This is the very beginning of the room. Say hello!")).toHaveCount(0);
+  });
+
+  test("stays in the first room", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();
+    await expect(ada.page.getByRole("heading", { name: "Welcome to Ember" })).toHaveCount(0);
+  });
+});
+
+test.describe(feature("accounts.join-link"), () => {
+  test("copies the join link", async ({ baseURL, members, request, session }) => {
+    const { roomId, joinCode } = await invitation(request, session);
+    const context = { permissions: ["clipboard-read", "clipboard-write"] };
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, context });
+    const copy = ada.page.getByRole("button", { name: "Copy join link" });
+    await copy.click();
+    await expect(copy).toHaveClass(/animate-success/);
+    expect(await ada.page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(`/join/${joinCode}`, baseURL).href);
+  });
+
+  test("shares the join link where the browser can share", async ({ baseURL, members, request, session }) => {
+    const { roomId, joinCode } = await invitation(request, session);
+    const ada = await members.signIn("Ada", {
+      path: `/rooms/${roomId}`,
+      serverRooms: true,
+      beforeOpen: async (page) => {
+        await page.addInitScript(() => {
+          Object.defineProperties(Navigator.prototype, {
+            canShare: { value: () => true, configurable: true },
+            share: { value: async (data: ShareData) => void ((window as unknown as { shared: ShareData }).shared = data), configurable: true },
+          });
+        });
+      },
+    });
+    await ada.page.getByRole("button", { name: "Share join link" }).click();
+    // The stand-in for the system's share sheet kept what the page shared.
+    await expect.poll(() => ada.page.evaluate(() => (window as unknown as { shared?: ShareData }).shared)).toEqual({
+      title: "Link to join Ember",
+      text: "Hit this link to join me in Ember and start chatting.",
+      url: new URL(`/join/${joinCode}`, baseURL).href,
+    });
+  });
+
+  test("offers only Copy where the browser can't share", async ({ members, request, session }) => {
+    const { roomId } = await invitation(request, session);
+    const ada = await members.signIn("Ada", {
+      path: `/rooms/${roomId}`,
+      serverRooms: true,
+      beforeOpen: async (page) => {
+        await page.addInitScript(() => {
+          const navigator = Navigator.prototype as Partial<Navigator>;
+          delete navigator.canShare;
+          delete navigator.share;
+        });
+      },
+    });
+    await expect(ada.page.getByRole("button", { name: "Copy join link" })).toBeVisible();
+    await expect(ada.page.getByRole("button", { name: "Share join link" })).toHaveCount(0);
   });
 });

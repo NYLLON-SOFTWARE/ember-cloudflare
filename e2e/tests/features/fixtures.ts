@@ -12,15 +12,15 @@ export interface Rooms {
 /**
  * Makes every page in `context` list just `rooms` of the server's rooms, since every other test's
  * open rooms take everyone in too. The server still answers first, so a session it refuses gets
- * its 401 as usual.
+ * its 401 as usual, and the welcome card's invitation is the server's, for All Talk, which isn't listed.
  */
 async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
   const ids = new Set(Object.values(rooms).map((room) => room.id));
   await context.route("**/api/rooms", async (route) => {
     const response = await route.fetch();
     if (!response.ok()) return route.fulfill({ response });
-    const { rooms: listed } = (await response.json()) as { rooms: TestRoom[] };
-    await route.fulfill({ response, json: { rooms: listed.filter((room) => ids.has(room.id)) } });
+    const list = (await response.json()) as { rooms: TestRoom[] };
+    await route.fulfill({ response, json: { ...list, rooms: list.rooms.filter((room) => ids.has(room.id)) } });
   });
 }
 

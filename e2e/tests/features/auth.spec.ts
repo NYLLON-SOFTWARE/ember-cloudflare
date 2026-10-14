@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
 import type { Browser, Page } from "@playwright/test";
-import { ADMINISTRATOR, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
+import { ADMINISTRATOR, invitation, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
@@ -52,13 +52,74 @@ test.describe(feature("auth.sign-in"), () => {
   });
 });
 
+test.describe(feature("auth.sign-up"), () => {
+  test.beforeEach(({ page }) => useOwnAddress(page));
+
+  /** Fills in the join form and sends it. */
+  async function join(page: Page, emailAddress: string) {
+    await page.getByLabel("Name").fill("Grace Hopper");
+    await page.getByLabel("Email address").fill(emailAddress);
+    await page.getByLabel("Password").fill("compiler");
+    await page.getByRole("button", { name: "Create account" }).click();
+  }
+
+  test("someone new joins with the welcome card's link, signs out and signs back in", async ({ browser, baseURL, page, request, session }) => {
+    const { roomId } = await invitation(request, session);
+    const administrator = await administratorOn(browser, baseURL!, { id: roomId, name: "All Talk" });
+    const link = await administrator.getByRole("textbox", { name: "Share to invite more people" }).inputValue();
+    await administrator.context().close();
+
+    await page.goto(link);
+    await expect(page).toHaveTitle("Sign up");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Join Ember");
+    await expect(page.getByLabel("Name")).toBeFocused();
+    const emailAddress = `grace-${crypto.randomUUID()}@example.com`;
+    await join(page, emailAddress);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
+    expect(new URL(page.url()).pathname).toBe("/");
+    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+
+    await page.getByRole("button", { name: "Your profile" }).click();
+    await page.getByRole("menuitem", { name: "Log out" }).click();
+    await expect(signInHeading(page)).toBeVisible();
+    await page.getByLabel("Email address").fill(emailAddress);
+    await page.getByLabel("Password").fill("compiler");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+  });
+
+  test("sends an email address that has an account to sign in with it filled in", async ({ page, request, session }) => {
+    await page.goto(`/join/${(await invitation(request, session)).joinCode}`);
+    await join(page, ADMINISTRATOR.emailAddress);
+    await expect(signInHeading(page)).toBeVisible();
+    expect(new URL(page.url()).search).toBe("?email_address=ada%40example.com");
+    await expect(page.getByLabel("Email address")).toHaveValue(ADMINISTRATOR.emailAddress);
+  });
+
+  test("answers any other code with an empty 404", async ({ page }) => {
+    // Asked as the signed-out page, since a browser shows its own error page for it, as for ember-rust's.
+    const response = await page.request.get("/join/AAAA-BBBB-CCCC");
+    expect(response.status()).toBe(404);
+    expect(await response.text()).toBe("");
+  });
+
+  test("sends someone who's signed in home", async ({ members, request }) => {
+    const ada = await members.signIn("Ada");
+    await ada.page.goto(`/join/${(await invitation(request, ada.session)).joinCode}`);
+    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    expect(new URL(ada.page.url()).pathname).toBe("/");
+  });
+});
+
 test.describe(feature("auth.help-contact"), () => {
-  test("names whom to ask for help, and the version, under the sign-in card", async ({ page }) => {
-    await page.goto("/session/new");
-    const contact = page.getByRole("link", { name: ADMINISTRATOR.emailAddress });
-    await expect(contact).toHaveAttribute("href", `mailto:"${ADMINISTRATOR.name}" <${ADMINISTRATOR.emailAddress}>`);
-    await expect(contact).toHaveAttribute("title", `Email ${ADMINISTRATOR.name}`);
-    await expect(page.getByText(/^Ember™ version/)).toHaveText(/^Ember™ version \d+\.\d+/);
+  test("names whom to ask for help, and the version, under the sign-in and join cards", async ({ page, request, session }) => {
+    for (const path of ["/session/new", `/join/${(await invitation(request, session)).joinCode}`]) {
+      await page.goto(path);
+      const contact = page.getByRole("link", { name: ADMINISTRATOR.emailAddress });
+      await expect(contact).toHaveAttribute("href", `mailto:"${ADMINISTRATOR.name}" <${ADMINISTRATOR.emailAddress}>`);
+      await expect(contact).toHaveAttribute("title", `Email ${ADMINISTRATOR.name}`);
+      await expect(page.getByText(/^Ember™ version/)).toHaveText(/^Ember™ version \d+\.\d+/);
+    }
   });
 });
 
