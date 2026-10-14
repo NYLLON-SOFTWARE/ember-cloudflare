@@ -5,6 +5,7 @@ import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
@@ -105,7 +106,9 @@ interface Props {
 }
 
 export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged);
+  // The people directory loads again whenever the sidebar does by itself.
+  const { people, reload: reloadPeople } = useDirectory();
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, reloadPeople);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const route = useRoute();
@@ -289,7 +292,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives
   // it aria-expanded and gets focus back to it when the drawer closes. The skip link comes first,
   // and the rail and conversations are ember-rust's landmarks in either layout.
-  return (
+  const layout = (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerOpen value={drawerOpen}>
         <div className="grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]">
@@ -334,4 +337,5 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       </DrawerOpen>
     </Sheet>
   );
+  return <PeopleContext value={people}>{layout}</PeopleContext>;
 }

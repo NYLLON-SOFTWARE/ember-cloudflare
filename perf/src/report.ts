@@ -112,12 +112,12 @@ function backendSection(backend: Results["backend"]): string[] {
       "",
       "### Tabs",
       "",
-      `Tabs opened as the app opens them, ${concurrency} at a time, until p95 time to the workspace's welcome passes ${num(maxConnectP95Ms)} ms: a room's socket, spread over ${rooms} rooms, the workspace socket, and the sidebar, loaded as the page loads and again on the welcome. Each tab is someone else signed in.`,
+      `Tabs opened as the app opens them, ${concurrency} at a time, until p95 time to the workspace's welcome passes ${num(maxConnectP95Ms)} ms: a room's socket, spread over ${rooms} rooms, the workspace socket, and the sidebar and people directory, each loaded as the page loads and again on the welcome. Each tab is someone else signed in, so the directory grows with the tabs.`,
       "",
     );
     out.push(
       table(
-        ["Storage", "Tabs", "Welcome p50", "p95", "Sidebar p50", "p95", "Tabs/s", "Busiest process CPU", "Server memory"],
+        ["Storage", "Tabs", "Welcome p50", "p95", "Sidebar p50", "p95", "Directory p50", "p95", "Tabs/s", "Busiest process CPU", "Server memory"],
         tabs.flatMap(([storage, { tabs: r }]) =>
           r!.steps.map((step) => [
             STORAGE_NAMES[storage],
@@ -126,6 +126,8 @@ function backendSection(backend: Results["backend"]): string[] {
             p(step.welcome, "p95"),
             p(step.sidebar, "p50"),
             p(step.sidebar, "p95"),
+            p(step.directory, "p50"),
+            p(step.directory, "p95"),
             num(step.tabsPerSecond, 1),
             pct(step.window.busiestProcessCpuPercent),
             step.window.serverRssMb === null ? "–" : `${num(step.window.serverRssMb)} MB`,
@@ -139,12 +141,12 @@ function backendSection(backend: Results["backend"]): string[] {
     if (reconnects.length) {
       out.push(
         "",
-        "Then every tab's sockets close, and each tab connects them again as the app does after a deploy: its room's a quarter of a second to two seconds later, and its workspace socket 2 to 10 seconds later, loading the sidebar on the welcome. Welcomes are timed from each socket's own try. All back is the time from the deploy to the last tab with both welcomes and its sidebar.",
+        "Then every tab's sockets close, and each tab connects them again as the app does after a deploy: its room's a quarter of a second to two seconds later, and its workspace socket 2 to 10 seconds later, loading the sidebar and people directory on the welcome. Welcomes are timed from each socket's own try. All back is the time from the deploy to the last tab with both welcomes, its sidebar and its directory.",
         "",
       );
       out.push(
         table(
-          ["Storage", "Tabs", "Welcome p50", "p95", "Room welcome p50", "p95", "Sidebar p50", "p95", "All back", "Failed", "Busiest process CPU"],
+          ["Storage", "Tabs", "Welcome p50", "p95", "Room welcome p50", "p95", "Sidebar p50", "p95", "Directory p50", "p95", "All back", "Failed", "Busiest process CPU"],
           reconnects.map(([storage, r]) => [
             STORAGE_NAMES[storage],
             num(r.tabs),
@@ -154,6 +156,8 @@ function backendSection(backend: Results["backend"]): string[] {
             p(r.roomWelcome, "p95"),
             p(r.sidebar, "p50"),
             p(r.sidebar, "p95"),
+            p(r.directory, "p50"),
+            p(r.directory, "p95"),
             `${ms(r.allBackMs)} ms`,
             num(r.failures),
             pct(r.window.busiestProcessCpuPercent),

@@ -22,6 +22,8 @@ export interface TabsStep {
   welcome: Summary | null;
   /** Each load of the sidebar: one as the page loads, and one on the welcome. */
   sidebar: Summary | null;
+  /** Each load of the people directory, alongside the sidebar's. */
+  directory: Summary | null;
   tabsPerSecond: number;
   window: Window;
 }
@@ -32,7 +34,8 @@ export interface TabsReconnect {
   welcome: Summary | null;
   roomWelcome: Summary | null;
   sidebar: Summary | null;
-  /** From the deploy, when every tab starts waiting to connect again, to the last having both welcomes and its sidebar. */
+  directory: Summary | null;
+  /** From the deploy, when every tab starts waiting to connect again, to the last having both welcomes, its sidebar and its people directory. */
   allBackMs: number;
   failures: number;
   window: Window;
@@ -109,6 +112,7 @@ async function reconnectAll(server: Server, tabs: TabClient[]): Promise<TabsReco
     welcome: summarize(timings.map((t) => t.welcome)),
     roomWelcome: summarize(timings.map((t) => t.roomWelcome)),
     sidebar: summarize(timings.flatMap((t) => t.sidebar)),
+    directory: summarize(timings.flatMap((t) => t.directory)),
     allBackMs,
     failures,
     window,
@@ -116,9 +120,9 @@ async function reconnectAll(server: Server, tabs: TabClient[]): Promise<TabsReco
 }
 
 /**
- * Opens tabs step by step, each with a room's socket, the workspace socket and the sidebar, to find
- * how many the Workspace, one Durable Object, holds well. Then they all connect again at once, the
- * load a deploy puts on it.
+ * Opens tabs step by step, each with a room's socket, the workspace socket, the sidebar and the people
+ * directory, to find how many the Workspace, one Durable Object, holds well. Then they all connect
+ * again at once, the load a deploy puts on it.
  */
 export async function tabs(server: Server, options: TabsOptions): Promise<TabsResult> {
   const host = await signIn(server.url, "tabs host");
@@ -137,6 +141,7 @@ export async function tabs(server: Server, options: TabsOptions): Promise<TabsRe
         tabs: open.length,
         welcome,
         sidebar: summarize(result.timings.flatMap((t) => t.sidebar)),
+        directory: summarize(result.timings.flatMap((t) => t.directory)),
         tabsPerSecond: perSecond(result.tabs.length, window.ms),
         window,
       });

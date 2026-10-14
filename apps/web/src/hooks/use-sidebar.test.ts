@@ -194,6 +194,24 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
 
+  it("says each time it loads again by itself, for the people directory to load again too", async () => {
+    const onReload = vi.fn();
+    const { result } = renderHook(() => useSidebar(ada, () => {}, onReload));
+    await settle();
+    expect(onReload).toHaveBeenCalledOnce();
+    socket().connect();
+    await settle();
+    expect(onReload).toHaveBeenCalledTimes(2);
+
+    await visibility("hidden");
+    await wait(RELOAD_AFTER_HIDDEN_MS + 1);
+    await visibility("visible");
+    expect(onReload).toHaveBeenCalledTimes(3);
+    // Asked for, the list is about rooms only.
+    await act(() => result.current.refresh());
+    expect(onReload).toHaveBeenCalledTimes(3);
+  });
+
   it("keeps a room saved here while a list is on its way that may not show it", async () => {
     const { result } = await showSidebar();
     const release = holdAnswers();

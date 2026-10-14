@@ -56,7 +56,7 @@ and talk to rooms over real WebSockets, sending the same frames as the web app.
 | `throughput` | Four members posting as fast as acknowledgements come back, 8 in flight each | The most one room, which is one Durable Object, can write per second |
 | `fanout` | One member posting 10 a second into rooms of 10, 100, 250 and 500 | What each extra member costs a broadcast, and when the last one gets it |
 | `connections` | One room grown in steps from 100 to 1,000 members until p95 time-to-welcome passes 2 s | How many sockets one room holds well, and the presence traffic each join causes |
-| `tabs` | Tabs opened as the web app opens them, in steps from 250 to 1,000, each someone else with a room's socket, the workspace socket and the sidebar; then every tab reconnecting as after a deploy | How many tabs the Workspace, one Durable Object that every tab's sockets and sidebar ask, holds well, and how long a deploy's reconnects take |
+| `tabs` | Tabs opened as the web app opens them, in steps from 250 to 1,000, each someone else with a room's socket, the workspace socket, the sidebar and the people directory; then every tab reconnecting as after a deploy | How many tabs the Workspace, one Durable Object that every tab's sockets, sidebar and directory ask, holds well, and how long a deploy's reconnects take |
 | `history` | A 2,000-message room: 30 fresh joins, then paging back to the start three times | The read path, where DO SQLite and D1 differ most |
 
 Alongside each measurement it records the CPU used by the `wrangler` and `workerd` processes. A
@@ -104,7 +104,7 @@ order" means writes finished in a different order than they started.
 | `src/main.ts` | The command line |
 | `src/server.ts` | Starts `wrangler dev` per storage backend and samples its CPU and memory |
 | `src/room-client.ts` | A minimal room participant over one WebSocket |
-| `src/tab-client.ts` | A tab as the web app opens one: a room's socket, the workspace socket and the sidebar |
+| `src/tab-client.ts` | A tab as the web app opens one: a room's socket, the workspace socket, the sidebar and the people directory |
 | `src/load.ts` | Shared helpers: joining, rate control, seeding, measurement windows |
 | `src/scenarios/` | The backend scenarios |
 | `src/web/` | Bundle sizes, Lighthouse, and the in-browser render timing |

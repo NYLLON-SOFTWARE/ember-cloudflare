@@ -28,7 +28,7 @@ import { sortableId } from "./ids";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import { SessionCache } from "./session-cache";
-import { WorkspaceStore, type Client, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
+import { WorkspaceStore, type AvatarOwner, type Client, type DirectoryEntry, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -457,6 +457,22 @@ export class Workspace extends DurableObject<Env> {
   async newRoomForm(credentials: Credentials): Promise<NewRoomForm | null> {
     const user = await this.authenticate(credentials);
     return user && { people: await this.store.activePeople() };
+  }
+
+  /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */
+  async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.directory();
+  }
+
+  /**
+   * What the avatar of whoever has id `userId` is drawn from, for the person `credentials` signs in:
+   * "not found" if nobody has it, or null without a valid session.
+   */
+  async avatarOwner(credentials: Credentials, userId: UserId): Promise<AvatarOwner | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (await this.store.avatarOwner(userId)) ?? "not found";
   }
 
   /**

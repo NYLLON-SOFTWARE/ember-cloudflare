@@ -369,14 +369,18 @@ test.describe(feature("mentions.highlight"), () => {
 });
 
 test.describe(feature("users.avatars"), () => {
-  test("gives each person the same initials and color everywhere", async ({ members }) => {
+  test("shows each person's avatar from the address the directory gives, the same everywhere", async ({ members }) => {
     const ada = await members.signIn("Ada Lovelace");
     const grace = await members.signIn("Grace");
     await ada.send("Avatar check");
 
-    const avatar = (member: typeof ada) => member.message("Avatar check").getByText("AL", { exact: true }).locator("..");
-    await expect(avatar(ada)).toBeVisible();
-    const color = await avatar(ada).evaluate((el) => getComputedStyle(el).backgroundColor);
-    await expect(avatar(grace)).toHaveCSS("background-color", color);
+    const avatar = (member: typeof ada) => member.message("Avatar check").locator("img[aria-hidden=true]").first();
+    const address = new RegExp(`^/users/${ada.session.user.id}\\.[\\w-]{22}/avatar\\?v=\\d{14}$`);
+    for (const member of [ada, grace]) {
+      await expect(avatar(member)).toHaveAttribute("src", address);
+      // Loaded from the Worker, not just named.
+      await expect.poll(() => avatar(member).evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    }
+    expect(await avatar(grace).getAttribute("src")).toBe(await avatar(ada).getAttribute("src"));
   });
 });

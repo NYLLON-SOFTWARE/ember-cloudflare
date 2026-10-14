@@ -23,7 +23,7 @@ const DEPLOY_SPREAD_MS = [2_000, 10_000] as const;
  * the calls made meanwhile, since the run under way started before them. Each call settles as the first
  * run to start after it does.
  */
-function oneAtATime(task: () => Promise<void>): () => Promise<void> {
+export function oneAtATime(task: () => Promise<void>): () => Promise<void> {
   let running: Promise<void> | null = null;
   let next: Promise<void> | null = null;
   const run = () => (running = task().finally(() => (running = null)));
@@ -49,9 +49,10 @@ function oneAtATime(task: () => Promise<void>): () => Promise<void> {
  * has come, or failing as that did.
  *
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
- * or whoever another tab signed in as.
+ * or whoever another tab signed in as. `onReload` hears each time the sidebar loads again by itself,
+ * for what else should load again with it.
  */
-export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void) {
+export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void, onReload: () => void = () => {}) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
@@ -68,13 +69,17 @@ export function useSidebar(me: User, onSessionChanged: (me: Me | null) => void) 
     });
   });
   const sessionChanged = useEffectEvent(onSessionChanged);
+  const reloaded = useEffectEvent(onReload);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
 
   useEffect(() => {
     let closed = false;
     // A session that has expired goes to sign in. Otherwise a list that doesn't come leaves the sidebar
     // as it is, until it loads again.
-    const reload = () => void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
+    const reload = () => {
+      reloaded();
+      void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
+    };
 
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);

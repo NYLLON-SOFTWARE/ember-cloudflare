@@ -468,7 +468,7 @@ export const features = [
     id: "users.avatars",
     title: "Initials avatars",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Without a usable upload, an avatar is the person's initials in white on one of 18 colors, picked by the CRC32 of their id (1 is `#BF7C2A`, 2 is `#698F9C`, 42 is `#D07B53`, 1000 is `#BFA07A`).",
       "Initials are every ASCII letter, digit or underscore that doesn't follow a letter, digit or underscore of any script, however many: \"David Heinemeier Hansson\" is \"DHH\" and \"Élodie Ünal-Smith o'Brien 3po _x ñ\" is \"SoB3_\". A name with none gets a plain tile.",
@@ -479,7 +479,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/avatars/show.svg", "crates/views/src/helpers/users.rs", "crates/ember/src/controllers/users/avatars.rs"],
     upstreamTests: ["crates/views/src/helpers/users.rs", "reference/test/controllers/users/avatars_controller_test.rb"],
-    notes: "Avatars are drawn in the page, not served as images, so there are no avatar URLs, caching or bot picture. Initials come from JavaScript's word boundaries, which count a letter after a non-ASCII one (\"Élodie\" gives \"l\"), and stop at three, with \"?\" when there are none.",
+    notes: "The Worker serves the SVG byte for byte as ember-rust renders it, at the address the people directory (`GET /api/users`, kept current with an ETag and loaded again whenever the sidebar is) gives as `avatarUrl`, and the app draws the same SVG in the page until the image loads. A token is the person's id and the first 16 bytes of its HMAC under SESSION_SECRET rather than a Rails signed id, and one for nobody gets an empty 404 where ember-rust renders its 404 page. The ETag is the image's digest, and a 304 carries the same Cache-Control as a 200, where ember-rust's says nothing of how long to keep the copy. Signing in after being sent there doesn't come back to the avatar.",
   },
   {
     id: "users.avatar-links",
@@ -494,6 +494,7 @@ export const features = [
     ],
     sources: ["crates/views/src/helpers/users.rs", "crates/db/src/models/user.rs", "crates/views/templates/messages/_message.html", "crates/views/templates/messages/boosts/_boost.html", "reference/app/helpers/users/avatars_helper.rb"],
     upstreamTests: ["crates/db/src/tests/user_test.rs"],
+    notes: "Avatars are images hidden from screen readers, and room member lists load theirs lazily (`users.avatars`), but none links anywhere yet: people's pages (`users.show`) come first.",
   },
 
   // Rooms
