@@ -2287,7 +2287,7 @@ export const features = [
     behaviors: [
       "The rail's appearance button, above your avatar, shows a sun, moon or monitor and is named and titled \"Appearance: Light\", \"Appearance: Dark\" or \"Appearance: System\". It opens a small menu, a dialog named Appearance, with Light, Dark and System radio buttons under the legend \"Appearance\", the current one checked.",
       "A choice applies at once and leaves the menu open, and the arrow keys move between the choices.",
-      "A choice is kept in this browser (`ember:appearance`, System as `system`) and applied before the page paints, so dark never flashes light. Other open tabs follow, also when the site's storage is cleared, and System follows the device as it changes. Where storage is refused, a choice still holds for the page.",
+      "A choice is kept in this browser (`ember:appearance`, System as `system`) and applied before the page paints, so dark never flashes light. Other open tabs follow, also when the site's storage is cleared or while a tab is still loading, and System follows the device as it changes. Where storage is refused, a choice still holds for the page.",
       "`<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).",
       "Escape closes the menu and returns focus to the button.",
     ],

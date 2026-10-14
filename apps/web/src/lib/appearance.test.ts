@@ -106,6 +106,27 @@ describe(feature("ui.appearance"), () => {
     stop();
   });
 
+  it("catches up with a choice another tab made while the page loaded, before it was listening", () => {
+    // index.html's script showed Light, then another tab chose Dark before the app started.
+    applyAppearance("light");
+    localStorage.setItem("ember:appearance", "dark");
+
+    const stop = followAppearance();
+    expect(shownAppearance()).toBe("dark");
+    expect(isDark()).toBe(true);
+    stop();
+  });
+
+  it("catches up with the device turning dark while the page loaded, on System", () => {
+    applyAppearance("system");
+    setPrefersDark(true);
+    expect(isDark()).toBe(false);
+
+    const stop = followAppearance();
+    expect(isDark()).toBe(true);
+    stop();
+  });
+
   it("keeps a choice storage refused for this page, even as the device changes", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("Storage unavailable");

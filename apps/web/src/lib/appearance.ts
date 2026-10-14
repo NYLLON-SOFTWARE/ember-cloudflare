@@ -62,6 +62,9 @@ export function chooseAppearance(appearance: Appearance): void {
  * ember-rust's does.
  */
 export function followAppearance(): () => void {
+  // First catch up with what changed while the page loaded, before anything was listening: another
+  // tab's choice, or the device's theme under System. workspace-appearance.js does this as it starts.
+  applyAppearance(savedAppearance());
   const onDeviceChange = () => {
     if (shownAppearance() === "system") applyAppearance("system");
   };

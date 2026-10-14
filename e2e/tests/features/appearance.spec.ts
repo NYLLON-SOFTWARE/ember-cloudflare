@@ -156,6 +156,27 @@ test.describe(feature("ui.appearance"), () => {
     await expect(appearanceButton(otherTab)).toHaveAccessibleName("Appearance: System");
   });
 
+  test("catches up with a choice made in another tab while it was loading", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { colorScheme: "light" } });
+    const otherTab = await ada.page.context().newPage();
+    // Holding the app's scripts back puts the choice after index.html's script but before the app's.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await otherTab.route("**/assets/*.js", async (route) => {
+      await held;
+      await route.continue();
+    });
+    const loading = otherTab.goto("/");
+    await expect(html(otherTab)).toHaveAttribute("data-appearance", "system");
+
+    await choose(ada, "Dark");
+    await expect.poll(() => otherTab.evaluate(() => localStorage.getItem("ember:appearance"))).toBe("dark");
+    release();
+    await loading;
+    await expect(appearanceButton(otherTab)).toHaveAccessibleName("Appearance: Dark");
+    expect(await isDark(otherTab)).toBe(true);
+  });
+
   test("keeps pages without the rail in step too, such as sign-in", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { colorScheme: "light" } });
     const signIn = await ada.page.context().newPage();
