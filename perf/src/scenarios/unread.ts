@@ -26,6 +26,8 @@ export interface UnreadResult {
   missed: number;
   /** The messages after it, which mark nobody new: from sending each to its coming back to the poster. */
   ack: Summary | null;
+  /** Those that never came back. */
+  lost: number;
   /** While those messages are posted, and the Workspace applies each. */
   window: Window;
 }
@@ -104,5 +106,5 @@ export async function unreadAt(server: Server, members: number, { messages, rate
   poster!.close();
   for (const ws of away) ws.close(1000);
 
-  return { members, messages, rate, marked, missed, ack: summarize(acks), window };
+  return { members, messages, rate, marked, missed, ack: summarize(acks), lost: messages - acks.length, window };
 }

@@ -87,6 +87,7 @@ function collect({ backend, web }: Results): Map<string, Metric> {
       add(`${storage} unread ${u.members} away: last marked ms`, u.marked?.max, { floor: 4, ...SWINGY });
       add(`${storage} unread ${u.members} away: missed`, u.missed, NEVER);
       add(`${storage} unread ${u.members} away: then ack p50 ms`, u.ack?.p50, { noise: 15 });
+      add(`${storage} unread ${u.members} away: lost`, u.lost, NEVER);
     }
     if (r.history) {
       // The quick profile times ten welcomes and nine pages, so these medians rest on few samples, and
