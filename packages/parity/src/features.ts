@@ -1033,7 +1033,7 @@ export const features = [
     ],
     sources: ["reference/app/helpers/content_filters.rb", "reference/app/helpers/messages_helper.rb", "crates/richtext/src/sanitizer.rs", "crates/richtext/src/filters.rs", "crates/ember/src/controllers/presenters.rs", "reference/app/javascript/models/message_formatter.js", "reference/app/javascript/initializers/highlight.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/helpers/content_filters_test.rb", "reference/test/system/composer_test.rb", "crates/richtext/tests/corpus.rs"],
-    notes: "Messages here are still plain text: line breaks are kept and nothing else is formatted. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores or shows rich text with it yet. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. There's no code highlighting yet.",
+    notes: "Messages here are still plain text, shown as the paragraph Lexxy sends for it: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores rich text with it yet, and the composer can't write any. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes.",
   },
   {
     id: "messages.optimistic",
@@ -1213,7 +1213,7 @@ export const features = [
     ],
     sources: ["reference/lib/rails_ext/string.rb", "reference/app/helpers/messages_helper.rb", "crates/assets/overrides/models/client_message.js"],
     upstreamTests: ["reference/test/models/message_test.rb", "reference/test/system/sending_messages_test.rb"],
-    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does, but messages don't show large yet.",
+    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji aren't larger yet.",
   },
   {
     id: "messages.sounds",
@@ -1248,7 +1248,7 @@ export const features = [
     id: "messages.autolink",
     title: "Links in message text",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Addresses that start with a known scheme and `://` (http, https, ftp, mailto, ssh, file and 18 more) or with `www.`, and email addresses, become links; `www.` addresses get `http://` and email addresses `mailto:`.",
       "Trailing punctuation stays out of the link unless it closes a bracket the address opened. Text already in a link isn't linked again, but addresses in code are linked.",
@@ -1257,7 +1257,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/autolink.rs", "reference/app/helpers/messages_helper.rb", "reference/app/javascript/controllers/reply_controller.js"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/hardening.rs"],
-    notes: "`packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus, but messages don't show rich text yet, so nothing is linked, and nothing opens links to this site in place. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.",
+    notes: "`packages/richtext` links addresses as rails_autolink did, in every body of ember-rust's corpus. A link opens in place when it's to one of the app's pages, and an address on this site that isn't one loads in the same tab. Whether a link is to this site is read from its origin, not, as in Campfire, from whether its address starts with this site's, which takes `http://host:30001` for `http://host:3000`. Links to other sites get `rel=\"noopener\"` too. As in ember-rust, `<` and `>` are escaped in attribute values first, so a link can't be inserted inside an attribute, as Rails' could.",
   },
   {
     id: "messages.unrenderable",
