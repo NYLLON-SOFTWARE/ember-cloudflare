@@ -75,4 +75,4 @@ function isTemplate(element: globalThis.Element): element is HTMLTemplateElement
   return element.namespaceURI === HTML_NAMESPACE && element.localName === "template";
 }
 
-export const { prepareBody, plainText, mentionedUsers } = withParser(parseDom);
+export const { prepareBody, plainText, mentionedUsers, userIdsIn } = withParser(parseDom);

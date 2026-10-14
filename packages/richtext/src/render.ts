@@ -16,7 +16,14 @@ import {
   type MentionUser,
   type ResolveMention,
 } from "./attachments";
-import { attachmentGalleryNodes, attachmentNodes, contentToPlainText, loadContent, sanitizeContentAttribute } from "./content";
+import {
+  attachmentGalleryNodes,
+  attachmentNodes,
+  contentToPlainText,
+  loadContent,
+  MAX_CONTENT_ATTACHMENT_DEPTH,
+  sanitizeContentAttribute,
+} from "./content";
 import { BODY, parseReplacement, setInnerHtml, type HtmlParser } from "./markup";
 import { userGid } from "./mentions";
 import { chomp, presence, strip } from "./ruby";
@@ -189,13 +196,9 @@ class Renderer {
     }
   }
 
-  /**
-   * A content attachment's content, rendered without a layout. Each level parses and sanitizes
-   * everything below it again, so ember-rust stops at `MAX_CONTENT_ATTACHMENT_DEPTH` (8) levels,
-   * where Rails' unbounded nesting makes rendering quadratic in the body's size.
-   */
+  /** A content attachment's content, rendered without a layout, as deep as content renders. */
   private renderContent(content: string, depth: number): string {
-    return depth < 8 ? `${this.render(loadContent(this.parse, content), depth + 1)}\n` : "";
+    return depth < MAX_CONTENT_ATTACHMENT_DEPTH ? `${this.render(loadContent(this.parse, content), depth + 1)}\n` : "";
   }
 
   /**

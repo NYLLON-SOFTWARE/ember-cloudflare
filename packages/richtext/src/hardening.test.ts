@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { plainText, prepareBody } from "./body";
 import { MAX_ATTRIBUTES, ParseLimitError } from "./markup";
-import { userGid } from "./mentions";
+import { userGid, userIdsIn } from "./mentions";
 import { parseHtml } from "./parse";
 import { canonicalize, presentMessage } from "./render";
 import { cgiUnescapeHtml } from "./sanitize";
@@ -81,6 +81,7 @@ describe(feature("messages.rich-text"), () => {
       const body = nestedContentAttachments(200, "x".repeat(1000));
       expect(body.length).toBeGreaterThan(200_000);
       expectQuick("200 nested content attachments", () => presentation(body));
+      expectQuick("the users of 200 nested content attachments", () => userIdsIn(parseHtml, body));
     },
     SLOW_TEST_MS,
   );
@@ -159,7 +160,11 @@ describe(feature("messages.rich-text"), () => {
   for (const [what, body] of Object.entries(hostileBodies)) {
     it(
       `prepares ${what} in linear time`,
-      () => expectQuick(what, () => expect(prepareBody(parseHtml, body, resolve)).not.toBeNull()),
+      () =>
+        expectQuick(what, () => {
+          userIdsIn(parseHtml, body);
+          expect(prepareBody(parseHtml, body, resolve)).not.toBeNull();
+        }),
       SLOW_TEST_MS,
     );
   }

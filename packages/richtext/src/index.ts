@@ -8,4 +8,4 @@ import { parseHtml } from "./parse";
 export * from "./shared";
 export { parseHtml };
 
-export const { prepareBody, plainText, mentionedUsers } = withParser(parseHtml);
+export const { prepareBody, plainText, mentionedUsers, userIdsIn } = withParser(parseHtml);

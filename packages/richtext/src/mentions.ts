@@ -2,13 +2,12 @@
 // global ids, `gid://ember/User/<id>`: ember-rust signs them, but any member can list every
 // user's, so a signature protects nothing.
 
-import { attachmentNodes, loadContent } from "./content";
+import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH } from "./content";
 import { getAttr, type Element } from "./tree";
 import type { MentionUser, ResolveMention } from "./attachments";
-import type { HtmlParser } from "./markup";
+import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 
 const USER_GID = /^gid:\/\/ember\/User\/([1-9][0-9]{0,15})$/;
-const USER_GIDS = /gid:\/\/ember\/User\/([1-9][0-9]{0,15})/g;
 
 export function userGid(id: number): string {
   return `gid://ember/User/${id}`;
@@ -21,16 +20,29 @@ export function userIdFromGid(sgid: string): number | undefined {
 }
 
 /**
- * Every user id that appears in a user gid anywhere in the markup, once each: the users to look up
- * before resolving the body's mentions, including those inside attributes, which nested content
- * attachments render.
+ * Every user an attachment's sgid names, in the body or in the content attachments that render
+ * inside it, once each: the users to look up before resolving the body's mentions. The sgids are
+ * read as parsed, character references and all. Markup past the parser's limits is skipped, since
+ * `prepareBody` refuses it anyway.
  */
-export function userIdsIn(markup: string): number[] {
+export function userIdsIn(parse: HtmlParser, markup: string): number[] {
   const ids = new Set<number>();
-  for (const [gid] of markup.matchAll(USER_GIDS)) {
-    const id = userIdFromGid(gid);
-    if (id !== undefined) ids.add(id);
-  }
+  const collect = (markup: string, depth: number) => {
+    let attachments: Element[];
+    try {
+      attachments = attachmentNodes(parse(markup, BODY));
+    } catch (error) {
+      if (error instanceof ParseLimitError) return;
+      throw error;
+    }
+    for (const attachment of attachments) {
+      const id = userIdFromGid(getAttr(attachment, "sgid") ?? "");
+      if (id !== undefined) ids.add(id);
+      const content = getAttr(attachment, "content");
+      if (content !== undefined && depth < MAX_CONTENT_ATTACHMENT_DEPTH) collect(content, depth + 1);
+    }
+  };
+  collect(markup, 0);
   return [...ids];
 }
 
