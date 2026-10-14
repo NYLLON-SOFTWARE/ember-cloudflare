@@ -118,10 +118,24 @@ describe(feature("rooms.show"), () => {
     const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch"))];
     serve({ "GET /api/rooms": () => answers.shift()!() });
     showWorkspace("/rooms/design");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
-    // For reloading to ask again, and with the header's way to the other rooms.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    // In the page, where it stays while the page does, rather than in an alert that fades.
+    expect(screen.getByRole("main")).toContainElement(alert);
+    // For trying again, and with the header's way to the other rooms.
     expect(location.pathname).toBe("/rooms/design");
     expect(screen.getByRole("button", { name: "Open conversations" })).toBeInTheDocument();
+  });
+
+  it("asks for the list again when you try again, once it couldn't be asked for", async () => {
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch")), () => Response.json({ rooms: [...rooms, design] })];
+    serve({ "GET /api/rooms": () => answers.shift()!() });
+    const { user } = showWorkspace("/rooms/design");
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(roomListRequests()).toBe(3);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("asks for the list again only once the list it last asked for has come", async () => {

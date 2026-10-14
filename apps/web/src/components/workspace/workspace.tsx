@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useState 
 import type { Room, RoomId, User } from "@ember/protocol";
 import { Flash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, fetchRooms, isSignedOut } from "@/lib/api";
@@ -39,6 +40,9 @@ interface Redirect {
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
+
+/** What an alert says about a request that failed: the server's reason, or that Ember couldn't be reached. */
+const reasonFor = (error: unknown) => (error instanceof ApiError ? error.message : "Couldn't reach Ember. Check your connection and try again.");
 
 /** The room an address names that has to be one of someone's rooms, which a direct message's doesn't. */
 function namedRoomId(route: Route): RoomId | null {
@@ -130,7 +134,7 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
     (error: unknown) => {
       if (!mounted.current) return;
       if (isSignedOut(error)) return onSessionChanged(null);
-      flash(error instanceof ApiError ? error.message : "Couldn't reach Ember. Check your connection and try again.");
+      flash(reasonFor(error));
     },
     [flash, onSessionChanged, mounted],
   );
@@ -161,8 +165,8 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   // at a time, so an older one can't take the place of a newer one, which has changes made here since.
   const [askedAgain, setAskedAgain] = useState<Route | null>(null);
   // A room's address the list couldn't be asked for again for, which stays rather than going home as if
-  // the room weren't theirs, and says why, for reloading to ask again.
-  const [unanswered, setUnanswered] = useState<Route | null>(null);
+  // the room weren't theirs, and says why in the page, until it's left or Try again asks again.
+  const [unanswered, setUnanswered] = useState<{ route: Route; reason: string } | null>(null);
   const namedId = namedRoomId(route);
   const unlisted = rooms !== null && !goneRoom && namedId !== null && !rooms.some((r) => r.id === namedId);
   const askAgain = unlisted && askedAgain !== route && pending === null;
@@ -178,17 +182,20 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
         if (isSignedOut(error)) return onSessionChanged(null);
         changeRooms({ type: "unanswered" });
         // A room's settings ask the server about the room themselves.
-        if (route.page === "room-settings") return;
-        setUnanswered(route);
-        failed(error);
+        if (route.page !== "room-settings") setUnanswered({ route, reason: reasonFor(error) });
       },
     );
-  }, [askAgain, route, onSessionChanged, mounted, failed]);
+  }, [askAgain, route, onSessionChanged, mounted]);
+  const tryAgain = () => {
+    setUnanswered(null);
+    setAskedAgain(null);
+  };
+  const unansweredHere = unanswered?.route === route ? unanswered : null;
 
   // Where the address goes on to, once the list it goes by has come.
   const goingOn = useMemo(
-    () => (rooms && pending === null && !askAgain && !goneRoom && unanswered !== route ? redirectOf(route, rooms) : null),
-    [rooms, pending, askAgain, goneRoom, unanswered, route],
+    () => (rooms && pending === null && !askAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
+    [rooms, pending, askAgain, goneRoom, unansweredHere, route],
   );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
@@ -248,12 +255,23 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
             />
           );
         if (route.page === "home" && rooms && pending === null && !goingOn) return <WelcomePage me={me} />;
-        // The alert says why it's empty, and the header keeps the way to the other rooms on a phone.
-        if (unanswered === route)
+        // Why the room can't show, kept where it would show rather than in an alert that fades, as a
+        // browser's own page says when ember-rust's server can't be reached. The header keeps the way to
+        // the other rooms on a phone.
+        if (unansweredHere)
           return (
             <>
               <PageHeader />
-              <main className="bg-background" />
+              <main className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+                <div className="grid flex-1 place-content-center justify-items-center gap-4 p-6 text-center">
+                  <p role="alert" className="text-muted-foreground">
+                    {unansweredHere.reason}
+                  </p>
+                  <Button type="button" variant="outline" className="touch:h-11" onClick={tryAgain}>
+                    Try again
+                  </Button>
+                </div>
+              </main>
             </>
           );
         // While the rooms load, or before the page goes on to another, which it does before this paints.
