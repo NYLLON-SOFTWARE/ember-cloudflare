@@ -1,4 +1,4 @@
-import type { CloseCode, HelpContact, Room, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 
@@ -107,6 +107,13 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
   SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
   WHERE sessions.token_digest = ? RETURNING id`;
 
+/**
+ * Queues closing the sockets of everyone in a room but the people a JSON list names, whom changing
+ * the room takes out of it, answering a row for each. Their person tag closes all their sockets there.
+ */
+export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING id`;
+
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
@@ -150,6 +157,16 @@ const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, c
 /** Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do. */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING`;
+
+/** Takes everyone but the people a JSON list names out of a room. */
+export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?))`;
+
+/**
+ * Renames a room and changes its kind, keeping whichever is null as it is, and records when, unless
+ * nothing changes, as ember-rust's `Room::update` does (room.rs).
+ */
+const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?, name), kind = coalesce(?, kind), updated_at = ?
+  WHERE id = ? AND (name IS NOT coalesce(?, name) OR kind IS NOT coalesce(?, kind))`;
 
 /** Keeps the people a JSON list of `{id, name}` names as deactivated guests, unless they're already here. */
 const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, created_at, updated_at)
@@ -359,9 +376,31 @@ export class WorkspaceStore {
     return row ? { ...roomToChange(row), people: people.map((person) => ({ ...person, member: person.member === 1 })) } : null;
   }
 
-  /** Renames a room. */
-  async renameRoom(roomId: RoomId, name: string, now: string): Promise<void> {
-    await this.db.run(`UPDATE rooms SET name = ?, updated_at = ? WHERE id = ?`, name, now, roomId);
+  /**
+   * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
+   * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
+   * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers
+   * whether it queued any.
+   */
+  async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [name, kind] = [changes.name ?? null, changes.kind ?? null];
+    const update = statement(UPDATE_ROOM, name, kind, now, roomId, name, kind);
+    if (changes.kind === "open") {
+      await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now)]);
+      return false;
+    }
+    if (changes.kind !== "closed") {
+      await this.db.batch([update]);
+      return false;
+    }
+    const memberIds = JSON.stringify(changes.memberIds);
+    const [, , queued] = await this.db.batch([
+      update,
+      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
+      statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
+      statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
+    ]);
+    return queued!.length > 0;
   }
 
   /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */

@@ -1,4 +1,4 @@
-import { signInAs } from "../../fixtures";
+import { cookieHeader, signInAs, type TestRoom } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 /**
@@ -24,8 +24,18 @@ test("the private New room form fits the phone", async ({ page, screenIsFine }) 
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
+test("a private room's settings, with a switch for each person, fit the phone", async ({ page, request, session, screenIsFine }) => {
+  const response = await request.post("/api/rooms", { data: { kind: "closed", name: "Leads", memberIds: [session.user.id] }, headers: { Cookie: cookieHeader(session) } });
+  expect(response.status(), await response.text()).toBe(201);
+  const { room } = (await response.json()) as { room: TestRoom };
+  await page.goto(`/rooms/closeds/${room.id}/edit`);
+  await expect(page.getByRole("switch", { name: "Give everyone access to this room" })).toBeVisible();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
 test("a room's settings fit the phone", async ({ page, room, screenIsFine }) => {
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await expect(page.getByRole("textbox", { name: "Room name" })).toHaveValue(room.name);
-  await screenIsFine();
+  // With the Everyone switch, which whoever can change the room has.
+  await screenIsFine({ denseTargets: [SWITCHES] });
 });

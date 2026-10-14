@@ -46,6 +46,17 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
       retry = setTimeout(open, delay);
     };
 
+    // Asks who this browser is signed in as now and hands over to them, or to sign in, unless it's still
+    // this person or it can't tell, when it does `then`. A session check that answers once this room
+    // has closed is dropped: by then it may be about a session that has since been replaced.
+    const unlessSessionChanged = (then: () => void) => {
+      dispatch({ type: "status", status: "reconnecting" });
+      void fetchMe().then(
+        (user) => !closed && (isSomeoneElse(user) ? sessionChanged(user) : then()),
+        (error) => !closed && (error instanceof ApiError && error.status === 401 ? sessionChanged(null) : then()),
+      );
+    };
+
     const open = () => {
       dispatch({ type: "status", status: attempt === 0 ? "connecting" : "reconnecting" });
       const ws = new WebSocket(roomSocketUrl(roomId));
@@ -88,19 +99,12 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: User | 
       ws.onclose = (event) => {
         clearInterval(heartbeat);
         if (closed) return;
-        // A session check that answers once this room has closed is dropped: by then it may be about a
-        // session that has since been replaced.
-        if (event.code === CloseCode.Revoked) {
-          // The person lost access for good, removed from the workspace or banned, which ends all their
-          // sessions. Rather than connect again, find out who this browser is signed in as now, unless
-          // that's still them.
-          dispatch({ type: "status", status: "reconnecting" });
-          void fetchMe().then(
-            (user) => !closed && (isSomeoneElse(user) ? sessionChanged(user) : reconnect()),
-            (error) => !closed && (error instanceof ApiError && error.status === 401 ? sessionChanged(null) : reconnect()),
-          );
-          return;
-        }
+        // The person lost access for good, removed from the workspace or banned, which ends all their
+        // sessions, so they connect again only if the browser is still signed in as them.
+        if (event.code === CloseCode.Revoked) return unlessSessionChanged(reconnect);
+        // The room isn't there for whoever the browser is signed in as: deleted, or no longer theirs. If
+        // that's still this person, there's nothing to connect to.
+        if (event.code === CloseCode.NotFound) return unlessSessionChanged(() => dispatch({ type: "status", status: "gone" }));
         // A refused upgrade looks like any other failure, so ask whether the session has expired, as
         // when the room says to reconnect, which it does when this browser signs out.
         if (!opened || event.code === CloseCode.Reconnect) {

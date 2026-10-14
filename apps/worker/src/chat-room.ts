@@ -29,10 +29,10 @@ export const SESSION_HEADER = "X-Ember-Session";
 /** When the Workspace checked the socket's session and membership, in milliseconds since the epoch. */
 export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
 
-const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked" };
+const CLOSE_REASONS: Record<CloseCode, string> = { [CloseCode.Reconnect]: "Reconnect", [CloseCode.Revoked]: "Revoked", [CloseCode.NotFound]: "NotFound" };
 
 /** A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused. */
-function closedAtOnce(code: CloseCode): Response {
+export function closedAtOnce(code: CloseCode): Response {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
   server.close(code, CLOSE_REASONS[code]);

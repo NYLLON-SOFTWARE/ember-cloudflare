@@ -257,3 +257,12 @@ describe(feature("rooms.invitation-card"), () => {
     expect(roomReducer(opened, { type: "reset" }).paged).toBeNull();
   });
 });
+
+describe(feature("rooms.member-only-access"), () => {
+  it("shows nobody here, or typing, in a room that's gone, and keeps its messages", () => {
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada, grace], hasMore: false }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
+    state = roomReducer(state, { type: "status", status: "gone" });
+    expect(state).toMatchObject({ status: "gone", present: [], typing: {}, messages: [message()] });
+  });
+});

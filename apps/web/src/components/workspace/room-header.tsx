@@ -17,7 +17,7 @@ export function RoomHeader({ room, present, status }: { room: Room; present: Use
           #
         </span>
         <h1 className="truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{room.name}</h1>
-        {status !== "open" && (
+        {(status === "connecting" || status === "reconnecting") && (
           <span role="status" className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
             {status === "connecting" ? "Connecting…" : "Reconnecting…"}
           </span>

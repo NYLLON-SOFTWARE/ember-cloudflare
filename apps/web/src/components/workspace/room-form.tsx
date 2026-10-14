@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { MAX_ROOM_NAME_LENGTH, type User } from "@ember/protocol";
+import { MAX_ROOM_NAME_LENGTH, type User, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Check, Everyone } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
@@ -157,6 +157,14 @@ function Filter({ onFilter }: { onFilter: (filter: string) => void }) {
 /** ember-rust's check mark, for someone a room takes in who has no switch. */
 export function CheckMark() {
   return <Check width={20} height={20} className="size-5 shrink-0" />;
+}
+
+/** The people `chosen` for a private room, with `person` among them or not. */
+export function withChoice(chosen: ReadonlySet<UserId>, person: User, checked: boolean): ReadonlySet<UserId> {
+  const next = new Set(chosen);
+  if (checked) next.add(person.id);
+  else next.delete(person.id);
+  return next;
 }
 
 /** The switch that gives someone access to a private room. */

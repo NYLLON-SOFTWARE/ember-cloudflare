@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Room, RoomSettings } from "@ember/protocol";
+import { CloseCode, type Room, type RoomSettings } from "@ember/protocol";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
@@ -27,6 +27,22 @@ class QuietSocket {
   readyState = 0;
   send() {}
   close() {}
+}
+
+/** Sockets that `roomId`'s room closes as soon as they open, as it does for a room that's gone for this person. */
+function goneRoom(roomId: string) {
+  return class extends QuietSocket {
+    onopen: (() => void) | null = null;
+    onclose: ((event: { code: number }) => void) | null = null;
+    constructor(url: string) {
+      super();
+      if (!url.includes(`/api/rooms/${roomId}/socket`)) return;
+      setTimeout(() => {
+        this.onopen?.();
+        this.onclose?.({ code: CloseCode.NotFound });
+      });
+    }
+  };
 }
 
 function showWorkspace(path = "/") {
@@ -143,6 +159,49 @@ describe(feature("rooms.edit-permissions"), () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     expect(location.pathname).toBe("/");
     expect(await roomHeading()).toHaveTextContent("general");
+  });
+});
+
+describe(feature("rooms.members"), () => {
+  it("goes home with ember-rust's alert when you save a room without yourself, and it leaves the sidebar", async () => {
+    const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed" };
+    serve({
+      "GET /api/rooms": () => Response.json({ rooms: [...rooms, leadsRoom] }),
+      "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),
+      "PATCH /api/rooms/leads": () => Response.json({ room: leadsRoom }),
+    });
+    const { user } = showWorkspace("/rooms/closeds/leads/edit");
+    await user.click(await screen.findByRole("switch", { name: "Give Ada access to this room" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(location.pathname).toBe("/");
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+  });
+});
+
+describe(feature("rooms.member-only-access"), () => {
+  it("keeps a room that's gone on screen, saying it was deleted, and takes it out of the sidebar", async () => {
+    vi.stubGlobal("WebSocket", goneRoom("random"));
+    serve({ "GET /api/me": () => Response.json({ user: ada }) });
+    const { user } = showWorkspace("/rooms/random");
+    await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.queryByRole("textbox", { name: "Message #random" })).not.toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+  });
+
+  it("keeps the first room on screen when it goes while shown at /", async () => {
+    vi.stubGlobal("WebSocket", goneRoom("general"));
+    serve({ "GET /api/me": () => Response.json({ user: ada }) });
+    showWorkspace("/");
+    await waitFor(() => expect(sidebarRooms()).toEqual(["random"]));
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("general");
   });
 });
 

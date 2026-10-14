@@ -51,3 +51,13 @@ describe(feature("rooms.settings-page"), () => {
     });
   });
 });
+
+describe(feature("rooms.members"), () => {
+  it("takes a room that's gone for this person out of the list, even one the list hadn't arrived with yet", () => {
+    const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
+    expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.rooms).toEqual([room("r2", "general")]);
+    const early = roomListReducer(NO_ROOM_LIST, { type: "gone", roomId: "r1" });
+    expect(roomListReducer(early, { type: "loaded", list }).list!.rooms).toEqual([room("r2", "general")]);
+  });
+});

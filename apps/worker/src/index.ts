@@ -1,4 +1,4 @@
-import { isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomList, type RoomSettings } from "@ember/protocol";
+import { CloseCode, isPasswordTooLong, isRoomId, parseNewRoom, parseRoomChanges, SIGN_IN_REFUSED, type Bootstrap, type NewRoomForm, type RoomId, type RoomList, type RoomSettings } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
@@ -15,7 +15,7 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
-import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
+import { AUTHORIZED_AT_HEADER, closedAtOnce, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
@@ -173,8 +173,9 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
   const credentials = await credentialsOf(request, env);
   const access = credentials && (await workspace(env).roomAccess(credentials, roomId));
   if (!access) return problem(401, "Sign in first");
-  // Without waking the room's object, so a room nobody may open is never created.
-  if (!access.member) return problem(404, ROOM_NOT_FOUND);
+  // Without waking the room's object, so a room nobody may open is never created. The app hears
+  // that the room is gone for this person, deleted or theirs no longer, and stops connecting.
+  if (!access.member) return closedAtOnce(CloseCode.NotFound);
 
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, JSON.stringify(access.user));

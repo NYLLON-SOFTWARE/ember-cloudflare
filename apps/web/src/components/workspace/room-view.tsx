@@ -1,8 +1,9 @@
+import { useEffect, useEffectEvent } from "react";
 import type { Invitation, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { useRoom } from "@/hooks/use-room";
 import type { Room } from "@/lib/api";
-import { Composer } from "./composer";
+import { Composer, RoomDeleted } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 
@@ -12,10 +13,17 @@ interface Props {
   invitation: Invitation | null;
   me: User;
   onSessionChanged: (me: User | null) => void;
+  /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
+  onGone: (room: Room) => void;
 }
 
-export function RoomView({ room, invitation, me, onSessionChanged }: Props) {
+export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
+  const gone = state.status === "gone";
+  const roomGone = useEffectEvent(() => onGone(room));
+  useEffect(() => {
+    if (gone) roomGone();
+  }, [gone]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
@@ -34,7 +42,7 @@ export function RoomView({ room, invitation, me, onSessionChanged }: Props) {
           </div>
         )}
         <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={messageActions} onLoadOlder={loadOlder} />
-        <Composer roomName={room.name} typing={typingUsers} disabled={state.status !== "open"} onSend={postMessage} onTyping={typing} />
+        {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.status !== "open"} onSend={postMessage} onTyping={typing} />}
       </main>
     </>
   );

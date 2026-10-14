@@ -146,6 +146,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so
   each grant selects from `users` or `rooms` inside its `INSERT`, one statement however many there
   are.
+- **Changing a room is one batch.** ember-rust saves a room's name and kind, then revises its
+  members in a second write (`crates/ember/src/controllers/rooms/closeds.rs`), so a failure between
+  the two leaves a private room with its old members. Ours renames the room, changes its kind, adds
+  and takes out its people and queues closing the sockets of everyone taken out in one batch, which
+  passes the members as one JSON value, so it binds the same few values however many there are.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace

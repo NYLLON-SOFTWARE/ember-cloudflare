@@ -63,10 +63,11 @@ export interface RoomSettings {
   people: RoomPerson[];
 }
 
-/** What `PATCH /api/rooms/<id>` changes in a room: so far its name. */
-export interface RoomChanges {
-  name?: string;
-}
+/**
+ * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, and who it's for,
+ * everyone or just the people `memberIds` names, which takes anyone else out of it.
+ */
+export type RoomChanges = { name?: string } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** The workspace, which first run creates. */
 export interface Account {
@@ -146,6 +147,12 @@ export const CloseCode = {
   Reconnect: 4001,
   /** Don't connect again: the person was removed from the workspace or banned, which ended all their sessions. */
   Revoked: 4003,
+  /**
+   * Don't connect again: the room isn't there for this person, who was taken out of it, or it was
+   * deleted. The Worker says so with a socket it closes at once, since a refused upgrade looks to the
+   * app like any network failure.
+   */
+  NotFound: 4004,
 } as const;
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
@@ -238,6 +245,8 @@ export const REACTIONS = [
 export const QUICK_REACTION_COUNT = 3;
 
 const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
+/** Whether `v` lists people's ids, as many as one request can name. */
+const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= MAX_LISTED_USERS && v.every(id);
 
 /** Trimmed, non-empty text no longer than `max`, or null. */
 const text = (v: unknown, max: number): string | null => {
@@ -323,18 +332,23 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   if (r.kind === "open") return { kind: r.kind, name };
   const memberIds = r.memberIds ?? [];
-  return Array.isArray(memberIds) && memberIds.length <= MAX_LISTED_USERS && memberIds.every(id)
-    ? { kind: r.kind, name, memberIds }
-    : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
-/** Parses an untrusted change to a room. Returns why it's refused instead of the changes. */
+/**
+ * Parses an untrusted change to a room. Returns why it's refused instead of the changes. Making a
+ * room private needs its members listed, even if that's nobody, since everyone left out is taken out.
+ */
 export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
   const r = data as Record<string, unknown>;
-  if (r.name === undefined) return {};
-  const name = text(r.name, MAX_ROOM_NAME_LENGTH);
-  return name ? { name } : `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
+  const name = r.name === undefined ? undefined : text(r.name, MAX_ROOM_NAME_LENGTH);
+  if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
+  const named = name === undefined ? {} : { name };
+  if (r.kind === undefined) return named;
+  if (r.kind === "open") return { ...named, kind: r.kind };
+  if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
+  return userIds(r.memberIds) ? { ...named, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Room, RoomId } from "@ember/protocol";
+import { CloseCode, type Room, type RoomId } from "@ember/protocol";
 import { listDurableObjectIds, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -18,12 +18,22 @@ async function listed(session: Session, ...ids: RoomId[]): Promise<Room[]> {
   return rooms.filter((room) => ids.includes(room.id));
 }
 
-/** Opens room `roomId`'s socket as `session`'s person, answering the status. */
-async function openSocket(roomId: RoomId, session: Session): Promise<number> {
+/**
+ * Opens room `roomId`'s socket as `session`'s person, answering what comes of it: "welcome" once the
+ * room lets it in, the code it's closed with at once, or the status of an upgrade that's refused.
+ */
+async function openSocket(roomId: RoomId, session: Session): Promise<"welcome" | number> {
   const response = await api(`/api/rooms/${roomId}/socket`, upgrade(session.cookie));
-  response.webSocket?.accept();
-  response.webSocket?.close(1000);
-  return response.status;
+  const ws = response.webSocket;
+  if (!ws) return response.status;
+  ws.accept();
+  return new Promise((resolve) => {
+    ws.addEventListener("message", () => {
+      resolve("welcome");
+      ws.close(1000);
+    });
+    ws.addEventListener("close", (event) => resolve(event.code));
+  });
 }
 
 /** Whether anything has created room `roomId`'s Durable Object. */
@@ -56,7 +66,7 @@ describe(feature("rooms.open"), () => {
 
   it("lets anyone signed in open an open room's socket", async () => {
     const room = await freshRoom("lobby");
-    expect(await openSocket(room, await signIn("Grace"))).toBe(101);
+    expect(await openSocket(room, await signIn("Grace"))).toBe("welcome");
   });
 
   it("never adds deactivated people", async () => {
@@ -81,16 +91,14 @@ describe(feature("rooms.open"), () => {
 });
 
 describe(feature("rooms.member-only-access"), () => {
-  it("opens a room's socket only for its members, without waking the room for anyone else", async () => {
+  it("opens a room's socket only for its members, telling anyone else it's not there without waking the room", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id] });
 
-    const refused = await api(`/api/rooms/${room.id}/socket`, upgrade(grace.cookie));
-    expect(refused.status).toBe(404);
-    expect(await refused.json()).toEqual({ error: "Room not found or inaccessible" });
+    expect(await openSocket(room.id, grace)).toBe(CloseCode.NotFound);
     expect(await roomObjectExists(room.id)).toBe(false);
 
-    expect(await openSocket(room.id, ada)).toBe(101);
+    expect(await openSocket(room.id, ada)).toBe("welcome");
   });
 
   it("lists only the rooms someone is in", async () => {
@@ -100,10 +108,10 @@ describe(feature("rooms.member-only-access"), () => {
     expect(await listed(grace, room.id)).toEqual([]);
   });
 
-  it("answers 404 for rooms that don't exist, and for ids that can't", async () => {
+  it("tells someone a room that doesn't exist isn't there, and answers 404 for ids that can't be rooms", async () => {
     const ada = await signIn("Ada");
     const missing = `nowhere-${crypto.randomUUID().slice(0, 8)}`;
-    expect(await openSocket(missing, ada)).toBe(404);
+    expect(await openSocket(missing, ada)).toBe(CloseCode.NotFound);
     expect(await roomObjectExists(missing)).toBe(false);
     for (const room of ["General", "-general", "a%2Fb", "%FF", "x".repeat(64)]) {
       expect(await openSocket(room, ada), room).toBe(404);
@@ -234,6 +242,6 @@ describe(feature("rooms.legacy-rooms"), () => {
     const room = await legacyRoom();
     const ada = await signIn("Ada");
     expect(await listed(ada, room.id)).toEqual([]);
-    expect(await openSocket(room.id, ada)).toBe(404);
+    expect(await openSocket(room.id, ada)).toBe(CloseCode.NotFound);
   });
 });

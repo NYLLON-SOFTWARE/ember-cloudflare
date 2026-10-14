@@ -1,8 +1,10 @@
 import { feature } from "@ember/parity";
-import type { NewRoomForm, RoomId, RoomSettings } from "@ember/protocol";
+import { CloseCode, type NewRoomForm, type Room, type RoomId, type RoomSettings, type UserId } from "@ember/protocol";
+import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ACTIVE_PEOPLE, ACTIVE_PEOPLE_IN_ROOM, ROOM_TO_CHANGE } from "../src/workspace-store";
-import { api, createRoom, freshDeploy, signIn, workspaceSql, type Session } from "./support";
+import type { Workspace } from "../src/workspace";
+import { ACTIVE_PEOPLE, ACTIVE_PEOPLE_IN_ROOM, QUEUE_MEMBER_REVOCATIONS, REVOKE_ROOM_FROM_OTHERS, ROOM_TO_CHANGE, type WorkspaceStore } from "../src/workspace-store";
+import { api, closeOf, connect, createRoom, freshDeploy, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 beforeEach(freshDeploy);
 
@@ -19,6 +21,25 @@ const change = (roomId: RoomId, session: Session, body: unknown) =>
 const promote = (session: Session) => workspaceSql("UPDATE users SET role = 1 WHERE id = ?", session.user.id);
 
 const nameOf = async (roomId: RoomId) => ((await workspaceSql("SELECT name FROM rooms WHERE id = ?", roomId)) as Array<{ name: string }>)[0]!.name;
+
+/** Who's in a room, by id. */
+const membersOf = async (roomId: RoomId) =>
+  ((await workspaceSql("SELECT user_id FROM memberships WHERE room_id = ? ORDER BY user_id", roomId)) as Array<{ user_id: UserId }>).map((row) => row.user_id);
+
+const ids = (...sessions: Session[]) => sessions.map((session) => session.user.id).sort();
+
+/** What becomes of a new socket into a room as `session`'s person: let in, or the code it's closed with at once. */
+async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | number> {
+  const ws = (await api(`/api/rooms/${roomId}/socket`, upgrade(session.cookie))).webSocket!;
+  ws.accept();
+  return new Promise((resolve) => {
+    ws.addEventListener("message", () => {
+      resolve("welcome");
+      ws.close(1000);
+    });
+    ws.addEventListener("close", (event) => resolve(event.code));
+  });
+}
 
 /** Adds a DM between `sessions`, as nothing else can yet. */
 async function direct(...sessions: Session[]): Promise<RoomId> {
@@ -126,7 +147,7 @@ describe(feature("rooms.edit-permissions"), () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Design", { as: ada });
 
-    for (const body of [{ name: "Mine now" }, { name: " " }]) {
+    for (const body of [{ name: "Mine now" }, { name: " " }, { kind: "closed" }]) {
       const response = await change(room.id, grace, body);
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Only administrators and the room's creator can change it" });
@@ -161,5 +182,111 @@ describe(feature("rooms.edit-permissions"), () => {
     });
     expect(crossSite.status).toBe(422);
     expect(await nameOf(room.id)).toBe("Design");
+  });
+});
+
+describe(feature("rooms.convert-access"), () => {
+  it("makes a private room open, adding everyone active and keeping members' notification levels", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id], as: ada });
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", linus.user.id);
+    await workspaceSql("UPDATE memberships SET involvement = 'everything' WHERE room_id = ? AND user_id = ?", room.id, ada.user.id);
+
+    const response = await change(room.id, ada, { kind: "open" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ room: { ...room, kind: "open" } satisfies Room });
+    expect(await membersOf(room.id)).toEqual(ids(ada, grace));
+    expect(await workspaceSql("SELECT involvement FROM memberships WHERE room_id = ? AND user_id = ?", room.id, ada.user.id)).toEqual([{ involvement: "everything" }]);
+    expect(await reconnect(room.id, grace)).toBe("welcome");
+  });
+
+  it("makes an open room private to the people chosen, closing everyone else's sockets there, who find it gone", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const [room, annex] = [await createRoom("Design", { as: ada }), await createRoom("Annex", { as: ada })];
+    const graceInRoom = await connect(room.id, grace);
+    const linusInRoom = await connect(room.id, linus);
+    const linusInAnnex = await connect(annex.id, linus);
+    const closed = closeOf(linusInRoom.ws);
+
+    const response = await change(room.id, ada, { name: "Leads", kind: "closed", memberIds: [ada.user.id, grace.user.id] });
+    expect(await response.json()).toEqual({ room: { ...room, name: "Leads", kind: "closed" } satisfies Room });
+    expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
+    expect(await reconnect(room.id, linus)).toBe(CloseCode.NotFound);
+    expect(await membersOf(room.id)).toEqual(ids(ada, grace));
+    expect(await workspaceSql("SELECT * FROM pending_revocations")).toEqual([]);
+
+    // Everyone else is still where they were.
+    expect((await post(graceInRoom, "Still here")).body).toBe("Still here");
+    expect((await post(linusInAnnex, "Still in the annex")).body).toBe("Still in the annex");
+    expect(await graceInRoom.next("presence.left")).toEqual({ type: "presence.left", userId: linus.user.id });
+    await settle(graceInRoom);
+  });
+});
+
+describe(feature("rooms.members"), () => {
+  it("adds and takes out a private room's people as its settings save them, adding anyone who exists", async () => {
+    const [ada, grace, linus, mary] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus"), await signIn("Mary")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", mary.user.id);
+
+    const memberIds = [ada.user.id, linus.user.id, mary.user.id, "nobody"];
+    const response = await change(room.id, ada, { name: "Leads", kind: "closed", memberIds });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ room });
+    expect(await membersOf(room.id)).toEqual(ids(ada, linus, mary));
+    expect(await workspaceSql("SELECT DISTINCT involvement FROM memberships WHERE room_id = ?", room.id)).toEqual([{ involvement: "mentions" }]);
+    expect(((await (await settings(room.id, linus)).json()) as RoomSettings).room).toEqual(room);
+    expect((await settings(room.id, grace)).status).toBe(404);
+  });
+
+  it("takes out whoever saves the room without themselves, who can't see it then", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [grace.user.id] })).status).toBe(200);
+    expect(await membersOf(room.id)).toEqual(ids(grace));
+    expect((await settings(room.id, ada)).status).toBe(404);
+    expect(await reconnect(room.id, ada)).toBe(CloseCode.NotFound);
+  });
+
+  it("queues nothing, and records no change, when everyone stays and nothing else changes", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    await workspaceSql("UPDATE rooms SET updated_at = 'then' WHERE id = ?", room.id);
+    const graceInRoom = await connect(room.id, grace);
+
+    expect((await change(room.id, ada, { name: "Leads", kind: "closed", memberIds: ids(ada, grace) })).status).toBe(200);
+    expect(await workspaceSql("SELECT updated_at FROM rooms WHERE id = ?", room.id)).toEqual([{ updated_at: "then" }]);
+    expect(await workspaceSql("SELECT * FROM pending_revocations")).toEqual([]);
+    expect((await post(graceInRoom, "Still here")).body).toBe("Still here");
+
+    expect((await change(room.id, ada, { name: "Leaders" })).status).toBe(200);
+    expect(await workspaceSql("SELECT updated_at FROM rooms WHERE id = ?", room.id)).not.toEqual([{ updated_at: "then" }]);
+  });
+
+  it("still closes the sockets of the people it takes out when the database saves the change but its answer is lost", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const changeRoom = store.changeRoom.bind(store);
+      store.changeRoom = async (...args) => {
+        await changeRoom(...args);
+        throw new Error("The database's answer was lost");
+      };
+    });
+
+    await expect(change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).rejects.toThrow("The database's answer was lost");
+    expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
+    expect(await reconnect(room.id, grace)).toBe(CloseCode.NotFound);
+  });
+
+  it("finds the people it takes out by the room's key", async () => {
+    const plan = async (query: string, ...params: Array<string | number>) =>
+      (await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
+    for (const query of [await plan(QUEUE_MEMBER_REVOCATIONS, CloseCode.Reconnect, 0, "room", "[]"), await plan(REVOKE_ROOM_FROM_OTHERS, "room", "[]")]) {
+      expect(query).toMatch(/SEARCH memberships USING (COVERING )?INDEX sqlite_autoindex_memberships_1 \(room_id=\?\)/);
+    }
   });
 });

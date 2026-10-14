@@ -310,7 +310,7 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to room `roomId` as the person `credentials` signs in, answering the room as it
    * is then: "not found" as for its settings, "forbidden" unless they can change it, or null without
-   * a valid session.
+   * a valid session. Anyone it takes out of the room is told to reconnect, and finds it gone.
    */
   async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<Room | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -318,9 +318,17 @@ export class Workspace extends DurableObject<Env> {
     const found = await this.store.roomToChange(roomId, user.id);
     if (!found) return "not found";
     if (!found.canAdminister) return "forbidden";
-    if (changes.name === undefined) return found.room;
-    await this.store.renameRoom(roomId, changes.name, new Date().toISOString());
-    return { ...found.room, name: changes.name };
+    const changed = { ...found.room, ...(changes.name && { name: changes.name }), ...(changes.kind && { kind: changes.kind }) };
+    if (!changes.name && !changes.kind) return changed;
+    const now = Date.now();
+    // As when signing out, until the database says it queued nothing.
+    let queued = changes.kind === "closed";
+    try {
+      queued = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
+    } finally {
+      if (queued) await this.wakeAt(now);
+    }
+    return changed;
   }
 
   /**
