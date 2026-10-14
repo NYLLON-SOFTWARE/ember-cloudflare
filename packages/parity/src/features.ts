@@ -674,7 +674,7 @@ export const features = [
     id: "rooms.icons",
     title: "Room icons",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.",
       "Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`\" coffee \"`, `\"Coffee\"`, `\"../coffee\"`, `\"<svg></svg>\"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.",
@@ -683,7 +683,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/src/helpers/icons.rs", "crates/assets/overrides/lucide/catalog.json", "crates/views/templates/rooms/show/_nav.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs", "crates/db/src/tests/room_test.rs"],
-    notes: "Every room shows `#` here.",
+    notes: "Only the catalog is here so far: ember-rust's `catalog.json` and its license, copied byte for byte, and `isRoomIcon` in the protocol, which takes exactly its 1,869 names and refuses the values ember-rust refuses. Rooms don't have icons yet, so every room shows `#`.",
   },
   {
     id: "rooms.icon-picker",
