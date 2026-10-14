@@ -125,6 +125,14 @@ describe(feature("unfurl.endpoint"), () => {
     }
   });
 
+  it("reads X and Twitter posts through fxtwitter.com, whatever the case of their host", async () => {
+    for (const url of ["https://X.com/dhh/status/1", "https://WWW.Twitter.COM/dhh/status/1"]) {
+      const { network, requests } = internetOf((request) => (request.method === "HEAD" ? image() : html(PAGE)));
+      expect(await unfurl(url, network), url).toEqual(PREVIEW);
+      expect(requests[0]!.url, url).toBe("https://fxtwitter.com/dhh/status/1");
+    }
+  });
+
   it("lets each person ask for 30 previews a minute", async () => {
     const [ada, bob] = await Promise.all([signIn("Ada"), signIn("Bob")]);
     for (let i = 0; i < 30; i++) expect((await unfurlRequest("http://127.0.0.1/", ada.cookie)).status).toBe(204);

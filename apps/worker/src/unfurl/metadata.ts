@@ -43,10 +43,13 @@ export async function linkPreview(outbound: Outbound, url: string): Promise<Link
   return { title, url: canonicalUrl, image, description };
 }
 
-/** `fetch_document`'s URL: X and Twitter posts are read from fxtwitter.com, which serves their tags. */
+/**
+ * `fetch_document`'s URL: X and Twitter posts are read from fxtwitter.com, which serves their tags.
+ * Their host matches in any case, where ember-rust only matches one written in lowercase.
+ */
 function pageUrl(url: string): string {
   const uri = parseHttpUri(url);
-  const post = uri !== null && TWITTER_HOSTS.has(uri.host) && uri.path !== "" && uri.path !== "/";
+  const post = uri !== null && TWITTER_HOSTS.has(uri.host.toLowerCase()) && uri.path !== "" && uri.path !== "/";
   return post ? uriToString({ ...uri, host: FX_TWITTER_HOST }) : url;
 }
 
