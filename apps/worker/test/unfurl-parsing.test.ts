@@ -90,7 +90,7 @@ describe(feature("unfurl.endpoint"), () => {
     expect(decodeUtf8OrLatin1(bytes("\x82\xa0"))).toBe("\x82\xa0");
     // A surrogate's encoding, an overlong one, and a sequence cut short are all Latin-1, byte by byte.
     expect(decodeUtf8OrLatin1(bytes("\xed\xa0\x80 \xc0\xaf \xe2\x82"))).toBe("\xed\xa0\x80 \xc0\xaf \xe2\x82");
-    expect(decodeUtf8OrLatin1(bytes("\xf0\x9f\x98\x80\xef\xbb\xbf"))).toBe("😀﻿");
+    expect(decodeUtf8OrLatin1(bytes("\xf0\x9f\x98\x80\xef\xbb\xbf"))).toBe("😀\uFEFF");
   });
 
   it("keeps a meta's property, name and content, the first of each, among its first 256 distinct attributes", () => {
@@ -142,8 +142,8 @@ describe(feature("unfurl.endpoint"), () => {
   it.each([
     ["Tom & Jerry", "Tom & Jerry"],
     ["a < b", "a < b"],
-    ["x&nbsp;y", "x y"],
-    [" nb", " nb"],
+    ["x&nbsp;y", "x\u00a0y"],
+    ["\u00a0nb", "\u00a0nb"],
     ["Hey!<script>alert('hi')</script>", "Hey!alert('hi')"],
     ["<!-- c -->t", "t"],
     ["a &lt;b&gt; c", "a <b> c"],
@@ -155,7 +155,7 @@ describe(feature("unfurl.endpoint"), () => {
     ["</script><img src=a onerror=prompt(1)>", ""],
     [" sp  ", " sp  "],
     ["<textarea>t<b>x</b></textarea>", "t<b>x</b>"],
-    ["﻿bom", "bom"],
+    ["\uFEFFbom", "bom"],
     ["<template>in <b>template</b></template>", "in template"],
   ])("strips the tags from %j as Rails does", (value, expected) => {
     expect(cleanText(value)).toBe(expected);

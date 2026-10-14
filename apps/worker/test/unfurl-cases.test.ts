@@ -43,7 +43,7 @@ const POST = { title: "DHH 😀 “quoted”", description: "tweet é" };
 const DIFFERENCES: Record<string, { why: string; preview: Partial<LinkPreview> | null; requests?: [] }> = {
   "entities are escaped": {
     why: "Titles and descriptions are plain text rather than HTML, and keep their non-ASCII characters without a meta charset.",
-    preview: { title: "Tom & Jerry <3  x", description: "a > b " },
+    preview: { title: "Tom & Jerry <3 \u00a0x", description: "a > b " },
   },
   "non-ascii stripped without meta charset": {
     why: "Pages keep their non-ASCII characters without a meta charset.",

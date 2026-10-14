@@ -112,7 +112,7 @@ export function cleanText(value: string): string | null {
   const body = defaultTreeAdapter.createElement("body", html.NS.HTML, []);
   try {
     // Gumbo drops a byte order mark at the start.
-    const fragment = parseFragment(body, truncate(value.replace(/^﻿/, "")), { scriptingEnabled: false, treeAdapter: limited });
+    const fragment = parseFragment(body, truncate(value.replace(/^\uFEFF/, "")), { scriptingEnabled: false, treeAdapter: limited });
     return textContent(fragment);
   } catch (error) {
     if (error instanceof TooComplex) return null;
