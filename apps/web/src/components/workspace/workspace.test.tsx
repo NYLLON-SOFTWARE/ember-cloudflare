@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, type Message, type Room, type RoomSettings } from "@ember/protocol";
+import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
@@ -53,7 +54,11 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 function showWorkspace(path = "/") {
   const [onSignOut, onSessionChanged] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  const { unmount } = render(<Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
+  const { unmount } = render(
+    <FlashProvider workspace>
+      <Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />
+    </FlashProvider>,
+  );
   return { onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
 }
 
@@ -403,16 +408,14 @@ describe(feature("rooms.member-only-access"), () => {
 });
 
 describe(feature("ui.flash"), () => {
-  it("alerts with what the server said when something fails, centered over the page", async () => {
+  it("alerts with what the server said when something fails", async () => {
     serve({
       "GET /api/rooms/new": () => Response.json({ people: [ada] }),
       "POST /api/rooms": () => Response.json({ error: "Name must be 1 to 100 characters" }, { status: 422 }),
     });
     const { user } = showWorkspace("/rooms/opens/new");
     await user.click(await screen.findByRole("button", { name: "Save" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Name must be 1 to 100 characters");
-    expect(alert.parentElement).toHaveClass("md:left-[calc((100%+var(--spacing-rail)+var(--spacing-sidebar))/2)]");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Name must be 1 to 100 characters");
   });
 
   it("says when Ember can't be reached", async () => {
