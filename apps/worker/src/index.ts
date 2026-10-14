@@ -19,6 +19,7 @@ import type { Env } from "./env";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
+import { showQrCode } from "./qr-code";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
 import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
@@ -202,6 +203,7 @@ export default {
     if (joinCode !== null) return joinPage(request, env, joinCode);
     const manifestFormat = manifestFormatOf(pathname);
     if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
+    if (pathname.startsWith("/qr_code/")) return showQrCode(request);
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

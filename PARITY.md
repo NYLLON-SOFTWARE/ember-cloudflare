@@ -13,12 +13,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 14 ported and 46 partial of 172 features; 107 not started, 5 not applicable.
+**Overall:** 14 ported and 48 partial of 172 features; 105 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 0 | 1 | 13 | 0 | 14 |
+| [Workspace administration](#workspace-administration) | 0 | 2 | 12 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 1 | 7 | 10 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 1 | 2 | 0 | 3 |
-| [Attachments](#attachments) | 0 | 0 | 10 | 1 | 11 |
+| [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 0 | 0 | 4 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 1 | 4 | 1 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
 | [Platform](#platform) | 4 | 3 | 4 | 4 | 15 |
-| **Total** | **14** | **46** | **107** | **5** | **172** |
+| **Total** | **14** | **48** | **105** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -225,7 +225,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Translation buttons | `accounts.translation-buttons` | Ember | ⬜ Not started |  |
 | Join link | `accounts.join-link` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ⬜ Not started |  |
-| QR codes for links | `accounts.qr-codes` | Campfire | ⬜ Not started |  |
+| QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | People list | `accounts.people` | Campfire | ⬜ Not started |  |
 | Make or revoke administrators | `accounts.roles` | Campfire | ⬜ Not started |  |
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
@@ -307,7 +307,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Share shows only where the browser can share, and shares "Link to join Ember" / "Hit this link to join me in Ember and start chatting." with the link.
 - The first room's welcome card offers the same link and buttons, without Regenerate.
 
-Note: Only the welcome card shows the link until workspace settings are ported, and there's no QR code until QR codes are (`accounts.qr-codes`). On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.
+Note: Only the welcome card shows the link until workspace settings are ported. On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.
 
 Sources: [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`reference/app/models/account/joinable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account/joinable.rb)
 
@@ -323,13 +323,15 @@ Sources: [`crates/ember/src/controllers/accounts/join_codes.rs`](https://github.
 
 ember-rust tests: [`reference/test/controllers/accounts/join_codes_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/join_codes_controller_test.rb)
 
-**QR codes for links** (`accounts.qr-codes`) ⬜
+**QR codes for links** (`accounts.qr-codes`) 🟡
 
 - `/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.
 - It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version="1.0" standalone="yes"?><svg`.
 - The code uses error correction level H, black 11-unit modules on a white background and no quiet zone, drawn byte for byte as rqrcode 3.2.0 does.
 - Text too long for the largest QR code, such as 3,000 bytes, answers 422.
 - The join link and sign-in link open their QR codes in the image viewer.
+
+Note: The welcome card's join link opens its QR code; workspace settings' join link and the sign-in link get theirs when those are ported (`accounts.join-link`, `auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.
 
 Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`reference/app/controllers/qr_code_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/qr_code_controller.rb)
 
@@ -709,7 +711,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Its buttons are "Show join link QR code", which opens the QR code in the image viewer, "Copy join link" and "Share join link"; the link can't be regenerated here.
 - Share appears only where the browser can share, and shares the title "Link to join Ember" with "Hit this link to join me in Ember and start chatting."
 
-Note: It shows Ember's flame until workspace logos are ported (`accounts.logo`), and has no QR code button until QR codes are (`accounts.qr-codes`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.
+Note: It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.
 
 Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_invitation.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs)
 
@@ -1302,7 +1304,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | 250 MB file limit | `attachments.size-limit` | Ember | ⬜ Not started |  |
 | Upload progress | `attachments.progress` | Ember | ⬜ Not started |  |
 | Image, video and file previews | `attachments.previews` | Campfire | ⬜ Not started |  |
-| Image viewer | `attachments.lightbox` | Campfire | ⬜ Not started |  |
+| Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
 | Download and share files | `attachments.download-share` | Ember | ⬜ Not started |  |
 | File links | `attachments.serving` | Campfire | ⬜ Not started |  |
@@ -1361,11 +1363,13 @@ Sources: [`reference/app/helpers/messages/attachment_presentation.rb`](https://g
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
-**Image viewer** (`attachments.lightbox`) ⬜
+**Image viewer** (`attachments.lightbox`) 🟡
 
 - Clicking an image opens the original file, not its thumbnail, in a dialog ("Image Viewer (Press escape to close)") over the blurred page, behind the page's own background color at 66% opacity.
 - Close ("Close image viewer") sits at the top right, Download ("Download file", hidden in the iOS home-screen app) at the bottom right and Share ("Share file", only where the browser can share) at the top left; Download and Share use the file's download link.
 - Escape or Close shuts it and clears it; clicking outside does nothing, and there's no zoom or paging.
+
+Note: Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's "/", ending the name `.svg+xml; charset=utf-8`.
 
 Sources: [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/_lightbox.html) · [`reference/app/javascript/controllers/lightbox_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/lightbox_controller.js) · [`reference/app/assets/stylesheets/lightbox.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/lightbox.css)
 
