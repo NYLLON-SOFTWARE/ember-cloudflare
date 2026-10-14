@@ -10,6 +10,9 @@ vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
 const ada = { id: "u1", name: "Ada" };
 const grace = { id: "u2", name: "Grace" };
+const JOIN_CODE = "aB3d-Ef5h-iJ7k";
+/** Where joining with Ada's email address sends the browser. */
+const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 const general = { id: "general", name: "general", kind: "open" };
 const allTalk = { id: "r1", name: "All Talk", kind: "open" };
 
@@ -72,9 +75,15 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
       signedIn = false;
       return new Response(null, { status: 204 });
     }
+    if (route === `POST /api/join/${JOIN_CODE}`) {
+      const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
+      if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
+      signedIn = true;
+      return Response.json({ user: grace }, { status: 201 });
+    }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: ada });
-    return Response.json({ rooms });
+    return Response.json({ rooms, invitation: null });
   });
 }
 
@@ -243,6 +252,46 @@ describe(feature("auth.sign-in"), () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REFUSED);
     expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
     expect(location.pathname).toBe("/session/new");
+  });
+});
+
+describe(feature("auth.sign-up"), () => {
+  const joinPage = () => screen.findByRole("heading", { name: "Join Ember" });
+
+  async function join(emailAddress: string) {
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Name"), "Grace");
+    await user.type(screen.getByLabelText("Email address"), emailAddress);
+    await user.type(screen.getByLabelText("Password"), "compiler{Enter}");
+  }
+
+  it("opens the join page for a join link, and goes home signed in once the account is made", async () => {
+    history.replaceState(null, "", `/join/${JOIN_CODE}`);
+    serve({ signedIn: false });
+    render(<App />);
+    expect(await joinPage()).toBeInTheDocument();
+    expect(location.pathname).toBe(`/join/${JOIN_CODE}`);
+
+    await join("grace@example.com");
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/");
+    expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace");
+  });
+
+  it("sends an email address that has an account to sign in with it", async () => {
+    history.replaceState(null, "", `/join/${JOIN_CODE}`);
+    serve({ signedIn: false });
+    render(<App />);
+    await join("ada@example.com");
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(ADA_SIGNS_IN));
+  });
+
+  it("sends someone who's signed in home from a join link, as ember-rust does", async () => {
+    history.replaceState(null, "", `/join/${JOIN_CODE}`);
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/");
   });
 });
 

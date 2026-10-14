@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 12 ported and 43 partial of 172 features; 112 not started, 5 not applicable.
+**Overall:** 13 ported and 45 partial of 172 features; 109 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 4 | 6 | 2 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 0 | 0 | 14 | 0 | 14 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
+| [Workspace administration](#workspace-administration) | 0 | 1 | 13 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 0 | 1 | 4 | 0 | 5 |
-| [Rooms](#rooms) | 1 | 6 | 11 | 0 | 18 |
+| [Rooms](#rooms) | 1 | 7 | 10 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 0 | 1 | 9 | 0 | 10 |
 | [Messages](#messages) | 2 | 8 | 9 | 0 | 19 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 1 | 9 | 1 | 0 | 11 |
 | [Platform](#platform) | 3 | 2 | 6 | 4 | 15 |
-| **Total** | **12** | **43** | **112** | **5** | **172** |
+| **Total** | **13** | **45** | **109** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -50,8 +50,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | Stay signed in, per device | `auth.sessions` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Private sign-in link | `auth.sign-in-link` | Campfire | ⬜ Not started |  |
-| Sign up with the join link | `auth.sign-up` | Ember | ⬜ Not started |  |
-| Help contact on sign-in pages | `auth.help-contact` | Campfire | 🟡 Partial | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign up with the join link | `auth.sign-up` | Ember | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Help contact on sign-in pages | `auth.help-contact` | Campfire | ✅ Ported | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Forgery protection without tokens | `auth.csrf` | Ember | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts) |
 
 <details>
@@ -68,7 +68,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 - Simultaneous submissions create exactly one account and administrator; the others are redirected to `/` without being signed in.
 - The page follows a saved appearance, or the device's, before it paints, and has no appearance picker.
 
-Note: There's no photo picker until profile photos are stored, and All Talk doesn't say "Welcome to Ember" until the welcome card is ported. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.
+Note: There's no photo picker until profile photos are stored. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.
 
 Sources: [`crates/views/templates/first_runs/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/first_runs/show.html) · [`crates/views/templates/components/ui.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/ui.html) · [`crates/assets/overrides/basecoat/src/password.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/password.js) · [`crates/ember/src/controllers/first_runs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/first_runs.rs) · [`crates/db/src/models/first_run.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/first_run.rs) · [`reference/app/models/first_run.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/first_run.rb)
 
@@ -111,7 +111,6 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The sign-in page offers "No account? Join with just a name", which asks only for the name people will see (1 to 48 characters, trimmed) and then opens the page asked for, or the first room; "Have an account? Sign in" goes back.
 - `POST /api/session` with a `name` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason; without one it's an email sign-in (`auth.sign-in`). Everyone who signs in is someone new, even with a name already in use.
 - It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `"true"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on; the preview doesn't, since its administrator signs in with a password.
-- It stands in for joining until join links are ported (`auth.sign-up`).
 
 **Sign-in attempt limit** (`auth.rate-limit`) ✅
 
@@ -132,7 +131,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - A missing, tampered or forged session cookie counts as signed out, and so does one whose session was deleted by signing out, removal, a ban or a password reset.
 - Signed-in people who open a join link, or post to one, go to `/` instead.
 
-Note: The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.
+Note: The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet. The Worker redirects a signed-in person's join link to `/`, and the join form's post answers them 409 naming `/`, which the page then loads.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -174,7 +173,7 @@ Sources: [`crates/ember/src/controllers/sessions/transfers.rs`](https://github.c
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/sessions/transfers_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions/transfers_controller_test.rb)
 
-**Sign up with the join link** (`auth.sign-up`) ⬜
+**Sign up with the join link** (`auth.sign-up`) 🟡
 
 - `/join/<current code>` (titled "Sign up") shows "Join &lt;workspace name&gt;" / "Create your account and join the conversation.", an optional photo ("Your profile photo", "Upload photo", "Optional"), Name, Email address and Password (each with its label as placeholder; the password up to 72 characters), Create account, "Already have an account? Sign in" and the help contact.
 - Any other code answers 404 with an empty body, and every join URL fails with 500 while there's no workspace.
@@ -182,16 +181,18 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - An email that already has an account redirects to `/session/new?email_address=<email>` (escaped, so `@` becomes `%40`) and creates nothing.
 - The server doesn't check the password's length, so an empty one is accepted if the browser doesn't stop it, leaving an account that can never sign in with a password; a missing name fails with 500.
 
+Note: There's no photo until profile photos are stored (`users.avatar-upload`), and it shows Ember's flame until workspace logos are ported (`accounts.logo`). The Worker serves the page, the app's own, only for the current code; the form posts JSON to `/api/join/<code>` and opens the first room without reloading. Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 "Password can't be blank." rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.
+
 Sources: [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users.rs) · [`crates/views/templates/users/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/new.html) · [`reference/app/controllers/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users_controller.rb)
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Help contact on sign-in pages** (`auth.help-contact`) 🟡
+**Help contact on sign-in pages** (`auth.help-contact`) ✅
 
 - The sign-in and join pages end with a mail button for the first administrator, showing their email address with a lifebuoy icon, titled "Email &lt;name&gt;" and linking to `mailto:"<name>" <<email>>`, then "Ember™ version &lt;version&gt;"; both are left out when there's no administrator.
 - The first administrator is the earliest-created one, whatever their status, so a removed one still shows, with their scrambled email address.
 
-Note: Only the sign-in page has it until the join page is ported (`auth.sign-up`). Nobody can be removed yet, so no scrambled address shows.
+Note: Nobody can be removed yet, so no scrambled address shows.
 
 Sources: [`crates/views/templates/accounts/_help_contact.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_help_contact.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`reference/app/views/accounts/_help_contact.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/_help_contact.html.erb)
 
@@ -222,7 +223,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Workspace logo | `accounts.logo` | Ember | ⬜ Not started |  |
 | Custom CSS | `accounts.custom-css` | Ember | ⬜ Not started |  |
 | Translation buttons | `accounts.translation-buttons` | Ember | ⬜ Not started |  |
-| Join link | `accounts.join-link` | Campfire | ⬜ Not started |  |
+| Join link | `accounts.join-link` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ⬜ Not started |  |
 | QR codes for links | `accounts.qr-codes` | Campfire | ⬜ Not started |  |
 | People list | `accounts.people` | Campfire | ⬜ Not started |  |
@@ -298,13 +299,15 @@ Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/first-run.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/first-run.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Join link** (`accounts.join-link`) ⬜
+**Join link** (`accounts.join-link`) 🟡
 
 - The workspace has one join code of 12 random letters and digits in groups of four (`XXXX-XXXX-XXXX`), made with the account and kept until an administrator regenerates it.
 - Workspace settings shows everyone the absolute link `https://<host>/join/<code>` in a read-only field labeled "Share to invite more people".
 - Its buttons read "Show join link QR code", "Copy join link" and "Share join link" to screen readers. Copy writes the link and flashes a success state on every click, failing silently if the clipboard refuses.
 - Share shows only where the browser can share, and shares "Link to join Ember" / "Hit this link to join me in Ember and start chatting." with the link.
 - The first room's welcome card offers the same link and buttons, without Regenerate.
+
+Note: Only the welcome card shows the link until workspace settings are ported, and there's no QR code until QR codes are (`accounts.qr-codes`). On touch screens the link is 16px rather than 13px, so iOS doesn't zoom in when it's tapped.
 
 Sources: [`crates/views/templates/accounts/_invite.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/_invite.html) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`reference/app/models/account/joinable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account/joinable.rb)
 
@@ -505,7 +508,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Room icons | `rooms.icons` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Web: [catalog](apps/web/src/components/icons/catalog.test.ts) |
 | Room icon picker | `rooms.icon-picker` | Ember | ⬜ Not started |  |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ⬜ Not started |  |
-| Welcome and invite card | `rooms.invitation-card` | Campfire | ⬜ Not started |  |
+| Welcome and invite card | `rooms.invitation-card` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Only members see a room | `rooms.member-only-access` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts) |
 | Rooms from before memberships | `rooms.legacy-rooms` | This port | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts) |
 
@@ -699,14 +702,14 @@ Sources: [`crates/assets/overrides/ember/settings.js`](https://github.com/NYLLON
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
-**Welcome and invite card** (`rooms.invitation-card`) ⬜
+**Welcome and invite card** (`rooms.invitation-card`) 🟡
 
 - The workspace's oldest room, of any kind, shows "Welcome to Ember" / "To invite people to chat, share the join link below." while it holds 40 messages or fewer; no other room shows it. The card comes with the page, so it stays until a reload.
 - It shows the workspace logo, or Ember's mark when there's none, and the absolute join link (`https://<host>/join/<code>`) in a read-only field labelled "Share to invite more people" for screen readers.
 - Its buttons are "Show join link QR code", which opens the QR code in the image viewer, "Copy join link" and "Share join link"; the link can't be regenerated here.
 - Share appears only where the browser can share, and shares the title "Link to join Ember" with "Hit this link to join me in Ember and start chatting."
 
-Note: Every empty room here shows its own welcome instead (`ui.empty-room`).
+Note: It shows Ember's flame until workspace logos are ported (`accounts.logo`), and has no QR code button until QR codes are (`accounts.qr-codes`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.
 
 Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_invitation.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs)
 
@@ -2185,6 +2188,7 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 **Empty room** (`ui.empty-room`) ✅
 
 - A room nobody has written in says "Welcome to #&lt;room&gt;" and "This is the very beginning of the room. Say hello!"
+- The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).
 
 **Select a field's text on entry** (`ui.select-on-entry`) ⬜
 

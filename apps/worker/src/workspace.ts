@@ -1,11 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import { isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type User, type UserId } from "@ember/protocol";
+import { isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type RoomList, type User, type UserId } from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { FixedWindowLimit } from "./rate-limit";
 import { SessionCache } from "./session-cache";
-import { WorkspaceStore, type Client, type NewAdministrator, type StoredSession } from "./workspace-store";
+import { WorkspaceStore, type Client, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -42,6 +42,14 @@ function newJoinCode(): string {
   return code.match(/.{4}/g)!.join("-");
 }
 
+const encoder = new TextEncoder();
+
+/** Whether `code` is the join code, compared in constant time. Every code is as long as the next, so that much needn't be hidden. */
+function isCode(code: string, joinCode: string): boolean {
+  const [given, expected] = [encoder.encode(code), encoder.encode(joinCode)];
+  return given.length === expected.length && crypto.subtle.timingSafeEqual(given, expected);
+}
+
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
 
@@ -54,8 +62,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
-  /** The account once it exists. Nothing deletes it, so once read it needn't be read again. */
-  private knownAccount: Account | null = null;
+  /** The account once it exists. Nothing deletes it or changes its join code yet, so once read it needn't be read again. */
+  private knownAccount: JoinableAccount | null = null;
   /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
   private knownHelpContact: HelpContact | null | undefined;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
@@ -77,9 +85,20 @@ export class Workspace extends DurableObject<Env> {
     await this.db.all("SELECT 1");
   }
 
-  /** The workspace's account, or null until first run creates it. */
+  /** The workspace's account, or null until first run creates it. Its join code is only for the people in it. */
   async account(): Promise<Account | null> {
+    const account = await this.joinableAccount();
+    return account && { name: account.name };
+  }
+
+  private async joinableAccount(): Promise<JoinableAccount | null> {
     return (this.knownAccount ??= await this.store.account());
+  }
+
+  /** Whether `code` is the workspace's join code, which it can't be before first run. */
+  async isJoinCode(code: string): Promise<boolean> {
+    const account = await this.joinableAccount();
+    return account !== null && isCode(code, account.joinCode);
   }
 
   /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
@@ -101,7 +120,7 @@ export class Workspace extends DurableObject<Env> {
    * Creates the workspace, its first administrator, the open room All Talk and the session their
    * cookie's token opens, as ember-rust's first run does. Answers null if the workspace exists.
    */
-  async createWorkspace(administrator: Omit<NewAdministrator, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
+  async createWorkspace(administrator: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
     if (await this.account()) return null;
     const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: administrator.name }, guest: false, lastActiveAt: Date.now() };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
@@ -114,10 +133,27 @@ export class Workspace extends DurableObject<Env> {
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name };
+    this.knownAccount = { name: account.name, joinCode: account.joinCode };
     this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
     return { user: session.user, room };
+  }
+
+  /**
+   * Adds someone who joined with the join link as a member, in every open room, and the session their
+   * cookie's token opens, as ember-rust's `users#create` does. Answers null if someone already has
+   * their email address.
+   */
+  async join(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<User | null> {
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, guest: false, lastActiveAt: Date.now() };
+    try {
+      await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+    } catch (error) {
+      if (await this.store.hasEmailAddress(person.emailAddress)) return null;
+      throw error;
+    }
+    this.sessions.remember(tokenDigest, session);
+    return session.user;
   }
 
   /**
@@ -174,10 +210,16 @@ export class Workspace extends DurableObject<Env> {
     return session && { sessionId: session.id, rooms: await this.store.roomIdsFor(session.user.id) };
   }
 
-  /** The rooms the person `credentials` signs in is in, or null without a valid session. */
-  async rooms(credentials: Credentials): Promise<Room[] | null> {
+  /**
+   * The rooms the person `credentials` signs in is in, with the welcome card's invitation if they're
+   * in the workspace's first room, or null without a valid session.
+   */
+  async rooms(credentials: Credentials): Promise<RoomList | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.roomsFor(user.id);
+    if (!user) return null;
+    const [{ rooms, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
+    return { rooms, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
   }
 
   /** Creates a room as the person `credentials` signs in, or answers null without a valid session. */

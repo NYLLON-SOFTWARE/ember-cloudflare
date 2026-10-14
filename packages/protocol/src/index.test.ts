@@ -11,8 +11,8 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseClientFrame,
-  parseFirstRun,
   parseNewRoom,
+  parseSignUp,
   ROOM_ICON_NAMES,
 } from "./index";
 
@@ -131,7 +131,7 @@ describe(feature("rooms.create-closed"), () => {
 
 describe(feature("auth.first-run"), () => {
   it("takes a name, an email address and a password, trimming only the name", () => {
-    expect(parseFirstRun({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
+    expect(parseSignUp({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
       name: "Ada Lovelace",
       emailAddress: "ada@example.com",
       password: " secret  words ",
@@ -146,7 +146,7 @@ describe(feature("auth.first-run"), () => {
     ["no password", { name: "Ada", emailAddress: "ada@example.com" }, "Name, email address and password are required"],
     ["a password that isn't text", { name: "Ada", emailAddress: "ada@example.com", password: 12345678 }, "Name, email address and password are required"],
   ])("refuses %s and says why", (_, body, error) => {
-    expect(parseFirstRun(body)).toBe(error);
+    expect(parseSignUp(body)).toBe(error);
   });
 
   it("counts a password's characters, not its bytes or UTF-16 units", () => {

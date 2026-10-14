@@ -1,4 +1,4 @@
-import type { Account, HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
+import type { HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
@@ -19,14 +19,19 @@ const ADMINISTRATOR = 1;
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
-/** The account first run creates. */
-export interface NewAccount extends Account {
-  id: string;
+/** The workspace's account, with the code in its join link, which only the people in it see. */
+export interface JoinableAccount {
+  name: string;
   joinCode: string;
 }
 
-/** The person first run makes the workspace's first administrator. */
-export interface NewAdministrator {
+/** The account first run creates. */
+export interface NewAccount extends JoinableAccount {
+  id: string;
+}
+
+/** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
+export interface NewPerson {
   id: UserId;
   name: string;
   emailAddress: string;
@@ -74,6 +79,13 @@ const storedSession = (row: SessionRow): StoredSession => ({
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.name COLLATE NOCASE, rooms.id`;
 
+/**
+ * The workspace's first room, where the welcome card shows, as ember-rust's `Room::original` finds it
+ * (room.rs). Ids sort in the order rooms were made, so the primary key's index finds it at once, and
+ * rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have no creator and are passed over.
+ */
+export const ORIGINAL_ROOM = `SELECT id FROM rooms WHERE creator_id IS NOT NULL ORDER BY id LIMIT 1`;
+
 /** Whether someone is in a room, asked on every room socket's upgrade. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
 
@@ -102,9 +114,9 @@ export class WorkspaceStore {
   constructor(private readonly db: Db) {}
 
   /** The workspace's account, or null until first run creates it. */
-  async account(): Promise<Account | null> {
-    const [account] = await this.db.all<Account>(`SELECT name FROM accounts`);
-    return account ?? null;
+  async account(): Promise<JoinableAccount | null> {
+    const [row] = await this.db.all<{ name: string; join_code: string }>(`SELECT name, join_code FROM accounts`);
+    return row ? { name: row.name, joinCode: row.join_code } : null;
   }
 
   /**
@@ -115,7 +127,7 @@ export class WorkspaceStore {
    */
   async createWorkspace(
     account: NewAccount,
-    administrator: NewAdministrator,
+    administrator: NewPerson,
     room: Pick<Room, "id" | "name">,
     sessionId: string,
     tokenDigest: string,
@@ -138,6 +150,32 @@ export class WorkspaceStore {
       statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
     ]);
+  }
+
+  /**
+   * Adds someone who joined with the join link as a member, with their session, in every open room,
+   * as ember-rust's `User::create` does (user.rs). If someone has their email address already, the
+   * address's unique index refuses the first statement, and so the whole batch.
+   */
+  async createMember(person: NewPerson, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
+    await this.db.batch([
+      statement(
+        `INSERT INTO users (id, name, email_address, password_digest, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        person.id,
+        person.name,
+        person.emailAddress,
+        person.passwordDigest,
+        now,
+        now,
+      ),
+      statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+    ]);
+  }
+
+  /** Whether anyone has exactly this email address, whatever their status. */
+  async hasEmailAddress(emailAddress: string): Promise<boolean> {
+    return (await this.db.all(`SELECT 1 FROM users WHERE email_address = ?`, emailAddress)).length > 0;
   }
 
   /** Adds a guest, who has a name but no way to sign in again, together with their session and open rooms. */
@@ -203,8 +241,10 @@ export class WorkspaceStore {
     await this.db.run(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest);
   }
 
-  async roomsFor(userId: UserId): Promise<Room[]> {
-    return this.db.all<Room>(ROOMS_FOR_USER, userId);
+  /** The rooms someone is in, and the workspace's first room, if there is one yet. */
+  async roomsFor(userId: UserId): Promise<{ rooms: Room[]; originalRoomId: RoomId | null }> {
+    const [rooms, [original]] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(ORIGINAL_ROOM)])) as [Room[], Array<{ id: RoomId }>];
+    return { rooms, originalRoomId: original?.id ?? null };
   }
 
   /** The ids of the rooms someone is in. */

@@ -12,6 +12,13 @@ test("an empty room fits the phone", async ({ page, room, screenIsFine }) => {
   await screenIsFine();
 });
 
+test("the welcome card fits the phone", async ({ page, room, screenIsFine }) => {
+  await isolateRoom(page, room, { joinCode: "aB3d-Ef5h-iJ7k" });
+  await openRoom(page, room);
+  await expect(page.getByRole("heading", { name: "Welcome to Ember" })).toBeVisible();
+  await screenIsFine();
+});
+
 test("a busy room fits the phone", async ({ page, room, participant, screenIsFine }) => {
   const ada = await participant("Ada");
   const longName = await participant("Bartholomew Featherstonehaugh-Montgomery III");

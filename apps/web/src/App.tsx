@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bootstrap, NewWorkspace, User } from "@ember/protocol";
+import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { Workspace } from "@/components/workspace/workspace";
-import { navigate, useIsAt } from "@/hooks/use-route";
+import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { loadPage } from "@/lib/page";
 import { forgetReturnPath, rememberThisPage, takeReturnPath } from "@/lib/return-path";
@@ -20,6 +21,7 @@ export function App() {
   const [me, setMe] = useState<User | null>(null);
   // As in ember-rust, the sign-in page opens even for someone who's signed in.
   const atSignIn = useIsAt(SIGN_IN_PATH);
+  const joinCode = useJoinRoute();
   const signingOut = useRef(false);
 
   useEffect(() => {
@@ -34,8 +36,11 @@ export function App() {
           // Until Ember is set up, every page is setup's, which the Worker serves or keeps locked.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(null, "", "/");
+          // The join page is for someone signed out, as in ember-rust, which sends anyone else home.
+          const atJoin = joinCodeFromPath(location.pathname) !== null;
+          if (user && atJoin) navigate("/", { replace: true });
           // Someone signed out goes to sign in, and comes back here afterwards.
-          if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH) {
+          if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin) {
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }
@@ -79,6 +84,11 @@ export function App() {
       () => void (signingOut.current = false),
     );
   }, []);
+  // As in ember-rust, someone who joins goes home, signed in.
+  const joined = useCallback((user: User) => {
+    navigate("/", { replace: true });
+    setMe(user);
+  }, []);
   const setUp = useCallback(({ user }: NewWorkspace) => {
     setMe(user);
     setWorkspace((workspace) => workspace && { ...workspace, setup: "complete" });
@@ -88,5 +98,6 @@ export function App() {
   if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
   // Someone else's workspace starts afresh, with their own rooms and sockets.
   if (me && !atSignIn) return <Workspace key={me.id} me={me} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
+  if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
   return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
 }
