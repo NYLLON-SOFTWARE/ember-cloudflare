@@ -8,8 +8,8 @@ import { Workspace } from "./workspace";
 
 const ada = { id: "u1", name: "Ada" };
 const rooms: Room[] = [
-  { id: "general", name: "general", kind: "open" },
-  { id: "random", name: "random", kind: "open" },
+  { id: "general", name: "general", kind: "open", icon: null },
+  { id: "random", name: "random", kind: "open", icon: null },
 ];
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
 
@@ -88,7 +88,7 @@ describe(feature("rooms.show"), () => {
 
 describe(feature("rooms.create-open"), () => {
   it("makes a room from workspace settings, lists it in its place by name, and opens it", async () => {
-    const design: Room = { id: "design", name: "Design", kind: "open" };
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
       "GET /api/rooms/new": () => Response.json({ people: [ada] }),
       "POST /api/rooms": () => Response.json({ room: design }, { status: 201 }),
@@ -108,7 +108,7 @@ describe(feature("rooms.create-open"), () => {
   });
 
   it("lists a room made before the room list arrived, which the list may not have yet", async () => {
-    const design: Room = { id: "design", name: "Design", kind: "open" };
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     let answer = (_: Response) => {};
     serve({
       "GET /api/rooms": () => new Promise((resolve) => (answer = resolve)),
@@ -169,7 +169,7 @@ describe(feature("rooms.edit-permissions"), () => {
 
 describe(feature("rooms.members"), () => {
   it("goes home with ember-rust's alert when you save a room without yourself, and it leaves the sidebar", async () => {
-    const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed" };
+    const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
       "GET /api/rooms": () => Response.json({ rooms: [...rooms, leadsRoom] }),
       "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),

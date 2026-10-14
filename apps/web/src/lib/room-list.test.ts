@@ -3,7 +3,7 @@ import type { Room, RoomList } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
 
-const room = (id: string, name: string): Room => ({ id, kind: "open", name });
+const room = (id: string, name: string): Room => ({ id, kind: "open", name, icon: null });
 
 describe(feature("rooms.create-open"), () => {
   it("puts a new room in its place by name, as the server lists rooms", () => {

@@ -169,7 +169,7 @@ export class Workspace extends DurableObject<Env> {
     if (await this.account()) return null;
     const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: administrator.name }, guest: false, lastActiveAt: Date.now() };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
-    const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME };
+    const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME, icon: null };
     const now = new Date(session.lastActiveAt).toISOString();
     try {
       await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, room, session.id, tokenDigest, client, now);
@@ -287,7 +287,7 @@ export class Workspace extends DurableObject<Env> {
   async createRoom(credentials: Credentials, room: NewRoom): Promise<Room | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const created: Room = { id: sortableId(), kind: room.kind, name: room.name };
+    const created: Room = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
     await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
     return created;
   }
@@ -321,8 +321,13 @@ export class Workspace extends DurableObject<Env> {
       const found = await this.store.roomToChange(roomId, user.id);
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
-      const changed = { ...found.room, ...(changes.name && { name: changes.name }), ...(changes.kind && { kind: changes.kind }) };
-      if (!changes.name && !changes.kind) return changed;
+      const changed: Room = {
+        ...found.room,
+        ...(changes.name && { name: changes.name }),
+        ...(changes.kind && { kind: changes.kind }),
+        ...(changes.icon !== undefined && { icon: changes.icon || null }),
+      };
+      if (!changes.name && !changes.kind && changes.icon === undefined) return changed;
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
       let queued = changes.kind === "closed";

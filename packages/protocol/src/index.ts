@@ -19,11 +19,19 @@ export type RoomKind = "open" | "closed" | "direct";
 /** A room's icon: the name of one of the Lucide icons in ember-rust's catalog. */
 export type RoomIconName = (typeof ROOM_ICON_NAMES)[number];
 
+/**
+ * A room's icon as New room and a room's settings send it, as ember-rust's forms send `room[icon]`:
+ * an icon's name, or "" for the default `#`.
+ */
+export type RoomIconChoice = RoomIconName | "";
+
 /** A room someone is in, as their room list shows it. */
 export interface Room {
   id: RoomId;
   kind: RoomKind;
   name: string;
+  /** Null for the default `#`, which DMs always have. */
+  icon: RoomIconName | null;
 }
 
 /**
@@ -41,8 +49,11 @@ export interface RoomList {
   invitation: Invitation | null;
 }
 
-/** A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names. */
-export type NewRoom = { kind: "open"; name: string } | { kind: "closed"; name: string; memberIds: UserId[] };
+/**
+ * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
+ * Without an icon, it has the default `#`.
+ */
+export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
@@ -64,10 +75,10 @@ export interface RoomSettings {
 }
 
 /**
- * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, and who it's for,
- * everyone or just the people `memberIds` names, which takes anyone else out of it.
+ * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, and who
+ * it's for, everyone or just the people `memberIds` names, which takes anyone else out of it.
  */
-export type RoomChanges = { name?: string } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** The workspace, which first run creates. */
 export interface Account {
@@ -323,6 +334,17 @@ export function isRoomIcon(value: unknown): value is RoomIconName {
   return typeof value === "string" && roomIconNames.has(value);
 }
 
+const ICON_REFUSED = 'Icon must be one of the room icons, or "" for the default';
+
+/**
+ * A room's icon as ember-rust's `parse_room_icon` takes it (rooms.rs): undefined when it's left out,
+ * which keeps the icon, or null when it's neither "" nor exactly an icon's name.
+ */
+function iconChoice(value: unknown): RoomIconChoice | null | undefined {
+  if (value === undefined) return undefined;
+  return value === "" || isRoomIcon(value) ? value : null;
+}
+
 /** Parses an untrusted request to create a room. Returns why it's refused instead of the room. */
 export function parseNewRoom(data: unknown): NewRoom | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
@@ -330,9 +352,11 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (r.kind !== "open" && r.kind !== "closed") return 'Kind must be "open" or "closed"';
   const name = text(r.name, MAX_ROOM_NAME_LENGTH);
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
-  if (r.kind === "open") return { kind: r.kind, name };
+  const icon = iconChoice(r.icon);
+  if (icon === null) return ICON_REFUSED;
+  if (r.kind === "open") return { kind: r.kind, name, icon };
   const memberIds = r.memberIds ?? [];
-  return userIds(memberIds) ? { kind: r.kind, name, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, icon, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**
@@ -344,11 +368,13 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   const r = data as Record<string, unknown>;
   const name = r.name === undefined ? undefined : text(r.name, MAX_ROOM_NAME_LENGTH);
   if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
-  const named = name === undefined ? {} : { name };
-  if (r.kind === undefined) return named;
-  if (r.kind === "open") return { ...named, kind: r.kind };
+  const icon = iconChoice(r.icon);
+  if (icon === null) return ICON_REFUSED;
+  const changes = { name, icon };
+  if (r.kind === undefined) return changes;
+  if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
-  return userIds(r.memberIds) ? { ...named, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(r.memberIds) ? { ...changes, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**

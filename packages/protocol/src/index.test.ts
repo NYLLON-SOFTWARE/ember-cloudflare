@@ -93,6 +93,20 @@ describe(feature("rooms.icons"), () => {
     const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
     expect(values.filter(isRoomIcon)).toEqual([]);
   });
+
+  it('takes a new or changed room\'s icon, "" for the default, or none, which keeps the one it has', () => {
+    expect(parseNewRoom({ kind: "open", name: "Design", icon: "coffee" })).toEqual({ kind: "open", name: "Design", icon: "coffee" });
+    expect(parseNewRoom({ kind: "closed", name: "Leads", icon: "" })).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [] });
+    expect(parseRoomChanges({ icon: "rocket" })).toEqual({ icon: "rocket" });
+    expect(parseRoomChanges({ icon: "", kind: "open" })).toEqual({ icon: "", kind: "open" });
+    expect(parseRoomChanges({ name: "Design" })).toHaveProperty("icon", undefined);
+  });
+
+  it.each(["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", null, true, []])("refuses the icon %j, as ember-rust answers 422", (icon) => {
+    const refused = 'Icon must be one of the room icons, or "" for the default';
+    expect(parseNewRoom({ kind: "open", name: "Design", icon })).toBe(refused);
+    expect(parseRoomChanges({ name: "Design", icon })).toBe(refused);
+  });
 });
 
 describe(feature("rooms.create-open"), () => {

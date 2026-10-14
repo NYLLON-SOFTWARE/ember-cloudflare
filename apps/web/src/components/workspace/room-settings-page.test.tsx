@@ -13,8 +13,8 @@ import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
 const linus = { id: "u3", name: "Linus Torvalds" };
-const design: Room = { id: "design", name: "Design", kind: "open" };
-const leads: Room = { id: "leads", name: "Leads", kind: "closed" };
+const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+const leads: Room = { id: "leads", name: "Leads", kind: "closed", icon: "lock" };
 
 const openSettings = (canAdminister = true): RoomSettings => ({
   room: design,
@@ -125,7 +125,7 @@ describe(feature("rooms.settings-page"), () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
     const [path, init] = vi.mocked(fetch).mock.calls.at(-1)!;
     expect(path).toBe("/api/rooms/design");
-    expect(JSON.parse(init!.body as string)).toEqual({ name: "Product design", kind: "open" });
+    expect(JSON.parse(init!.body as string)).toEqual({ name: "Product design", icon: "", kind: "open" });
     expect(location.pathname).toBe("/rooms/design");
   });
 
@@ -171,6 +171,24 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
+describe(feature("rooms.icon-picker"), () => {
+  it("starts with the room's icon, and saves the one chosen", async () => {
+    const saved = { ...leads, icon: null };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input).endsWith("catalog.json")) return Response.json([{ name: "lock", label: "Lock", svg: "<svg></svg>" }]);
+      return init?.method === "PATCH" ? Response.json({ room: saved }) : Response.json(closedSettings);
+    });
+    const { onSaved, user } = showPage(leads);
+    expect(await screen.findByRole("button", { name: "Choose room icon" })).toHaveTextContent("Lock");
+    await user.click(screen.getByRole("button", { name: "Choose room icon" }));
+    await user.click(await screen.findByRole("button", { name: "Use default icon" }));
+    await user.click(screen.getByRole("button", { name: "Use icon" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    expect(sent()).toEqual({ name: "Leads", icon: "", kind: "closed", memberIds: [ada.id, linus.id] });
+  });
+});
+
 describe(feature("rooms.convert-access"), () => {
   it("makes an open room private in place, keeping the name, with everyone in it switched on", async () => {
     serve(openSettings(), { saved: { ...design, name: "Leads", kind: "closed" } });
@@ -187,7 +205,7 @@ describe(feature("rooms.convert-access"), () => {
     await user.click(accessSwitch(grace));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...design, name: "Leads", kind: "closed" }));
-    expect(sent()).toEqual({ name: "Leads", kind: "closed", memberIds: [ada.id, linus.id] });
+    expect(sent()).toEqual({ name: "Leads", icon: "", kind: "closed", memberIds: [ada.id, linus.id] });
     expect(location.pathname).toBe("/rooms/design");
   });
 
@@ -199,7 +217,7 @@ describe(feature("rooms.convert-access"), () => {
     for (const person of [ada, grace, linus]) expect(hasCheckMark(person.name)).toBe(true);
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...leads, kind: "open" }));
-    expect(sent()).toEqual({ name: "Leads", kind: "open" });
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "open" });
   });
 
   it("keeps who's chosen when Everyone goes on and off again", async () => {
@@ -237,7 +255,7 @@ describe(feature("rooms.members"), () => {
     await user.click(accessSwitch(linus));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(leads));
-    expect(sent()).toEqual({ name: "Leads", kind: "closed", memberIds: [ada.id, grace.id] });
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "closed", memberIds: [ada.id, grace.id] });
   });
 
   it("goes home when you save the room without yourself, taking it out of the sidebar", async () => {
@@ -246,7 +264,7 @@ describe(feature("rooms.members"), () => {
     await user.click(await screen.findByRole("switch", { name: `Give ${ada.name} access to this room` }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onLeft).toHaveBeenCalledWith(leads.id));
-    expect(sent()).toEqual({ name: "Leads", kind: "closed", memberIds: [linus.id] });
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "closed", memberIds: [linus.id] });
     expect(onMissing).toHaveBeenCalledOnce();
     expect(onSaved).not.toHaveBeenCalled();
   });
@@ -262,7 +280,7 @@ describe(feature("rooms.members"), () => {
     expect(location.pathname).toBe("/rooms/closeds/leads/edit");
 
     await answer(Response.json({ room: leads }));
-    expect(sent()).toEqual({ name: "Leads", kind: "closed", memberIds: [ada.id, linus.id, grace.id] });
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "closed", memberIds: [ada.id, linus.id, grace.id] });
     expect(onSaved).toHaveBeenCalledWith(leads);
   });
 

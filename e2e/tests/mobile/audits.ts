@@ -78,7 +78,8 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const clippers = (element: Element, includeSelf: boolean) => {
     const result: Element[] = [];
     let node: Element | null = includeSelf ? element : element.parentElement;
-    let escaped = false;
+    // An element fixed in place, such as a modal dialog, escapes them all.
+    let escaped = !includeSelf && getComputedStyle(element).position === "fixed";
     for (; node && node !== document.documentElement; node = node.parentElement) {
       if (escaped) break;
       const style = getComputedStyle(node);

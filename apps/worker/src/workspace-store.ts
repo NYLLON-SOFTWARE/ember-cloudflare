@@ -79,7 +79,7 @@ interface RoomToChangeRow extends Room {
   can_administer: number;
 }
 
-const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name }, canAdminister: row.can_administer === 1 });
+const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
 const storedSession = (row: SessionRow): StoredSession => ({
   id: row.session_id,
@@ -89,7 +89,7 @@ const storedSession = (row: SessionRow): StoredSession => ({
 });
 
 /** The rooms someone is in, by name as ember-rust's sidebar sorts them (membership.rs). */
-export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.name COLLATE NOCASE, rooms.id`;
 
 /**
@@ -142,7 +142,7 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
  * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
  * room's creator can, as ember-rust's `can_administer` says (user.rs).
  */
-export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
 
@@ -166,11 +166,14 @@ const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_
 export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?))`;
 
 /**
- * Renames a room and changes its kind, keeping whichever is null as it is, and records when, unless
- * nothing changes, as ember-rust's `Room::update` does (room.rs).
+ * Renames a room, changes its kind and sets its icon, keeping whichever is null as it is, and records
+ * when, unless nothing changes, as ember-rust's `Room::update` does (room.rs). An icon of "" is the
+ * default `#`, stored as null.
  */
-const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?, name), kind = coalesce(?, kind), updated_at = ?
-  WHERE id = ? AND (name IS NOT coalesce(?, name) OR kind IS NOT coalesce(?, kind))`;
+const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?1, name), kind = coalesce(?2, kind),
+    icon = CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END, updated_at = ?4
+  WHERE id = ?5 AND (name IS NOT coalesce(?1, name) OR kind IS NOT coalesce(?2, kind)
+    OR icon IS NOT CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END)`;
 
 /** Of the rooms a JSON list names, those that are neither registered nor deleted. */
 const UNREGISTERED_ROOMS = `SELECT DISTINCT value AS id FROM json_each(?)
@@ -396,8 +399,7 @@ export class WorkspaceStore {
    * whether it queued any.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
-    const [name, kind] = [changes.name ?? null, changes.kind ?? null];
-    const update = statement(UPDATE_ROOM, name, kind, now, roomId, name, kind);
+    const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
     if (changes.kind === "open") {
       await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now)]);
       return false;
@@ -438,7 +440,16 @@ export class WorkspaceStore {
   /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */
   async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<void> {
     await this.db.batch([
-      statement(`INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, room.id, room.kind, room.name, creatorId, now, now),
+      statement(
+        `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        room.id,
+        room.kind,
+        room.name,
+        room.icon,
+        creatorId,
+        now,
+        now,
+      ),
       memberIds ? statement(GRANT_ROOM_TO_USERS, room.id, now, now, JSON.stringify(memberIds)) : statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
     ]);
   }

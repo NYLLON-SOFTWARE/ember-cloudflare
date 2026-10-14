@@ -160,6 +160,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   as it keeps any revocation, then its alarm erases what's left; on DO SQLite that's all its storage,
   and an object with none ceases to exist. The Workspace records the room's id in `deleted_rooms`,
   since registering `LEGACY_ROOMS` would otherwise bring a deleted legacy room back.
+- **A room's icon is a column of the room.** ember-rust keeps every room's icon in one JSON map in
+  the account's settings (`ember_channel_icons`, `crates/db/src/models/account.rs`), so as not to
+  change Campfire's tables, and rewrites the map to change one. Ours is `rooms.icon` (workspace
+  migration 0009), null for the default `#`, read with the room and saved in the same batch as its
+  name and access. As in ember-rust, saving the icon a room already has leaves `updated_at` alone.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace

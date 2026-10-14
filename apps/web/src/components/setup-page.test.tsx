@@ -8,7 +8,7 @@ import { SetupPage } from "./setup-page";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
-const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "All Talk" } };
+const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "All Talk", icon: null } };
 
 /** The server's answer to the form. */
 const answer = (status: number, body: object) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));
