@@ -102,7 +102,7 @@ export function App() {
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
   if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
   // Someone else's workspace starts afresh, with their own rooms and sockets.
-  if (me && !atSignIn) return <Workspace key={me.id} me={me} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
+  if (me && !atSignIn) return <Workspace key={me.id} me={me} workspaceName={workspace.account.name} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
   if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
   return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
 }

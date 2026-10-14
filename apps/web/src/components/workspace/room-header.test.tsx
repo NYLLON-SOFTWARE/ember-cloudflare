@@ -38,9 +38,9 @@ describe(feature("realtime.who-is-here"), () => {
 });
 
 describe(feature("ui.room-header"), () => {
-  it("shows the room's name after a #, and screen readers hear just the name", () => {
+  it("shows the room's name after a # in the Page navigation, and screen readers hear just the name", () => {
     renderHeader();
-    expect(screen.getByRole("banner")).toHaveTextContent(/^#general/);
+    expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
   });
 });

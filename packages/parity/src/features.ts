@@ -2226,7 +2226,7 @@ export const features = [
     id: "ui.layout",
     title: "Workspace layout",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Signed in, the page is the rail (80px), the conversations sidebar (280px, or 230px from 901 to 1100px wide) and the room, under a header at least 60px tall. Text is 14px with a 1.5 line height.",
       "Light and dark palettes: canvas #fff / #171717, surface #fafafa / #1c1c1c, hover #f2f2f2 / #282828, border #e5e5e5 / #343434, muted #737373 / #a3a3a3, ink #171717 / #f5f5f5.",
@@ -2234,7 +2234,6 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The sidebar stays 280px down to 900px wide, and the drawer takes over below 900px rather than at 900px.",
   },
   {
     id: "ui.rail",
@@ -2248,7 +2247,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home and Workspace work: Home is marked on a room's page, Workspace on workspace settings, and neither on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.",
+    notes: "Home and Workspace work: the logo and Home are marked at home, Home on a room's page, Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, administrators see Workspace rather than Admin, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.",
   },
   {
     id: "ui.room-header",
@@ -2258,17 +2257,17 @@ export const features = [
     behaviors: [
       "The header shows the room's icon (`#` by default, the outlined messages icon for DMs) and its name (17px, bold, cut off with …). DM names read as \"Direct message with …\" to screen readers.",
       "Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as \"Settings for this room\", or \"Settings for this Ping\" in a DM.",
-      "On phones the header is 56px tall and its buttons are 44px squares.",
+      "On phones the header is 56px tall and its buttons are 44px squares. Up to 500px wide, the labels of the header's links are hidden too, leaving 44px buttons.",
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#`, the name and Conversation settings (\"Settings for this room\" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open.",
+    notes: "The header has the `#`, the name and Conversation settings (\"Settings for this room\" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
   },
   {
     id: "ui.mobile-drawer",
     title: "Conversations drawer on phones",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "At 900px wide and below, the rail and conversations become a drawer opened by the header's 44px Open conversations button, which turns into Close conversations (aria-expanded true) while it's open. It leaves at least 16px of the page showing, and slides in over 180ms unless reduced motion is preferred.",
       "Opening it dims the page behind, makes the rest of the page inert and focuses its Close conversations button. Tab and Shift+Tab cycle through the rail's and sidebar's controls, and nothing in the drawer can be reached while it's closed.",
@@ -2277,7 +2276,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/views/templates/layouts/application.html", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The drawer starts below 900px, and its button keeps the name Open conversations while it's open. Opening it focuses the rail's Home button rather than Close conversations, and it slides in over half a second and out over 0.3 seconds, reduced motion or not.",
+    notes: "The drawer is a Radix modal dialog named \"Conversations\", holding the rail and the conversations, where ember-rust slides in the rail and an `aside` that it keeps inert while they're closed, and makes the page behind inert while they're open. Radix hides the page behind from assistive tech, keeps focus in the drawer and takes it off the page while it's closed, which works the same. When a link in it shows another page, focus goes to that page's menu button, where ember-rust's page load leaves nothing focused.",
   },
   {
     id: "ui.appearance",
@@ -2346,7 +2345,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Only alerts so far: a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar from 900px up. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
+    notes: "Only alerts so far: a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Notices come with the features that show them, and an alert doesn't survive a full page load. In the workspace it's centered over the page beside the rail and sidebar wider than 900px. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
   },
   {
     id: "ui.accessibility",
@@ -2361,7 +2360,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/views/templates/rooms/show/_composer.html", "crates/views/templates/users/sidebars/show.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/nav.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "There's no skip link, and the header and sidebar aren't named landmarks. The rail, Rooms, the message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is \"Message #<room>\", Send is \"Send\", and the jump button is \"Return to latest messages\".",
+    notes: "The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has none yet (`auth.first-run`). The message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is \"Message #<room>\", Send is \"Send\", and the jump button is \"Return to latest messages\". Attach a file, Rich text, Activity and the star aren't built yet.",
   },
   {
     id: "ui.icons",

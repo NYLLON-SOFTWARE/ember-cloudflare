@@ -119,6 +119,16 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
+describe(feature("ui.accessibility"), () => {
+  it("starts with Skip to main content, which focuses the main content", async () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />);
+    const skip = screen.getByRole("link", { name: "Skip to main content" });
+    expect(document.body.querySelector("a[href], button, input")).toBe(skip);
+    await userEvent.click(skip);
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
+});
+
 describe(feature("auth.rate-limit"), () => {
   it("refuses too many attempts the same way as a wrong password", async () => {
     respond(429, { error: SIGN_IN_REFUSED });

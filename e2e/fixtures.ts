@@ -91,7 +91,7 @@ export async function invitation(request: APIRequestContext, session: Session): 
 export async function openRoom(page: Page, room: TestRoom): Promise<void> {
   await page.goto(`/rooms/${room.id}`);
   await expect(page.getByRole("log", { name: `Messages in ${room.name}` })).toBeVisible();
-  await expect(page.getByRole("banner").getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("status")).toHaveCount(0);
 }
 
 /**

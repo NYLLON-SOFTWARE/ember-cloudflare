@@ -53,15 +53,18 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 function showWorkspace(path = "/") {
   const [onSignOut, onSessionChanged] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
-  const { unmount } = render(<Workspace me={ada} onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
+  const { unmount } = render(<Workspace me={ada} workspaceName="Analytical Engines" onSignOut={onSignOut} onSessionChanged={onSessionChanged} />);
   return { onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
 /** The rooms in the sidebar, in order. */
 const sidebarRooms = () => within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link").map((link) => link.textContent!.replace(/^#/, ""));
-/** The rail's link for the page shown, if any. */
-const railCurrent = () => within(screen.getByRole("navigation", { name: "Workspace" })).queryAllByRole("link", { current: "page" }).map((link) => link.textContent);
+/** The rail's links for the page shown, if any. */
+const railCurrent = () =>
+  within(screen.getByRole("navigation", { name: "Workspace" }))
+    .queryAllByRole("link", { current: "page" })
+    .map((link) => link.getAttribute("aria-label") ?? link.textContent);
 /** How many times the room list was asked for. */
 const roomListRequests = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/rooms" && (init?.method ?? "GET") === "GET").length;
 
@@ -180,7 +183,7 @@ describe(feature("rooms.last-visited"), () => {
     expect(screen.getByRole("main")).toHaveTextContent("Ada");
     expect(screen.getByRole("main").querySelector("img")).toHaveAttribute("aria-hidden", "true");
     expect(location.pathname).toBe("/");
-    expect(railCurrent()).toEqual(["Home"]);
+    expect(railCurrent()).toEqual(["Ember home", "Home"]);
   });
 
   it("goes back from workspace settings and a room's settings to the room visited last", async () => {
@@ -437,6 +440,12 @@ describe(feature("ui.flash"), () => {
 });
 
 describe(feature("ui.rail"), () => {
+  it("titles the logo with the workspace's name", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+
   it("marks Home on a room's page, Workspace on workspace settings, and neither on a room's settings", async () => {
     serve({ "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
     const { user } = showWorkspace("/rooms/general");
@@ -526,9 +535,31 @@ describe(feature("ui.mobile-drawer"), () => {
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     const drawer = screen.getByRole("dialog", { name: "Conversations" });
     expect(within(drawer).getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
+    expect(within(drawer).getByRole("complementary", { name: "Conversations" })).toBeInTheDocument();
     await user.click(within(drawer).getByRole("link", { name: /random/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await roomHeading()).toHaveTextContent("random");
+  });
+
+  it("names its button for what it does next, and focuses Close conversations when it opens", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Open conversations", expanded: false }));
+    const drawer = screen.getByRole("dialog", { name: "Conversations" });
+    // The drawer hides the page behind it from screen readers, the header's button too.
+    expect(drawer).not.toContainElement(screen.getByRole("button", { name: "Close conversations", expanded: true, hidden: true }));
+    expect(within(drawer).getByRole("button", { name: "Close conversations" })).toHaveFocus();
+  });
+
+  it("puts its close button first in the conversations' tab order", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    await user.tab();
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
+    await user.tab({ shift: true });
+    await user.tab({ shift: true });
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Your profile" })).toHaveFocus();
   });
 
   it("closes when a rail link shows another page", async () => {
@@ -541,17 +572,68 @@ describe(feature("ui.mobile-drawer"), () => {
     expect(screen.getByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
   });
 
-  it("closes on Escape", async () => {
+  it("closes when you follow a link to the page shown", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("link", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("link", { name: "Workspace" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(location.pathname).toBe("/account/edit");
+  });
+
+  it("leaves Escape to the appearance menu while it's open over the drawer", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Appearance" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes on Escape, giving focus back to its button", async () => {
     const { user } = showWorkspace();
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open conversations" })).toHaveFocus());
   });
 });
 
 describe(feature("ui.accessibility"), () => {
+  it("skips to the main content from the first thing Tab reaches, leaving the address as it is", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.tab();
+    const skip = screen.getByRole("link", { name: "Skip to main content" });
+    expect(skip).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("main")).toHaveFocus();
+    expect(location.pathname + location.hash).toBe("/rooms/general");
+    // Tab goes on from there into it.
+    await user.tab();
+    expect(screen.getByRole("main")).toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("names the landmarks: the rail and the header as navigation, the conversations, and the main content", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(screen.getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Page" })).toContainElement(screen.getByRole("heading", { level: 1 }));
+    expect(screen.getByRole("complementary", { name: "Conversations" })).toContainElement(screen.getByRole("region", { name: "Rooms" }));
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+  });
+
   it("names the rail, the rooms, the DMs, the messages and the composer", async () => {
     showWorkspace("/rooms/general");
     await roomHeading();

@@ -70,7 +70,7 @@ export class Member {
 
   /** The header's Connecting… or Reconnecting… badge, shown while the room's socket is down. */
   connection(): Locator {
-    return this.page.getByRole("banner").getByRole("status");
+    return this.page.getByRole("navigation", { name: "Page" }).getByRole("status");
   }
 
   /** Waits until the room's history has loaded and its socket is open. */

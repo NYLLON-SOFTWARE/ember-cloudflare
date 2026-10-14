@@ -51,6 +51,8 @@
   --dialog-backdrop: #0005;
   --dialog-shadow: #0003;
   --dialog-shadow-faint: #0001;
+  /* And what it lays over the page behind the conversations drawer, `.mb-sidebar-backdrop`. */
+  --drawer-backdrop: #0006;
   color-scheme: light;
 }
 
@@ -85,9 +87,12 @@
   color-scheme: dark;
 }
 
-/* ember-rust switches to its drawer layout at 900px, so `md` means that here. */
+/*
+ * ember-rust switches to its drawer layout at 900px wide and below (`max-width: 900px` in shell.js and
+ * zz-ember.css), so `md` starts at 901px here, and `max-md` means 900px and below.
+ */
 @theme {
-  --breakpoint-md: 56.25rem;
+  --breakpoint-md: 56.3125rem;
 
   /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, and a flash fades away. */
   --animate-shake: shake 400ms both;
@@ -144,17 +149,20 @@
 
 /*
  * `touch:` sizes controls for fingers: 44px targets and 16px text fields, so iOS doesn't zoom in
- * on focus. ember-rust does this below 900px; any coarse pointer gets it too, so a tablet or a
+ * on focus. ember-rust does this at 900px and below; any coarse pointer gets it too, so a tablet or a
  * phone in landscape (wider than 900px) isn't left with mouse-sized controls.
  */
 @custom-variant touch {
-  @media (width < 56.25rem) {
+  @media (width < 56.3125rem) {
     @slot;
   }
   @media (pointer: coarse) {
     @slot;
   }
 }
+
+/* `narrow:` is ember-rust's band from 901 to 1100px wide, where the sidebar narrows to 230px and the page's sides tighten. */
+@custom-variant narrow (@media (56.3125rem <= width <= 68.75rem));
 
 /* `short:` tightens dialogs on screens under 500px tall, such as a phone in landscape. */
 @custom-variant short (@media (height < 31.25rem));
@@ -165,6 +173,14 @@
     @supports (-webkit-touch-callout: none) {
       @slot;
     }
+  }
+}
+
+/* The sidebar's width, which `narrow:` takes from 280px to 230px; the drawer keeps 280px. */
+:root {
+  --sidebar-width: 280px;
+  @variant narrow {
+    --sidebar-width: 230px;
   }
 }
 
@@ -207,9 +223,10 @@
   --color-dialog-backdrop: var(--dialog-backdrop);
   --color-dialog-shadow: var(--dialog-shadow);
   --color-dialog-shadow-faint: var(--dialog-shadow-faint);
-  /* Workspace geometry from ember-rust: 80px rail, 280px sidebar, 60px header. */
+  --color-drawer-backdrop: var(--drawer-backdrop);
+  /* Workspace geometry from ember-rust: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
   --spacing-rail: 80px;
-  --spacing-sidebar: 280px;
+  --spacing-sidebar: var(--sidebar-width);
   --spacing-header: 60px;
 }
 
