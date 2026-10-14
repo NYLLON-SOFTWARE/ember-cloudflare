@@ -1,4 +1,5 @@
 import { urlsafeDecode64 } from "./encoding";
+import { notFound } from "./error-pages";
 
 // QR codes, ported from ember-rust's crates/ember/src/controllers/qr_code.rs and its port of
 // rqrcode_core 2.1.0 and rqrcode 3.2.0's `as_svg` (qr_code/rqrcode.rs), which Campfire draws with
@@ -23,7 +24,7 @@ const ROUTE = /^\/qr_code\/([^/.?]+)(?:\.[^/.?]+)?$/;
  */
 export function showQrCode(request: Request): Response {
   const id = new URL(request.url).pathname.match(ROUTE)?.[1];
-  if (!id || (request.method !== "GET" && request.method !== "HEAD")) return new Response(null, { status: 404 });
+  if (!id || (request.method !== "GET" && request.method !== "HEAD")) return notFound(request);
   const segment = percentDecoded(id);
   const text = segment === null ? null : urlsafeDecode64(segment);
   if (!text) return new Response(null, { status: 400 });

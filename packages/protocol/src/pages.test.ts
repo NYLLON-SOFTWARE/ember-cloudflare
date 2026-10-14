@@ -1,0 +1,32 @@
+import { feature } from "@ember/parity";
+import { describe, expect, it } from "vitest";
+import { isAppPage, workspacePageOf } from "./index";
+
+describe(feature("platform.error-pages"), () => {
+  it("names the pages the app shows, for the Worker to serve the app at", () => {
+    const pages = ["/", "/rooms", "/rooms/general", "/rooms/caf%C3%A9", "/rooms/opens/general", "/rooms/directs/ada-grace", "/rooms/opens/new", "/rooms/closeds/new"];
+    for (const path of [...pages, "/rooms/opens/general/edit", "/account/edit", "/session/new"]) expect(isAppPage(path), path).toBe(true);
+    expect(workspacePageOf("/rooms/caf%C3%A9")).toEqual({ page: "room", roomId: "café" });
+  });
+
+  it("names nothing at any other path, which answers 404", () => {
+    const paths = ["/nope", "/index.html", "/account", "/users/1", "/rooms/general/extra", "/rooms/opens/general/extra", "/messages/1"];
+    for (const path of paths) expect(isAppPage(path), path).toBe(false);
+  });
+
+  it("names nothing at Rails' unused actions, which ember-rust answers 404 for", () => {
+    for (const path of ["/rooms/new", "/rooms/general/edit"]) expect(isAppPage(path), path).toBe(false);
+  });
+
+  it("names nothing at a malformed escape, which can't be read", () => {
+    for (const path of ["/rooms/%FF", "/rooms/%E0%A4", "/rooms/opens/%FF", "/rooms/closeds/%FF/edit"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+
+  it("leaves extra slashes, setup's pages and the join link's to the Worker", () => {
+    for (const path of ["/rooms/general/", "//rooms/general", "/session/new/", "/first_run", "/join/aB3d-Ef5h-iJ7k"]) expect(isAppPage(path), path).toBe(false);
+  });
+
+  it("goes home for now from the pages the app links to before it has them", () => {
+    for (const path of ["/users/me/profile", "/rooms/directs/new", "/rooms/directs/ada-grace/edit"]) expect(workspacePageOf(path), path).toEqual({ page: "home" });
+  });
+});

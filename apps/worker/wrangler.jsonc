@@ -15,12 +15,12 @@
   // included, so each answer carries ember-rust's headers and old browsers get the upgrade page;
   // the Worker answers /api/*, /up, the setup and join pages, the web app manifest
   // (/webmanifest.json) and QR codes (/qr_code/<id>) itself, and fetches the app's page for the
-  // rest.
+  // addresses the app shows a page at. Anything else is a static file or Campfire's 404 page.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/logos/*", "!/lucide/*", "!/shortcuts/*", "!/ember-icon.png"]
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/logos/*", "!/lucide/*", "!/shortcuts/*", "!/ember-icon.png", "!/robots.txt"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,

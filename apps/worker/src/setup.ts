@@ -2,6 +2,7 @@ import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, 
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
 import type { Env } from "./env";
+import { notFound, refused } from "./error-pages";
 import { appPage, empty, formAnswer, home, withCookies } from "./pages";
 import { passwordHasher } from "./passwords";
 import { workspace } from "./workspace";
@@ -153,7 +154,7 @@ async function setupForm(request: Request, env: Env, lock: UsableLock, format: s
 async function accessPage(request: Request, env: Env, lock: UsableLock): Promise<Response> {
   if (new URL(request.url).search) return empty(400);
   if (await isSetUp(env)) return setUpAlready(request);
-  if (lock.kind === "open") return empty(404);
+  if (lock.kind === "open") return notFound(request);
   if (!isHttps(request)) return empty(403);
   const page = await appPage(request, env, "/first_run/access");
   page.headers.set("Content-Security-Policy", ACCESS_PAGE_POLICY);
@@ -164,13 +165,13 @@ async function accessPage(request: Request, env: Env, lock: UsableLock): Promise
 /** `POST /first_run/access`: the token, posted from the access page, for the cookie that unlocks setup. */
 async function unlock(request: Request, env: Env, lock: UsableLock): Promise<Response> {
   const url = new URL(request.url);
-  if (isCrossSite(request)) return empty(422);
+  if (isCrossSite(request)) return refused(request);
   if (url.search) return empty(400);
   if (await isSetUp(env)) return setUpAlready(request);
-  if (lock.kind === "open") return empty(404);
+  if (lock.kind === "open") return notFound(request);
   if (!isHttps(request)) return empty(403);
   // Stricter than the check every write gets: only the access page's own fetch may unlock setup.
-  if (request.headers.get("Sec-Fetch-Site") !== "same-origin" || request.headers.get("Origin") !== url.origin) return empty(422);
+  if (request.headers.get("Sec-Fetch-Site") !== "same-origin" || request.headers.get("Origin") !== url.origin) return refused(request);
   if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") return empty(415);
   // Only from the body, never the address, which servers and browsers keep.
   const body = await request.formData().catch(() => null);
@@ -210,7 +211,7 @@ async function route(request: Request, env: Env, lock: UsableLock, pathname: str
   if (form && read) return setupForm(request, env, lock, form[1]);
   if (pathname === "/first_run/access" && read) return accessPage(request, env, lock);
   if (pathname === "/first_run/access" && request.method === "POST") return unlock(request, env, lock);
-  return empty(404);
+  return notFound(request);
 }
 
 /**

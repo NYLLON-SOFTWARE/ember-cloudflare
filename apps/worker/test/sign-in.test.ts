@@ -238,7 +238,7 @@ describe(feature("auth.sign-out"), () => {
       };
     });
 
-    await expect(api("/api/session", { method: "DELETE", headers: { Cookie: laptop.cookie } })).rejects.toThrow("The database's answer was lost");
+    expect((await api("/api/session", { method: "DELETE", headers: { Cookie: laptop.cookie } })).status).toBe(500);
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect((await api(`/api/rooms/${lobby}/socket`, upgrade(laptop.cookie))).status).toBe(401);
   });

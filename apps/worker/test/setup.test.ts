@@ -139,7 +139,7 @@ describe(feature("auth.first-run"), () => {
     expect((await page("/first_run/new")).status).toBe(404);
     expect((await page("/first_run", { method: "POST", body: "user[name]=Ada" })).status).toBe(404);
     expect((await page("/first_run/access")).status).toBe(404);
-    // Not setup's: the app's page, as any unknown path gets.
+    // Not setup's, nor a page of the app's: the built app answers it, with Campfire's 404 page.
     expect(await (await page("/first_runs")).text()).toBe("page /first_runs");
   });
 });
