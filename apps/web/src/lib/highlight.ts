@@ -41,8 +41,9 @@ const HIGHLIGHT_CLASS = /^(?:hljs-[a-z_-]+|[a-z]+_+|language-[a-z]+)$/;
  */
 export function highlight(code: string, language: string | undefined): Token[] {
   const { value } = language && hljs.getLanguage(language) ? hljs.highlight(code, { language, ignoreIllegals: true }) : hljs.highlightAuto(code);
-  // Read in a document of its own, which runs and loads nothing, rather than set on the page.
-  return tokensOf(new DOMParser().parseFromString(value, "text/html").body);
+  // Read in a document of its own, which runs and loads nothing, rather than set on the page, and in
+  // its body from the start: before it, the parser drops the spaces and newlines code starts with.
+  return tokensOf(new DOMParser().parseFromString(`<body>${value}`, "text/html").body);
 }
 
 function tokensOf(parent: Node): Token[] {

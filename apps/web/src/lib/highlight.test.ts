@@ -32,6 +32,10 @@ describe(feature("messages.rich-text"), () => {
     expect(classesOf(tokens)).toEqual(given);
   });
 
+  it("keeps the spaces and blank lines code starts with", () => {
+    for (const code of ["  return a;\n}", "\n\nconst a = 1;", " \n", "\tx"]) expect(textOf(highlight(code, "javascript"))).toBe(code);
+  });
+
   it("highlights code that names no language it knows as whichever fits best", () => {
     expect(classesOf(highlight("SELECT name FROM users;", "cobol"))).toContain("hljs-keyword");
     expect(textOf(highlight("SELECT name FROM users;", undefined))).toBe("SELECT name FROM users;");
