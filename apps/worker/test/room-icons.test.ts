@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Room, RoomId, RoomList, RoomSettings } from "@ember/protocol";
+import type { Room, RoomId, RoomSettings, Sidebar } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, createRoom, freshDeploy, signIn, workspaceSql, type Session } from "./support";
 
@@ -12,7 +12,7 @@ const change = (roomId: RoomId, session: Session, body: unknown) =>
 
 /** The rooms `session`'s person sees listed, by id, with their icons. */
 const icons = async (session: Session) =>
-  Object.fromEntries(((await (await api("/api/rooms", { headers: { Cookie: session.cookie } })).json()) as RoomList).rooms.map((room) => [room.id, room.icon]));
+  Object.fromEntries(((await (await api("/api/sidebar", { headers: { Cookie: session.cookie } })).json()) as Sidebar).rooms.map((room) => [room.id, room.icon]));
 
 const stored = async (roomId: RoomId) => (await workspaceSql("SELECT name, icon FROM rooms WHERE id = ?", roomId))[0];
 

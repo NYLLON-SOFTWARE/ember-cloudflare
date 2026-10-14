@@ -861,7 +861,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms with a `#` and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), room icons, DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
   },
   {
     id: "sidebar.room-order",
@@ -894,7 +894,7 @@ export const features = [
     id: "sidebar.live-updates",
     title: "Live sidebar updates",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A new open room appears in every sidebar as it's created, and renaming an open room shows in every sidebar at once.",
       "Private rooms appear and change only for their members. A new one appears at once in its members' sidebars; when one is renamed or its members change, its remaining members see it at once, and people just given access see it on their next reload.",
@@ -905,7 +905,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/broadcasts.rs", "crates/assets/overrides/controllers/rooms_list_controller.js", "crates/assets/overrides/ember/shell.js", "crates/ember/src/channels/revocation.rs", "crates/views/src/helpers/users.rs", "reference/app/javascript/controllers/refresh_room_controller.js", "crates/assets/overrides/controllers/channel_order_controller.js"],
     upstreamTests: ["crates/ember/src/channels/tests/broadcasts_test.rs", "parity/kro/workspace.test.mjs", "parity/screens.yml", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "Nothing is live yet: a room you create or rename shows at once only in your own tab, and other sidebars show it when they next load.",
+    notes: "The sidebar loads again each time the tab's workspace socket (`platform.live-socket`) connects, the first time included, and when the tab is shown after more than 60 seconds hidden, on every page rather than only a room's. `GET /api/sidebar` comes with an ETag, as ember-rust's Rack::ETag gives it, and answers 304 while the tab's copy is current, but it keeps `Cache-Control: no-store`, so the join code it can carry doesn't outlast sign-out in the browser's cache. Nothing is pushed yet: a room you create or rename shows at once only in your own tab, and other sidebars show it when they next load.",
   },
   {
     id: "sidebar.unread",
@@ -2438,7 +2438,7 @@ export const features = [
     id: "platform.live-socket",
     title: "One live connection per tab outside the open room",
     origin: "cloudflare",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Each signed-in tab keeps one socket besides the room's. It carries unread and read marks, DM activity, sidebar and star changes, and requests to reload the sidebar, for every room the person is in.",
       "It reconnects with the room socket's back-off and heartbeat, and the sidebar is fetched again once it's back.",
@@ -2447,6 +2447,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels.rs", "crates/ember/src/channels/unread_rooms.rs", "crates/ember/src/channels/read_rooms.rs", "reference/app/channels/unread_rooms_channel.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs"],
+    notes: "Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. Nothing else travels on it yet: unread and read marks, DM activity, sidebar and star changes and reload requests are still to come.",
   },
   {
     id: "platform.version",

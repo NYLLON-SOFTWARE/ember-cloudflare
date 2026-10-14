@@ -221,6 +221,19 @@ describe(feature("realtime.keepalive"), () => {
     expect(FakeSocket.all).toHaveLength(3);
   });
 
+  it("spreads that first try as far as its owner says", () => {
+    connected({ deploySpreadMs: [2_000, 10_000] });
+    for (let i = 0; i < 3; i++) {
+      wait(25_000);
+      socket().receive('{"type":"pong"}');
+    }
+    socket().drop(1001);
+    wait(5_999);
+    expect(FakeSocket.all).toHaveLength(1);
+    wait(1);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
   it("doesn't spread a try after a young socket closes, or after the app's own close", () => {
     const { live } = connected();
     socket().drop(1001);

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Room, RoomList } from "@ember/protocol";
+import type { Room, Sidebar } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { byName, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
 
@@ -23,7 +23,7 @@ describe(feature("rooms.create-open"), () => {
   });
 
   it("keeps a room saved before the list arrives, and adds it to the list when it does", () => {
-    const list: RoomList = { rooms: [room("r2", "general")], invitation: null };
+    const list: Sidebar = { rooms: [room("r2", "general")], invitation: null };
     const saved = roomListReducer(NO_ROOM_LIST, { type: "saved", room: room("r1", "Design") });
     expect(saved.list).toBeNull();
     expect(roomListReducer(saved, { type: "loaded", list })).toEqual({ list: { ...list, rooms: [room("r2", "general"), room("r1", "Design")] }, pending: null });
@@ -38,7 +38,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 
   it("keeps a rename saved before the list arrives over the name the list has", () => {
-    const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
+    const list: Sidebar = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
     const renamed = roomListReducer(NO_ROOM_LIST, { type: "saved", room: room("r1", "Product design") });
     expect(roomListReducer(renamed, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Product design"), room("r2", "general")]);
   });
@@ -61,18 +61,22 @@ describe(feature("rooms.show"), () => {
     const saved = roomListReducer(asked, { type: "saved", room: room("r3", "Finance") });
     expect(saved.list!.rooms.map((r) => r.id)).toEqual(["r1", "r3"]);
     // Asked for before Finance was made, the new list hasn't got it.
-    const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
+    const list: Sidebar = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
     expect(roomListReducer(saved, { type: "loaded", list })).toEqual({ list: { ...list, rooms: [...list.rooms, room("r3", "Finance")] }, pending: null });
   });
 
   it("keeps the list it has when asking again fails", () => {
     expect(roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "unanswered" })).toEqual(loaded);
   });
+
+  it("shows no rooms, rather than loading for good, when the first list fails to arrive", () => {
+    expect(roomListReducer(NO_ROOM_LIST, { type: "unanswered" })).toEqual({ list: { rooms: [], invitation: null }, pending: null });
+  });
 });
 
 describe(feature("rooms.members"), () => {
   it("takes a room that's gone for this person out of the list, even one the list hadn't arrived with yet", () => {
-    const list: RoomList = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
+    const list: Sidebar = { rooms: [room("r1", "Design"), room("r2", "general")], invitation: null };
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
     expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.rooms).toEqual([room("r2", "general")]);
     const early = roomListReducer(NO_ROOM_LIST, { type: "gone", roomId: "r1" });

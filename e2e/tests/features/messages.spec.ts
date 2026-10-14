@@ -1,8 +1,8 @@
 import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
+import { ROOM_SOCKET } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
-const ROOM_SOCKET = /\/api\/rooms\/[^/]+\/socket/;
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
 const box = async (locator: Locator) => {

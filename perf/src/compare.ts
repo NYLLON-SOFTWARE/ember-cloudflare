@@ -66,6 +66,22 @@ function collect({ backend, web }: Results): Map<string, Metric> {
         add(`${storage} room of ${step.members}: presence KB per join`, step.presenceKbPerJoin, { noise: 5 });
       }
     }
+    if (r.tabs) {
+      const { steps, maxConnectP95Ms, reconnect } = r.tabs;
+      const held = steps.filter((step) => step.welcome && step.welcome.p95 <= maxConnectP95Ms).map((step) => step.tabs);
+      add(`${storage} tabs: most with welcome p95 under ${maxConnectP95Ms} ms`, Math.max(0, ...held), { better: "higher", noise: 0 });
+      for (const step of steps) {
+        add(`${storage} ${step.tabs} tabs: welcome p50 ms`, step.welcome?.p50, SWINGY);
+        add(`${storage} ${step.tabs} tabs: sidebar p50 ms`, step.sidebar?.p50, SWINGY);
+      }
+      if (reconnect) {
+        // Each socket waits a random time, up to 10 seconds, before connecting again, so the last one
+        // back moves with that draw as much as with the code.
+        add(`${storage} ${reconnect.tabs} tabs reconnecting: all back ms`, reconnect.allBackMs, { floor: 250, ...SWINGY });
+        add(`${storage} ${reconnect.tabs} tabs reconnecting: welcome p50 ms`, reconnect.welcome?.p50, SWINGY);
+        add(`${storage} ${reconnect.tabs} tabs reconnecting: failed`, reconnect.failures, NEVER);
+      }
+    }
     if (r.history) {
       // The quick profile times ten welcomes and nine pages, so these medians rest on few samples, and
       // runs of the same code have moved them by a third.

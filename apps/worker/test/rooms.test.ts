@@ -12,7 +12,7 @@ const bindings = env as unknown as Env;
 
 /** The rooms `session`'s person sees listed, of those `ids` names, in the order they're listed. */
 async function listed(session: Session, ...ids: RoomId[]): Promise<Room[]> {
-  const response = await api("/api/rooms", { headers: { Cookie: session.cookie } });
+  const response = await api("/api/sidebar", { headers: { Cookie: session.cookie } });
   expect(response.status).toBe(200);
   const { rooms } = (await response.json()) as { rooms: Room[] };
   return rooms.filter((room) => ids.includes(room.id));

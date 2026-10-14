@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
-import type { NewRoom } from "@ember/protocol";
+import type { NewRoom, Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRooms, fetchRoomSettings, forgetStoredSession, joinWorkspace, roomSocketUrl, signOut } from "./api";
+import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, signOut, workspaceSocketUrl } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -15,9 +15,9 @@ describe(feature("auth.sessions"), () => {
 
   it("leaves the session to the browser's cookie, sending no token", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ rooms: [], invitation: null }));
-    await fetchRooms();
+    await fetchSidebar(null);
     const [path, init] = fetch.mock.calls[0]!;
-    expect(path).toBe("/api/rooms");
+    expect(path).toBe("/api/sidebar");
     expect(new Headers(init!.headers).has("Authorization")).toBe(false);
   });
 
@@ -60,6 +60,39 @@ describe(feature("realtime.connection"), () => {
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
     expect(roomSocketUrl("general")).toBe("wss://ember.example/api/rooms/general/socket");
     vi.unstubAllGlobals();
+  });
+});
+
+describe(feature("platform.live-socket"), () => {
+  it("opens the workspace socket on the page's own host, over wss on https pages", () => {
+    expect(workspaceSocketUrl()).toBe("ws://localhost:3000/api/socket");
+    vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
+    expect(workspaceSocketUrl()).toBe("wss://ember.example/api/socket");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe(feature("sidebar.live-updates"), () => {
+  const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null }], invitation: null };
+
+  it("keeps the sidebar's ETag, and names it to keep the copy while it's current", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(sidebar, { headers: { ETag: 'W/"abc"' } }));
+    const copy = await fetchSidebar(null);
+    expect(copy).toEqual({ sidebar, etag: 'W/"abc"' });
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).has("If-None-Match")).toBe(false);
+
+    fetch.mockResolvedValueOnce(new Response(null, { status: 304, headers: { ETag: 'W/"abc"' } }));
+    expect(await fetchSidebar(copy)).toBe(copy);
+    expect(new Headers(fetch.mock.calls[1]![1]?.headers).get("If-None-Match")).toBe('W/"abc"');
+
+    const renamed = { ...sidebar, rooms: [{ ...sidebar.rooms[0]!, name: "Product" }] };
+    fetch.mockResolvedValueOnce(Response.json(renamed, { headers: { ETag: 'W/"def"' } }));
+    expect(await fetchSidebar(copy)).toEqual({ sidebar: renamed, etag: 'W/"def"' });
+  });
+
+  it("reports a refusal as any request does", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
+    await expect(fetchSidebar({ sidebar, etag: 'W/"abc"' })).rejects.toMatchObject({ status: 401, message: "Not signed in" });
   });
 });
 

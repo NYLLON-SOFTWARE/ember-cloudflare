@@ -83,7 +83,7 @@ describe(feature("auth.sessions"), () => {
     const { cookie } = await signIn("Ada");
     vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + SESSION_REFRESH_MS });
     // Something else, such as opening a room, may be what refreshes the session.
-    expect((await api("/api/rooms", withCookie(cookie))).status).toBe(200);
+    expect((await api("/api/sidebar", withCookie(cookie))).status).toBe(200);
     for (let load = 0; load < 2; load++) {
       const response = await api("/api/me", withCookie(cookie));
       expect(response.headers.get("Set-Cookie")).toBe(`${cookie}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure`);

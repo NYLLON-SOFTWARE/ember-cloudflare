@@ -1,8 +1,13 @@
 import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
-import type { ClientFrame, Invitation, Message, RoomList, ServerFrame, User } from "@ember/protocol";
+import type { ClientFrame, Invitation, Message, ServerFrame, Sidebar, User } from "@ember/protocol";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
 // that the config's webServer runs; nothing here mocks the backend except the room list.
+
+/** A room's socket, for `page.routeWebSocket`. */
+export const ROOM_SOCKET = /\/api\/rooms\/[^/]+\/socket/;
+/** A tab's workspace socket, for `page.routeWebSocket`. */
+export const WORKSPACE_SOCKET = /\/api\/socket$/;
 
 /** Node's WebSocket, which, unlike a browser's, can send a handshake's headers. */
 const NodeWebSocket = WebSocket as unknown as new (url: URL, init: { headers: Record<string, string> }) => WebSocket;
@@ -66,13 +71,11 @@ export async function createRoom(request: APIRequestContext, session: Session, n
 /**
  * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
  * own instead of among every other test's open rooms. Given a `joinCode`, it's the room with the
- * welcome card too, inviting people with that code. Creating a room goes straight through.
+ * welcome card too, inviting people with that code.
  */
 export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
   const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
-  await page.route("**/api/rooms", (route) =>
-    route.request().method() === "GET" ? route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null }], invitation } satisfies RoomList }) : route.fallback(),
-  );
+  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null }], invitation } satisfies Sidebar }));
 }
 
 /**
@@ -80,9 +83,9 @@ export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { jo
  * member is in, and the join code. Anyone in All Talk gets it with their rooms.
  */
 export async function invitation(request: APIRequestContext, session: Session): Promise<Invitation> {
-  const response = await request.get("/api/rooms", { headers: { Cookie: cookieHeader(session) } });
+  const response = await request.get("/api/sidebar", { headers: { Cookie: cookieHeader(session) } });
   expect(response.status(), await response.text()).toBe(200);
-  const { invitation } = (await response.json()) as RoomList;
+  const { invitation } = (await response.json()) as Sidebar;
   expect(invitation, "Everyone is in All Talk, where the welcome card is").not.toBeNull();
   return invitation!;
 }

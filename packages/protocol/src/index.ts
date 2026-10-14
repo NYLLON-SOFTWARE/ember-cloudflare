@@ -45,10 +45,11 @@ export interface Invitation {
 }
 
 /**
- * What `GET /api/rooms` answers: the rooms someone is in, in the order they were made, and the
- * invitation, when they're in its room.
+ * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, and the
+ * invitation, when they're in its room. It comes with an ETag, and a request whose If-None-Match
+ * names it gets 304 Not Modified instead.
  */
-export interface RoomList {
+export interface Sidebar {
   rooms: Room[];
   invitation: Invitation | null;
 }
@@ -235,6 +236,19 @@ export type ServerFrame =
   | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
+/**
+ * What a tab sends on its workspace socket (`/api/socket`): only pings, which the runtime answers
+ * without waking the Workspace.
+ */
+export type WorkspaceClientFrame = { type: "ping" };
+
+/** What the Workspace sends on a tab's workspace socket. */
+export type WorkspaceServerFrame =
+  /** Sent as the Workspace lets the socket in: who its session signs in. */
+  | { type: "welcome"; you: User }
+  | { type: "error"; message: string }
+  | { type: "pong" };
+
 export const MAX_MESSAGE_LENGTH = 10_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
 export const MAX_BOOST_LENGTH = 16;
@@ -270,16 +284,20 @@ const text = (v: unknown, max: number): string | null => {
   return trimmed.length > 0 && trimmed.length <= max ? trimmed : null;
 };
 
-/** Parses an untrusted frame from a socket. Returns null for anything malformed. */
-export function parseClientFrame(raw: string): ClientFrame | null {
-  let data: unknown;
+/** The JSON object `raw` holds, or null if it holds anything else. */
+function parseObject(raw: string): Record<string, unknown> | null {
   try {
-    data = JSON.parse(raw);
+    const data: unknown = JSON.parse(raw);
+    return typeof data === "object" && data !== null ? (data as Record<string, unknown>) : null;
   } catch {
     return null;
   }
-  if (typeof data !== "object" || data === null) return null;
-  const f = data as Record<string, unknown>;
+}
+
+/** Parses an untrusted frame from a room's socket. Returns null for anything malformed. */
+export function parseClientFrame(raw: string): ClientFrame | null {
+  const f = parseObject(raw);
+  if (!f) return null;
 
   switch (f.type) {
     case "message.create": {
@@ -316,6 +334,11 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     default:
       return null;
   }
+}
+
+/** Parses an untrusted frame from a workspace socket. Returns null for anything malformed. */
+export function parseWorkspaceClientFrame(raw: string): WorkspaceClientFrame | null {
+  return parseObject(raw)?.type === "ping" ? { type: "ping" } : null;
 }
 
 /**
@@ -404,14 +427,11 @@ export const isPasswordTooShort = (password: string) => [...password].length < M
  */
 export const isPasswordTooLong = (password: string) => password.length > MAX_PASSWORD_LENGTH;
 
-/** Parses a frame from the server. The server is trusted, so this only guards against garbage. */
-export function parseServerFrame(raw: string): ServerFrame | null {
-  try {
-    const data: unknown = JSON.parse(raw);
-    return typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
-      ? (data as ServerFrame)
-      : null;
-  } catch {
-    return null;
-  }
+/**
+ * Parses a frame from the server: a room's, or the workspace socket's when `Frame` says so. The
+ * server is trusted, so this only guards against garbage.
+ */
+export function parseServerFrame<Frame extends { type: string } = ServerFrame>(raw: string): Frame | null {
+  const data = parseObject(raw);
+  return typeof data?.type === "string" ? (data as Frame) : null;
 }

@@ -19,6 +19,8 @@ const PROBE_TIMEOUT_MS = 3_000;
  * which closes every socket at once, so the first try to connect again is spread wider.
  */
 const LONG_LIVED_MS = 60_000;
+/** How far the first try after a deploy is spread, unless the owner says otherwise. */
+const DEPLOY_SPREAD_MS = [250, 2_000] as const;
 
 /** Whether the socket is connecting for the first time, or again after one that closed. */
 export type SocketStatus = "connecting" | "reconnecting";
@@ -29,14 +31,16 @@ export interface ReconnectingSocketOptions {
   /** Each frame from the server, as its text. */
   onMessage: (data: string) => void;
   /** As each attempt to connect begins, or once one is waited on. */
-  onConnecting: (status: SocketStatus) => void;
+  onConnecting?: (status: SocketStatus) => void;
   /** Once the page has been without a connection the server let in for `OFFLINE_AFTER_MS`, and once it has one again. */
-  onOffline: (offline: boolean) => void;
+  onOffline?: (offline: boolean) => void;
   /**
    * A close this side didn't ask for, with its code and whether the socket had opened: true connects
    * again after the usual wait, and false leaves the owner to `retry()` or `close()`.
    */
   onClose: (code: number, opened: boolean) => boolean;
+  /** The least and most the first try after a deploy waits, a quarter of a second to two unless given. */
+  deploySpreadMs?: readonly [number, number];
 }
 
 export interface ReconnectingSocket {
@@ -80,12 +84,12 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
   let heard = true;
 
   const backoff = () => Math.min(MAX_BACKOFF_MS, 500 * 2 ** attempt++) * (0.75 + Math.random() / 2);
-  // The first try after a deploy is spread over a quarter of a second to two, so that the sockets it
-  // closed don't all come back at once.
+  // The first try after a deploy is spread, so that the sockets it closed don't all come back at once.
+  const [deployFrom, deployTo] = options.deploySpreadMs ?? DEPLOY_SPREAD_MS;
   const afterDeploy = () => {
     if (attempt > 0) return backoff();
     attempt++;
-    return 250 + Math.random() * 1_750;
+    return deployFrom + Math.random() * (deployTo - deployFrom);
   };
 
   const startOfflineClock = () => {
@@ -93,7 +97,7 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
     offlineTimer = setTimeout(() => {
       offlineTimer = undefined;
       offline = true;
-      options.onOffline(true);
+      options.onOffline?.(true);
     }, OFFLINE_AFTER_MS);
   };
 
@@ -107,7 +111,7 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
   const reconnect = (delay: number) => {
     stopChecking();
     startOfflineClock();
-    options.onConnecting("reconnecting");
+    options.onConnecting?.("reconnecting");
     retryTimer = setTimeout(open, delay);
   };
 
@@ -121,7 +125,7 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
   const open = () => {
     retryTimer = undefined;
     admitted = false;
-    options.onConnecting(ws === null ? "connecting" : "reconnecting");
+    options.onConnecting?.(ws === null ? "connecting" : "reconnecting");
     const socket = new WebSocket(options.url());
     ws = socket;
     let openedAt: number | undefined;
@@ -198,7 +202,7 @@ export function reconnectingSocket(options: ReconnectingSocketOptions): Reconnec
       offlineTimer = undefined;
       if (!offline) return;
       offline = false;
-      options.onOffline(false);
+      options.onOffline?.(false);
     },
     retry() {
       if (!stopped) reconnect(backoff());

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import type { Room, RoomId, User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
@@ -6,9 +6,10 @@ import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, fetchRooms, isSignedOut } from "@/lib/api";
+import { useSidebar } from "@/hooks/use-sidebar";
+import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
-import { byName, NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
+import { byName } from "@/lib/room-list";
 import { navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -100,18 +101,10 @@ interface Props {
 }
 
 export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Props) {
-  const [{ list, pending }, changeRooms] = useReducer(roomListReducer, NO_ROOM_LIST);
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const route = useRoute();
-
-  useEffect(() => {
-    fetchRooms()
-      .then((list) => changeRooms({ type: "loaded", list }))
-      .catch((error) =>
-        error instanceof ApiError && error.status === 401 ? onSessionChanged(null) : changeRooms({ type: "loaded", list: { rooms: [], invitation: null } }),
-      );
-  }, [onSessionChanged]);
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
@@ -166,31 +159,30 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
   // A room the list doesn't have may be one made, or opened to this person, since it came, which
   // ember-rust's server would know: the list is asked for again, once each time an address naming it is
   // visited, before a room's address counts as naming a room they can't see, and so its settings, once
-  // saved, leave it where it was made rather than last, as a room just made goes. One list is on its way
-  // at a time, so an older one can't take the place of a newer one, which has changes made here since.
-  const [askedAgain, setAskedAgain] = useState<Route | null>(null);
+  // saved, leave it where it was made rather than last, as a room just made goes. The sidebar has one
+  // list on its way at a time, so an older one can't take the place of a newer one, which has changes
+  // made here since, and this waits for one asked for after the address was visited.
+  const [askedAgain, setAskedAgain] = useState<{ route: Route; answered: boolean } | null>(null);
   // A room's address the list couldn't be asked for again for, which stays rather than going home as if
   // the room weren't theirs, and says why in the page, until it's left or Try again asks again.
   const [unanswered, setUnanswered] = useState<{ route: Route; reason: string } | null>(null);
   const namedId = namedRoomId(route);
   const unlisted = rooms !== null && !goneRoom && namedId !== null && !rooms.some((r) => r.id === namedId);
-  const askAgain = unlisted && askedAgain !== route && pending === null;
+  const askAgain = unlisted && askedAgain?.route !== route;
+  const askingAgain = askAgain || (askedAgain?.route === route && !askedAgain.answered);
   useEffect(() => {
     if (!askAgain) return;
-    setAskedAgain(route);
-    changeRooms({ type: "asked" });
-    fetchRooms().then(
-      (list) => changeRooms({ type: "loaded", list }),
-      (error) => {
-        // As with `failed`, a session already replaced hears nothing.
-        if (!mounted.current) return;
-        if (isSignedOut(error)) return onSessionChanged(null);
-        changeRooms({ type: "unanswered" });
-        // A room's settings ask the server about the room themselves.
-        if (route.page !== "room-settings") setUnanswered({ route, reason: reasonFor(error) });
-      },
-    );
-  }, [askAgain, route, onSessionChanged, mounted]);
+    setAskedAgain({ route, answered: false });
+    const answered = () => setAskedAgain((asked) => (asked?.route === route ? { route, answered: true } : asked));
+    refresh().then(answered, (error) => {
+      // As with `failed`, a session already replaced hears nothing.
+      if (!mounted.current) return;
+      if (isSignedOut(error)) return onSessionChanged(null);
+      answered();
+      // A room's settings ask the server about the room themselves.
+      if (route.page !== "room-settings") setUnanswered({ route, reason: reasonFor(error) });
+    });
+  }, [askAgain, route, refresh, onSessionChanged, mounted]);
   const tryAgain = () => {
     setUnanswered(null);
     setAskedAgain(null);
@@ -199,8 +191,8 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
 
   // Where the address goes on to, once the list it goes by has come.
   const goingOn = useMemo(
-    () => (rooms && pending === null && !askAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
-    [rooms, pending, askAgain, goneRoom, unansweredHere, route],
+    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
+    [rooms, askingAgain, goneRoom, unansweredHere, route],
   );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
@@ -259,7 +251,7 @@ export function Workspace({ me, workspaceName, onSignOut, onSessionChanged }: Pr
               onGone={roomGone}
             />
           );
-        if (route.page === "home" && rooms && pending === null && !goingOn) return <WelcomePage me={me} />;
+        if (route.page === "home" && rooms && !goingOn) return <WelcomePage me={me} />;
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a
         // browser's own page says when ember-rust's server can't be reached. The header keeps the way to
         // the other rooms on a phone.

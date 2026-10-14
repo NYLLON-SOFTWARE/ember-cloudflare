@@ -19,7 +19,8 @@ behave; this one rebuilds it on Workers and Durable Objects.
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
    │                ├─────▶ Workspace Durable Object (one: the account, people, sessions, rooms, memberships,
-   │                │        and the outbox that closes sockets in every room when access ends)
+   │                │        each tab's workspace socket, and the outbox that closes sockets in every room
+   │                │        when access ends)
    │                │
    └──WebSocket─────┴──▶ ChatRoom Durable Object (one per room, by id)
                             ├─ sockets, presence, typing (hibernation API)
@@ -168,7 +169,7 @@ by email address and password (10 tries per IP address every 3 minutes) or, when
 sign-out, which closes that browser's sockets, open and private rooms that only their members can
 open (made through the API until the New room page lands), live messages with optimistic sends, edit
 and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history
-paging, reconnects, the Light / Dark / System appearance picker, the web app manifest that lets
+paging, reconnects, a sidebar that loads again whenever a tab reconnects, the Light / Dark / System appearance picker, the web app manifest that lets
 browsers install Ember as an app, ember-rust's security headers and HTTPS, and its page for browsers
 too old to run Ember. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CloseCode,
   isRoomId,
+  parseWorkspaceClientFrame,
   type Account,
   type HelpContact,
   type NewRoom,
@@ -10,15 +11,18 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
-  type RoomList,
   type RoomSettings,
+  type Sidebar,
   type User,
   type UserId,
+  type WorkspaceServerFrame,
 } from "@ember/protocol";
+import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./chat-room";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { FixedWindowLimit } from "./rate-limit";
+import { sessionTag } from "./revocations";
 import { SessionCache } from "./session-cache";
 import { WorkspaceStore, type Client, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
 
@@ -42,6 +46,9 @@ const UNFURL_WINDOW_MS = 60 * 1000;
 const REVOCATIONS_PER_RUN = 40;
 /** How many rooms the outbox calls at once: as many outgoing connections as an invocation can have open. */
 const ROOMS_AT_ONCE = 6;
+
+/** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
+export const CREDENTIALS_HEADER = "X-Ember-Credentials";
 
 /** What a request brings to say who it's from. */
 export interface Credentials {
@@ -87,13 +94,23 @@ async function eachAtMost<T>(items: T[], limit: number, work: (item: T) => Promi
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+/** Sends `frame` on a workspace socket, unless it has closed since. */
+function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
+  try {
+    ws.send(JSON.stringify(frame));
+  } catch {
+    // Its close handler has nothing to clean up.
+  }
+}
+
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
 
 /**
  * What a workspace shares across its rooms: its account, its people and their sessions, and its
  * rooms and who is in each. There is one, and every request reaches it by name; its tables live in
- * its own SQLite storage, or in D1 with everyone else's.
+ * its own SQLite storage, or in D1 with everyone else's. Each signed-in tab keeps a socket to it,
+ * besides its room's, for what changes outside the room; like rooms, it hibernates them.
  */
 export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
@@ -110,6 +127,8 @@ export class Workspace extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // As in rooms, the runtime answers the app's heartbeats without waking the Workspace.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
@@ -122,6 +141,45 @@ export class Workspace extends DurableObject<Env> {
     // mustn't keep everyone from signing in, so it's only logged, and the next start tries again.
     if (legacy.length > 0) {
       void ctx.blockConcurrencyWhile(() => this.registerLegacyRooms(legacy).catch((error) => console.error("Registering LEGACY_ROOMS failed", error)));
+    }
+  }
+
+  /**
+   * Lets in a tab's workspace socket, which the Worker sends on with the credentials of the request
+   * for it, if they sign someone in. Like a room's, it's tagged with its person and its session, so
+   * signing out can find it.
+   */
+  override async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected a WebSocket upgrade", { status: 426 });
+    const credentials = JSON.parse(request.headers.get(CREDENTIALS_HEADER) ?? "null") as Credentials | null;
+    if (!credentials) return new Response("Missing credentials", { status: 400 });
+    const session = await this.session(credentials);
+    if (!session) return Response.json({ error: "Sign in first" }, { status: 401 });
+
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.ctx.acceptWebSocket(server, [session.user.id, sessionTag(session.id)]);
+    // On D1, signing out can end the session while the check above reads it, and close the session's
+    // sockets before this one is among them. Now that it is, checking again settles it: the session
+    // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
+    if (await this.session(credentials)) send(server, { type: "welcome", you: session.user });
+    else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Answers a ping that the runtime doesn't, because it carries more than its type. A workspace socket sends nothing else. */
+  override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    const frame = typeof raw === "string" ? parseWorkspaceClientFrame(raw) : null;
+    send(ws, frame ? { type: "pong" } : { type: "error", message: "Unrecognized frame" });
+  }
+
+  override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+    ws.close(RESERVED_CLOSE_CODES.has(code) ? 1000 : code, "Closing");
+  }
+
+  /** Closes the workspace sockets tagged `tag`, with `code`. */
+  private closeSockets(tag: string, code: CloseCode): void {
+    for (const socket of this.ctx.getWebSockets(tag)) {
+      if (socket.readyState === WebSocket.OPEN) socket.close(code, CLOSE_REASONS[code]);
     }
   }
 
@@ -256,26 +314,31 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Ends the session `tokenDigest` names, and has every room its person is in close the sockets it
-   * opened there, telling them to reconnect, as ember-rust's sign-out does (concerns.rs).
+   * Ends the session `tokenDigest` names, and closes the sockets it opened, telling them to reconnect,
+   * as ember-rust's sign-out does (concerns.rs): its workspace sockets here at once, and the rest by
+   * having every room its person is in close the session's sockets there.
    */
   async signOut(tokenDigest: string): Promise<void> {
     const now = Date.now();
-    // Until the database says it queued nothing: on D1 a change can be saved, its revocations with it,
-    // and its answer lost on the way back.
+    // Found first: on D1 a change can be saved, its revocations with it, and its answer lost on the
+    // way back, and then nothing would say which sockets were the session's.
+    const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
+    // Until the database says it queued nothing.
     let queued = true;
     try {
       queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
     } finally {
+      // Whether or not it ended: the sockets of a session that didn't are let in again.
+      if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
       if (queued) await this.wakeAt(now);
     }
   }
 
   /**
-   * The rooms the person `credentials` signs in is in, with the welcome card's invitation if they're
-   * in the workspace's first room, or null without a valid session.
+   * The sidebar of the person `credentials` signs in: the rooms they're in, with the welcome card's
+   * invitation if they're in the workspace's first room. Null without a valid session.
    */
-  async rooms(credentials: Credentials): Promise<RoomList | null> {
+  async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [{ rooms, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);

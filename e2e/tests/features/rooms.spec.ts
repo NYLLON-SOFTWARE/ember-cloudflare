@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
-import type { RoomList } from "@ember/protocol";
-import { invitation, signInAs } from "../../fixtures";
+import type { Sidebar } from "@ember/protocol";
+import type { WebSocketRoute } from "@playwright/test";
+import { cookieHeader, invitation, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
@@ -26,6 +27,24 @@ test.describe(feature("sidebar.rooms"), () => {
 
     await ada.page.goBack();
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+  });
+});
+
+test.describe(feature("sidebar.live-updates"), () => {
+  test("loads the sidebar again when the tab's workspace connection comes back", async ({ members, request, rooms, session }) => {
+    let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+    const ada = await members.signIn("Ada", {
+      beforeOpen: (page) => page.routeWebSocket(WORKSPACE_SOCKET, (ws) => void (connection = { page: ws, server: ws.connectToServer() })),
+    });
+    const links = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link");
+    await expect(links).toHaveText(["#general", "#random"]);
+
+    const renamed = await request.patch(`/api/rooms/${rooms.random.id}`, { data: { name: "watercooler" }, headers: { Cookie: cookieHeader(session) } });
+    expect(renamed.status(), await renamed.text()).toBe(200);
+    await expect.poll(() => connection).toBeDefined();
+    await connection!.server.close();
+    await connection!.page.close();
+    await expect(links).toHaveText(["#general", "#watercooler"]);
   });
 });
 
@@ -61,9 +80,7 @@ test.describe(feature("rooms.last-visited"), () => {
 
   test("shows someone in no rooms a picture of an empty room, with their name for screen readers", async ({ page, session }) => {
     await signInAs(page, session);
-    await page.route("**/api/rooms", (route) =>
-      route.request().method() === "GET" ? route.fulfill({ json: { rooms: [], invitation: null } satisfies RoomList }) : route.fallback(),
-    );
+    await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], invitation: null } satisfies Sidebar }));
     await page.goto("/");
     await expect(page).toHaveTitle("No rooms yet");
     const main = page.getByRole("main");

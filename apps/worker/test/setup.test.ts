@@ -53,7 +53,7 @@ describe(feature("auth.first-run"), () => {
 
     const cookie = cookieOf(response);
     expect(await bootstrap(cookie)).toMatchObject({ setup: "complete", account: { name: "Ember" }, user });
-    const rooms = (await (await api("/api/rooms", { headers: { Cookie: cookie } })).json()) as { rooms: Room[] };
+    const rooms = (await (await api("/api/sidebar", { headers: { Cookie: cookie } })).json()) as { rooms: Room[] };
     expect(rooms.rooms).toEqual([room]);
   });
 
