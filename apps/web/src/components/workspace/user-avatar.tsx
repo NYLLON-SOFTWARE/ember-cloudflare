@@ -3,14 +3,22 @@ import { avatarSvg, type User } from "@ember/protocol";
 import { PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 
-/** Avatars drawn in the page, by id and name, since a timeline shows the same people again and again. */
+/** How many drawings are kept: more people than a page shows at once, so a tab left open doesn't keep everyone it has shown. */
+export const DRAWINGS_KEPT = 1_000;
+
+/**
+ * Avatars drawn in the page, by id and name, since a timeline shows the same people again and again.
+ * Least recently used first, as a Map keeps insertion order.
+ */
 const drawings = new Map<string, string>();
 
 /** Someone's initials avatar as the Worker draws it, as an image's address. The SVG is all ASCII, as `btoa` needs. */
 function drawn({ id, name }: User): string {
   const key = `${id}\n${name}`;
-  let url = drawings.get(key);
-  if (url === undefined) drawings.set(key, (url = `data:image/svg+xml;base64,${btoa(avatarSvg(id, name))}`));
+  const url = drawings.get(key) ?? `data:image/svg+xml;base64,${btoa(avatarSvg(id, name))}`;
+  drawings.delete(key);
+  drawings.set(key, url);
+  if (drawings.size > DRAWINGS_KEPT) drawings.delete(drawings.keys().next().value!);
   return url;
 }
 

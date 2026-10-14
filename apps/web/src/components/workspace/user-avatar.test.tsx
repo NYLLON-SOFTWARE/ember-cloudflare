@@ -1,9 +1,9 @@
 import { feature } from "@ember/parity";
-import { avatarSvg, type DirectoryUser } from "@ember/protocol";
+import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
-import { UserAvatar } from "./user-avatar";
+import { DRAWINGS_KEPT, UserAvatar } from "./user-avatar";
 
 const ada: DirectoryUser = { id: "u1", name: "Ada Lovelace", bio: null, role: "member", status: "active", avatarUrl: "/users/u1.abc/avatar?v=20261014120000" };
 
@@ -41,5 +41,24 @@ describe(feature("users.avatars"), () => {
 
   it("waits to load in lists until it's scrolled near", () => {
     expect(picture(<UserAvatar user={ada} lazy />).image).toHaveAttribute("loading", "lazy");
+  });
+
+  it("keeps the initials it drew for only as many people as a page could show, the ones shown last", () => {
+    const drawing = vi.spyOn(globalThis, "btoa");
+    const someone = (n: number): User => ({ id: `shown-${n}`, name: `Someone ${n}` });
+    const show = (people: User[]) => render(<PeopleContext value={new Map()}>{people.map((user, index) => <UserAvatar key={index} user={user} />)}</PeopleContext>).unmount();
+
+    show([someone(0), someone(0)]);
+    expect(drawing).toHaveBeenCalledOnce();
+    show(Array.from({ length: DRAWINGS_KEPT - 1 }, (_, n) => someone(n + 1)));
+    // Shown again, the first is the one shown last, so someone new takes the second's place instead.
+    show([someone(0)]);
+    show([someone(DRAWINGS_KEPT)]);
+    expect(drawing).toHaveBeenCalledTimes(DRAWINGS_KEPT + 1);
+    show([someone(0)]);
+    expect(drawing).toHaveBeenCalledTimes(DRAWINGS_KEPT + 1);
+    show([someone(1)]);
+    expect(drawing).toHaveBeenCalledTimes(DRAWINGS_KEPT + 2);
+    drawing.mockRestore();
   });
 });
