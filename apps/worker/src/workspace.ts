@@ -331,20 +331,24 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Adds someone who joined with the join link as a member, in every open room, and the session their
-   * cookie's token opens, as ember-rust's `users#create` does. Answers null if someone already has
-   * their email address.
+   * Adds someone who joined with the join link for `code` as a member, in every open room, and the
+   * session their cookie's token opens, as ember-rust's `users#create` does. Answers "not found" if
+   * `code` isn't the join code, and null if someone already has their email address.
    */
-  async join(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | null> {
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
-    try {
-      await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
-    } catch (error) {
-      if (await this.store.hasEmailAddress(person.emailAddress)) return null;
-      throw error;
-    }
-    this.sessions.remember(tokenDigest, session);
-    return meOf(session);
+  async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | "not found" | null> {
+    // The Worker checked the code before the form arrived, but the link may have been regenerated since.
+    return this.oneAtATime(async () => {
+      if (!(await this.isJoinCode(code))) return "not found";
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+      try {
+        await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+      } catch (error) {
+        if (await this.store.hasEmailAddress(person.emailAddress)) return null;
+        throw error;
+      }
+      this.sessions.remember(tokenDigest, session);
+      return meOf(session);
+    });
   }
 
   /**
@@ -500,8 +504,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes changes to rooms and to the workspace one at a time, each once the one before has finished.
    * Each reads who may make it before it writes, and on D1 other requests run in between: without
-   * this, someone another change had just taken out of a room could still open it to everyone, and a
-   * change could write to a room deleted since it looked.
+   * this, someone another change had just taken out of a room could still open it to everyone, a
+   * change could write to a room deleted since it looked, and someone could join with a code just
+   * regenerated.
    */
   private oneAtATime<T>(change: () => Promise<T>): Promise<T> {
     const result = this.lastChange.then(change);

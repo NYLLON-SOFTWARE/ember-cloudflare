@@ -184,6 +184,25 @@ describe(feature("accounts.regenerate-join-link"), () => {
     expect((await page(`/join/${code}`)).status).toBe(200);
     expect((await join(code, grace)).status).toBe(201);
   });
+
+  it("refuses a join whose form arrives after the code it was sent to is regenerated", async () => {
+    const { cookie } = await setUp();
+    const old = await joinCode();
+    // Someone with a link that's about to be replaced holds their form back until it has been.
+    const form = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          expect((await api("/api/account/join_code", { method: "POST", headers: { Cookie: cookie } })).status).toBe(200);
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(grace)));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await apiWith({}, `/api/join/${old}`, { method: "POST", headers: { "CF-Connecting-IP": "203.0.113.9" }, body: form });
+    expect(response.status).toBe(404);
+    expect(await count("users")).toBe(1);
+  });
 });
 
 describe(feature("rooms.invitation-card"), () => {

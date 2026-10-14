@@ -306,7 +306,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/join_codes.rs", "crates/views/templates/accounts/_invite.html", "crates/db/src/models/account.rs", "reference/app/controllers/accounts/join_codes_controller.rb"],
     upstreamTests: ["reference/test/controllers/accounts/join_codes_controller_test.rb"],
-    notes: "Regenerated with `POST /api/account/join_code`, which answers the new code; the join form's `POST /api/join/<code>` answers an old code 404 as JSON, as it does any code it doesn't know (`auth.sign-up`). The tab that regenerates the link shows it on the first room's welcome card too, while other tabs show it when their sidebar next loads (`sidebar.live-updates`) or their settings open. The button is disabled until the new code arrives, where Campfire's would show its busy dots.",
+    notes: "Regenerated with `POST /api/account/join_code`, which answers the new code; the join form's `POST /api/join/<code>` answers an old code 404 as JSON, as it does any code it doesn't know (`auth.sign-up`), even a form that was on its way as the link was regenerated. The tab that regenerates the link shows it on the first room's welcome card too, while other tabs show it when their sidebar next loads (`sidebar.live-updates`) or their settings open. The button is disabled until the new code arrives, where Campfire's would show its busy dots.",
   },
   {
     id: "accounts.qr-codes",
