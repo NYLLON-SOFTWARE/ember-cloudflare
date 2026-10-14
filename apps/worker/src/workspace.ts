@@ -15,8 +15,8 @@ const CACHED_SESSIONS = 10_000;
 const SIGN_IN_ATTEMPTS = 10;
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 /**
- * Link previews someone may ask for in a minute. ember-rust has no limit, but a preview fetches any
- * page someone names, which would make the Worker anyone's fetcher.
+ * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
+ * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
  */
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
