@@ -36,6 +36,9 @@ export function withRoom(rooms: Room[], room: Room): Room[] {
  */
 export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId: RoomId };
 
+/** A change made here to the list: to someone's rooms, or the join link's new code, for the welcome card. */
+export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
+
 /**
  * Someone's rooms: the server's list, once it arrives, with the changes made here since it was asked
  * for. Asked for again, it keeps the list it has until the new one arrives. It follows one list on its
@@ -44,18 +47,24 @@ export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId:
 export interface RoomListState {
   list: Sidebar | null;
   /** While a list is on its way, the changes made since it was asked for, which it may not show; otherwise null. */
-  pending: RoomChange[] | null;
+  pending: SidebarChange[] | null;
 }
 
 export const NO_ROOM_LIST: RoomListState = { list: null, pending: [] };
 
 /** A change made here, or the list asked for, arriving, or failing to. */
-export type RoomListAction = RoomChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
+export type RoomListAction = SidebarChange | { type: "asked" } | { type: "loaded"; list: Sidebar } | { type: "unanswered" };
 
-const changed = (list: Sidebar, change: RoomChange): Sidebar => ({
-  ...list,
-  rooms: change.type === "saved" ? withRoom(list.rooms, change.room) : list.rooms.filter((room) => room.id !== change.roomId),
-});
+function changed(list: Sidebar, change: SidebarChange): Sidebar {
+  switch (change.type) {
+    case "saved":
+      return { ...list, rooms: withRoom(list.rooms, change.room) };
+    case "gone":
+      return { ...list, rooms: list.rooms.filter((room) => room.id !== change.roomId) };
+    case "join code":
+      return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
+  }
+}
 
 export function roomListReducer(state: RoomListState, action: RoomListAction): RoomListState {
   switch (action.type) {

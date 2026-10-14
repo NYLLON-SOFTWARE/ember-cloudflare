@@ -13,7 +13,7 @@ const rooms: Room[] = [
   { id: "random", name: "random", kind: "open", icon: null },
 ];
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
-const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engines" }, canAdminister: false };
+const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: "aB3d-Ef5h-iJ7k", canAdminister: false };
 
 /**
  * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", with

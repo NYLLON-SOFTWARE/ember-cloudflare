@@ -1,9 +1,9 @@
 import { feature } from "@ember/parity";
-import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { invitation, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
-// Renaming the workspace changes every other test's pages, so the workspace-settings project does
-// that on a server of its own. These save the name as it is.
+// Renaming the workspace or regenerating its join link changes every other test's pages, so the
+// workspace-settings project does those on a server of its own. These save the name as it is.
 
 test.describe(feature("accounts.settings-page"), () => {
   test("a member sees the workspace's name and Ember's version, with nothing to change", async ({ members }) => {
@@ -32,5 +32,17 @@ test.describe(feature("accounts.name"), () => {
     expect((await saved).status()).toBe(200);
     await expect(page.getByRole("alert")).toHaveText("Changes saved.");
     await expect(page).toHaveURL(/\/account\/edit$/);
+  });
+});
+
+test.describe(feature("accounts.join-link"), () => {
+  test("a member's workspace settings have the welcome card's join link, which only administrators regenerate", async ({ members, request, baseURL }) => {
+    const grace = await members.signIn("Grace Hopper");
+    const { joinCode } = await invitation(request, grace.session);
+    await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
+    await expect(grace.page.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(new URL(`/join/${joinCode}`, baseURL).href);
+    await expect(grace.page.getByRole("link", { name: "Show join link QR code" })).toBeVisible();
+    await expect(grace.page.getByRole("button", { name: "Copy join link" })).toBeVisible();
+    await expect(grace.page.getByRole("button", { name: "Regenerate join link" })).toHaveCount(0);
   });
 });

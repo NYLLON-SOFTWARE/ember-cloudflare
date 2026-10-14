@@ -83,3 +83,19 @@ describe(feature("rooms.members"), () => {
     expect(roomListReducer(early, { type: "loaded", list }).list!.rooms).toEqual([room("r2", "general")]);
   });
 });
+
+describe(feature("accounts.regenerate-join-link"), () => {
+  const invited: Sidebar = { rooms: [room("r1", "All Talk")], invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
+
+  it("gives the welcome card the join link's new code, even over a list asked for before it was made", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: invited });
+    const regenerated = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "join code", joinCode: "Zy9x-Wv8u-Ts7r" });
+    expect(regenerated.list!.invitation).toEqual({ roomId: "r1", joinCode: "Zy9x-Wv8u-Ts7r" });
+    expect(roomListReducer(regenerated, { type: "loaded", list: invited }).list!.invitation).toEqual({ roomId: "r1", joinCode: "Zy9x-Wv8u-Ts7r" });
+  });
+
+  it("gives no invitation to someone the welcome card isn't for", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: { rooms: [room("r2", "Design")], invitation: null } });
+    expect(roomListReducer(loaded, { type: "join code", joinCode: "Zy9x-Wv8u-Ts7r" }).list!.invitation).toBeNull();
+  });
+});

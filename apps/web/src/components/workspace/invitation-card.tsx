@@ -1,22 +1,15 @@
-import type { MouseEvent } from "react";
-import { CopyPaste, QrCode, Share } from "@/components/icons/campfire";
 import { Link } from "@/components/icons/ember";
-import { QrCodeLink } from "@/components/qr-code-link";
+import { JoinLinkButtons, joinUrl } from "./join-link";
 
 // ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
-// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css), with its QR code link and its
-// copy and share controllers.
+// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css).
 
 /** A `.btn` in `.mb-invite-actions`: a 38px square, 44px for fingers. */
 const BUTTON = "grid size-[38px] flex-none cursor-pointer place-items-center rounded-[9px] border bg-background text-sm touch:size-11";
-/** Campfire's `btn--success` (buttons.css), which the copy button plays each time it copies. */
-const COPIED = ["motion-safe:animate-success", "motion-safe:[&>img]:animate-zoom-fade"];
 
 /** Welcomes people to the workspace's first room with its join link, to copy or share. */
 export function InvitationCard({ joinCode }: { joinCode: string }) {
-  const url = new URL(`/join/${joinCode}`, location.origin).href;
-  // As ember-rust's web_share_controller.js decides, before it's ever asked to share.
-  const canShare = "canShare" in navigator;
+  const url = joinUrl(joinCode);
 
   return (
     <div className="mx-6 mb-1 w-[560px] max-w-[calc(100%-48px)] rounded-[14px] border bg-background p-[22px] max-[68.75rem]:mx-[18px] max-[68.75rem]:max-w-[calc(100%-36px)] max-[68.75rem]:p-[18px] max-md:mx-3 max-md:max-w-[calc(100%-24px)] max-md:p-4">
@@ -44,44 +37,9 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
           />
         </label>
         <div className="flex flex-none items-center gap-2">
-          <QrCodeLink url={url} className={BUTTON}>
-            <span className="sr-only">Show join link QR code</span>
-            <QrCode className="size-[1.3em]" />
-          </QrCodeLink>
-          <button type="button" onClick={(event) => void copy(event, url)} className={BUTTON}>
-            <span className="sr-only">Copy join link</span>
-            <CopyPaste className="size-[1.3em]" />
-          </button>
-          {canShare && (
-            <button type="button" onClick={() => void share(url)} className={BUTTON}>
-              <span className="sr-only">Share join link</span>
-              <Share className="size-[1.3em]" />
-            </button>
-          )}
+          <JoinLinkButtons url={url} className={BUTTON} />
         </div>
       </div>
     </div>
   );
-}
-
-/**
- * Copies `url`, then plays the button's success animation from the start, as ember-rust's
- * copy_to_clipboard_controller.js does. A clipboard that refuses, as on a page that isn't served
- * securely, leaves the button as it was.
- */
-async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, url: string) {
-  button.classList.remove(...COPIED);
-  // Reading the layout ends the last run of the animation, so adding the classes starts it again.
-  void button.offsetWidth;
-  try {
-    await navigator.clipboard.writeText(url);
-    button.classList.add(...COPIED);
-  } catch {
-    // Nothing to show.
-  }
-}
-
-/** Offers `url` to the system's share sheet. Closing the sheet rejects, which needs no answer. */
-async function share(url: string) {
-  await navigator.share({ title: "Link to join Ember", text: "Hit this link to join me in Ember and start chatting.", url }).catch(() => undefined);
 }

@@ -151,6 +151,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // A room just saved takes its place in the list, and one that's gone leaves it.
   const listRoom = useCallback((room: Room) => changeRooms({ type: "saved", room }), []);
   const unlistRoom = useCallback((roomId: RoomId) => changeRooms({ type: "gone", roomId }), []);
+  // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
+  const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
 
   // A room found gone while it's shown stays on screen to say so until another page shows.
   const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
@@ -242,7 +244,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           />
         );
       case "workspace-settings":
-        return <WorkspaceSettingsPage back={back} version={version} onAccountChanged={onAccountChanged} onFailed={failed} />;
+        return (
+          <WorkspaceSettingsPage back={back} version={version} onAccountChanged={onAccountChanged} onJoinCodeChanged={joinCodeChanged} onFailed={failed} />
+        );
       default:
         if (room)
           return (

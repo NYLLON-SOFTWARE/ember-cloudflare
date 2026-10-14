@@ -88,7 +88,7 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
     }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: me });
-    if (route === "GET /api/account") return Response.json({ account, canAdminister: me.administrator });
+    if (route === "GET /api/account") return Response.json({ account, joinCode: JOIN_CODE, canAdminister: me.administrator });
     if (route === "PATCH /api/account") {
       account = JSON.parse(String(init?.body)) as typeof account;
       return Response.json({ account });

@@ -98,8 +98,15 @@ export interface Account {
 /** What `GET /api/account` answers for workspace settings. */
 export interface WorkspaceSettings {
   account: Account;
+  /** The join link's code, which everyone in the workspace can share. */
+  joinCode: string;
   /** Whether you can change the workspace, as administrators can. Members see it read-only. */
   canAdminister: boolean;
+}
+
+/** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
+export interface NewJoinCode {
+  joinCode: string;
 }
 
 /** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name. */
