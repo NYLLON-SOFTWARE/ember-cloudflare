@@ -1,7 +1,8 @@
 // What the Worker's entry point and the browser's both export: everything that doesn't parse.
 
 export { MENTION_CONTENT_TYPE, type MentionUser, type ResolveMention } from "./attachments";
-export type { PreparedBody } from "./body";
+export { bodyFromPlainText, type PreparedBody } from "./body";
+export type { DisplayElement, DisplayMention, DisplayNode, DisplayText } from "./display";
 export { isAllEmoji } from "./emoji";
 export { MAX_ATTRIBUTES, MAX_REOPENED_ELEMENTS, MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 export { mentionSgid, userIdFromSgid } from "./mentions";
