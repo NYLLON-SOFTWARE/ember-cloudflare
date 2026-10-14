@@ -320,14 +320,16 @@ export class Workspace extends DurableObject<Env> {
    */
   async signOut(tokenDigest: string): Promise<void> {
     const now = Date.now();
-    // Until the database says it queued nothing: on D1 a change can be saved, its revocations with it,
-    // and its answer lost on the way back.
+    // Found first: on D1 a change can be saved, its revocations with it, and its answer lost on the
+    // way back, and then nothing would say which sockets were the session's.
+    const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
+    // Until the database says it queued nothing.
     let queued = true;
     try {
-      const ended = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
-      queued = ended.queued;
-      if (ended.sessionId) this.closeSockets(sessionTag(ended.sessionId), CloseCode.Reconnect);
+      queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
     } finally {
+      // Whether or not it ended: the sockets of a session that didn't are let in again.
+      if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
       if (queued) await this.wakeAt(now);
     }
   }

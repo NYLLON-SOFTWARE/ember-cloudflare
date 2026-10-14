@@ -99,6 +99,28 @@ describe(feature("platform.live-socket"), () => {
     expect((await api("/api/socket", upgrade(laptop.cookie))).status).toBe(401);
   });
 
+  it("closes a session's sockets even when the database ends it but the answer is lost", async () => {
+    const laptop = await setUp();
+    const socket = await openWorkspaceSocket(laptop);
+    const { tokenDigest } = await credentialsFor(laptop.cookie.split("=")[1]!, new Request(origin), env as unknown as Env);
+    const failure = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const endSession = store.endSession.bind(store);
+      // As on D1, where the session can go and the answer saying so never come back.
+      vi.spyOn(store, "endSession").mockImplementationOnce(async (...args) => {
+        await endSession(...args);
+        throw new Error("Network connection lost.");
+      });
+      return workspace.signOut(tokenDigest).then(
+        () => null,
+        (error: Error) => error.message,
+      );
+    });
+    expect(failure).toBe("Network connection lost.");
+    expect(await socket.closed).toMatchObject({ code: CloseCode.Reconnect });
+    expect((await api("/api/socket", upgrade(laptop.cookie))).status).toBe(401);
+  });
+
   it("keeps its sockets while the Workspace is evicted, and still finds them to close", async () => {
     const laptop = await setUp();
     const socket = await openWorkspaceSocket(laptop);

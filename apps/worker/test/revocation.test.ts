@@ -149,13 +149,13 @@ describe(feature("realtime.connection"), () => {
         (workspace as unknown as { store: WorkspaceStore }).store.endSession(token_digest, CloseCode.Reconnect, LATER),
       );
 
-    expect(await endSession()).toEqual({ queued: true, sessionId: id });
+    expect(await endSession()).toBe(true);
     expect(await workspaceSql("SELECT room_id, tag, code, attempts, due_at FROM pending_revocations ORDER BY room_id")).toEqual(
       rooms.sort().map((room_id) => ({ room_id, tag: `s:${id}`, code: CloseCode.Reconnect, attempts: 0, due_at: LATER })),
     );
     expect(await workspaceSql("SELECT id FROM sessions WHERE user_id = ?", ada.user.id)).toEqual([]);
     // Nothing more once it has ended.
-    expect(await endSession()).toEqual({ queued: false, sessionId: null });
+    expect(await endSession()).toBe(false);
   });
 
   it("delivers each room's revocations in one call, as of when it read them, and leaves the rest for later", async () => {
