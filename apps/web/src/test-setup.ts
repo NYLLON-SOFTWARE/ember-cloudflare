@@ -1,3 +1,5 @@
+// First, so React sees it when it loads.
+import "./test-animation-event";
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";

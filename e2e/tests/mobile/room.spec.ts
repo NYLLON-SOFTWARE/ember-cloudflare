@@ -62,6 +62,6 @@ test("the rail's menus fit the phone", async ({ page, room, screenIsFine }) => {
   await expect(page.locator("html")).toHaveClass(/dark/);
 
   await rail.getByRole("button", { name: "Your profile" }).tap();
-  await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Log out" })).toBeVisible();
   await screenIsFine();
 });

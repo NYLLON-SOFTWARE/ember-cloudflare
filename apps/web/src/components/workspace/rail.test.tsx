@@ -39,7 +39,7 @@ describe(feature("auth.sign-out"), () => {
     render(<Rail me={ada} onSignOut={onSignOut} />);
     await user.click(screen.getByRole("button", { name: "Your profile" }));
     expect(within(screen.getByRole("menu")).getByText("Ada Lovelace")).toBeInTheDocument();
-    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    await user.click(screen.getByRole("menuitem", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 });

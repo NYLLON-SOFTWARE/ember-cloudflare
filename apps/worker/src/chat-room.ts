@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   HISTORY_PAGE_SIZE,
   parseClientFrame,
+  SESSION_ENDED,
   type ClientFrame,
   type RoomId,
   type ServerFrame,
@@ -20,6 +21,13 @@ interface Attachment {
 
 export const USER_HEADER = "X-Ember-User";
 export const ROOM_HEADER = "X-Ember-Room";
+export const SESSION_HEADER = "X-Ember-Session";
+
+/** The tag on the sockets a session opens, besides its person's id, so signing out can find them. */
+const sessionTag = (sessionId: string) => `s:${sessionId}`;
+
+/** How many signed-out sessions a room remembers: far more than can sign out while one upgrade is on its way. */
+const ENDED_SESSIONS = 1_000;
 
 /**
  * Close codes that only report how a socket closed, like 1006 for a dropped connection, and can't
@@ -34,6 +42,11 @@ const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 export class ChatRoom extends DurableObject<Env> {
   private store: MessageStore | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  /**
+   * Sessions that have signed out. The Workspace checks a session before the upgrade comes here, so
+   * one it let through just before the session ended may arrive after the room closed its sockets.
+   */
+  private readonly endedSessions = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -47,12 +60,14 @@ export class ChatRoom extends DurableObject<Env> {
     }
     const user = JSON.parse(request.headers.get(USER_HEADER) ?? "null") as User | null;
     const roomId = request.headers.get(ROOM_HEADER);
-    if (!user || !roomId) return new Response("Missing user or room", { status: 400 });
+    const sessionId = request.headers.get(SESSION_HEADER);
+    if (!user || !roomId || !sessionId) return new Response("Missing user, room or session", { status: 400 });
 
     return this.serially(async () => {
+      if (this.endedSessions.has(sessionId)) return new Response("Signed out", { status: 401 });
       const { messages, hasMore } = await this.storeFor(roomId).page(HISTORY_PAGE_SIZE);
       const { 0: client, 1: server } = new WebSocketPair();
-      this.ctx.acceptWebSocket(server, [user.id]);
+      this.ctx.acceptWebSocket(server, [user.id, sessionTag(sessionId)]);
       server.serializeAttachment({ user, roomId } satisfies Attachment);
 
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
@@ -65,6 +80,22 @@ export class ChatRoom extends DurableObject<Env> {
   /** Resolves once the room's messages can be read. */
   async health(roomId: RoomId): Promise<void> {
     await this.serially(() => this.storeFor(roomId).page(1));
+  }
+
+  /**
+   * Closes the sockets session `sessionId` opened here, once it has signed out, saying so with
+   * `SESSION_ENDED`, and refuses any it opens later. Each socket leaves the room in `webSocketClose`,
+   * when the app answers the close. Queued behind the events before it, so a socket this session was
+   * opening is closed too.
+   */
+  async endSession(sessionId: string): Promise<void> {
+    this.endedSessions.add(sessionId);
+    if (this.endedSessions.size > ENDED_SESSIONS) this.endedSessions.delete(this.endedSessions.values().next().value!);
+    await this.serially(async () => {
+      for (const socket of this.ctx.getWebSockets(sessionTag(sessionId))) {
+        if (socket.readyState === WebSocket.OPEN) socket.close(SESSION_ENDED, "Signed out");
+      }
+    });
   }
 
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */

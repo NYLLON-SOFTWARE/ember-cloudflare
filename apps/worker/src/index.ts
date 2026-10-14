@@ -1,4 +1,4 @@
-import { isRoomId, parseNewRoom, type Bootstrap, type RoomId } from "@ember/protocol";
+import { isPasswordTooLong, isRoomId, parseNewRoom, SIGN_IN_REFUSED, type Bootstrap, type RoomId } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
@@ -14,9 +14,11 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
-import { ROOM_HEADER, USER_HEADER } from "./chat-room";
+import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
+import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
+import { versionOf } from "./version";
 import { ACCOUNT_NAME, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
@@ -50,12 +52,39 @@ async function health(env: Env): Promise<Response> {
   return json({ ok: true, storage });
 }
 
+/** Signs in with an email address and password, or with just a name when the body gives one. */
+async function signIn(request: Request, env: Env): Promise<Response> {
+  // Any JSON value parses, null and numbers included, so don't assume an object.
+  const body: unknown = await request.json().catch(() => null);
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  return "name" in fields ? signInGuest(fields.name, request, env) : signInWithPassword(fields, request, env);
+}
+
+/**
+ * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
+ * address's limit before anything is checked, and an unknown email address costs a password check
+ * too, so the answer's timing doesn't say who has an account.
+ */
+async function signInWithPassword({ emailAddress, password }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
+  // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
+  // form sends, which nobody can have.
+  const given = typeof emailAddress === "string" && typeof password === "string" && password !== "" && !isPasswordTooLong(password);
+  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const found = await workspace(env).beginSignIn(ip, given ? emailAddress : null);
+  if (found === "limited") return problem(429, SIGN_IN_REFUSED);
+  if (!given) return problem(401, SIGN_IN_REFUSED);
+
+  const matches = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
+  const token = newSessionToken();
+  const user = found && matches ? await workspace(env).startSession(found.userId, await tokenDigest(token, env.SESSION_SECRET), clientOf(request)) : null;
+  if (!user) return problem(401, SIGN_IN_REFUSED);
+  return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
+}
+
 /** Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it. */
-async function signInGuest(request: Request, env: Env): Promise<Response> {
+async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
   if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
-  // Any JSON value parses, null included, so don't assume an object.
-  const body = (await request.json().catch(() => null)) as { name?: unknown } | null;
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
 
   const token = newSessionToken();
@@ -66,12 +95,14 @@ async function signInGuest(request: Request, env: Env): Promise<Response> {
 /** What the app asks first: whether Ember is set up yet, and who this browser is signed in as. */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const { account, user } = await workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null);
+  const { account, helpContact, user } = await workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null);
   const body: Bootstrap = {
     setup: account ? "complete" : "pending",
     setupProtected: isSetupProtected(env),
     guestSignIn: guestSignIn(env),
     account: account ?? { name: ACCOUNT_NAME },
+    helpContact,
+    version: versionOf(env),
     user,
   };
   const headers = new Headers({ "Cache-Control": "no-store" });
@@ -87,8 +118,20 @@ async function me(request: Request, env: Env): Promise<Response> {
   return json({ user: session.user }, { headers: { "Set-Cookie": sessionCookie(request, session.token) } });
 }
 
+/**
+ * Signs this browser out, closing its session's sockets in every room its person is in, so its other
+ * tabs go to sign in at once. ember-rust tells all the person's connections to reconnect instead,
+ * which their other devices survive (concerns.rs). As there, a room that can't be reached doesn't
+ * keep anyone signed in.
+ */
 async function endSession(request: Request, env: Env): Promise<Response> {
-  await signOut(request, env);
+  const ended = await signOut(request, env);
+  if (ended) {
+    const closing = ended.rooms.map((roomId) => env.CHAT_ROOM.getByName(roomId).endSession(ended.sessionId));
+    for (const result of await Promise.allSettled(closing)) {
+      if (result.status === "rejected") console.error("Could not close a room's sockets on sign out", result.reason);
+    }
+  }
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
@@ -121,6 +164,7 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, JSON.stringify(access.user));
   headers.set(ROOM_HEADER, roomId);
+  headers.set(SESSION_HEADER, access.sessionId);
   return env.CHAT_ROOM.getByName(roomId).fetch(new Request(request, { headers }));
 }
 
@@ -134,7 +178,7 @@ export default {
 
     if (pathname === "/api/bootstrap" && request.method === "GET") return bootstrap(request, env);
     if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
-    if (pathname === "/api/session" && request.method === "POST") return signInGuest(request, env);
+    if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
     if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
     if (pathname === "/api/me") return me(request, env);
     if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);

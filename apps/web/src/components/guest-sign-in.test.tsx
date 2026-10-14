@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SignIn } from "./sign-in";
+import { GuestSignIn } from "./guest-sign-in";
 
 const respond = (status: number, body: unknown) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));
 
@@ -14,7 +14,7 @@ describe(feature("auth.guest-sign-in"), () => {
     const fetch = respond(201, { user: ada });
     const onSignedIn = vi.fn();
     const user = userEvent.setup();
-    render(<SignIn onSignedIn={onSignedIn} />);
+    render(<GuestSignIn onSignedIn={onSignedIn} onUsePassword={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
     const name = screen.getByLabelText("Your name");
@@ -27,7 +27,7 @@ describe(feature("auth.guest-sign-in"), () => {
   });
 
   it("won't join with a blank name and caps names at 48 characters", async () => {
-    render(<SignIn onSignedIn={vi.fn()} />);
+    render(<GuestSignIn onSignedIn={vi.fn()} onUsePassword={vi.fn()} />);
     await userEvent.type(screen.getByLabelText("Your name"), "   ");
     expect(screen.getByRole("button", { name: "Join" })).toBeDisabled();
     expect(screen.getByLabelText("Your name")).toHaveAttribute("maxlength", "48");
@@ -36,7 +36,7 @@ describe(feature("auth.guest-sign-in"), () => {
   it("shows the server's reason when it refuses, on the field", async () => {
     respond(422, { error: "Name must be 1 to 48 characters" });
     const onSignedIn = vi.fn();
-    render(<SignIn onSignedIn={onSignedIn} />);
+    render(<GuestSignIn onSignedIn={onSignedIn} onUsePassword={vi.fn()} />);
     await userEvent.type(screen.getByLabelText("Your name"), "Ada{Enter}");
 
     expect(await screen.findByText("Name must be 1 to 48 characters")).toBeInTheDocument();
@@ -44,5 +44,13 @@ describe(feature("auth.guest-sign-in"), () => {
     expect(screen.getByLabelText("Your name")).toHaveAccessibleDescription("Name must be 1 to 48 characters");
     expect(onSignedIn).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Join" })).toBeEnabled();
+  });
+
+  it("goes back to signing in with a password for someone who has an account", async () => {
+    const onUsePassword = vi.fn();
+    render(<GuestSignIn onSignedIn={vi.fn()} onUsePassword={onUsePassword} />);
+    expect(screen.getByText(/Have an account\?/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(onUsePassword).toHaveBeenCalledOnce();
   });
 });

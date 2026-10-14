@@ -25,4 +25,8 @@ export interface Env {
    * link `/first_run/access#token=<token>`. Unset, the first visitor sets up the workspace.
    */
   EMBER_SETUP_TOKEN?: string;
+  /** What to call this deployment's version, as ember-rust's `APP_VERSION` does. */
+  APP_VERSION?: string;
+  /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */
+  GIT_REVISION?: string;
 }

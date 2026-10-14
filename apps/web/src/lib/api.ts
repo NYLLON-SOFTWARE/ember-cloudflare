@@ -1,4 +1,4 @@
-import type { Bootstrap, FirstRun, NewWorkspace, Room, User } from "@ember/protocol";
+import type { Bootstrap, FirstRun, NewWorkspace, PasswordSignIn, Room, User } from "@ember/protocol";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and room
 // socket, so nothing here handles a token.
@@ -35,8 +35,13 @@ export async function setUpWorkspace(firstRun: FirstRun): Promise<NewWorkspace> 
   return request<NewWorkspace>("/api/first_run", { method: "POST", body: JSON.stringify(firstRun) });
 }
 
+/** Signs in with an email address and password. */
+export async function signIn(credentials: PasswordSignIn): Promise<User> {
+  return (await request<{ user: User }>("/api/session", { method: "POST", body: JSON.stringify(credentials) })).user;
+}
+
 /** Signs in with just a name, as someone new. */
-export async function signIn(name: string): Promise<User> {
+export async function signInAsGuest(name: string): Promise<User> {
   return (await request<{ user: User }>("/api/session", { method: "POST", body: JSON.stringify({ name }) })).user;
 }
 

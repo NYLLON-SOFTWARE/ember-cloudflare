@@ -54,7 +54,7 @@ export const features = [
     id: "auth.sign-in",
     title: "Sign in with email and password",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`/session/new` (titled \"Sign in\") shows the workspace logo, \"Sign in to <workspace name>\" / \"Welcome back. Pick up the conversation.\", Email address (placeholder \"Enter your email address\", autofocused, prefilled from `?email_address=`), Password (\"Enter your password\", up to 72 characters) and Sign in, with the help contact below.",
       "It's public, and people who are already signed in can still open it.",
@@ -65,7 +65,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/sessions/new.html", "crates/ember/src/controllers/sessions.rs", "crates/db/src/models/user.rs", "reference/app/controllers/sessions_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "People join here with just a display name (`auth.guest-sign-in`). First run gives the administrator an email address and password, but nothing signs in with them yet.",
+    notes: "The page is the app's own: it posts JSON to `/api/session` and opens the page asked for without reloading, which the tab keeps in sessionStorage rather than the session (`auth.require-sign-in`). It shows Ember's flame until workspace logos are ported (`accounts.logo`). A refusal focuses the password, since the email address is still filled in, and a sign-in that can't reach the server says so instead of being refused. Passwords are checked against PBKDF2 digests (`auth.first-run`), and one longer than the field's 72 characters is refused before any lookup, since nobody can have it.",
   },
   {
     id: "auth.guest-sign-in",
@@ -73,10 +73,10 @@ export const features = [
     origin: "cloudflare",
     status: "ported",
     behaviors: [
-      "The sign-in card asks only for the name people will see (1 to 48 characters, trimmed) and then opens the first room.",
-      "`POST /api/session` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason. Everyone who signs in is someone new, even with a name already in use.",
-      "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on, and so does the preview until email sign-in is ported.",
-      "Once Ember is set up, this stands in for signing in until `auth.sign-in` and `auth.sign-up` are ported.",
+      "The sign-in page offers \"No account? Join with just a name\", which asks only for the name people will see (1 to 48 characters, trimmed) and then opens the page asked for, or the first room; \"Have an account? Sign in\" goes back.",
+      "`POST /api/session` with a `name` answers 201 with a new person and their session's cookie (`auth.sessions`), or 422 with the reason; without one it's an email sign-in (`auth.sign-in`). Everyone who signs in is someone new, even with a name already in use.",
+      "It's off, answering 403, unless `EMBER_GUEST_SIGN_IN` is `\"true\"`, and while it's off the people who signed in that way count as signed out. The tests and load tests turn it on; the preview doesn't, since its administrator signs in with a password.",
+      "It stands in for joining until join links are ported (`auth.sign-up`).",
     ],
     sources: [],
   },
@@ -84,7 +84,7 @@ export const features = [
     id: "auth.rate-limit",
     title: "Sign-in attempt limit",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Each client IP, as seen through trusted proxies, gets 10 sign-in attempts, successful or not, per fixed 3-minute window that starts at its first attempt. Only posts to `/session` count, not first run, join links or sign-in links.",
       "The 11th attempt answers 429 with the sign-in page, the shaking card and \"Too many requests or unauthorized.\", keeping the email, without checking the password; other IPs are unaffected.",
@@ -92,6 +92,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions.rs", "crates/kit/src/request.rs", "reference/app/controllers/sessions_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/sessions.rs"],
+    notes: "The client's address is Cloudflare's `CF-Connecting-IP`. Counts live in the Workspace Durable Object's memory, so they reset when Cloudflare evicts it after a quiet spell, as well as when it restarts. Signing in with just a name (`auth.guest-sign-in`) isn't counted.",
   },
   {
     id: "auth.require-sign-in",
@@ -106,7 +107,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/app/tests.rs"],
-    notes: "The API answers 401 without a valid session cookie, and the app shows its sign-in card at the address asked for instead of redirecting, so signing in opens the room that address names. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.",
+    notes: "The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet, and there are no join links.",
   },
   {
     id: "auth.sessions",
@@ -120,7 +121,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/db/src/models/session.rs", "reference/app/models/session.rb", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["reference/test/controllers/sessions_controller_test.rb", "reference/test/models/user_test.rb", "crates/db/src/tests/callbacks_test.rs", "crates/db/src/tests/user_test.rs"],
-    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Each guest sign-in is someone new, so nobody has sessions on two devices yet, and nobody can be removed or banned or reset a password yet.",
+    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Nobody can be removed or banned or reset a password yet.",
   },
   {
     id: "auth.sign-out",
@@ -134,7 +135,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions.rs", "crates/ember/src/concerns.rs", "crates/views/templates/users/profiles/show.html", "reference/app/javascript/controllers/sessions_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "\"Sign out\" is an item in the rail's profile menu rather than a \"Log out\" button on the profile page, and the app shows the sign-in card rather than loading `/`. If the server can't be reached, the browser stays signed in. Open connections aren't told to reconnect yet, so the browser's other tabs carry on until they next reconnect and are sent to sign-in, and there's no push subscription to remove.",
+    notes: "\"Log out\" is an item in the rail's profile menu until the profile page is ported (`users.profile`), and it loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed; a room that can't be reached doesn't stop the sign-out. There's no push subscription to remove until push notifications are ported.",
   },
   {
     id: "auth.sign-in-link",
@@ -170,13 +171,14 @@ export const features = [
     id: "auth.help-contact",
     title: "Help contact on sign-in pages",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The sign-in and join pages end with a mail button for the first administrator, showing their email address with a lifebuoy icon, titled \"Email <name>\" and linking to `mailto:\"<name>\" <<email>>`, then \"Ember™ version <version>\"; both are left out when there's no administrator.",
       "The first administrator is the earliest-created one, whatever their status, so a removed one still shows, with their scrambled email address.",
     ],
     sources: ["crates/views/templates/accounts/_help_contact.html", "crates/ember/src/controllers/presenters/accounts.rs", "reference/app/views/accounts/_help_contact.html.erb"],
     upstreamTests: ["parity/screens.yml"],
+    notes: "Only the sign-in page has it until the join page is ported (`auth.sign-up`). Nobody can be removed yet, so no scrambled address shows.",
   },
   {
     id: "auth.csrf",
@@ -424,7 +426,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/profiles/show.html", "crates/ember/src/controllers/users/profiles.rs", "crates/views/src/users.rs", "reference/app/controllers/users/profiles_controller.rb"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/users/profiles_controller_test.rb"],
-    notes: "The rail's profile picture opens a menu with your name and Sign out instead.",
+    notes: "The rail's profile picture opens a menu with your name and Log out instead.",
   },
   {
     id: "users.avatar-upload",
@@ -2229,7 +2231,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Sign out rather than your profile.",
+    notes: "Only Home works, and it's always marked current. DMs, Activity, Search and Workspace are disabled buttons, the logo has no tooltip, and your avatar opens a menu with Log out rather than your profile.",
   },
   {
     id: "ui.room-header",
@@ -2315,7 +2317,7 @@ export const features = [
     id: "ui.flash",
     title: "Saved notices",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A notice shows as a toast below the header, centered over the content (over the whole window when signed out, or at 900px wide and below): a check and the text, in white on green. An alert is red, with an alert sign.",
       "It fades in after 0.3 seconds and fades out again, leaving the page 3.3 seconds after it loaded. Screen readers hear it as an alert, and a notice of just \"✓\" shows only the check, read as \"Changes saved\".",
@@ -2324,6 +2326,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
+    notes: "Only a refused sign-in's alert is ported yet; notices and the room alert come with the features that show them. Signed-in pages don't show one yet, so it's always centered over the whole window. It grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone.",
   },
   {
     id: "ui.accessibility",
@@ -2352,7 +2355,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/icons.html", "crates/assets/overrides/lucide/catalog.json", "crates/assets/overrides/logos"],
     upstreamTests: ["crates/assets/overrides/basecoat/test/lucide.test.mjs", "parity/kro/workspace.test.mjs"],
-    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in card. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.",
+    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in page. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.",
   },
 
   // Platform
@@ -2426,7 +2429,7 @@ export const features = [
     id: "platform.version",
     title: "Version",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Pages and the app's other responses carry X-Version: `APP_VERSION` if set, else `GIT_REVISION`, else the release (\"1.1\", the package version without a trailing \".0\"); blank values count as unset. X-Rev carries `GIT_REVISION` whenever it's set, even blank.",
       "`/up`, static files and the live connection carry neither header.",
@@ -2434,6 +2437,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/concerns.rs", "crates/views/src/helpers/application.rs", "crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/_help_contact.html", "reference/config/initializers/version.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/app/tests.rs", "parity/kro/workspace.test.mjs"],
+    notes: "The sign-in page shows it under the help contact, worked out as ember-rust does, with this port's own release (\"0.1\", from the Worker's package version 0.1.0); the preview sets `GIT_REVISION` to the commit it deployed. The X-Version and X-Rev headers and workspace settings aren't ported yet.",
   },
   {
     id: "platform.browser-support",

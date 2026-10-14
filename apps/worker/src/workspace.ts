@@ -1,8 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
-import { isRoomId, type Account, type NewRoom, type NewWorkspace, type Room, type RoomId, type User } from "@ember/protocol";
+import { isRoomId, type Account, type HelpContact, type NewRoom, type NewWorkspace, type Room, type RoomId, type User, type UserId } from "@ember/protocol";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
+import { FixedWindowLimit } from "./rate-limit";
 import { SessionCache } from "./session-cache";
 import { WorkspaceStore, type Client, type NewAdministrator, type StoredSession } from "./workspace-store";
 
@@ -10,6 +11,9 @@ import { WorkspaceStore, type Client, type NewAdministrator, type StoredSession 
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
 /** How many sessions the Workspace keeps in memory: a few devices each for a large team. */
 const CACHED_SESSIONS = 10_000;
+/** ember-rust's sign-in limit: 10 attempts from an IP address in a fixed 3-minute window (sessions.rs). */
+const SIGN_IN_ATTEMPTS = 10;
+const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 
 /** What a request brings to say who it's from. */
 export interface Credentials {
@@ -52,6 +56,9 @@ export class Workspace extends DurableObject<Env> {
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /** The account once it exists. Nothing deletes it, so once read it needn't be read again. */
   private knownAccount: Account | null = null;
+  /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
+  private knownHelpContact: HelpContact | null | undefined;
+  private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -75,10 +82,19 @@ export class Workspace extends DurableObject<Env> {
     return (this.knownAccount ??= await this.store.account());
   }
 
-  /** What the app asks first: the account, if it's set up, and who `credentials` signs in, if anyone. */
-  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; user: User | null }> {
-    const [account, user] = await Promise.all([this.account(), credentials && this.authenticate(credentials)]);
-    return { account, user };
+  /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
+  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; helpContact: HelpContact | null; user: User | null }> {
+    const [account, helpContact, user] = await Promise.all([this.account(), this.helpContact(), credentials && this.authenticate(credentials)]);
+    return { account, helpContact, user };
+  }
+
+  private async helpContact(): Promise<HelpContact | null> {
+    if (this.knownHelpContact === undefined) {
+      const contact = await this.store.helpContact();
+      // On D1, first run can finish while this reads, and what it found is newer.
+      this.knownHelpContact ??= contact;
+    }
+    return this.knownHelpContact;
   }
 
   /**
@@ -99,8 +115,26 @@ export class Workspace extends DurableObject<Env> {
       throw error;
     }
     this.knownAccount = { name: account.name };
+    this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
     return { user: session.user, room };
+  }
+
+  /**
+   * Counts a password sign-in from `ip` against ember-rust's limit before anything is checked, then
+   * finds whose password to check: "limited" past the limit, or else the active person `emailAddress`
+   * names, if it names someone with a password.
+   */
+  async beginSignIn(ip: string, emailAddress: string | null): Promise<"limited" | { userId: UserId; passwordDigest: string } | null> {
+    if (!this.signInAttempts.attempt(ip)) return "limited";
+    return emailAddress === null ? null : this.store.passwordFor(emailAddress);
+  }
+
+  /** Signs in someone whose password checked out, unless they've stopped being active since. */
+  async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<User | null> {
+    const session = await this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString());
+    if (session) this.sessions.remember(tokenDigest, session);
+    return session?.user ?? null;
   }
 
   /** Adds someone who signs in with just a name, and the session their cookie's token opens. */
@@ -115,7 +149,11 @@ export class Workspace extends DurableObject<Env> {
    * The person a session signs in, refreshing the session's last activity at most once an hour.
    * Guests' sessions only count while `guests` says signing in with just a name is allowed.
    */
-  async authenticate({ tokenDigest, client, guests }: Credentials): Promise<User | null> {
+  async authenticate(credentials: Credentials): Promise<User | null> {
+    return (await this.session(credentials))?.user ?? null;
+  }
+
+  private async session({ tokenDigest, client, guests }: Credentials): Promise<StoredSession | null> {
     const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
     if (!session || (session.guest && !guests)) return null;
     const now = Date.now();
@@ -123,11 +161,17 @@ export class Workspace extends DurableObject<Env> {
       await this.store.touchSession(session.id, client, new Date(now).toISOString());
       session.lastActiveAt = now;
     }
-    return session.user;
+    return session;
   }
 
-  async signOut(tokenDigest: string): Promise<void> {
+  /**
+   * Ends the session `tokenDigest` names, answering its id and the rooms its person is in, which are
+   * the only ones it can have sockets open in.
+   */
+  async signOut(tokenDigest: string): Promise<{ sessionId: string; rooms: RoomId[] } | null> {
+    const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
     await this.sessions.end(tokenDigest, () => this.store.deleteSession(tokenDigest));
+    return session && { sessionId: session.id, rooms: await this.store.roomIdsFor(session.user.id) };
   }
 
   /** The rooms the person `credentials` signs in is in, or null without a valid session. */
@@ -145,10 +189,10 @@ export class Workspace extends DurableObject<Env> {
     return created;
   }
 
-  /** Who `credentials` signs in and whether they're in room `roomId`, or null without a valid session. */
-  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<{ user: User; member: boolean } | null> {
-    const user = await this.authenticate(credentials);
-    return user && { user, member: await this.store.isMember(roomId, user.id) };
+  /** Who `credentials` signs in, with their session, and whether they're in room `roomId`, or null without a valid session. */
+  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<{ user: User; sessionId: string; member: boolean } | null> {
+    const session = await this.session(credentials);
+    return session && { user: session.user, sessionId: session.id, member: await this.store.isMember(roomId, session.user.id) };
   }
 
   /**

@@ -1,7 +1,9 @@
 import type { ImgHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
 import arrowUp from "./campfire/arrow-up.svg";
+import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import messagesAdd from "./campfire/messages-add.svg";
 import trash from "./campfire/trash.svg";
@@ -15,6 +17,8 @@ const tones = {
   black: "dark:invert",
   /** `colorize--white` or `.btn--reversed`: white on the ink-colored button, black in dark mode. */
   reversed: "invert dark:invert-0",
+  /** In a flash or a `.btn--negative` button: white on red in both modes. */
+  white: "invert",
 };
 
 export type CampfireIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "alt"> & { tone?: keyof typeof tones };
@@ -23,12 +27,20 @@ function CampfireIcon({ src, tone = "black", className, ...props }: CampfireIcon
   return <img src={src} alt="" aria-hidden="true" draggable={false} className={cn("select-none", tones[tone], className)} {...props} />;
 }
 
+export function Alert(props: CampfireIconProps) {
+  return <CampfireIcon src={alert} {...props} />;
+}
+
 export function ArrowDown(props: CampfireIconProps) {
   return <CampfireIcon src={arrowDown} {...props} />;
 }
 
 export function ArrowUp(props: CampfireIconProps) {
   return <CampfireIcon src={arrowUp} {...props} />;
+}
+
+export function Lifebuoy(props: CampfireIconProps) {
+  return <CampfireIcon src={lifebuoy} {...props} />;
 }
 
 export function Logout(props: CampfireIconProps) {

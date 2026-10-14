@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-// A two-route app (/ and /rooms/:id) doesn't need a router yet.
+// An app of a few routes (/, /rooms/:id and /session/new) doesn't need a router yet.
 
 const listeners = new Set<() => void>();
 
@@ -35,4 +35,9 @@ export function roomIdFromPath(pathname: string): string | null {
 
 export function useRoomRoute(): string | null {
   return roomIdFromPath(useSyncExternalStore(subscribe, () => location.pathname));
+}
+
+/** Whether the address is `path`, re-rendering only when that changes. */
+export function useIsAt(path: string): boolean {
+  return useSyncExternalStore(subscribe, () => location.pathname === path);
 }

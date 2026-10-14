@@ -1,4 +1,4 @@
-import type { User } from "@ember/protocol";
+import type { RoomId, User } from "@ember/protocol";
 import { toBase64url } from "./encoding";
 import type { Env } from "./env";
 import { workspace, type Credentials } from "./workspace";
@@ -93,10 +93,10 @@ export async function authenticate(request: Request, env: Env): Promise<{ user: 
   return user && { user, token };
 }
 
-/** Ends the session the request's cookie names, if any. */
-export async function signOut(request: Request, env: Env): Promise<void> {
+/** Ends the session the request's cookie names, if any, answering its id and the rooms its person is in. */
+export async function signOut(request: Request, env: Env): Promise<{ sessionId: string; rooms: RoomId[] } | null> {
   const token = sessionToken(request);
-  if (token) await workspace(env).signOut(await tokenDigest(token, env.SESSION_SECRET));
+  return token ? workspace(env).signOut(await tokenDigest(token, env.SESSION_SECRET)) : null;
 }
 
 /**

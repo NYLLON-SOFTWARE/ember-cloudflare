@@ -21,8 +21,9 @@ applies every file to D1, where all the tables share one database and each room'
 So far rooms keep messages and boosts, and the Workspace keeps `accounts`, `users`, `sessions`,
 `rooms` and `memberships`. A room's id also names its Durable Object, and the Worker asks the
 Workspace whether someone is a member before it wakes the room for their socket. First run creates
-the account and its administrator, who has an email address and a password; everyone else still
-signs in by display name, and presence and typing live in each room object's memory.
+the account and its administrator, who signs in with an email address and password, found through
+the unique index on `users.email_address`; until join links land, everyone else signs in by display
+name where that's allowed. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 

@@ -1,4 +1,4 @@
-import type { Account, Room, RoomId, User, UserId } from "@ember/protocol";
+import type { Account, HelpContact, Room, RoomId, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
@@ -53,6 +53,22 @@ interface SessionRow {
 
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+/** The same, for someone who signed in, unless they've stopped being active since. */
+const INSERT_SESSION_IF_ACTIVE = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE}`;
+
+/** The session a token's digest names, if its person is still active. */
+const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name, users.guest
+  FROM sessions JOIN users ON users.id = sessions.user_id
+  WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
+
+const storedSession = (row: SessionRow): StoredSession => ({
+  id: row.session_id,
+  user: { id: row.user_id, name: row.name },
+  guest: row.guest === 1,
+  lastActiveAt: Date.parse(row.last_active_at),
+});
 
 /** The rooms someone is in, by name as ember-rust's sidebar sorts them (membership.rs). */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
@@ -135,15 +151,40 @@ export class WorkspaceStore {
 
   /** The session a token's digest names, if its person is still active. */
   async findSession(tokenDigest: string): Promise<StoredSession | null> {
-    const [row] = await this.db.all<SessionRow>(
-      `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name, users.guest
-       FROM sessions JOIN users ON users.id = sessions.user_id
-       WHERE sessions.token_digest = ? AND users.status = ?`,
-      tokenDigest,
-      ACTIVE,
+    const [row] = await this.db.all<SessionRow>(SESSION, tokenDigest);
+    return row ? storedSession(row) : null;
+  }
+
+  /**
+   * The active person whose email address is exactly `emailAddress`, as ember-rust matches it
+   * (user.rs), and their password's digest. People without a password never sign in with one.
+   */
+  async passwordFor(emailAddress: string): Promise<{ userId: UserId; passwordDigest: string } | null> {
+    const [row] = await this.db.all<{ id: UserId; password_digest: string }>(
+      `SELECT id, password_digest FROM users WHERE email_address = ? AND status = ${ACTIVE} AND password_digest <> ''`,
+      emailAddress,
     );
-    if (!row) return null;
-    return { id: row.session_id, user: { id: row.user_id, name: row.name }, guest: row.guest === 1, lastActiveAt: Date.parse(row.last_active_at) };
+    return row ? { userId: row.id, passwordDigest: row.password_digest } : null;
+  }
+
+  /** Starts a session for someone who signed in, unless they've stopped being active since. */
+  async startSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+    const [, [row]] = (await this.db.batch([
+      statement(INSERT_SESSION_IF_ACTIVE, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId),
+      statement(SESSION, tokenDigest),
+    ])) as [unknown[], SessionRow[]];
+    return row ? storedSession(row) : null;
+  }
+
+  /**
+   * The first administrator, whom the sign-in page offers to email for help, as ember-rust's help
+   * contact does (presenters/accounts.rs): whatever their status, so a deactivated one still shows.
+   */
+  async helpContact(): Promise<HelpContact | null> {
+    const [row] = await this.db.all<{ name: string; email_address: string | null }>(
+      `SELECT name, email_address FROM users WHERE role = ${ADMINISTRATOR} ORDER BY created_at, id LIMIT 1`,
+    );
+    return row ? { name: row.name, emailAddress: row.email_address ?? "" } : null;
   }
 
   /** Records that the session is in use from `client`, as ember-rust's `resume` does. */
@@ -164,6 +205,12 @@ export class WorkspaceStore {
 
   async roomsFor(userId: UserId): Promise<Room[]> {
     return this.db.all<Room>(ROOMS_FOR_USER, userId);
+  }
+
+  /** The ids of the rooms someone is in. */
+  async roomIdsFor(userId: UserId): Promise<RoomId[]> {
+    const rows = await this.db.all<{ room_id: RoomId }>("SELECT room_id FROM memberships WHERE user_id = ?", userId);
+    return rows.map((row) => row.room_id);
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
