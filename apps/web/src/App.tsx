@@ -35,7 +35,7 @@ export function App() {
           const atSetup = location.pathname === SETUP_PATH;
           // Until Ember is set up, every page is setup's, which the Worker serves or keeps locked.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
-          if (workspace.setup === "complete" && atSetup) history.replaceState(null, "", "/");
+          if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
           // The join page is for someone signed out, as in ember-rust, which sends anyone else home.
           const atJoin = joinCodeFromPath(location.pathname) !== null;
           if (user && atJoin) navigate("/", { replace: true });

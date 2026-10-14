@@ -218,10 +218,12 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   // can't take a tap right now (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
-  // A modal <dialog> makes everything outside it inert, without marking it.
+  // A modal <dialog> makes everything outside it inert, without marking it, and a Radix one marks
+  // everything outside it hidden from assistive tech.
   const modal = document.querySelector(":modal");
+  const isBehindModal = (element: Element) => !!element.closest("[inert], [data-aria-hidden=true]") || (modal !== null && !modal.contains(element));
   for (const element of elements(INTERACTIVE)) {
-    if (isDisabled(element) || element.closest("[aria-hidden=true], [inert]") || (modal && !modal.contains(element)) || getComputedStyle(element).pointerEvents === "none") continue;
+    if (isDisabled(element) || element.closest("[aria-hidden=true]") || isBehindModal(element) || getComputedStyle(element).pointerEvents === "none") continue;
     // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
     if (getComputedStyle(element).display === "inline") continue;
     const rect = element.getBoundingClientRect();
@@ -269,12 +271,14 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   // Safe area: backgrounds may run under the notch and home indicator, but nothing you read or tap.
   // Scrolling content may pass under them too, as long as it can be scrolled clear: a list that
   // runs to the bottom of the screen needs room after its last item, not to stop short of the edge.
+  // What a modal dialog covers waits until it closes, when the page can scroll again.
   const safe: Box = { left: insets.left, top: insets.top, right: innerWidth - insets.right, bottom: innerHeight - insets.bottom };
   const safeArea: string[] = [];
   const checkSafe = (node: Node, box: Box, clipping: Element[]) => {
+    const element = node instanceof Element ? node : node.parentElement!;
+    if (isBehindModal(element)) return;
     const painted = paintedPart(box, clipping);
     if (!painted) return;
-    const element = node instanceof Element ? node : node.parentElement!;
     const [x, y] = [scrollerOf(element, "x"), scrollerOf(element, "y")];
     const room = {
       left: x ? x.scrollLeft : 0,

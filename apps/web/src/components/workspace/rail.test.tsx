@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { guardLeaving } from "@/hooks/use-route";
 import { Rail } from "./rail";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
@@ -63,6 +64,26 @@ describe(feature("auth.sign-out"), () => {
     expect(within(screen.getByRole("menu")).getByText("Ada Lovelace")).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe(feature("rooms.unsaved-changes"), () => {
+  it("asks a form with unsaved changes before signing out", async () => {
+    const onSignOut = vi.fn();
+    const user = userEvent.setup();
+    let proceed = () => {};
+    const stop = guardLeaving((path, go) => {
+      expect(path).toBeNull();
+      proceed = go;
+      return true;
+    });
+    render(<Rail me={ada} current="home" onSignOut={onSignOut} />);
+    await user.click(screen.getByRole("button", { name: "Your profile" }));
+    await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+    expect(onSignOut).not.toHaveBeenCalled();
+    proceed();
+    expect(onSignOut).toHaveBeenCalledOnce();
+    stop();
   });
 });
 

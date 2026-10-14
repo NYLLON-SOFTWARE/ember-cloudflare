@@ -91,9 +91,11 @@ export function Workspace({ me, onSignOut, onSessionChanged }: Props) {
   };
 
   const room = route.page !== "room" ? null : gone?.route === route ? gone.room : (rooms?.find((r) => r.id === route.roomId) ?? rooms?.[0] ?? null);
+  // Another room closes the drawer once it shows, which a form with unsaved changes may hold off; the
+  // room shown closes it at once.
   const select = (roomId: string) => {
-    navigate(roomPath(roomId));
-    setDrawerOpen(false);
+    if (location.pathname === roomPath(roomId)) setDrawerOpen(false);
+    else navigate(roomPath(roomId));
   };
 
   const navigation = (

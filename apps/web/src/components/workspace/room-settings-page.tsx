@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Room, RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
@@ -7,6 +7,7 @@ import { Trash } from "@/components/icons/campfire";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { UnsavedChanges } from "./unsaved-changes";
 
 /** Whether `error` says the room isn't there for this person, as ember-rust's `set_room` finds rooms. */
 const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
@@ -15,6 +16,8 @@ const isMissing = (error: unknown) => error instanceof ApiError && error.status 
 export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
+
+const sameMembers = (a: ReadonlySet<UserId>, b: ReadonlySet<UserId>) => a.size === b.size && [...a].every((id) => b.has(id));
 
 interface Props {
   roomId: RoomId;
@@ -35,8 +38,8 @@ interface Props {
  * ember-rust's room settings (rooms/layouts/_edit.html with rooms/opens/edit.html or
  * rooms/closeds/edit.html). Whoever can change the room renames it, and with the Everyone switch,
  * which swaps one form for the other in place, opens it to everyone or makes it private to the people
- * whose switches are on; under the form, they can delete it. Everyone else sees its name and people,
- * in the form for the room's kind.
+ * whose switches are on; under the form, they can delete it. Leaving with changes asks first. Everyone
+ * else sees its name and people, in the form for the room's kind.
  */
 export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
@@ -46,6 +49,9 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Saving or deleting, either of which keeps both buttons from being pressed until it answers.
   const [busy, setBusy] = useState(false);
+  // The form the page opened on, which the Everyone switch can move away from and back to.
+  const [opened] = useState(access);
+  const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
   useTitle(settings && `Edit settings for ${settings.room.name}`);
 
@@ -85,17 +91,27 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
     else onFailed(error);
   };
 
-  const save = () => {
-    setBusy(true);
+  /**
+   * Saves the form, then lists the room as saved, or takes it out of the sidebar if it's saved without
+   * this person, settling with whether it was.
+   */
+  const send = () => {
     const changes: RoomChanges = access === "open" ? { name, icon: icon ?? "", kind: access } : { name, icon: icon ?? "", kind: access, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
-    changeRoom(roomId, changes).then((room) => {
+    return changeRoom(roomId, changes).then((room) => {
       if (leaving) onLeft(room.id);
       else onSaved(room);
+      return leaving;
+    });
+  };
+
+  const save = () => {
+    setBusy(true);
+    send().then((left) => {
       if (!mounted.current) return;
       // As ember-rust shows the room saved, which sends someone no longer in it home with its alert.
-      if (leaving) onMissing();
-      else navigate(roomPath(room.id));
+      if (left) onMissing();
+      else navigate(roomPath(roomId));
     }, failed);
   };
 
@@ -111,6 +127,14 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
 
   const open = access === "open";
   const flip = () => navigate(roomSettingsPath(open ? "closed" : "open", roomId), { replace: true });
+  // Whether the form differs from how it loaded, the form its address names included, as ember-rust's
+  // settings.js compares them. Saving or deleting isn't guarded.
+  const changed =
+    !!settings?.canAdminister &&
+    !busy &&
+    (name !== settings.room.name || icon !== settings.room.icon || access !== opened || (!open && !sameMembers(chosen, membersOf(settings))));
+  // The Everyone switch moves between the room's two forms, keeping the draft.
+  const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
     <SettingsPage back={roomPath(roomId)}>
       <Panel aria-busy={settings === null}>
@@ -136,6 +160,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
             }
             saving={busy}
             onSave={save}
+            ref={roomForm}
           />
         )}
       </Panel>
@@ -144,6 +169,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
           <DeleteRoomButton name={settings.room.name} disabled={busy} onClick={remove} />
         </Panel>
       )}
+      <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
     </SettingsPage>
   );
 }

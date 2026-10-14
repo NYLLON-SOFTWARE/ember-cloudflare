@@ -1,5 +1,5 @@
 import { cookieHeader, signInAs, type TestRoom } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, hasDrawerLayout, test } from "./fixtures";
 
 /**
  * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones
@@ -47,4 +47,22 @@ test("the room icon picker fits the phone", async ({ page, room, screenIsFine })
   const picker = page.getByRole("dialog", { name: "Choose a room icon" });
   await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown");
   await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
+test("asking about unsaved changes opens over the drawer, keeps focus in, and fits the phone", async ({ page, room, screenIsFine }) => {
+  await page.goto(`/rooms/opens/${room.id}/edit`);
+  await page.getByRole("textbox", { name: "Room name" }).fill("Phone draft");
+  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).tap();
+  const unsaved = page.getByRole("dialog", { name: "Unsaved Changes" });
+  await expect(unsaved).toBeVisible();
+  for (let step = 0; step < 4; step++) {
+    await page.keyboard.press("Tab");
+    expect(await unsaved.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(true);
+  }
+  await screenIsFine();
+
+  await unsaved.getByRole("button", { name: "Discard" }).tap();
+  await expect(page).toHaveURL(/\/account\/edit$/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

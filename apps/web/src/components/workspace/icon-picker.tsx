@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { RoomIconName } from "@ember/protocol";
-import { IconPickerChevron, IconPickerClose, IconPickerSearch } from "@/components/icons/ember";
+import { Dismiss, IconPickerChevron, IconPickerSearch } from "@/components/icons/ember";
 import CATALOG_URL from "@/components/icons/lucide/catalog.json?url";
 import { RoomIcon, roomIconLabel } from "@/components/icons/room-icon";
 import { cn } from "@/lib/utils";
@@ -236,7 +236,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
             <p className="text-[13px] text-muted-foreground">A little personality for your room.</p>
           </div>
           <button type="button" aria-label="Close icon picker" onClick={cancel} className="grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] touch:size-11">
-            <IconPickerClose className="size-5" />
+            <Dismiss className="size-5" />
           </button>
         </header>
 

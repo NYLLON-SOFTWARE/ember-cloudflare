@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NewRoom, Room, RoomIconName, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
@@ -6,9 +6,13 @@ import { useTitle } from "@/hooks/use-title";
 import { createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { UnsavedChanges } from "./unsaved-changes";
 
 /** What New room's name starts as, as in ember-rust (rooms/opens.rs). */
 const DEFAULT_ROOM_NAME = "New room";
+
+/** The Everyone switch moves between New room's two forms, keeping the draft. */
+const isNewRoomPath = (path: string) => path === newRoomPath("open") || path === newRoomPath("closed");
 
 interface Props {
   /** Which of the two forms the address shows: a room for everyone, or a private one. */
@@ -22,7 +26,8 @@ interface Props {
 
 /**
  * ember-rust's New room pages (rooms/opens/new.html and rooms/closeds/new.html). The Everyone switch
- * swaps one for the other in place, keeping what's been filled in, as ember-rust's settings.js does.
+ * swaps one for the other in place, keeping what's been filled in, as ember-rust's settings.js does, and
+ * leaving with anything filled in asks first.
  */
 export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   useTitle("New chat room");
@@ -31,6 +36,9 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   const [saving, setSaving] = useState(false);
+  // The form the page opened on, which the Everyone switch can move away from and back to.
+  const [opened] = useState(access);
+  const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -43,14 +51,21 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     return () => void (stopped = true);
   }, [onFailed]);
 
-  const save = () => {
-    setSaving(true);
+  /** Creates the room and lists it in the sidebar. */
+  const send = () => {
     // The private form lists its creator with a check mark and sends them as one of its members.
     const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "" } : { kind: access, name, icon: icon ?? "", memberIds: [me.id, ...chosen] };
+    return createRoom(room).then((room) => {
+      onCreated(room);
+      return room;
+    });
+  };
+
+  const save = () => {
+    setSaving(true);
     // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
-    createRoom(room).then(
+    send().then(
       (room) => {
-        onCreated(room);
         if (mounted.current) navigate(roomPath(room.id));
       },
       (error: unknown) => {
@@ -62,6 +77,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     );
   };
 
+  // Anything filled in, or the other form, which the page didn't open on.
+  const changed = people !== null && !saving && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
       <Panel aria-busy={people === null}>
@@ -84,9 +101,11 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
             }
             saving={saving}
             onSave={save}
+            ref={roomForm}
           />
         )}
       </Panel>
+      <UnsavedChanges changed={changed} stays={isNewRoomPath} onSave={send} form={roomForm} />
     </SettingsPage>
   );
 }
