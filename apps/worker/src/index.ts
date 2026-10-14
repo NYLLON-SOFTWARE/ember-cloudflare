@@ -1,4 +1,4 @@
-import { isPasswordTooLong, isRoomId, parseNewRoom, SIGN_IN_REFUSED, type Bootstrap, type RoomId } from "@ember/protocol";
+import { isPasswordTooLong, isRoomId, parseNewRoom, SIGN_IN_REFUSED, type Bootstrap, type RoomId, type RoomList } from "@ember/protocol";
 import {
   authenticate,
   clientOf,
@@ -16,6 +16,7 @@ import {
 } from "./auth";
 import { ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
+import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { firstRun, isSetupPath, isSetupProtected, setupPage, setupTokenProblem } from "./setup";
@@ -136,11 +137,12 @@ async function endSession(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
-/** The rooms the signed-in person is in. */
+/** The rooms the signed-in person is in, and the welcome card's invitation if they're in its room. */
 async function listRooms(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const rooms = credentials && (await workspace(env).rooms(credentials));
-  return rooms ? json({ rooms }) : problem(401, "Not signed in");
+  const list = credentials && (await workspace(env).rooms(credentials));
+  // It can hold the join code, which no cache should keep.
+  return list ? json(list satisfies RoomList, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
 }
 
 /** Creates an open room, or a closed one for the people it names. Only the tests and load tests ask yet. */
@@ -184,6 +186,8 @@ export default {
     if (pathname === "/api/me") return me(request, env);
     if (pathname === "/api/rooms" && request.method === "GET") return listRooms(request, env);
     if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
+    const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
+    if (joining && request.method === "POST") return join(request, env, joining[1]!);
 
     const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
     if (socket) {
@@ -194,6 +198,8 @@ export default {
 
     if (pathname.startsWith("/api/")) return problem(404, "Not found");
     if (isSetupPath(pathname)) return setupPage(request, env);
+    const joinCode = joinCodeOf(pathname);
+    if (joinCode !== null) return joinPage(request, env, joinCode);
     const manifestFormat = manifestFormatOf(pathname);
     if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
     return env.ASSETS.fetch(request);

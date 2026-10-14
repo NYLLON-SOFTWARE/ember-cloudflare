@@ -6,7 +6,7 @@ other file does, and it checks every Lucide icon here against ember-rust's catal
 
 | Module | What it holds | Where ember-rust gets it |
 |---|---|---|
-| `ember.tsx` | Ember's own line icons (24px grid, 1.7 stroke, `currentColor`): the rail, the mobile menu, close buttons, the sign-in form | `crates/views/templates/components/icons.html`, drawn with `{% call icons::icon("name") %}` |
+| `ember.tsx` | Ember's own line icons (24px grid, 1.7 stroke, `currentColor`): the rail, the mobile menu, close buttons, the sign-in form, the welcome card's link | `crates/views/templates/components/icons.html`, drawn with `{% call icons::icon("name") %}`; the link is inline in `rooms/show/_invitation.html` |
 | `lucide.ts` | Lucide, pinned to 1.53.0: message actions and the appearance menu | `h::lucide_icon("name")`, from the generated `crates/assets/overrides/lucide/catalog.json` (lucide-static 1.53.0) |
 | `campfire.tsx`, `campfire/*.svg` | Campfire's filled icons, drawn as black `<img>`s and inverted where the background is dark | `ctx.asset("name.svg")` or `h::image_tag(ctx, "name.svg", …)`, served from its `reference/` submodule: basecamp/once-campfire `app/assets/images/` at `90b3300` |
 
@@ -25,7 +25,8 @@ sign-in card) scaled from 1254px down to 192px, so the page doesn't load 595 KB 
 
 Find the element you're porting in ember-rust's templates and see how it draws its icon:
 
-- **`icons::icon("name")`**: copy its shapes from `icons.html` into `ember.tsx` verbatim.
+- **`icons::icon("name")`**, or an `<svg>` written into the template: copy its shapes from `icons.html`, or
+  the template, into `ember.tsx` verbatim.
 - **`h::lucide_icon("name")`**: add the icon's PascalCase name to the export in `lucide.ts` (Lucide's
   own name, not an alias: `face-slightly-smiling-plus` is `FaceSlightlySmilingPlus`), and its markup
   from `catalog.json` to the catalog in `icons.test.tsx`. Keep `lucide-react` on 1.53.0 until

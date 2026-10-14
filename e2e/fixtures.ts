@@ -1,5 +1,5 @@
 import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
-import type { ClientFrame, Message, ServerFrame, User } from "@ember/protocol";
+import type { ClientFrame, Invitation, Message, RoomList, ServerFrame, User } from "@ember/protocol";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
 // that the config's webServer runs; nothing here mocks the backend except the room list.
@@ -65,10 +65,24 @@ export async function createRoom(request: APIRequestContext, session: Session, n
 
 /**
  * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
- * own instead of among every other test's open rooms.
+ * own instead of among every other test's open rooms. Given a `joinCode`, it's the room with the
+ * welcome card too, inviting people with that code.
  */
-export async function isolateRoom(page: Page, room: TestRoom): Promise<void> {
-  await page.route("**/api/rooms", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open" }] } }));
+export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
+  const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
+  await page.route("**/api/rooms", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open" }], invitation } satisfies RoomList }));
+}
+
+/**
+ * The welcome card's invitation: the workspace's first room, All Talk, which every open room's
+ * member is in, and the join code. Anyone in All Talk gets it with their rooms.
+ */
+export async function invitation(request: APIRequestContext, session: Session): Promise<Invitation> {
+  const response = await request.get("/api/rooms", { headers: { Cookie: cookieHeader(session) } });
+  expect(response.status(), await response.text()).toBe(200);
+  const { invitation } = (await response.json()) as RoomList;
+  expect(invitation, "Everyone is in All Talk, where the welcome card is").not.toBeNull();
+  return invitation!;
 }
 
 /** Opens a room and waits until its socket has connected and the history has loaded. */

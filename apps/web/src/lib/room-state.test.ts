@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import type { Message, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
-import { initialRoomState, isPending, roomReducer, type RoomState } from "./room-state";
+import { initialRoomState, isPending, roomReducer, WELCOME_CARD_MESSAGES, type RoomState } from "./room-state";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -236,5 +236,24 @@ describe(feature("messages.history"), () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }) }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
     expect(state.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+});
+
+describe(feature("rooms.invitation-card"), () => {
+  const page = (count: number) => Array.from({ length: count }, (_, i) => message({ id: `m${i}`, clientMessageId: `c${i}` }));
+  const welcome = (state: RoomState, messages: Message[], hasMore = false) =>
+    frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages, present: [ada], hasMore }, now: 0 });
+
+  it("counts a room as paged once it holds more than a page of ember-rust's", () => {
+    expect(initialRoomState.paged).toBeNull();
+    expect(welcome(initialRoomState, page(WELCOME_CARD_MESSAGES)).paged).toBe(false);
+    expect(welcome(initialRoomState, page(WELCOME_CARD_MESSAGES + 1)).paged).toBe(true);
+    expect(welcome(initialRoomState, page(50), true).paged).toBe(true);
+  });
+
+  it("keeps what the room first said across reconnects, as ember-rust's page does until it's loaded again", () => {
+    const opened = welcome(initialRoomState, page(3));
+    expect(welcome(opened, page(50), true).paged).toBe(false);
+    expect(roomReducer(opened, { type: "reset" }).paged).toBeNull();
   });
 });

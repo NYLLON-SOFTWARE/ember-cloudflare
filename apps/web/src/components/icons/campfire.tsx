@@ -3,9 +3,11 @@ import { cn } from "@/lib/utils";
 import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
 import arrowUp from "./campfire/arrow-up.svg";
+import copyPaste from "./campfire/copy-paste.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import messagesAdd from "./campfire/messages-add.svg";
+import share from "./campfire/share.svg";
 import trash from "./campfire/trash.svg";
 
 // Campfire's filled icons. ember-rust serves these files unchanged from its reference app
@@ -39,6 +41,10 @@ export function ArrowUp(props: CampfireIconProps) {
   return <CampfireIcon src={arrowUp} {...props} />;
 }
 
+export function CopyPaste(props: CampfireIconProps) {
+  return <CampfireIcon src={copyPaste} {...props} />;
+}
+
 export function Lifebuoy(props: CampfireIconProps) {
   return <CampfireIcon src={lifebuoy} {...props} />;
 }
@@ -49,6 +55,10 @@ export function Logout(props: CampfireIconProps) {
 
 export function MessagesAdd(props: CampfireIconProps) {
   return <CampfireIcon src={messagesAdd} {...props} />;
+}
+
+export function Share(props: CampfireIconProps) {
+  return <CampfireIcon src={share} {...props} />;
 }
 
 export function Trash(props: CampfireIconProps) {

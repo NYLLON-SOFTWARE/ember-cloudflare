@@ -1,14 +1,17 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import type { User } from "@ember/protocol";
+import type { Invitation, User } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { timeline } from "@/lib/messages";
 import type { RoomState } from "@/lib/room-state";
+import { InvitationCard } from "./invitation-card";
 import { MessageItem, type MessageActions } from "./message-item";
 
 const NEAR_BOTTOM_PX = 120;
 
 interface Props {
   roomName: string;
+  /** The welcome card's invitation, when this is the room it's in. */
+  invitation: Invitation | null;
   state: RoomState;
   me: User;
   actions: MessageActions;
@@ -16,7 +19,7 @@ interface Props {
 }
 
 /** The scrolling timeline. Stays pinned to the newest message unless you've scrolled up. */
-export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props) {
+export function MessageList({ roomName, invitation, state, me, actions, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -79,6 +82,8 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
   };
 
   const items = timeline(state.messages);
+  // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome.
+  const welcomeCard = invitation !== null && state.paged === false;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -88,7 +93,9 @@ export function MessageList({ roomName, state, me, actions, onLoadOlder }: Props
         <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
-        {state.status === "open" && items.length === 0 && (
+        {welcomeCard && <InvitationCard joinCode={invitation.joinCode} />}
+
+        {state.status === "open" && items.length === 0 && !welcomeCard && (
           <div className="p-6 text-center text-muted-foreground">
             <h2 className="mb-1.5 text-xl text-foreground">Welcome to #{roomName}</h2>
             <p>This is the very beginning of the room. Say hello!</p>

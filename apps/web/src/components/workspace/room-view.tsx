@@ -1,4 +1,4 @@
-import type { User } from "@ember/protocol";
+import type { Invitation, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { useRoom } from "@/hooks/use-room";
 import type { Room } from "@/lib/api";
@@ -8,11 +8,13 @@ import { RoomHeader } from "./room-header";
 
 interface Props {
   room: Room;
+  /** The welcome card's invitation, when this is the room it's in. */
+  invitation: Invitation | null;
   me: User;
   onSessionChanged: (me: User | null) => void;
 }
 
-export function RoomView({ room, me, onSessionChanged }: Props) {
+export function RoomView({ room, invitation, me, onSessionChanged }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
@@ -31,7 +33,7 @@ export function RoomView({ room, me, onSessionChanged }: Props) {
             </button>
           </div>
         )}
-        <MessageList roomName={room.name} state={state} me={me} actions={messageActions} onLoadOlder={loadOlder} />
+        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={messageActions} onLoadOlder={loadOlder} />
         <Composer roomName={room.name} typing={typingUsers} disabled={state.status !== "open"} onSend={postMessage} onTyping={typing} />
       </main>
     </>

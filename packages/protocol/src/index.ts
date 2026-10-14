@@ -19,6 +19,21 @@ export interface Room {
   name: string;
 }
 
+/**
+ * The welcome card's invitation: the workspace's first room, where the card shows while the room is
+ * new, and the code in the workspace's join link, such as aB3d-Ef5h-iJ7k.
+ */
+export interface Invitation {
+  roomId: RoomId;
+  joinCode: string;
+}
+
+/** What `GET /api/rooms` answers: the rooms someone is in, and the invitation, when they're in its room. */
+export interface RoomList {
+  rooms: Room[];
+  invitation: Invitation | null;
+}
+
 /** A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names. */
 export type NewRoom = { kind: "open"; name: string } | { kind: "closed"; name: string; memberIds: UserId[] };
 
@@ -50,8 +65,12 @@ export interface Bootstrap {
   user: User | null;
 }
 
-/** The workspace's first administrator, as the Set up Ember form sends them to `POST /api/first_run`. */
-export interface FirstRun {
+/**
+ * Someone new with an email address and password: the workspace's first administrator, as the Set up
+ * Ember form sends them to `POST /api/first_run`, or someone joining, as the join form sends them to
+ * `POST /api/join/<code>`.
+ */
+export interface SignUp {
   name: string;
   emailAddress: string;
   password: string;
@@ -247,10 +266,10 @@ export function parseNewRoom(data: unknown): NewRoom | string {
 }
 
 /**
- * Parses an untrusted first run. Returns why it's refused instead, when a field is missing; the
- * password's length is checked apart from this, since a short one gets its own answer.
+ * Parses an untrusted first run or join. Returns why it's refused instead, when a field is missing;
+ * the password's length is checked apart from this, since each form has its own rules.
  */
-export function parseFirstRun(data: unknown): FirstRun | string {
+export function parseSignUp(data: unknown): SignUp | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
   const f = data as Record<string, unknown>;
   const name = typeof f.name === "string" ? f.name.trim() : "";
