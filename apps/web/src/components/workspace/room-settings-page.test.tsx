@@ -4,10 +4,11 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import checkMark from "@/components/icons/campfire/check.svg";
+import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { RoomSettingsPage } from "./room-settings-page";
+import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
@@ -39,11 +40,11 @@ function serve(settings: RoomSettings | { status: number; error: string }, { sav
   });
 }
 
-/** Answers `settings` for the page, and holds a change until the returned function answers it. */
-function holdChange(settings: RoomSettings) {
+/** Answers `settings` for the page, and holds a change, or with `DELETE` a deletion, until the returned function answers it. */
+function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH") {
   let answer = (_: Response) => {};
   vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
-    init?.method === "PATCH" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json(settings)),
+    init?.method === method ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(Response.json(settings)),
   );
   return (response: Response) => act(async () => answer(response));
 }
@@ -168,7 +169,6 @@ describe(feature("rooms.settings-page"), () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
-
 });
 
 describe(feature("rooms.convert-access"), () => {
@@ -333,5 +333,88 @@ describe(feature("rooms.edit-permissions"), () => {
     await act(async () => answers[1]!(Response.json({ error: "Sign in to continue" }, { status: 401 })));
     expect(second.onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
     expect(second.onMissing).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("rooms.delete"), () => {
+  const deleteButton = () => screen.findByRole("button", { name: "Delete Design" });
+  const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+  const deleted = () => new Response(null, { status: 204 });
+
+  it("offers Delete under the settings, with the trash can and the room's name", async () => {
+    serve(openSettings());
+    showPage(design);
+    const button = await deleteButton();
+    expect(button).toHaveTextContent(/^Design$/);
+    expect(button.querySelector("img")).toHaveAttribute("src", trash);
+    expect(button.closest("section")).not.toBe((await roomName()).closest("section"));
+  });
+
+  it("deletes the room once you confirm, taking it out of the sidebar and going home", async () => {
+    const confirm = confirmed(true);
+    const answer = holdChange(openSettings(), "DELETE");
+    const { onLeft, onMissing, user } = showPage(design);
+    await user.click(await deleteButton());
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_DELETE);
+    expect(vi.mocked(fetch).mock.calls.at(-1)).toEqual(["/api/rooms/design", expect.objectContaining({ method: "DELETE" })]);
+    // Neither button can be pressed again until it answers.
+    expect(await deleteButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await answer(deleted());
+    expect(onLeft).toHaveBeenCalledExactlyOnceWith(design.id);
+    expect(location.pathname).toBe("/");
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("deletes nothing unless you confirm", async () => {
+    confirmed(false);
+    serve(openSettings());
+    const { onLeft, user } = showPage(design);
+    await user.click(await deleteButton());
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(await deleteButton()).toBeEnabled();
+  });
+
+  it("offers Delete only to whoever can change the room", async () => {
+    serve(openSettings(false));
+    showPage(design);
+    await screen.findByRole("heading", { level: 2, name: "Design" });
+    expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
+  });
+
+  it("goes home with the alert when the room's already gone", async () => {
+    confirmed(true);
+    const answer = holdChange(openSettings(), "DELETE");
+    const { onLeft, onMissing, user } = showPage(design);
+    await user.click(await deleteButton());
+    await answer(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
+    expect(onMissing).toHaveBeenCalledOnce();
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  it("says why the room wasn't deleted, and lets you try again", async () => {
+    confirmed(true);
+    const answer = holdChange(openSettings(), "DELETE");
+    const { onFailed, onLeft, user } = showPage(design);
+    await user.click(await deleteButton());
+    await answer(Response.json({ error: "Only administrators and the room's creator can delete it" }, { status: 403 }));
+    expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 403 }));
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(await deleteButton()).toBeEnabled();
+    expect(location.pathname).toBe("/rooms/opens/design/edit");
+  });
+
+  it("takes the room out of the sidebar when the answer comes after the page was left, staying where you are", async () => {
+    confirmed(true);
+    const answer = holdChange(openSettings(), "DELETE");
+    const { onLeft, user, unmount } = showPage(design);
+    await user.click(await deleteButton());
+    unmount();
+    history.replaceState(null, "", "/rooms/random");
+    await answer(deleted());
+    expect(onLeft).toHaveBeenCalledWith(design.id);
+    expect(location.pathname).toBe("/rooms/random");
   });
 });

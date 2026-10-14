@@ -167,6 +167,19 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   return typeof changes === "string" ? problem(422, changes) : json({ room });
 }
 
+/**
+ * Deletes a room, as Delete on its settings page does, answering 204 where ember-rust redirects home
+ * (rooms.rs). As with changing a room, someone who can't change it hears so.
+ */
+async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const deleted = credentials && (await workspace(env).deleteRoom(credentials, roomId));
+  if (!deleted) return problem(401, "Not signed in");
+  if (deleted === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (deleted === "forbidden") return problem(403, "Only administrators and the room's creator can delete it");
+  return new Response(null, { status: 204 });
+}
+
 async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   // As with Action Cable, the address is only there for upgrades from the app's own pages.
   if (request.headers.get("Upgrade") !== "websocket" || !isSameOriginUpgrade(request)) return problem(404, "Not found");
@@ -217,6 +230,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (settings && request.method === "GET") return isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND);
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
+  if (room && request.method === "DELETE") return isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
 
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (isSetupPath(pathname)) return setupPage(request, env);

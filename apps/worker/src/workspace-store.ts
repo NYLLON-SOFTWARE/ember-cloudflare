@@ -1,6 +1,6 @@
 import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
-import { SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -167,6 +167,10 @@ export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = 
  */
 const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?, name), kind = coalesce(?, kind), updated_at = ?
   WHERE id = ? AND (name IS NOT coalesce(?, name) OR kind IS NOT coalesce(?, kind))`;
+
+/** Of the rooms a JSON list names, those that are neither registered nor deleted. */
+const UNREGISTERED_ROOMS = `SELECT DISTINCT value AS id FROM json_each(?)
+  WHERE value NOT IN (SELECT id FROM rooms) AND value NOT IN (SELECT id FROM deleted_rooms)`;
 
 /** Keeps the people a JSON list of `{id, name}` names as deactivated guests, unless they're already here. */
 const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, created_at, updated_at)
@@ -403,6 +407,22 @@ export class WorkspaceStore {
     return queued!.length > 0;
   }
 
+  /**
+   * Deletes a room and who is in it, as ember-rust's `Room::destroy` does (room.rs), and in the same
+   * transaction queues closing every socket in it with `code`, due at `dueAt`, in place of whatever
+   * else the outbox had for it. The room's own object deletes its messages when that reaches it. The
+   * room is remembered as deleted, so registering `LEGACY_ROOMS` doesn't bring it back.
+   */
+  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM pending_revocations WHERE room_id = ?`, roomId),
+      statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
+      statement(`DELETE FROM memberships WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM rooms WHERE id = ?`, roomId),
+      statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
+    ]);
+  }
+
   /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */
   async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<void> {
     await this.db.batch([
@@ -411,9 +431,9 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** Of the rooms `ids` names, the ones that aren't registered yet. The ids go as one JSON value. */
+  /** Of the rooms `ids` names, the ones that aren't registered yet and were never deleted. The ids go as one JSON value. */
   async unregisteredRooms(ids: RoomId[]): Promise<RoomId[]> {
-    const rows = await this.db.all<{ id: RoomId }>(`SELECT DISTINCT value AS id FROM json_each(?) WHERE value NOT IN (SELECT id FROM rooms)`, JSON.stringify(ids));
+    const rows = await this.db.all<{ id: RoomId }>(UNREGISTERED_ROOMS, JSON.stringify(ids));
     return rows.map((row) => row.id);
   }
 

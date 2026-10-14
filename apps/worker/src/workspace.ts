@@ -336,14 +336,38 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Makes room changes one at a time, each once the one before has finished. A change reads who may
-   * make it before it writes, and on D1 other requests run in between: without this, someone another
-   * change had just taken out of a room could still open it to everyone.
+   * Makes room changes and deletions one at a time, each once the one before has finished. Each reads
+   * who may make it before it writes, and on D1 other requests run in between: without this, someone
+   * another change had just taken out of a room could still open it to everyone, and a change could
+   * write to a room deleted since it looked.
    */
   private oneAtATime<T>(change: () => Promise<T>): Promise<T> {
     const result = this.lastRoomChange.then(change);
     this.lastRoomChange = result.catch(() => undefined);
     return result;
+  }
+
+  /**
+   * Deletes room `roomId` as the person `credentials` signs in, as ember-rust's `destroy` does
+   * (rooms.rs): "not found" as for its settings, "forbidden" unless they can change it, or null
+   * without a valid session. Everyone with it open is told it's gone, and its messages go with it.
+   */
+  async deleteRoom(credentials: Credentials, roomId: RoomId): Promise<"deleted" | "not found" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      const now = Date.now();
+      try {
+        await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
+      } finally {
+        // As when signing out: the database may have saved the deletion, and so queued it, though its answer was lost.
+        await this.wakeAt(now);
+      }
+      return "deleted";
+    });
   }
 
   /**

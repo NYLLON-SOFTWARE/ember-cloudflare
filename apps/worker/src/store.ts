@@ -121,6 +121,11 @@ export class MessageStore {
     await this.db.run(`DELETE FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id);
   }
 
+  /** Deletes every message here, and through ON DELETE CASCADE their boosts, as deleting the room does. */
+  async deleteAllMessages(): Promise<void> {
+    await this.db.run(`DELETE FROM messages WHERE room_id = ?`, this.roomId);
+  }
+
   async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<Boost> {
     await this.db.run(
       `INSERT INTO boosts (id, room_id, message_id, booster_id, booster_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,

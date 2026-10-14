@@ -43,6 +43,8 @@
   --mention: oklch(70% 0.2 44);
   /* Campfire's --color-negative, the flash's red, as ember-rust sets --lch-red. */
   --negative: oklch(51% 0.2 31);
+  /* ember-rust's `.btn--negative` (zz-ember.css), such as Delete on a room's settings: the same red in dark mode. */
+  --negative-button: #b91c1c;
   /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
   --lightbox: oklch(100% 0 0 / 0.66);
   color-scheme: light;
@@ -193,6 +195,7 @@
   --color-message-hover: var(--message-hover);
   --color-mention: var(--mention);
   --color-negative: var(--negative);
+  --color-negative-button: var(--negative-button);
   --color-lightbox: var(--lightbox);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar, 60px header. */
   --spacing-rail: 80px;
