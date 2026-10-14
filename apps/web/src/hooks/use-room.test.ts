@@ -417,19 +417,54 @@ describe(feature("realtime.connection"), () => {
     expect(onSessionChanged).not.toHaveBeenCalled();
   });
 
-  it("hands over to whoever another tab signed this browser in as, without showing them this room", () => {
+  it("hands over to whoever another tab signed this browser in as, as the server knows them, without showing them this room", async () => {
+    const graceAsSignedIn = { ...grace, administrator: true };
+    const fetch = vi.fn(async () => Response.json({ user: graceAsSignedIn }));
+    vi.stubGlobal("fetch", fetch);
     const onSessionChanged = vi.fn();
     const { result } = joinGeneral({ connect: false, onSessionChanged });
     socket().open();
     socket().receive({ type: "welcome", you: grace, messages: [message("m1", { creator: grace })], present: [grace], hasMore: false });
 
-    expect(onSessionChanged).toHaveBeenCalledWith(grace);
-    expect(result.current.state).toMatchObject({ status: "connecting", messages: [], present: [] });
+    expect(result.current.state).toMatchObject({ status: "reconnecting", messages: [], present: [] });
     expect(socket().closedWith).toBe(1000);
     expect(socket().sentOfType("message.check")).toEqual([]);
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(graceAsSignedIn));
+    expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything());
     // Nor does it come back, as a dropped socket would.
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it("goes to sign in from a room whose welcome is for someone else when the browser has signed out since", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 })));
+    const onSessionChanged = vi.fn();
+    joinGeneral({ connect: false, onSessionChanged });
+    socket().open();
+    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false });
+    await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
+    wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it.each([
+    ["it's signed in as them again", async () => Response.json({ user: { ...ada, administrator: false } })],
+    ["it can't tell", async () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("connects again after a welcome for someone else when %s", async (_case, answer) => {
+    const fetch = vi.fn(answer);
+    vi.stubGlobal("fetch", fetch);
+    const onSessionChanged = vi.fn();
+    joinGeneral({ connect: false, onSessionChanged });
+    socket().open();
+    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false });
+    expect(socket().closedWith).toBe(1000);
+    await act(async () => {});
+    expect(fetch).toHaveBeenCalledOnce();
+    wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
+    socket().open();
+    socket().receive(welcome());
+    expect(onSessionChanged).not.toHaveBeenCalled();
   });
 
   it("ignores a session check that answers after its room has closed", async () => {

@@ -8,7 +8,7 @@ import type { Env } from "../src/env";
 import { hashPassword } from "../src/passwords";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import { api, apiWith, closeOf, connect, cookieOf, forwardUpgrade, freshDeploy, freshRoom, origin, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, closeOf, connect, cookieOf, forwardUpgrade, freshDeploy, freshRoom, origin, post, settle, shown, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
@@ -17,7 +17,7 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 async function setUp(): Promise<Session> {
   const response = await api("/api/first_run", { method: "POST", body: JSON.stringify(ada) });
   expect(response.status).toBe(201);
-  return { user: ((await response.json()) as NewWorkspace).user, cookie: cookieOf(response) };
+  return { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
 }
 
 /** A sign-in with an email address and password, from `ip`. */
@@ -28,7 +28,7 @@ const signInWith = (body: unknown, { ip = "203.0.113.7", headers = {} }: { ip?: 
 async function signInAsAda(): Promise<Session> {
   const response = await signInWith({ emailAddress: ada.emailAddress, password: ada.password });
   expect(response.status).toBe(201);
-  return { user: ((await response.json()) as { user: User }).user, cookie: cookieOf(response) };
+  return { user: shown(((await response.json()) as { user: User }).user), cookie: cookieOf(response) };
 }
 
 const sessionCount = async () => ((await workspaceSql("SELECT count(*) AS n FROM sessions")) as Array<{ n: number }>)[0]!.n;
@@ -40,7 +40,8 @@ afterEach(() => vi.useRealTimers());
 
 describe(feature("auth.sign-in"), () => {
   it("signs in an active person with their email address and password, in a session of its own", async () => {
-    const { user, cookie: firstRunCookie } = await setUp();
+    const { user: shownAs, cookie: firstRunCookie } = await setUp();
+    const user = { ...shownAs, administrator: true };
     // Someone already signed in can sign in again, as in ember-rust.
     const response = await signInWith({ emailAddress: ada.emailAddress, password: ada.password }, { headers: { Cookie: firstRunCookie, "User-Agent": "Ada's phone" } });
     expect(response.status).toBe(201);
@@ -120,7 +121,7 @@ describe(feature("auth.sign-in"), () => {
     );
     const response = await signInWith({ emailAddress: "grace@example.com", password: "compiler" });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ user: { id: "gracegracegrace1", name: "Grace Hopper" } });
+    expect(await response.json()).toEqual({ user: { id: "gracegracegrace1", name: "Grace Hopper", administrator: false } });
   });
 
   it("refuses everyone before Ember is set up", async () => {

@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { guardLeaving } from "@/hooks/use-route";
 import { Rail, type RailPage } from "./rail";
 
-const ada = { id: "u1", name: "Ada Lovelace" };
+const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 
-/** The rail for the page `current` names. */
-const railAt = (current: RailPage, onSignOut = vi.fn()) => <Rail me={ada} workspaceName="Analytical Engines" current={current} onSignOut={onSignOut} />;
+/** The rail for the page `current` names, as `me` sees it. */
+const railAt = (current: RailPage, onSignOut = vi.fn(), me = ada) => <Rail me={me} workspaceName="Analytical Engines" current={current} onSignOut={onSignOut} />;
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -29,6 +29,17 @@ describe(feature("ui.rail"), () => {
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
+  });
+
+  it("names the settings link Admin for administrators, and Workspace for everyone else", () => {
+    const { rerender } = render(railAt("workspace", vi.fn(), { ...ada, administrator: true }));
+    const settings = screen.getByRole("link", { name: "Admin" });
+    expect(settings).toHaveAttribute("href", "/account/edit");
+    expect(settings).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "Workspace" })).not.toBeInTheDocument();
+    rerender(railAt("workspace"));
+    expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
   });
 
   it("titles the logo with the workspace's name", () => {

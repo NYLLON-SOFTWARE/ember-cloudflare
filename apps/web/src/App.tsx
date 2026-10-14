@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Bootstrap, NewWorkspace, User } from "@ember/protocol";
+import type { Account, Bootstrap, Me, NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
@@ -21,7 +21,7 @@ const SIGN_IN_PATH = "/session/new";
 export function App() {
   // Undefined until the server says whether Ember is set up.
   const [workspace, setWorkspace] = useState<Omit<Bootstrap, "user">>();
-  const [me, setMe] = useState<User | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
   // As in ember-rust, the sign-in page opens even for someone who's signed in.
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
@@ -67,13 +67,13 @@ export function App() {
     };
   }, []);
 
-  const signedIn = useCallback((user: User) => {
+  const signedIn = useCallback((user: Me) => {
     if (location.pathname === SIGN_IN_PATH) navigate(takeReturnPath() ?? "/", { replace: true });
     setMe(user);
   }, []);
   // The session ended, or another tab signed this browser in as someone else. Signing in again
   // starts afresh, as ember-rust's redirect to sign in does, and comes back to this page.
-  const sessionChanged = useCallback((user: User | null) => {
+  const sessionChanged = useCallback((user: Me | null) => {
     if (user) return setMe(user);
     // Signing out here goes to sign in itself, whether the rooms close their sockets before or after
     // it's answered.
@@ -98,7 +98,7 @@ export function App() {
     );
   }, []);
   // As in ember-rust, someone who joins goes home, signed in.
-  const joined = useCallback((user: User) => {
+  const joined = useCallback((user: Me) => {
     navigate("/", { replace: true });
     setMe(user);
   }, []);
@@ -106,6 +106,8 @@ export function App() {
     setMe(user);
     setWorkspace((workspace) => workspace && { ...workspace, setup: "complete" });
   }, []);
+  // The rail, the sidebar and the pages signed out show the workspace as its settings last loaded or saved it.
+  const accountChanged = useCallback((account: Account) => setWorkspace((workspace) => workspace && { ...workspace, account }), []);
 
   // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
@@ -113,7 +115,18 @@ export function App() {
   const page = () => {
     if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
-    if (showsWorkspace) return <Workspace key={me.id} me={me} workspaceName={workspace.account.name} onSignOut={signOutHere} onSessionChanged={sessionChanged} />;
+    if (showsWorkspace)
+      return (
+        <Workspace
+          key={me.id}
+          me={me}
+          workspaceName={workspace.account.name}
+          version={workspace.version}
+          onAccountChanged={accountChanged}
+          onSignOut={signOutHere}
+          onSessionChanged={sessionChanged}
+        />
+      );
     if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };

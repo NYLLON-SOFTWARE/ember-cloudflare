@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { User } from "@ember/protocol";
+import type { Me } from "@ember/protocol";
 import { Logout } from "@/components/icons/campfire";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
@@ -38,12 +38,12 @@ function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
 
 /**
  * The page shown, whose links the rail marks as ember-rust's shell.js does: every link to the page's
- * own path (the logo and Home at home, Workspace on workspace settings), and Home on a room's page.
+ * own path (the logo and Home at home, Admin or Workspace on workspace settings), and Home on a room's page.
  */
 export type RailPage = "home" | "room" | "workspace" | null;
 
 interface Props {
-  me: User;
+  me: Me;
   /** The workspace's name, which the logo's tooltip shows. */
   workspaceName: string;
   current: RailPage;
@@ -72,7 +72,7 @@ export function Rail({ me, workspaceName, current, onSignOut }: Props) {
       <UnbuiltRailLink icon={Bell} label="Activity" />
       <UnbuiltRailLink icon={Search} label="Search" />
       <hr className="my-1 w-8 border-t" />
-      <RailLink icon={Settings} label="Workspace" href={WORKSPACE_SETTINGS_PATH} current={current === "workspace"} />
+      <RailLink icon={Settings} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={current === "workspace"} />
       <AppearanceMenu />
       <DropdownMenu>
         <DropdownMenuTrigger aria-label="Your profile" title={me.name} className="shrink-0 rounded-full touch:p-1">

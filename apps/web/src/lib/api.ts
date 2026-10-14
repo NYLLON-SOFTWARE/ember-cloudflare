@@ -1,6 +1,9 @@
 import {
   roomSocketQuery,
+  type Account,
+  type AccountChanges,
   type Bootstrap,
+  type Me,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
@@ -12,7 +15,7 @@ import {
   type RoomSocketParams,
   type Sidebar,
   type SignUp,
-  type User,
+  type WorkspaceSettings,
 } from "@ember/protocol";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -63,18 +66,18 @@ export async function setUpWorkspace(administrator: SignUp): Promise<NewWorkspac
  * Joins the workspace with the code from its join link, as someone new, and signs this browser in as
  * them. The code is the link's own path segment, which needs no escaping.
  */
-export async function joinWorkspace(joinCode: string, person: SignUp): Promise<User> {
-  return (await request<{ user: User }>(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(person) })).user;
+export async function joinWorkspace(joinCode: string, person: SignUp): Promise<Me> {
+  return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(person) })).user;
 }
 
 /** Signs in with an email address and password. */
-export async function signIn(credentials: PasswordSignIn): Promise<User> {
-  return (await request<{ user: User }>("/api/session", { method: "POST", body: JSON.stringify(credentials) })).user;
+export async function signIn(credentials: PasswordSignIn): Promise<Me> {
+  return (await request<{ user: Me }>("/api/session", { method: "POST", body: JSON.stringify(credentials) })).user;
 }
 
 /** Signs in with just a name, as someone new. */
-export async function signInAsGuest(name: string): Promise<User> {
-  return (await request<{ user: User }>("/api/session", { method: "POST", body: JSON.stringify({ name }) })).user;
+export async function signInAsGuest(name: string): Promise<Me> {
+  return (await request<{ user: Me }>("/api/session", { method: "POST", body: JSON.stringify({ name }) })).user;
 }
 
 /** Ends this browser's session. */
@@ -83,8 +86,18 @@ export async function signOut(): Promise<void> {
 }
 
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
-export async function fetchMe(): Promise<User> {
-  return (await request<{ user: User }>("/api/me")).user;
+export async function fetchMe(): Promise<Me> {
+  return (await request<{ user: Me }>("/api/me")).user;
+}
+
+/** Workspace settings: the workspace, and whether this person can change it. */
+export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
+  return request<WorkspaceSettings>("/api/account");
+}
+
+/** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
+export async function changeAccount(changes: AccountChanges): Promise<Account> {
+  return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
 }
 
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
