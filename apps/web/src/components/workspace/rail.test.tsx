@@ -1,4 +1,5 @@
 import { feature } from "@ember/parity";
+import { avatarSvg } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -109,8 +110,9 @@ describe(feature("rooms.unsaved-changes"), () => {
 });
 
 describe(feature("users.avatars"), () => {
-  it("shows your initials as your profile picture", () => {
+  it("shows your avatar as your profile picture", () => {
     render(railAt("home"));
-    expect(within(screen.getByRole("button", { name: "Your profile" })).getByText("AL")).toBeInTheDocument();
+    const picture = screen.getByRole("button", { name: "Your profile" }).querySelector("img")!;
+    expect(picture.src).toBe(`data:image/svg+xml;base64,${btoa(avatarSvg(ada.id, ada.name))}`);
   });
 });

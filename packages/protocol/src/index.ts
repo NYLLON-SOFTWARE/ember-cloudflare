@@ -5,6 +5,7 @@
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
+export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
 export { isAppPage, KIND_SEGMENTS, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
@@ -18,6 +19,27 @@ export interface User {
 /** Who's signed in, as the app keeps them: someone, and whether they're one of the workspace's administrators. */
 export interface Me extends User {
   administrator: boolean;
+}
+
+/** What someone is in the workspace: ember-rust's user roles (crates/db/src/models/user.rs). */
+export type Role = "member" | "administrator" | "bot";
+
+/** Whether someone can still sign in: people who were removed are deactivated, and banned people are banned. */
+export type UserStatus = "active" | "deactivated" | "banned";
+
+/** Someone as the people directory lists them. */
+export interface DirectoryUser extends User {
+  /** What they say about themselves, or null when they haven't said. */
+  bio: string | null;
+  role: Role;
+  status: UserStatus;
+  /** Their avatar, `/users/<token>/avatar?v=<version>`, whose address changes whenever they do. */
+  avatarUrl: string;
+}
+
+/** What `GET /api/users` answers: everyone in the workspace, deactivated and banned people too. */
+export interface Directory {
+  users: DirectoryUser[];
 }
 
 export type RoomKind = "open" | "closed" | "direct";

@@ -1,7 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { avatarColor, crc32, initials } from "./avatar";
 import { dayLabel, mentions, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
@@ -59,17 +58,5 @@ describe(feature("mentions.highlight"), () => {
   it("treats the name as text, not a pattern", () => {
     expect(mentions("@a.b", "a.b")).toBe(true);
     expect(mentions("@axb", "a.b")).toBe(false);
-  });
-});
-
-describe(feature("users.avatars"), () => {
-  it("matches zlib's CRC32, which ember-rust uses to pick colors", () => {
-    expect(crc32("1")).toBe(0x83dcefb7);
-    expect(avatarColor("1")).toBe(avatarColor("1"));
-  });
-
-  it("takes the first letter of each word", () => {
-    expect(initials("Ada Lovelace")).toBe("AL");
-    expect(initials("grace")).toBe("g");
   });
 });

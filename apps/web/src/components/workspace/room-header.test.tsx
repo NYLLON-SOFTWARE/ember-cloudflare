@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Room, User } from "@ember/protocol";
+import { avatarSvg, type Room, type User } from "@ember/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
@@ -25,9 +25,10 @@ describe(feature("realtime.who-is-here"), () => {
   it("shows up to four faces of the people here, and how many more", () => {
     renderHeader({ present: people(6) });
     expect(screen.getByText("6 here now")).toBeInTheDocument();
-    expect(screen.getAllByText(/^P\d$/).map((face) => face.textContent)).toEqual(["P0", "P1", "P2", "P3"]);
+    const faces = [...screen.getByTitle(/^Person 0, Person 1, .*Person 5$/).querySelectorAll("img")];
+    // Their initials, drawn as the Worker draws them while the directory doesn't list them.
+    expect(faces.map((face) => atob(face.getAttribute("src")!.split(",")[1]!))).toEqual(people(4).map((person) => avatarSvg(person.id, person.name)));
     expect(screen.getByText("+2")).toBeInTheDocument();
-    expect(screen.getByTitle(/^Person 0, Person 1, .*Person 5$/)).toBeInTheDocument();
   });
 
   it("shows no overflow count for four or fewer", () => {

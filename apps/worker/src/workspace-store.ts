@@ -1,4 +1,4 @@
-import type { CloseCode, HelpContact, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId } from "@ember/protocol";
+import type { CloseCode, HelpContact, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -17,6 +17,9 @@ const ACTIVE = 0;
 const DEACTIVATED = 1;
 /** ember-rust's role for the people who run the workspace (user.rs). */
 const ADMINISTRATOR = 1;
+/** ember-rust's roles and statuses (user.rs), each at the number it stores. */
+const ROLES: readonly Role[] = ["member", "administrator", "bot"];
+const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
@@ -50,6 +53,20 @@ export interface StoredSession {
   guest: boolean;
   /** When the session was last refreshed, in milliseconds since the epoch. */
   lastActiveAt: number;
+}
+
+/** Someone as the people directory lists them, with when they last changed, which their avatar's address follows. */
+export interface DirectoryEntry extends User {
+  bio: string | null;
+  role: Role;
+  status: UserStatus;
+  updatedAt: string;
+}
+
+/** What someone's avatar is drawn from. */
+export interface AvatarOwner {
+  name: string;
+  bot: boolean;
 }
 
 /** A revocation the Workspace has yet to deliver to its room. */
@@ -174,13 +191,16 @@ const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
 
-/** The people with the ids in a JSON array, whatever their status. */
-export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
+/** Everyone, for the people directory: removed and banned people too, whose messages stay. */
+const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORDER BY id`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
   FROM users LEFT JOIN memberships ON memberships.room_id = ? AND memberships.user_id = users.id
   WHERE users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`;
+
+/** The people with the ids in a JSON array, whatever their status. */
+export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
 /**
  * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
@@ -464,6 +484,25 @@ export class WorkspaceStore {
   /** The people with `ids` who exist, active or not. */
   async peopleWithIds(ids: UserId[]): Promise<User[]> {
     return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
+  }
+
+  /** Everyone, whatever their status, for the people directory. */
+  async directory(): Promise<DirectoryEntry[]> {
+    const rows = await this.db.all<{ id: UserId; name: string; bio: string | null; role: number; status: number; updated_at: string }>(DIRECTORY);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      bio: row.bio,
+      role: ROLES[row.role] ?? "member",
+      status: STATUSES[row.status] ?? "active",
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */
+  async avatarOwner(userId: UserId): Promise<AvatarOwner | null> {
+    const [row] = await this.db.all<{ name: string; role: number }>(`SELECT name, role FROM users WHERE id = ?`, userId);
+    return row ? { name: row.name, bot: ROLES[row.role] === "bot" } : null;
   }
 
   /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it. */
