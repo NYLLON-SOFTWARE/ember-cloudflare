@@ -71,7 +71,7 @@ export async function createRoom(request: APIRequestContext, session: Session, n
 export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
   const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
   await page.route("**/api/rooms", (route) =>
-    route.request().method() === "GET" ? route.fulfill({ json: { rooms: [{ ...room, kind: "open" }], invitation } satisfies RoomList }) : route.fallback(),
+    route.request().method() === "GET" ? route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null }], invitation } satisfies RoomList }) : route.fallback(),
   );
 }
 

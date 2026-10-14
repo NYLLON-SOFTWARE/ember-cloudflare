@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { MAX_ROOM_NAME_LENGTH, type User, type UserId } from "@ember/protocol";
+import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Check, Everyone } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { IconPicker } from "./icon-picker";
 import { UserAvatar } from "./user-avatar";
 
 // ember-rust's room forms, which New room and a room's settings share (rooms/layouts/_form.html, with
-// rooms/opens/_form.html or rooms/closeds/_form.html in its `.room-access` box): the room's name, who
-// it's for, and Save.
+// rooms/opens/_form.html or rooms/closeds/_form.html in its `.room-access` box): the room's name and
+// icon, who it's for, and Save.
 
 /** How many people a form lists before it gets a filter, as ember-rust's do. */
 const FILTER_ABOVE = 20;
@@ -21,6 +22,9 @@ interface Props<Person extends User> {
   canAdminister: boolean;
   name: string;
   onNameChange: (name: string) => void;
+  /** The room's icon, or null for `#`, which only whoever can change the room sees, to pick another. */
+  icon: RoomIconName | null;
+  onIconChange: (icon: RoomIconName | null) => void;
   /** The Everyone row, on for a room open to everyone, with a switch if `onFlip` is given; null for none. */
   everyone: { on: boolean; onFlip?: () => void } | null;
   /** The people listed, by name, in groups a line divides, such as a private room's members and everyone else. */
@@ -31,7 +35,7 @@ interface Props<Person extends User> {
   onSave: () => void;
 }
 
-export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, everyone, groups, mark, saving, onSave }: Props<Person>) {
+export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, groups, mark, saving, onSave }: Props<Person>) {
   const save = (event: FormEvent) => {
     event.preventDefault();
     onSave();
@@ -55,6 +59,8 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
       ) : (
         <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{name}</h2>
       )}
+
+      {canAdminister && <IconPicker icon={icon} onChange={onIconChange} disabled={saving} />}
 
       {/* Saving sends who the switches showed when Save was pressed, so they wait until it's done. */}
       <fieldset disabled={saving} className="my-4 min-w-0 rounded-[10px] border bg-surface px-[1ch]">

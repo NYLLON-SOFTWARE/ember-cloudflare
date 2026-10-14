@@ -65,7 +65,7 @@ describe(feature("realtime.connection"), () => {
 
 describe(feature("rooms.create-closed"), () => {
   it("asks for New room's people, and creates a room with the people chosen", async () => {
-    const leads = { id: "leads", name: "Leads", kind: "closed" };
+    const leads = { id: "leads", name: "Leads", kind: "closed", icon: null };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ people: [] }));
     expect(await fetchNewRoomForm()).toEqual({ people: [] });
     expect(fetch).toHaveBeenLastCalledWith("/api/rooms/new", expect.anything());
@@ -79,7 +79,7 @@ describe(feature("rooms.create-closed"), () => {
 
 describe(feature("rooms.settings-page"), () => {
   it("reads and changes a room by its id, escaped", async () => {
-    const café = { id: "café", name: "Café", kind: "open" };
+    const café = { id: "café", name: "Café", kind: "open", icon: null };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ room: café, canAdminister: true, people: [] }));
     expect(await fetchRoomSettings("café")).toEqual({ room: café, canAdminister: true, people: [] });
     expect(fetch).toHaveBeenLastCalledWith("/api/rooms/caf%C3%A9/settings", expect.anything());

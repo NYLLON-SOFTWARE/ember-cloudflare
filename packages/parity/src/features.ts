@@ -526,7 +526,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/views/templates/rooms/layouts/_new.html", "crates/views/templates/rooms/opens/_form.html", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/opens_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your own sidebar; other sidebars show it when they next load (`sidebar.live-updates`). There's no icon picker (`rooms.icon-picker`) or unsaved-changes guard (`rooms.unsaved-changes`) yet. Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
+    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your own sidebar; other sidebars show it when they next load (`sidebar.live-updates`). There's no unsaved-changes guard (`rooms.unsaved-changes`) yet. Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
   },
   {
     id: "rooms.create-closed",
@@ -643,7 +643,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/channels/broadcasts.rs", "reference/app/models/rooms/open.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/models/rooms/open_test.rb"],
-    notes: "The settings page's Everyone switch moves between the open and private forms in place, keeping the name and the switches, and Save sends `{ \"name\", \"kind\": \"open\" }` or `{ \"name\", \"kind\": \"closed\", \"memberIds\" }` to `PATCH /api/rooms/<id>`. The Workspace saves the room, its members and the sockets to close for everyone taken out in one batch, where ember-rust takes two writes, and changes nothing, `updated_at` included, when nothing changed. Unlike ember-rust, making a room private needs its list of members, even an empty one, rather than taking everyone out when the list is missing. Someone taken out who has the room open sees \"This room was deleted.\" at once, and it leaves their sidebar (`rooms.members`); other sidebars, including those of people a room adds, catch up when they next load (`sidebar.live-updates`). Rooms have no icons yet (`rooms.icons`).",
+    notes: "The settings page's Everyone switch moves between the open and private forms in place, keeping the name and the switches, and Save sends `{ \"name\", \"kind\": \"open\" }` or `{ \"name\", \"kind\": \"closed\", \"memberIds\" }` to `PATCH /api/rooms/<id>`. The Workspace saves the room, its members and the sockets to close for everyone taken out in one batch, where ember-rust takes two writes, and changes nothing, `updated_at` included, when nothing changed. Unlike ember-rust, making a room private needs its list of members, even an empty one, rather than taking everyone out when the list is missing. Someone taken out who has the room open sees \"This room was deleted.\" at once, and it leaves their sidebar (`rooms.members`); other sidebars, including those of people a room adds, catch up when they next load (`sidebar.live-updates`). The room keeps its icon (`rooms.icons`).",
   },
   {
     id: "rooms.members",
@@ -674,7 +674,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/screens.yml"],
-    notes: "Delete sits in a panel of its own under a room's settings, for administrators and the room's creator, and asks in the browser's own dialog, as Turbo does. `DELETE /api/rooms/<id>` answers 204, and 404 or 403 as changing a room does. The Workspace deletes the room and its members, and queues closing every socket in it, in one batch, and remembers the room as deleted so `LEGACY_ROOMS` can't bring it back; it makes deletions one at a time with room changes, so a change can't write to a room deleted since it looked. The Workspace tries a room's object it can't reach again until it can, every five minutes at most, never giving up as it does on closing someone's sockets. The room's object closes the sockets with 4004 and deletes the messages and their reactions; it keeps the record of the deletion, which turns away sockets let through before it, for five minutes, then its alarm erases the rest, and the object with it. Unlike ember-rust, which disconnects nobody, everyone with the room open sees \"This room was deleted.\" at once and it leaves their sidebar; other sidebars catch up when they next load (`sidebar.live-updates`). Rooms have no icons yet (`rooms.icons`).",
+    notes: "Delete sits in a panel of its own under a room's settings, for administrators and the room's creator, and asks in the browser's own dialog, as Turbo does. `DELETE /api/rooms/<id>` answers 204, and 404 or 403 as changing a room does. The Workspace deletes the room and its members, and queues closing every socket in it, in one batch, and remembers the room as deleted so `LEGACY_ROOMS` can't bring it back; it makes deletions one at a time with room changes, so a change can't write to a room deleted since it looked. The Workspace tries a room's object it can't reach again until it can, every five minutes at most, never giving up as it does on closing someone's sockets. The room's object closes the sockets with 4004 and deletes the messages and their reactions; it keeps the record of the deletion, which turns away sockets let through before it, for five minutes, then its alarm erases the rest, and the object with it. Unlike ember-rust, which disconnects nobody, everyone with the room open sees \"This room was deleted.\" at once and it leaves their sidebar; other sidebars catch up when they next load (`sidebar.live-updates`).",
   },
   {
     id: "rooms.icons",
@@ -689,13 +689,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/src/helpers/icons.rs", "crates/assets/overrides/lucide/catalog.json", "crates/views/templates/rooms/show/_nav.html"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs", "crates/db/src/tests/room_test.rs"],
-    notes: "Only the catalog is here so far: ember-rust's `catalog.json` and its license, copied byte for byte, and `isRoomIcon` in the protocol, which takes exactly its 1,869 names and refuses the values ember-rust refuses. Rooms don't have icons yet, so every room shows `#`.",
+    notes: "Rooms keep their icon (workspace migration 0009) and send it with the room list, a room's settings and each change. New room and room settings send it as ember-rust's forms send `room[icon]`, and the protocol checks it as `parse_room_icon` does (rooms.rs), after the 404 and 403. The sidebar and header draw it as `channel_icon` does (helpers/icons.rs), in the color of the text around it, from a file of its own under `/lucide/icons/` that the build writes from the catalog, so a page fetches only its rooms' icons where ember-rust writes them into the page. Other members' sidebars and open headers catch up when they next load, until live updates (`sidebar.live-updates`).",
   },
   {
     id: "rooms.icon-picker",
     title: "Room icon picker",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "New room and room settings have a \"Room icon\" field: a \"Choose room icon\" button showing the current icon and its label (\"Default hashtag\" for `#`) with \"Choose from Lucide icons\", above \"Shown beside this room for everyone in the workspace.\"",
       "It opens \"Choose a room icon\" / \"A little personality for your room.\" with \"Search icons, e.g. coffee or rocket\" focused, loading the catalog the first time (\"Loading icons…\"). If that fails: \"Icons couldn’t load. Try again; your current icon is unchanged.\" with Try again.",
@@ -707,6 +707,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/icon_picker_controller.js", "crates/views/templates/rooms/layouts/_icon_picker.html", "crates/views/src/helpers/icons.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/assets/overrides/basecoat/test/lucide.test.mjs"],
+    notes: "Ported from ember-rust's controller and template, loading the catalog once for the page as it does. The close button and footer buttons grow to 44px wherever fingers are likely, where ember-rust grows them on screens up to 600px, and its search box is a label, so a tap anywhere on it reaches the field. It keeps clear of the notch and home indicator, and on screens under 500px tall, such as a phone in landscape, it tightens its spacing and lets the icons shrink below the 150px ember-rust keeps, which pushes the footer off the screen. There's no `<select>` to fall back on, which ember-rust keeps for pages without JavaScript, since this app needs it. Forms don't yet ask before leaving unsaved changes (`rooms.unsaved-changes`), which an icon picked counts as.",
   },
   {
     id: "rooms.unsaved-changes",

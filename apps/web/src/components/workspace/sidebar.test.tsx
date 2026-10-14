@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
-  { id: "general", name: "general", kind: "open" as const },
-  { id: "random", name: "random", kind: "open" as const },
+  { id: "general", name: "general", kind: "open" as const, icon: null },
+  { id: "random", name: "random", kind: "open" as const, icon: null },
 ];
 
 describe(feature("sidebar.rooms"), () => {
@@ -32,5 +32,15 @@ describe(feature("sidebar.rooms"), () => {
       expect(click).toBe(true); // not prevented, so the browser opens a tab or window
     }
     expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("rooms.icons"), () => {
+  it("shows each room's icon before its name, or `#`", () => {
+    render(<Sidebar rooms={[{ ...rooms[0]!, icon: "coffee" }, rooms[1]!]} currentRoomId="general" onSelect={vi.fn()} />);
+    const [coffee, random] = within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link");
+    expect(coffee).toHaveAccessibleName("general");
+    expect(coffee!.querySelector('[data-icon="coffee"]')).toHaveStyle({ width: "19px", height: "19px" });
+    expect(random).toHaveTextContent("#random");
   });
 });

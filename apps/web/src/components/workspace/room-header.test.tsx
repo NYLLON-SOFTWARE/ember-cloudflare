@@ -8,7 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
-const general: Room = { id: "general", name: "general", kind: "open" };
+const general: Room = { id: "general", name: "general", kind: "open", icon: null };
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -47,7 +47,7 @@ describe(feature("ui.room-header"), () => {
 
 describe(feature("rooms.settings-page"), () => {
   it("links to the room's settings at the address for its kind, showing them in place", async () => {
-    renderHeader({ room: { id: "leads", name: "Leads", kind: "closed" } });
+    renderHeader({ room: { id: "leads", name: "Leads", kind: "closed", icon: null } });
     const settings = screen.getByRole("link", { name: "Settings for this room" });
     expect(settings).toHaveAttribute("title", "Conversation settings");
     expect(settings).toHaveAttribute("href", "/rooms/closeds/leads/edit");
@@ -84,5 +84,18 @@ describe(feature("ui.mobile-drawer"), () => {
     expect(button).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(button);
     expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe(feature("rooms.icons"), () => {
+  it("shows the room's icon before its name, or `#`", () => {
+    const { unmount } = renderHeader({ room: { ...general, icon: "rocket" } });
+    const icon = document.querySelector<HTMLElement>('[data-icon="rocket"]')!;
+    expect(icon).toHaveStyle({ width: "22px", height: "22px" });
+    expect(icon.compareDocumentPosition(screen.getByRole("heading", { level: 1, name: "general" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount();
+
+    renderHeader();
+    expect(screen.getByText("#")).toHaveAttribute("aria-hidden", "true");
   });
 });

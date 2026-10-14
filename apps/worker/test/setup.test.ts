@@ -37,7 +37,7 @@ describe(feature("auth.first-run"), () => {
     expect(response.status).toBe(201);
     const { user, room } = (await response.json()) as NewWorkspace;
     expect(user).toEqual({ id: expect.any(String), name: "Ada Lovelace" });
-    expect(room).toEqual({ id: expect.any(String), kind: "open", name: "All Talk" });
+    expect(room).toEqual({ id: expect.any(String), kind: "open", name: "All Talk", icon: null });
     expect(response.headers.getSetCookie()).toEqual([expect.stringMatching(/^__Host-session_token=[\w-]{43}; Path=\/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure$/)]);
 
     const [account] = (await workspaceSql("SELECT name, join_code, settings, singleton_guard FROM accounts")) as Array<Record<string, unknown>>;

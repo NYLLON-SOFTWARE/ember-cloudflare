@@ -1,10 +1,40 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
+/**
+ * Serves each icon a room can have as an SVG of its own at /lucide/icons/<name>.svg, which `RoomIcon`
+ * draws, writing them from ember-rust's catalog in src/components/icons/lucide/ (its README says more).
+ */
+function roomIcons(): Plugin {
+  type Catalog = Array<{ name: string; svg: string }>;
+  let catalog: Catalog | undefined;
+  const icons = () => (catalog ??= JSON.parse(readFileSync(path.resolve(import.meta.dirname, "src/components/icons/lucide/catalog.json"), "utf8")) as Catalog);
+  return {
+    name: "ember-room-icons",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const name = /^\/lucide\/icons\/([a-z0-9-]+)\.svg$/.exec(request.url ?? "")?.[1];
+        const icon = name && icons().find((icon) => icon.name === name);
+        if (!icon) return next();
+        response.setHeader("Content-Type", "image/svg+xml");
+        response.end(icon.svg);
+      });
+    },
+    // Written beside the bundle rather than emitted with it, which would list all 1,869 in the build's output.
+    writeBundle({ dir }) {
+      const folder = path.join(dir!, "lucide/icons");
+      mkdirSync(folder, { recursive: true });
+      for (const { name, svg } of icons()) writeFileSync(path.join(folder, `${name}.svg`), svg);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), roomIcons()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   build: {
     // The polyfill would be a chunk of its own once there are two pages, and one more request for the

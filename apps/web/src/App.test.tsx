@@ -13,8 +13,8 @@ const grace = { id: "u2", name: "Grace" };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
-const general = { id: "general", name: "general", kind: "open" };
-const allTalk = { id: "r1", name: "All Talk", kind: "open" };
+const general = { id: "general", name: "general", kind: "open", icon: null };
+const allTalk = { id: "r1", name: "All Talk", kind: "open", icon: null };
 
 class QuietSocket {
   static readonly OPEN = 1;

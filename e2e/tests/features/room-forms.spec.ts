@@ -225,6 +225,36 @@ test.describe(feature("rooms.delete"), () => {
   });
 });
 
+test.describe(feature("rooms.icon-picker"), () => {
+  test("picks a room's icon in its settings, which its sidebar row and header then show", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const design = await createRoom(request, ada.session, unique("Design"));
+    await ada.page.goto(`/rooms/opens/${design.id}/edit`);
+    const trigger = ada.page.getByRole("button", { name: "Choose room icon" });
+    await expect(trigger).toContainText("Default hashtag");
+    await trigger.click();
+
+    const picker = ada.page.getByRole("dialog", { name: "Choose a room icon" });
+    await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown");
+    await picker.getByRole("searchbox", { name: "Search icons" }).fill("coffee");
+    await picker.getByRole("button", { name: "Use Coffee icon" }).click();
+    await picker.getByRole("button", { name: "Use icon" }).click();
+    await expect(picker).toBeHidden();
+    await expect(trigger).toContainText("Coffee");
+    await ada.page.getByRole("button", { name: "Save" }).click();
+
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${design.id}$`));
+    const row = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name });
+    await expect(row.locator('[data-icon="coffee"]')).toBeVisible();
+    await expect(ada.page.locator('header [data-icon="coffee"]')).toBeVisible();
+    // Each icon is a file of its own, which the page fetches as it shows it.
+    const svg = await request.get("/lucide/icons/coffee.svg");
+    expect(svg.status()).toBe(200);
+    expect(svg.headers()["content-type"]).toContain("image/svg+xml");
+    expect(await svg.text()).toContain("<svg");
+  });
+});
+
 test.describe(feature("ui.flash"), () => {
   test("centers an alert over the page beside the rail and sidebar", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });

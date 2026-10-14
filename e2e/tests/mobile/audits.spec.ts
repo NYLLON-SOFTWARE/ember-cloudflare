@@ -108,6 +108,19 @@ test("controls behind a modal dialog are skipped, but the dialog's own must be b
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
 });
 
+test("a modal dialog isn't cut off by the box it's in, which it's drawn over", async ({ page, safeArea }) => {
+  await page.setContent(
+    phonePage(`
+      <div style="width: 100px; height: 40px; overflow: hidden">
+        <dialog style="width: 240px; padding: 16px"><button aria-label="Close" style="width: 44px; height: 44px"></button></dialog>
+      </div>
+    `),
+  );
+  await page.evaluate(() => document.querySelector("dialog")!.showModal());
+  const { overflow } = await auditScreen(page, safeArea);
+  expect(overflow).toEqual([]);
+});
+
 test("text cut off for good fails, but not text clamped on purpose", async ({ page, safeArea }) => {
   await page.setContent(
     phonePage(`

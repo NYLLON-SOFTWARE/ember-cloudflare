@@ -84,18 +84,35 @@ describe(feature("rooms.create-open"), () => {
   });
 
   it("creates an open room with the name given", async () => {
-    const created = { id: "design", name: "Design", kind: "open" } satisfies Room;
+    const created = { id: "design", name: "Design", kind: "open", icon: null } satisfies Room;
     serve({ created });
     const { onCreated, user } = showPage();
     await user.clear(await roomName());
     await user.type(await roomName(), "Design{Enter}");
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
-    expect(posted()).toEqual({ kind: "open", name: "Design" });
+    expect(posted()).toEqual({ kind: "open", name: "Design", icon: "" });
     expect(location.pathname).toBe("/rooms/design");
   });
 
+  it("creates the room with the icon chosen", async () => {
+    const created = { id: "design", name: "New room", kind: "open", icon: "rocket" } satisfies Room;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input).endsWith("catalog.json")) return Response.json([{ name: "rocket", label: "Rocket", svg: "<svg></svg>" }]);
+      return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus] });
+    });
+    const { onCreated, user } = showPage();
+    expect(await screen.findByRole("button", { name: "Choose room icon" })).toHaveTextContent("Default hashtag");
+    await user.click(screen.getByRole("button", { name: "Choose room icon" }));
+    await user.click(await screen.findByRole("button", { name: "Use Rocket icon" }));
+    await user.click(screen.getByRole("button", { name: "Use icon" }));
+    expect(screen.getByRole("button", { name: "Choose room icon" })).toHaveTextContent("Rocket");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    expect(posted()).toEqual({ kind: "open", name: "New room", icon: "rocket" });
+  });
+
   it("lists a room whose answer comes after the page was left, without taking over the page shown then", async () => {
-    const created = { id: "design", name: "Design", kind: "open" } satisfies Room;
+    const created = { id: "design", name: "Design", kind: "open", icon: null } satisfies Room;
     const answer = holdCreation();
     const { onCreated, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Save" }));
@@ -181,7 +198,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 
   it("creates a private room with you and the people chosen", async () => {
-    const created = { id: "leads", name: "Leads", kind: "closed" } satisfies Room;
+    const created = { id: "leads", name: "Leads", kind: "closed", icon: null } satisfies Room;
     serve({ created });
     const { onCreated, user } = showPage("/rooms/closeds/new");
     await user.clear(await roomName());
@@ -189,7 +206,7 @@ describe(feature("rooms.create-closed"), () => {
     await user.click(screen.getByRole("switch", { name: `Give ${linus.name} access to this room` }));
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
-    expect(posted()).toEqual({ kind: "closed", name: "Leads", memberIds: [ada.id, linus.id] });
+    expect(posted()).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [ada.id, linus.id] });
   });
 
   it("keeps who's chosen when Everyone goes on and off again", async () => {

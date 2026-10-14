@@ -6,6 +6,7 @@ import accounts from "../migrations/0005_accounts.sql";
 import revocations from "../migrations/0006_revocations.sql";
 import pendingRevocations from "../migrations/0007_pending_revocations.sql";
 import deletedRooms from "../migrations/0008_deleted_rooms.sql";
+import roomIcons from "../migrations/0009_room_icons.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -34,6 +35,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0006_revocations.sql", scope: "room", sql: revocations },
   { name: "0007_pending_revocations.sql", scope: "workspace", sql: pendingRevocations },
   { name: "0008_deleted_rooms.sql", scope: "workspace", sql: deletedRooms },
+  { name: "0009_room_icons.sql", scope: "workspace", sql: roomIcons },
 ];
 
 /**

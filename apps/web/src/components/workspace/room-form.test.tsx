@@ -16,6 +16,8 @@ function renderForm(props: Partial<ComponentProps<typeof RoomForm<User>>> = {}) 
       canAdminister
       name="Design"
       onNameChange={vi.fn()}
+      icon={null}
+      onIconChange={vi.fn()}
       everyone={null}
       groups={[people(3)]}
       mark={() => <CheckMark />}
@@ -87,6 +89,28 @@ describe(feature("rooms.create-closed"), () => {
     expect(names()).toEqual(["Grace Hopper", "Person 0", "Person 1"]);
     // One line between the two groups that have anyone in them.
     expect(screen.getByRole("list").querySelectorAll(":scope > hr")).toHaveLength(1);
+  });
+});
+
+describe(feature("rooms.icon-picker"), () => {
+  it("shows the room's icon after its name, to choose another", () => {
+    renderForm({ icon: "coffee" });
+    const name = screen.getByRole("textbox", { name: "Room name" });
+    const picker = screen.getByRole("button", { name: "Choose room icon" });
+    expect(name.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(picker).toHaveTextContent("Coffee");
+    expect(picker).toBeEnabled();
+  });
+
+  it("holds the icon while saving", () => {
+    renderForm({ icon: "coffee", saving: true });
+    expect(screen.getByRole("button", { name: "Choose room icon" })).toBeDisabled();
+  });
+
+  it("shows no icon to people who can't change the room", () => {
+    renderForm({ icon: "coffee", canAdminister: false });
+    expect(screen.queryByRole("button", { name: "Choose room icon" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Room icon")).not.toBeInTheDocument();
   });
 });
 

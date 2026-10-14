@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Room, User, UserId } from "@ember/protocol";
+import type { NewRoom, Room, RoomIconName, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
@@ -28,6 +28,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   useTitle("New chat room");
   const [people, setPeople] = useState<User[] | null>(null);
   const [name, setName] = useState(DEFAULT_ROOM_NAME);
+  const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   const [saving, setSaving] = useState(false);
   const mounted = useMounted();
@@ -45,7 +46,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const save = () => {
     setSaving(true);
     // The private form lists its creator with a check mark and sends them as one of its members.
-    const room = access === "open" ? { kind: access, name } : { kind: access, name, memberIds: [me.id, ...chosen] };
+    const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "" } : { kind: access, name, icon: icon ?? "", memberIds: [me.id, ...chosen] };
     // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
     createRoom(room).then(
       (room) => {
@@ -70,6 +71,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
             canAdminister
             name={name}
             onNameChange={setName}
+            icon={icon}
+            onIconChange={setIcon}
             everyone={{ on: access === "open", onFlip: () => navigate(newRoomPath(access === "open" ? "closed" : "open"), { replace: true }) }}
             groups={[people]}
             mark={(person) =>

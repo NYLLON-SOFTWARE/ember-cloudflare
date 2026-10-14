@@ -58,7 +58,7 @@ describe(feature("rooms.open"), () => {
     const room = await createRoom("Design");
     const grace = await signIn("Grace");
 
-    expect(room).toEqual({ id: expect.stringMatching(/^[0-9a-z]{16}$/), kind: "open", name: "Design" });
+    expect(room).toEqual({ id: expect.stringMatching(/^[0-9a-z]{16}$/), kind: "open", name: "Design", icon: null });
     expect(await listed(ada, room.id)).toEqual([room]);
     expect(await listed(grace, room.id)).toEqual([room]);
     expect(await membersOf(room.id)).toContainEqual({ user_id: grace.user.id, involvement: "mentions" });
@@ -127,7 +127,7 @@ describe(feature("rooms.create-open"), () => {
       body: JSON.stringify({ kind: "open", name: "  Design  " }),
     });
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ room: { id: expect.any(String), kind: "open", name: "Design" } });
+    expect(await response.json()).toEqual({ room: { id: expect.any(String), kind: "open", name: "Design", icon: null } });
   });
 
   it("refuses requests without a session, from other sites, or that don't say what to make", async () => {
@@ -203,7 +203,7 @@ describe(feature("rooms.legacy-rooms"), () => {
     await workspaceStub().registerLegacyRooms([room.id]);
     const grace = await signIn("Grace");
 
-    const expected = { id: room.id, kind: "open", name: room.id };
+    const expected = { id: room.id, kind: "open", name: room.id, icon: null };
     expect(await listed(ada, room.id)).toEqual([expected]);
     expect(await listed(grace, room.id)).toEqual([expected]);
     const { welcome } = await connect(room.id, grace);

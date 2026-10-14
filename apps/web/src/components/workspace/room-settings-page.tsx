@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Room, RoomChanges, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { Room, RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
@@ -41,6 +41,7 @@ interface Props {
 export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
+  const [icon, setIcon] = useState<RoomIconName | null>(null);
   // Who the private form lets in, starting with the room's members, as ember-rust's does.
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Saving or deleting, either of which keeps both buttons from being pressed until it answers.
@@ -55,6 +56,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
         if (stopped) return;
         setSettings(settings);
         setName(settings.room.name);
+        setIcon(settings.room.icon);
         setChosen(membersOf(settings));
       },
       (error: unknown) => {
@@ -85,7 +87,7 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
 
   const save = () => {
     setBusy(true);
-    const changes: RoomChanges = access === "open" ? { name, kind: access } : { name, kind: access, memberIds: [...chosen] };
+    const changes: RoomChanges = access === "open" ? { name, icon: icon ?? "", kind: access } : { name, icon: icon ?? "", kind: access, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
     changeRoom(roomId, changes).then((room) => {
       if (leaving) onLeft(room.id);
@@ -118,6 +120,8 @@ export function RoomSettingsPage({ roomId, access, me, onSaved, onLeft, onMissin
             canAdminister={settings.canAdminister}
             name={settings.canAdminister ? name : settings.room.name}
             onNameChange={setName}
+            icon={icon}
+            onIconChange={setIcon}
             // The private form has the Everyone row only for whoever can change the room.
             everyone={settings.canAdminister ? { on: open, onFlip: flip } : open ? { on: true } : null}
             // A private room lists its members first, as ember-rust's does.

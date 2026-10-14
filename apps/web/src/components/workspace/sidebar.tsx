@@ -1,4 +1,5 @@
 import { MessagesAdd } from "@/components/icons/campfire";
+import { RoomIcon } from "@/components/icons/room-icon";
 import { roomPath } from "@/hooks/use-route";
 import type { Room } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -26,9 +27,7 @@ export function Sidebar({ rooms, currentRoomId, onSelect }: { rooms: Room[]; cur
               "hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-semibold",
             )}
           >
-            <span aria-hidden="true" className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground">
-              #
-            </span>
+            <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
             <span className="truncate">{room.name}</span>
           </a>
         ))}

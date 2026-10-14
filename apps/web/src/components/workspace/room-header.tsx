@@ -1,5 +1,6 @@
 import type { Room, User } from "@ember/protocol";
 import { MenuDotsHorizontal } from "@/components/icons/campfire";
+import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { roomSettingsPath } from "@/hooks/use-route";
 import type { ConnectionStatus } from "@/lib/room-state";
@@ -13,9 +14,7 @@ export function RoomHeader({ room, present, status }: { room: Room; present: Use
   return (
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
-        <span aria-hidden="true" className="shrink-0 text-[23px] text-muted-foreground">
-          #
-        </span>
+        <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         <h1 className="truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{room.name}</h1>
         {(status === "connecting" || status === "reconnecting") && (
           <span role="status" className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">

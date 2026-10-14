@@ -1,4 +1,4 @@
-import type { ClientFrame, Room, RoomId, ServerFrame, User, UserId } from "@ember/protocol";
+import type { ClientFrame, Room, RoomIconChoice, RoomId, ServerFrame, User, UserId } from "@ember/protocol";
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
@@ -107,9 +107,9 @@ let host: Promise<Session> | undefined;
  * Creates a room through the API as `as`, or as the tests' host: an open room everyone is in, or a
  * closed one for just the people `closedTo` names.
  */
-export async function createRoom(name: string, { closedTo, as }: { closedTo?: UserId[]; as?: Session } = {}): Promise<Room> {
+export async function createRoom(name: string, { closedTo, icon, as }: { closedTo?: UserId[]; icon?: RoomIconChoice; as?: Session } = {}): Promise<Room> {
   const { cookie } = as ?? (await (host ??= signIn("Host")));
-  const room = closedTo ? { kind: "closed", name, memberIds: closedTo } : { kind: "open", name };
+  const room = closedTo ? { kind: "closed", name, icon, memberIds: closedTo } : { kind: "open", name, icon };
   const response = await api("/api/rooms", { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify(room) });
   expect(response.status, await response.clone().text()).toBe(201);
   return ((await response.json()) as { room: Room }).room;

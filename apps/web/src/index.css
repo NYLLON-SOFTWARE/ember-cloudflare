@@ -47,6 +47,9 @@
   --negative-button: #b91c1c;
   /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
   --lightbox: oklch(100% 0 0 / 0.66);
+  /* What ember-rust's dialogs lay over the page, and the icon picker's shadow (zz-ember.css), in both modes. */
+  --dialog-backdrop: #0005;
+  --dialog-shadow: #0003;
   color-scheme: light;
 }
 
@@ -152,6 +155,9 @@
   }
 }
 
+/* `short:` tightens dialogs on screens under 500px tall, such as a phone in landscape. */
+@custom-variant short (@media (height < 31.25rem));
+
 /* Campfire's `.hide-in-ios-pwa` (utilities.css): Ember added to an iPhone's or iPad's home screen. */
 @custom-variant ios-pwa {
   @media (display-mode: standalone) {
@@ -197,6 +203,8 @@
   --color-negative: var(--negative);
   --color-negative-button: var(--negative-button);
   --color-lightbox: var(--lightbox);
+  --color-dialog-backdrop: var(--dialog-backdrop);
+  --color-dialog-shadow: var(--dialog-shadow);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar, 60px header. */
   --spacing-rail: 80px;
   --spacing-sidebar: 280px;

@@ -156,3 +156,48 @@ export function Link(props: EmberIconProps) {
     </EmberIcon>
   );
 }
+
+/**
+ * The room icon picker's own drawings, inline in ember-rust's rooms/layouts/_icon_picker.html rather
+ * than from icons.html, with a 1.75 stroke.
+ */
+function PickerIcon(props: EmberIconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+      {...props}
+    />
+  );
+}
+
+export function IconPickerChevron(props: EmberIconProps) {
+  return (
+    <PickerIcon strokeLinejoin="round" {...props}>
+      <path d="m9 5 7 7-7 7" />
+    </PickerIcon>
+  );
+}
+
+export function IconPickerClose(props: EmberIconProps) {
+  return (
+    <PickerIcon {...props}>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </PickerIcon>
+  );
+}
+
+export function IconPickerSearch(props: EmberIconProps) {
+  return (
+    <PickerIcon {...props}>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m16 16 5 5" />
+    </PickerIcon>
+  );
+}

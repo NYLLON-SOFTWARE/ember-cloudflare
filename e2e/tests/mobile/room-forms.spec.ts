@@ -40,3 +40,11 @@ test("a room's settings fit the phone", async ({ page, room, screenIsFine }) => 
   await expect(page.getByRole("button", { name: `Delete ${room.name}` })).toBeAttached();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
+
+test("the room icon picker fits the phone", async ({ page, room, screenIsFine }) => {
+  await page.goto(`/rooms/opens/${room.id}/edit`);
+  await page.getByRole("button", { name: "Choose room icon" }).click();
+  const picker = page.getByRole("dialog", { name: "Choose a room icon" });
+  await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown");
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
