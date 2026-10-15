@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 38 ported and 52 partial of 172 features; 77 not started, 5 not applicable.
+**Overall:** 39 ported and 52 partial of 172 features; 76 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -22,7 +22,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 1 | 2 | 7 | 0 | 10 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 2 | 2 | 6 | 0 | 10 |
 | [Messages](#messages) | 3 | 12 | 4 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **38** | **52** | **77** | **5** | **172** |
+| **Total** | **39** | **52** | **76** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -843,7 +843,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts)<br>Web: [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Activity filter | `sidebar.activity-filter` | Ember | ⬜ Not started |  |
+| Activity filter | `sidebar.activity-filter` | Ember | ✅ Ported | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Star rooms | `sidebar.favorites` | Ember | ⬜ Not started |  |
 | Reorder starred rooms | `sidebar.favorite-order` | Ember | ⬜ Not started |  |
 | Shared room order | `sidebar.shared-order` | Ember | ⬜ Not started |  |
@@ -916,14 +916,14 @@ Sources: [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/channels_test.rs) · [`reference/test/system/unread_rooms_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/unread_rooms_test.rb) · [`reference/test/channels/unread_rooms_channel_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/channels/unread_rooms_channel_test.rb) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs)
 
-**Activity filter** (`sidebar.activity-filter`) ⬜
+**Activity filter** (`sidebar.activity-filter`) ✅
 
 - The rail's Activity button (titled "Show unread conversations", `aria-pressed`) toggles a filter that shows only unread conversations and hides suggestions; with nothing unread it says "You’re all caught up. No unread conversations."
 - Its badge shows how many rooms and DMs are unread, never counting the room you're viewing. It hides at 0 and updates as messages arrive and rooms are read.
 - Following any rail or sidebar link turns the filter off. Other navigation and background sidebar reloads leave it on, and a full page load starts with it off.
 - On phones, every click on Activity opens the drawer, whether it turns the filter on or off.
 
-Note: The rail shows Activity, disabled.
+Note: The count is the button's description ("3 unread"), so its name stays "Activity", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and "No conversations found." never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.
 
 Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html)
 
@@ -2169,7 +2169,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.
 - DMs opens the new direct message dialog without leaving the page.
 
-Note: Home and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.
+Note: Home, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, and nothing on a room's forms or while Activity is on. DMs and Search are disabled buttons, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
