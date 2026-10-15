@@ -1,4 +1,4 @@
-import type { Message } from "@ember/protocol";
+import type { Message, User } from "@ember/protocol";
 
 /** Follow-ups from the same person within this window render without a repeated header. */
 const THREAD_WINDOW_MS = 5 * 60 * 1000;
@@ -53,13 +53,13 @@ export function mentions(body: string, name: string): boolean {
   return new RegExp(`@${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, "iu").test(body);
 }
 
-/** Groups a message's boosts by emoji, for the reaction chips under it. */
-export function boostSummary(message: Message, userId: string) {
+/** Groups a message's boosts by emoji, for the reaction chips under it, naming the boosters with `nameOf`. */
+export function boostSummary(message: Message, userId: string, nameOf: (user: User) => string = (user) => user.name) {
   const groups = new Map<string, { content: string; count: number; mine: string | null; names: string[] }>();
   for (const boost of message.boosts) {
     const group = groups.get(boost.content) ?? { content: boost.content, count: 0, mine: null, names: [] };
     group.count += 1;
-    group.names.push(boost.booster.name);
+    group.names.push(nameOf(boost.booster));
     if (boost.booster.id === userId) group.mine = boost.id;
     groups.set(boost.content, group);
   }

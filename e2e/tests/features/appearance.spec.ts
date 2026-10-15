@@ -47,7 +47,7 @@ test.describe(feature("ui.appearance"), () => {
     await expect(menu.getByRole("radio", { name: "Dark" })).toBeFocused();
     await ada.page.keyboard.press("Tab");
     await expect(menu).toBeHidden();
-    await expect(ada.page.getByRole("button", { name: "Your profile" })).toBeFocused();
+    await expect(ada.page.getByRole("link", { name: "Your profile" })).toBeFocused();
     await ada.page.keyboard.press("Shift+Tab");
     await ada.page.keyboard.press("Enter");
     await expect(menu).toBeVisible();

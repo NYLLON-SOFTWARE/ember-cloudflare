@@ -58,7 +58,7 @@ test.describe(feature("accounts.reset-password"), () => {
     await page.getByLabel("Email address").fill(emailAddress);
     await page.getByLabel("Password").fill("compiler");
     await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
 
     // As apps/worker/scripts/reset-password.ts asks for it.
     const reset = await request.post("/api/recovery/reset-password", {
@@ -76,6 +76,6 @@ test.describe(feature("accounts.reset-password"), () => {
     await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
     await page.getByLabel("Password").fill("correct horse");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
   });
 });

@@ -419,17 +419,16 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     expect(await canSee(request, grace, leads.id)).toBe(true);
   });
 
-  test("asks before signing out, and signs out once the changes are discarded", async ({ members, request }) => {
-    // Someone of their own, so signing out ends no other test's session.
+  test("asks before opening your profile, where you log out, and opens it once the changes are discarded", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const design = await createRoom(request, ada.session, unique("Design"));
     const { page } = ada;
     await page.goto(`/rooms/opens/${design.id}/edit`);
     await page.getByRole("textbox", { name: "Room name" }).fill("A draft room");
-    await page.getByRole("button", { name: "Your profile" }).click();
-    await page.getByRole("menuitem", { name: "Log out" }).click();
+    await page.getByRole("link", { name: "Your profile" }).click();
     await expect(unsaved(page)).toBeVisible();
     await unsaved(page).getByRole("button", { name: "Discard" }).click();
-    await expect(page).toHaveURL(/\/session\/new$/);
+    await expect(page).toHaveURL(/\/users\/me\/profile$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Your profile" })).toBeVisible();
   });
 });

@@ -2,6 +2,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { User } from "@ember/protocol";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
+import { useNameOf } from "@/hooks/use-directory";
 import { hasTouchKeyboard, opensLink, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
@@ -14,10 +15,8 @@ import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./edito
  * where ember-rust's wrap down over the message box.
  */
 function TypingIndicator({ typists }: { typists: User[] }) {
-  const names = typists
-    .map((u) => u.name)
-    .sort()
-    .join(", ");
+  const nameOf = useNameOf();
+  const names = typists.map(nameOf).sort().join(", ");
   return (
     <div
       className={cn(

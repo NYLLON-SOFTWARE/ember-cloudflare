@@ -15,6 +15,8 @@ import {
   type NewRoomForm,
   type NewWorkspace,
   type PersonRole,
+  type Profile,
+  type ProfileChanges,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -43,6 +45,7 @@ import {
   type DirectoryEntry,
   type JoinableAccount,
   type NewPerson,
+  type ProfileEntry,
   type SavedRoomChange,
   type StoredSession,
 } from "./workspace-store";
@@ -138,6 +141,8 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
 
+const profileOf = ({ name, emailAddress, bio }: ProfileEntry): Profile => ({ name, emailAddress, bio });
+
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
 
@@ -158,10 +163,16 @@ export class Workspace extends DurableObject<Env> {
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
   private accountChanges = 0;
-  /** The help contact, the first administrator, once read. First run sets it, and changing a role forgets it. */
+  /**
+   * The help contact, the first administrator, once read. First run sets it, and changing a role or an
+   * administrator's profile forgets it.
+   */
   private knownHelpContact: HelpContact | null | undefined;
-  /** Counts the starts and ends of changes to roles, so a help contact read that overlapped one isn't kept. */
-  private roleChanges = 0;
+  /**
+   * Counts the starts and ends of changes to roles and administrators' profiles, so a help contact read
+   * that overlapped one isn't kept.
+   */
+  private helpContactChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
@@ -381,10 +392,10 @@ export class Workspace extends DurableObject<Env> {
 
   private async helpContact(): Promise<HelpContact | null> {
     if (this.knownHelpContact !== undefined) return this.knownHelpContact;
-    const changes = this.roleChanges;
+    const changes = this.helpContactChanges;
     const contact = await this.store.helpContact();
     // On D1, first run can finish while this reads, and what it found is newer.
-    if (changes === this.roleChanges) this.knownHelpContact ??= contact;
+    if (changes === this.helpContactChanges) this.knownHelpContact ??= contact;
     return this.knownHelpContact ?? contact;
   }
 
@@ -680,7 +691,7 @@ export class Workspace extends DurableObject<Env> {
 
       const now = new Date().toISOString();
       const changed = await this.directoryUser({ ...person, role, updatedAt: now });
-      this.roleChanges++;
+      this.helpContactChanges++;
       try {
         // Their sessions are read again, so their next welcome says what they are now.
         await this.sessions.change(
@@ -688,7 +699,7 @@ export class Workspace extends DurableObject<Env> {
           () => this.store.changeRole(userId, role, now),
         );
       } finally {
-        this.roleChanges++;
+        this.helpContactChanges++;
         // The first administrator, who may be someone else now.
         this.knownHelpContact = undefined;
       }
@@ -700,6 +711,69 @@ export class Workspace extends DurableObject<Env> {
   /** Someone as the people directory lists them, with their avatar's address. */
   private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
     return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;
+  }
+
+  /** The profile of the person `credentials` signs in, or null without a valid session. */
+  async profile(credentials: Credentials): Promise<Profile | null> {
+    const user = await this.authenticate(credentials);
+    const person = user && (await this.store.personWithProfile(user.id));
+    return person && profileOf(person);
+  }
+
+  /**
+   * Saves `changes` to the profile of the person `credentials` signs in, with `passwordDigest` as their
+   * password if it isn't null, as ember-rust's `profiles#update` does (profiles.rs), answering the
+   * profile as it is then: "email address taken" when someone else has the email address, where
+   * ember-rust fails, or null without a valid session. A blank email address or bio is saved as none,
+   * so any number of people can be without one. As ember-rust's `User#update` does, it writes only what
+   * differs, and a new password leaves every session signed in. Everyone's workspace sockets hear of a
+   * new name or bio, which the people directory lists.
+   */
+  async changeProfile(
+    credentials: Credentials,
+    changes: Omit<ProfileChanges, "password">,
+    passwordDigest: string | null,
+  ): Promise<Profile | "email address taken" | null> {
+    return this.oneAtATime(async () => {
+      // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
+      // save whose session was still valid before then mustn't put back a password of its own.
+      const user = await this.authenticate(credentials);
+      if (!user) return null;
+      const person = await this.store.personWithProfile(user.id);
+      if (!person) return null;
+      const profile: Profile = {
+        name: changes.name ?? person.name,
+        emailAddress: changes.emailAddress === undefined ? person.emailAddress : changes.emailAddress || null,
+        bio: changes.bio === undefined ? person.bio : changes.bio || null,
+      };
+      const listed = profile.name !== person.name || profile.bio !== person.bio;
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return profile;
+      if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
+        return "email address taken";
+      }
+
+      const now = new Date().toISOString();
+      const administrator = person.role === "administrator";
+      if (administrator) this.helpContactChanges++;
+      try {
+        // Their sessions are read again, so they're signed in by the name they have now.
+        await this.sessions.change(
+          (session) => session.user.id === user.id,
+          () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, now),
+        );
+      } finally {
+        if (administrator) {
+          this.helpContactChanges++;
+          // The first administrator's name and email address, which may have changed.
+          this.knownHelpContact = undefined;
+        }
+      }
+      if (listed) {
+        const { id, role, status } = person;
+        this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name: profile.name, bio: profile.bio, role, status, updatedAt: now }) });
+      }
+      return profile;
+    });
   }
 
   /**

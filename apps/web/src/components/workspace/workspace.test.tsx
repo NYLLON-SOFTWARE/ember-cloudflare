@@ -508,6 +508,29 @@ describe(feature("ui.rail"), () => {
   });
 });
 
+describe(feature("users.profile"), () => {
+  it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    await user.click(screen.getByRole("link", { name: "Your profile" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/users/me/profile");
+    expect(railCurrent()).toEqual(["Your profile"]);
+    await waitFor(() => expect(screen.getByLabelText("Email address")).toHaveValue("ada@example.com"));
+
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await roomHeading()).toHaveTextContent("random");
+  });
+
+  it("logs out from your profile, as ember-rust does", async () => {
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
+    const { onSignOut, user } = showWorkspace("/users/me/profile");
+    await user.click(screen.getByRole("button", { name: "Log out" }));
+    expect(onSignOut).toHaveBeenCalledOnce();
+  });
+});
+
 describe(feature("sidebar.activity-filter"), () => {
   const marked: SidebarRoom[] = [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true }, { id: "design", name: "Design", kind: "open", icon: null, unread: false }];
   const activity = () => screen.getByRole("button", { name: "Activity" });
@@ -868,7 +891,7 @@ describe(feature("ui.mobile-drawer"), () => {
     expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
     await user.tab({ shift: true });
     await user.tab({ shift: true });
-    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Your profile" })).toHaveFocus();
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Your profile" })).toHaveFocus();
   });
 
   it("closes when a rail link shows another page", async () => {

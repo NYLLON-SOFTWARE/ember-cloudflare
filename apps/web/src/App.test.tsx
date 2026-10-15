@@ -61,6 +61,7 @@ class WorkspaceSocket extends QuietSocket {
   static all: WorkspaceSocket[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
 
   constructor(url: string) {
     super();
@@ -75,6 +76,12 @@ class WorkspaceSocket extends QuietSocket {
     this.readyState = WorkspaceSocket.OPEN;
     this.onopen?.();
     this.receive({ type: "welcome", you, account });
+  }
+
+  /** The Workspace closes the socket, saying why. */
+  end(code: number) {
+    this.readyState = 3;
+    this.onclose?.({ code });
   }
 }
 
@@ -129,6 +136,7 @@ function serve({
     if (route === "GET /api/me") return Response.json({ user: me });
     if (route === "GET /api/account") return Response.json({ account, joinCode: JOIN_CODE, canAdminister: me.administrator });
     if (route === "GET /api/users") return Response.json({ users: [] });
+    if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
       const { name = account.name, settings } = JSON.parse(String(init?.body)) as AccountChanges;
       account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons };
@@ -152,11 +160,13 @@ async function signInAsAda(password = "correct horse") {
   await user.type(screen.getByLabelText("Password"), `${password}{Enter}`);
 }
 
-async function signOutFromTheRail() {
-  const user = userEvent.setup();
-  await user.click(screen.getAllByRole("button", { name: "Your profile" })[0]!);
-  await user.click(screen.getByRole("menuitem", { name: "Log out" }));
+/** Opens your profile, where ember-rust signs out, from the rail's avatar, once it has loaded. */
+async function openYourProfile() {
+  await userEvent.setup().click(screen.getAllByRole("link", { name: "Your profile" })[0]!);
+  await waitFor(() => expect(screen.getByLabelText("Name")).toBeEnabled());
 }
+
+const logOut = () => userEvent.setup().click(screen.getByRole("button", { name: "Log out" }));
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
@@ -191,7 +201,7 @@ describe(feature("auth.first-run"), () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/r1");
-    expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Ada");
+    expect(screen.getAllByRole("link", { name: "Your profile" })[0]).toHaveAttribute("title", "Ada");
     expect(loadPage).not.toHaveBeenCalled();
   });
 
@@ -245,7 +255,7 @@ describe(feature("auth.sessions"), () => {
     await fetch(`/api/join/${JOIN_CODE}`, { method: "POST", body: JSON.stringify({ emailAddress: "grace@example.com" }) });
     const socket = await roomSocket();
     act(() => socket.welcome(grace));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace"));
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace"));
     // Grace's workspace opens its own socket to the room.
     await waitFor(() => expect(RoomSocket.all).toHaveLength(2));
   });
@@ -496,7 +506,7 @@ describe(feature("auth.sign-up"), () => {
     expect(await roomHeading()).toBeInTheDocument();
     // Home, which goes on to the last room visited.
     expect(location.pathname).toBe("/rooms/general");
-    expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace");
+    expect(screen.getAllByRole("link", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace");
   });
 
   it("sends an email address that has an account to sign in with it", async () => {
@@ -540,21 +550,23 @@ describe(feature("auth.sign-out"), () => {
     render(<App />);
     await roomHeading();
     sessionStorage.setItem("ember:return-to", "/rooms/general");
-    await signOutFromTheRail();
+    await openYourProfile();
+    await logOut();
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" }));
     expect(sessionStorage.getItem("ember:return-to")).toBeNull();
   });
 
-  it("goes home after signing in again, even when a room closes the socket before signing out answers", async () => {
-    RoomSocket.all = [];
-    vi.stubGlobal("WebSocket", RoomSocket);
+  it("goes home after signing in again, even when the workspace closes its socket before signing out answers", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
     history.replaceState(null, "", "/rooms/general");
     const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
-    const socket = await roomSocket();
-    act(() => socket.welcome(ada));
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    await openYourProfile();
     // The server ends the session at once, but its answer is held back.
     let answer!: () => void;
     const answered = new Promise<void>((resolve) => (answer = resolve));
@@ -565,8 +577,8 @@ describe(feature("auth.sign-out"), () => {
       return response;
     });
 
-    await signOutFromTheRail();
-    act(() => socket.end(CloseCode.Reconnect));
+    await logOut();
+    act(() => WorkspaceSocket.all[0]!.end(CloseCode.Reconnect));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything()));
     answer();
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
@@ -578,10 +590,11 @@ describe(feature("auth.sign-out"), () => {
     const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
+    await openYourProfile();
     fetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    await signOutFromTheRail();
+    await logOut();
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" })));
-    expect(screen.getByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
     expect(loadPage).not.toHaveBeenCalled();
   });
 });

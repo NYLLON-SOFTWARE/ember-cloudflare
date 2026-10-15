@@ -7,18 +7,21 @@ import {
   isRoomIcon,
   isRoomId,
   MAX_ACCOUNT_NAME_LENGTH,
+  MAX_BIO_LENGTH,
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
   MAX_CUSTOM_STYLES_LENGTH,
   MAX_LISTED_USERS,
   MAX_MESSAGE_HTML_LENGTH,
   MAX_MESSAGE_LENGTH,
+  MAX_PASSWORD_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
   parseNewRoom,
   parsePasswordReset,
+  parseProfileChanges,
   parseRoleChange,
   parseRoomChanges,
   parseRoomSocketParams,
@@ -337,6 +340,33 @@ describe(feature("accounts.roles"), () => {
     ["an object without a role", { name: "Grace" }],
   ])("finds no role change in %s", (_, body) => {
     expect(parseRoleChange(body)).toBeNull();
+  });
+});
+
+describe(feature("users.profile"), () => {
+  it("takes each field as typed, even blank, leaving out what isn't sent", () => {
+    const typed = { name: " ", emailAddress: "", password: "  ", bio: "Countess of Lovelace\n" };
+    expect(parseProfileChanges(typed)).toEqual(typed);
+    expect(parseProfileChanges({ name: "Ada", avatar: "" })).toEqual({ name: "Ada" });
+    expect(parseProfileChanges({})).toEqual({});
+  });
+
+  it("takes as long a password as sign-in does, and a bio as long as the form lets anyone type", () => {
+    const longest = { password: "🔐".repeat(MAX_PASSWORD_LENGTH / 2), bio: "x".repeat(MAX_BIO_LENGTH) };
+    expect(parseProfileChanges(longest)).toEqual(longest);
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "Ada" }], "Expected a JSON object"],
+    ["a name that isn't text", { name: null }, "Name must be text"],
+    ["an email address that isn't text", { emailAddress: ["ada@example.com"] }, "Email address must be text"],
+    ["a password that isn't text", { password: 12345678 }, "Password must be text"],
+    ["a bio that isn't text", { bio: false }, "Bio must be text"],
+    ["a password longer than sign-in takes", { password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, "Password must be at most 72 characters."],
+    ["a bio longer than the form takes", { bio: "x".repeat(MAX_BIO_LENGTH + 1) }, "Bio must be at most 200 characters"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseProfileChanges(body)).toBe(error);
   });
 });
 

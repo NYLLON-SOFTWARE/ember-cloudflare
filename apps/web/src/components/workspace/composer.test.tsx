@@ -3,6 +3,7 @@ import type { User } from "@ember/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PeopleContext } from "@/hooks/use-directory";
 import { Composer, RoomDeleted } from "./composer";
 import { editorLoaded } from "./editor";
 
@@ -250,6 +251,17 @@ describe(feature("realtime.typing"), () => {
     expect(indicator).not.toHaveClass("hidden");
     expect(indicator.parentElement).not.toHaveClass("opacity-0");
     expect(indicator.closest("[aria-live]")).toBeNull();
+  });
+
+  it("names them as the people directory lists them now, which follows a rename since the room heard them", async () => {
+    const grace = { id: "u2", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" } as const;
+    const { container } = render(
+      <PeopleContext value={new Map([[grace.id, grace]])}>
+        <Composer roomId="r1" roomName="general" userId="u1" typing={[typist("Linus", 1), typist("Grace", 2)]} disabled={false} onSend={vi.fn(() => true)} onTyping={vi.fn()} />
+      </PeopleContext>,
+    );
+    await screen.findByRole("textbox", { name: "Write a message" });
+    expect(container.querySelector(".spinner")).toHaveTextContent("Grace Hopper, Linus", { normalizeWhitespace: false });
   });
 
   it("shows nothing while nobody is typing, and fades in when someone starts", async () => {
