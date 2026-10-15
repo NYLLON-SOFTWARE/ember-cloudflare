@@ -25,18 +25,19 @@ interface Props {
   emoji?: boolean;
   /** What follows the text: in its last paragraph, when it ends with one. */
   trailing?: ReactNode;
+  className?: string;
 }
 
 /**
  * A message's text, as ember-rust's `messages/_presentation.html` shows it, built from `displayBody`'s
  * nodes rather than set as markup. `.message-content` in index.css styles it.
  */
-export function MessageBody({ nodes, mentions, emoji = false, trailing }: Props) {
+export function MessageBody({ nodes, mentions, emoji = false, trailing, className }: Props) {
   const last = nodes.at(-1);
   const inLastParagraph = trailing !== undefined && last?.kind === "element" && last.name === "p";
   const children = nodes.map((node, index) => nodeOf(node, mentions, inLastParagraph && index === nodes.length - 1 ? trailing : undefined));
   if (trailing !== undefined && !inLastParagraph) children.push(trailing);
-  return createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]") }, ...children);
+  return createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]", className) }, ...children);
 }
 
 /** `node` as React draws it, with `trailing` after its text, inside a link if `inLink`. */

@@ -210,10 +210,11 @@ describe(feature("rooms.invitation-card"), () => {
 });
 
 describe(feature("messages.day-separators"), () => {
-  it("separates days, naming today and yesterday", () => {
-    render(list({ messages: [message("Saturday", "2026-10-10T09:00:00"), message("Sunday", "2026-10-11T09:00:00"), message("Monday", "2026-10-12T09:00:00")] }));
-    const separators = screen.getAllByRole("separator").map((s) => s.textContent);
-    expect(separators).toEqual([expect.stringMatching(/Saturday, October 10/), "Yesterday", "Today"]);
+  it("heads each day with its date, and the date and time of its first message on hover", () => {
+    render(list({ messages: [message("Saturday", "2026-10-10T09:00:00"), message("Sunday", "2026-10-11T09:00:00"), message("Later", "2026-10-11T15:04:00")] }));
+    const days = screen.getAllByRole("heading", { level: 2 });
+    expect(days.map((day) => day.textContent)).toEqual(["October 10, 2026", "October 11, 2026"]);
+    expect(days[1]!.querySelector("time")).toHaveAttribute("title", "10/11/26, 9:00 AM");
   });
 });
 

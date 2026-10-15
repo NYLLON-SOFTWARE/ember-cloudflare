@@ -1,46 +1,50 @@
 import type { Message, UserId } from "@ember/protocol";
 import { displayMarkup, type DisplayNode } from "@ember/richtext/dom";
 
-/** Follow-ups from the same person within this window render without a repeated header. */
+/**
+ * How far apart a person's messages can be, either way, and still group, as Campfire's
+ * message_formatter.js has it: five minutes, inclusive.
+ */
 const THREAD_WINDOW_MS = 5 * 60 * 1000;
 
 export interface TimelineItem {
   message: Message;
-  /** A new calendar day starts here. */
-  daySeparator: string | null;
+  /** Whether the message is the first of its day in the reader's time zone, which a separator dates. */
+  firstOfDay: boolean;
   /** Same author as the previous message, shortly after it: show it compactly. */
   threaded: boolean;
 }
 
+// Times and dates as Campfire's local_time_controller.js writes them, in the reader's locale and time zone.
+const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
+const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+
+/** A message's time: "3:04 PM". */
+export const timeLabel = (date: Date) => timeFormat.format(date);
+/** A day separator's date: "October 12, 2026". */
+export const dateLabel = (date: Date) => dateFormat.format(date);
+/** What a time or a separator's date shows on hover: "10/12/26, 3:04 PM". */
+export const dateTimeLabel = (date: Date) => dateTimeFormat.format(date);
+
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 
-export function dayLabel(date: Date, now = new Date()): string {
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (dayKey(date) === dayKey(now)) return "Today";
-  if (dayKey(date) === dayKey(yesterday)) return "Yesterday";
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  });
-}
-
-export function timeLabel(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-export function timeline(messages: Message[], now = new Date()): TimelineItem[] {
+/**
+ * The messages as message_formatter.js lays them out. A message is the first of its day when the one above it
+ * is from another day. It's threaded, without its author's avatar and name, when the one above it is the
+ * same person's from no more than five minutes before or after, even across midnight, when it has a separator
+ * and still no header.
+ */
+export function timeline(messages: Message[]): TimelineItem[] {
   return messages.map((message, index) => {
     const previous = messages[index - 1];
-    const created = new Date(message.createdAt);
-    const newDay = !previous || dayKey(new Date(previous.createdAt)) !== dayKey(created);
-    const threaded =
-      !newDay &&
-      previous!.creator.id === message.creator.id &&
-      created.getTime() - new Date(previous!.createdAt).getTime() < THREAD_WINDOW_MS;
-    return { message, daySeparator: newDay ? dayLabel(created, now) : null, threaded };
+    if (!previous) return { message, firstOfDay: true, threaded: false };
+    const [created, before] = [new Date(message.createdAt), new Date(previous.createdAt)];
+    return {
+      message,
+      firstOfDay: dayKey(before) !== dayKey(created),
+      threaded: previous.creator.id === message.creator.id && Math.abs(created.getTime() - before.getTime()) <= THREAD_WINDOW_MS,
+    };
   });
 }
 

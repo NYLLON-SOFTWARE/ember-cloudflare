@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 62 ported and 55 partial of 172 features; 50 not started, 5 not applicable.
+**Overall:** 65 ported and 52 partial of 172 features; 50 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
-| [Messages](#messages) | 5 | 14 | 0 | 0 | 19 |
+| [Messages](#messages) | 8 | 11 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **62** | **55** | **50** | **5** | **172** |
+| **Total** | **65** | **52** | **50** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1021,10 +1021,10 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | Delete a message | `messages.delete` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Scroll back through history | `messages.history` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
-| Group messages by author | `messages.grouping` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Day separators | `messages.day-separators` | Campfire | 🟡 Partial | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
-| Message rows | `messages.layout` | Ember | ✅ Ported | E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Times on follow-up messages | `messages.follow-up-times` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Group messages by author | `messages.grouping` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Day separators | `messages.day-separators` | Campfire | ✅ Ported | Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
+| Message rows | `messages.layout` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Times on follow-up messages | `messages.follow-up-times` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Message action bar | `messages.actions` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Reply with a quote | `messages.reply` | Campfire | 🟡 Partial | Rich text: [display](packages/richtext/src/display.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Copy a link to a message | `messages.copy-link` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -1116,25 +1116,21 @@ Sources: [`reference/app/models/message/pagination.rb`](https://github.com/basec
 
 ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`reference/test/controllers/messages_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages_controller_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Group messages by author** (`messages.grouping`) 🟡
+**Group messages by author** (`messages.grouping`) ✅
 
 - A message shows without its author's avatar and name when the message above it is theirs and no more than 5 minutes apart (exactly 5 minutes still groups).
 - Days don't break a group: a follow-up just after midnight gets the day separator but still no avatar or name.
 - Grouping is worked out again as pages load and messages arrive, so it doesn't depend on the order they reached the page.
 
-Note: Messages exactly 5 minutes apart don't group, and the first message of a day always shows its author's avatar and name.
-
 Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Day separators** (`messages.day-separators`) 🟡
+**Day separators** (`messages.day-separators`) ✅
 
 - The first message of each day in the viewer's time zone, and the first one loaded, gets a separator with the date written out ("October 12, 2026").
 - Hovering the date shows the short date and time of the day's first message ("10/12/26, 3:04 PM").
 - The separator is a 14px bold pill, not uppercase, with a rule on either side.
-
-Note: Separators read "Today", "Yesterday", or the weekday and date, and show nothing on hover.
 
 Sources: [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/controllers/local_time_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/local_time_controller.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
@@ -1150,12 +1146,10 @@ Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFT
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Times on follow-up messages** (`messages.follow-up-times`) 🟡
+**Times on follow-up messages** (`messages.follow-up-times`) ✅
 
 - A follow-up shows its time only on hover or focus, just after its text and without moving it; the first message of a group always shows its time.
 - Each time links to its message (`/rooms/<room>/@<message>`).
-
-Note: Follow-up times appear in the avatar column, and times aren't links.
 
 Sources: [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html)
 

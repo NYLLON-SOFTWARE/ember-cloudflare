@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "re
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { RoomConnection } from "@/hooks/use-room";
-import { timeline } from "@/lib/messages";
+import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
 import { MessageItem, type MessageActions, type MessageEditors } from "./message-item";
@@ -58,6 +58,21 @@ function placeIn(scroller: HTMLElement): Place | null {
 function restore(scroller: HTMLElement, { row, offset }: Place) {
   const element = rowsIn(scroller).find((r) => r.dataset.row === row);
   if (element) scroller.scrollTop += offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+}
+
+/**
+ * ember-rust's `.message__day-separator` (_message.html, zz-ember.css): a heading over the first message of
+ * a day, with the day's date written out and, on hover, the message's date and time.
+ */
+function DaySeparator({ at }: { at: string }) {
+  const date = new Date(at);
+  return (
+    <h2 className="mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
+      <time dateTime={at} title={dateTimeLabel(date)} className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">
+        {dateLabel(date)}
+      </time>
+    </h2>
+  );
 }
 
 interface Props {
@@ -209,16 +224,12 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
           )}
 
           <RoomConnection value={state.connections}>
-            {items.map(({ message, daySeparator, threaded }) => {
+            {items.map(({ message, firstOfDay, threaded }) => {
               // Stable from optimistic copy to stored message, and distinct across senders.
               const key = `${message.creator.id}:${message.clientMessageId}`;
               return (
                 <div key={key} data-row={key} data-message-id={message.id}>
-                  {daySeparator && (
-                    <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
-                      <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
-                    </div>
-                  )}
+                  {firstOfDay && <DaySeparator at={message.createdAt} />}
                   <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
                 </div>
               );

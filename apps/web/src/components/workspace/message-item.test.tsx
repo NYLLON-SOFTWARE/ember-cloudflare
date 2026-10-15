@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Boost, Message, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -155,6 +155,57 @@ describe(feature("messages.grouping"), () => {
     const { article } = show(message(), { threaded: true });
     expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
     expect(article.querySelector("time")).toBeInTheDocument();
+  });
+});
+
+describe(feature("messages.layout"), () => {
+  it("heads a message with its author and time, and a follow-up with its time alone", () => {
+    const { article } = show(message({ createdAt: "2026-10-12T15:04:00" }));
+    const heading = within(article).getByRole("heading", { level: 3 });
+    expect(within(heading).getByText("Ada")).toBeInTheDocument();
+    expect(within(heading).getByRole("link", { name: "3:04 PM" })).toBeInTheDocument();
+    cleanup();
+
+    const followUp = within(show(message({ createdAt: "2026-10-12T15:04:00" }), { threaded: true }).article);
+    expect(followUp.getByRole("heading", { level: 3 })).toHaveTextContent(/^3:04 PM$/);
+  });
+
+  it("titles the author with their bio as the people directory lists it, or with just their name", () => {
+    const listed = (user: User, name: string, bio: string | null) => [user.id, { ...user, name, bio, role: "member", status: "active", avatarUrl: "" }] as const;
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+    const by = (creator: User) => message({ id: creator.id, clientMessageId: creator.id, creator });
+    render(
+      <PeopleContext value={new Map([listed(ada, "Ada King", "Countess of Lovelace"), listed(grace, "Grace Hopper", " ")])}>
+        {[ada, grace, { id: "u3", name: "Linus" }].map((creator) => (
+          <MessageItem key={creator.id} message={by(creator)} me={{ ...ada, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
+        ))}
+      </PeopleContext>,
+    );
+    expect(screen.getByText("Ada King")).toHaveAttribute("title", "Ada King – Countess of Lovelace");
+    expect(screen.getByText("Grace Hopper")).toHaveAttribute("title", "Grace Hopper");
+    // Someone the directory doesn't list keeps the name the message was given.
+    expect(screen.getByText("Linus")).toHaveAttribute("title", "Linus");
+  });
+});
+
+describe(feature("messages.follow-up-times"), () => {
+  it("links each message's time to the message, with its date and time on hover", () => {
+    const { article } = show(message({ id: "m 1", createdAt: "2026-10-12T15:04:00" }));
+    const time = within(article).getByRole("link", { name: "3:04 PM" });
+    expect(time).toHaveAttribute("href", "/rooms/general/@m%201");
+    expect(time.querySelector("time")).toHaveAttribute("title", "10/12/26, 3:04 PM");
+  });
+
+  it("puts a follow-up's time after its text, and a message's on its way unlinked", () => {
+    const { article } = show(message({ createdAt: "2026-10-12T15:04:00" }), { threaded: true });
+    const time = within(article).getByRole("link", { name: "3:04 PM" });
+    expect(time.compareDocumentPosition(within(article).getByText("Hello"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(time).toHaveClass("col-start-2", "opacity-0");
+    cleanup();
+
+    const pending = show({ ...message({ createdAt: "2026-10-12T15:04:00" }), pending: true });
+    expect(within(pending.article).getByText("3:04 PM").closest("a")).toBeNull();
   });
 });
 
@@ -757,9 +808,9 @@ describe(feature("users.avatar-links"), () => {
     expect(reactions().getByRole("button", { name: "🎉" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("has no avatar on a message grouped under the one before", () => {
+  it("has no avatar on a message grouped under the one before, whose only link is its time's", () => {
     const { article } = show(message(), { threaded: true });
-    expect(within(article).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(article).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/rooms/general/@m1"]);
   });
 });
 
