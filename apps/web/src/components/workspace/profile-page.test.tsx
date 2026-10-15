@@ -136,7 +136,7 @@ describe(feature("users.profile"), () => {
     expect(bio).toHaveAttribute("maxlength", "200");
   });
 
-  it("saves what's typed with the notice ✓, and empties the new password, as ember-rust's page comes back", async () => {
+  it("saves what you changed with the notice ✓, and empties the new password, as ember-rust's page comes back", async () => {
     const { onFailed, user } = showPage();
     await loaded();
     await user.clear(field("Name"));
@@ -147,11 +147,28 @@ describe(feature("users.profile"), () => {
 
     // The flash's check alone, read as "Changes saved".
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
-    expect(saved()).toEqual([{ name: "Ada King", emailAddress: "ada@example.com", password: "difference engine", bio: "" }]);
+    expect(saved()).toEqual([{ name: "Ada King", password: "difference engine", bio: "" }]);
     expect(field("Name")).toHaveValue("Ada King");
     expect(field("Bio")).toHaveValue("");
     expect(field("New password")).toHaveValue("");
     expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("sends only what you changed, then shows what's saved, so it doesn't undo another tab's save", async () => {
+    // Another tab saved a new name after this page loaded.
+    serve({ saved: () => Response.json({ profile: { ...profile, name: "Ada King", bio: "Countess of Lovelace" } }) });
+    const { user } = showPage();
+    await loaded();
+    await user.clear(field("Bio"));
+    await user.type(field("Bio"), "Countess of Lovelace");
+    await user.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ bio: "Countess of Lovelace" }]);
+    expect(field("Name")).toHaveValue("Ada King");
+    // Nor does saving again put back the name the page loaded.
+    await user.click(saveButton());
+    await waitFor(() => expect(saved()).toEqual([{ bio: "Countess of Lovelace" }, {}]));
   });
 
   it("can't save again until the last save is answered, keeping a password typed meanwhile", async () => {

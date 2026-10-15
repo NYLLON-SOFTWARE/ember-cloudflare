@@ -716,9 +716,11 @@ export class Workspace extends DurableObject<Env> {
     changes: Omit<ProfileChanges, "password">,
     passwordDigest: string | null,
   ): Promise<Profile | "email address taken" | null> {
-    const user = await this.authenticate(credentials);
-    if (!user) return null;
     return this.oneAtATime(async () => {
+      // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
+      // save whose session was still valid before then mustn't put back a password of its own.
+      const user = await this.authenticate(credentials);
+      if (!user) return null;
       const person = await this.store.personWithProfile(user.id);
       if (!person) return null;
       const profile: Profile = {

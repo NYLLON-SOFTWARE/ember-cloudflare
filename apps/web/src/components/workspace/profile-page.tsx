@@ -1,5 +1,5 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
-import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile } from "@ember/protocol";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile, type ProfileChanges } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -21,11 +21,35 @@ interface Props {
   onFailed: (error: unknown) => void;
 }
 
+const FIELDS = ["name", "emailAddress", "password", "bio"] as const;
+
 /** The form's fields as typed. */
-type Fields = Record<"name" | "emailAddress" | "password" | "bio", string>;
+type Fields = Record<(typeof FIELDS)[number], string>;
 
 /** A profile in the form, with no new password typed. */
 const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emailAddress: emailAddress ?? "", password: "", bio: bio ?? "" });
+
+/**
+ * The fields `typed` differently from `saved`, the profile as the page last loaded or saved it. Only
+ * they're sent, where ember-rust's form sends every field, so a save doesn't put back what another
+ * tab has saved since.
+ */
+function changesOf(saved: Fields, typed: Fields): ProfileChanges {
+  const changes: ProfileChanges = {};
+  for (const field of FIELDS) if (typed[field] !== saved[field]) changes[field] = typed[field];
+  return changes;
+}
+
+/**
+ * The form once `sent` is saved as `saved`: each field still as it was sent shows what's saved, which
+ * may hold another tab's change, and the new password leaves its field, as ember-rust's page comes
+ * back without it. Whatever was typed meanwhile stays.
+ */
+function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
+  const fields = { ...typed };
+  for (const field of FIELDS) if (typed[field] === sent[field]) fields[field] = saved[field];
+  return fields;
+}
 
 /**
  * ember-rust's profile (users/profiles/show.html), as far as it's built: your name, email address, a
@@ -37,6 +61,8 @@ const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emai
  */
 export function ProfilePage({ me, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
+  /** The profile as the page last loaded or saved it. */
+  const saved = useRef<Fields | null>(null);
   const [saving, setSaving] = useState(false);
   const back = useBackPath();
   const flash = useFlash();
@@ -46,7 +72,11 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
   useEffect(() => {
     let stopped = false;
     fetchProfile().then(
-      (profile) => !stopped && setFields(fieldsOf(profile)),
+      (profile) => {
+        if (stopped) return;
+        saved.current = fieldsOf(profile);
+        setFields(saved.current);
+      },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
         if (!stopped || isSignedOut(error)) onFailed(error);
@@ -60,15 +90,16 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
 
   const save = (event: FormEvent) => {
     event.preventDefault();
-    if (!fields || saving) return;
+    if (!fields || !saved.current || saving) return;
     setSaving(true);
     const sent = fields;
-    changeProfile(sent).then(
-      () => {
+    changeProfile(changesOf(saved.current, sent)).then(
+      (profile) => {
         if (!mounted.current) return;
         setSaving(false);
-        // Saved, the new password leaves the field, as ember-rust's page comes back without it.
-        setFields((fields) => fields && { ...fields, password: fields.password === sent.password ? "" : fields.password });
+        const now = fieldsOf(profile);
+        saved.current = now;
+        setFields((fields) => fields && settled(fields, sent, now));
         flash("notice", "✓");
       },
       (error: unknown) => {

@@ -1,7 +1,12 @@
 import { feature } from "@ember/parity";
 import { MAX_BIO_LENGTH, type Bootstrap, type Directory, type DirectoryUser, type NewWorkspace, type Profile, type ProfileAnswer, type UserId } from "@ember/protocol";
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, cookieOf, freshDeploy, openWorkspaceSocket, shown, signIn, workspaceSql, type Session } from "./support";
+import { credentialsOf } from "../src/auth";
+import type { Env } from "../src/env";
+import type { Workspace } from "../src/workspace";
+import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -138,6 +143,21 @@ describe(feature("users.profile"), () => {
     expect((await save(administrator, { name: "Ada King", password: "" })).status).toBe(200);
     expect(await stored(administrator.user.id)).toMatchObject({ name: "Ada King", password_digest: digest });
     expect((await signInWith(ada.emailAddress, ada.password)).status).toBe(201);
+  });
+
+  it("saves nothing once a password reset ahead of it has ended the session, keeping the reset's password", async () => {
+    const administrator = await setUp();
+    const credentials = (await credentialsOf(new Request(origin, { headers: as(administrator) }), env as unknown as Env))!;
+
+    const answers = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      // The route checks the session before hashing a new password, and on D1 a reset can begin meanwhile.
+      expect(await workspace.authenticate(credentials)).not.toBeNull();
+      const reset = workspace.resetPassword(ada.emailAddress, "recovery digest");
+      const saved = workspace.changeProfile(credentials, { name: "Mallory" }, "their own digest");
+      return Promise.all([reset, saved]);
+    });
+    expect(answers).toEqual(["reset", null]);
+    expect(await stored(administrator.user.id)).toMatchObject({ name: "Ada Lovelace", password_digest: "recovery digest" });
   });
 
   it("gives a password to someone who signed in with just a name, which signs them in once they have an email address", async () => {
