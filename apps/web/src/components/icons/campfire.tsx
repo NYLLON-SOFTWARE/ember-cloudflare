@@ -14,6 +14,7 @@ import crown from "./campfire/crown.svg";
 import download from "./campfire/download.svg";
 import everyone from "./campfire/everyone.svg";
 import globe from "./campfire/globe.svg";
+import laptop from "./campfire/laptop.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
@@ -22,6 +23,7 @@ import messagesAdd from "./campfire/messages-add.svg";
 import messagesEmpty from "./campfire/messages-empty.svg";
 import messagesOutlined from "./campfire/messages-outlined.svg";
 import minus from "./campfire/minus.svg";
+import mobilePhone from "./campfire/mobile-phone.svg";
 import pencil from "./campfire/pencil.svg";
 import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
@@ -29,6 +31,7 @@ import refresh from "./campfire/refresh.svg";
 import remove from "./campfire/remove.svg";
 import share from "./campfire/share.svg";
 import textOptions from "./campfire/text-options.svg";
+import transfer from "./campfire/transfer.svg";
 import trash from "./campfire/trash.svg";
 
 // Campfire's filled icons. ember-rust serves these files unchanged from its reference app
@@ -108,6 +111,10 @@ export function Globe(props: CampfireIconProps) {
   return <CampfireIcon src={globe} {...props} />;
 }
 
+export function Laptop(props: CampfireIconProps) {
+  return <CampfireIcon src={laptop} {...props} />;
+}
+
 export function Lifebuoy(props: CampfireIconProps) {
   return <CampfireIcon src={lifebuoy} {...props} />;
 }
@@ -140,6 +147,10 @@ export function Minus(props: CampfireIconProps) {
   return <CampfireIcon src={minus} {...props} />;
 }
 
+export function MobilePhone(props: CampfireIconProps) {
+  return <CampfireIcon src={mobilePhone} {...props} />;
+}
+
 export function Pencil(props: CampfireIconProps) {
   return <CampfireIcon src={pencil} {...props} />;
 }
@@ -166,6 +177,10 @@ export function Share(props: CampfireIconProps) {
 
 export function TextOptions(props: CampfireIconProps) {
   return <CampfireIcon src={textOptions} {...props} />;
+}
+
+export function Transfer(props: CampfireIconProps) {
+  return <CampfireIcon src={transfer} {...props} />;
 }
 
 export function Trash(props: CampfireIconProps) {

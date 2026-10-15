@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { isAppPage, workspacePageOf } from "./index";
+import { isAppPage, transferIdFromPath, transferPath, workspacePageOf } from "./index";
 
 describe(feature("platform.error-pages"), () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
@@ -63,5 +63,19 @@ describe(feature("users.show"), () => {
     // An id nobody has is the page's to answer 404 for.
     expect(workspacePageOf("/users/profile")).toEqual({ page: "person", userId: "profile" });
     for (const path of ["/users", "/users/", "/users/%FF", "/users/ada/edit"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});
+
+describe(feature("auth.sign-in-link"), () => {
+  it("puts a sign-in link at /session/transfers/<id>, and reads the id back", () => {
+    const transferId = "0mgk3x2a9b4c5d.mgk3x2a9.Ab-_9z";
+    expect(transferPath(transferId)).toBe(`/session/transfers/${transferId}`);
+    expect(transferIdFromPath(transferPath(transferId))).toBe(transferId);
+    for (const path of ["/session/transfers", "/session/transfers/", "/session/transfers/a/b", "/session/transfer/a"]) expect(transferIdFromPath(path), path).toBeNull();
+  });
+
+  it("leaves a sign-in link's page to the Worker, as it's no workspace page", () => {
+    expect(workspacePageOf(transferPath("a.b.c"))).toBeNull();
+    expect(isAppPage(transferPath("a.b.c"))).toBe(false);
   });
 });

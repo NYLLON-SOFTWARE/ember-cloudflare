@@ -6,7 +6,19 @@ import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
-export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
+export {
+  CUSTOM_STYLES_PATH,
+  isAppPage,
+  KIND_SEGMENTS,
+  NEW_DIRECT_PATH,
+  PROFILE_PATH,
+  transferIdFromPath,
+  transferPath,
+  WORKSPACE_SETTINGS_PATH,
+  workspacePageOf,
+  type RoomAccess,
+  type WorkspacePage,
+} from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -235,6 +247,11 @@ export interface Person extends DirectoryUser {
 /** What `GET /api/users/<id>` answers: anyone, whatever their status. */
 export interface PersonAnswer {
   person: Person;
+  /**
+   * The id in a new sign-in link for them (`transferPath`), which administrators are given for anyone
+   * active who isn't a bot, as ember-rust's page shows them it.
+   */
+  transferId?: string;
 }
 
 /** You, as your profile shows you. */
@@ -249,6 +266,8 @@ export interface Profile {
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
 export interface ProfileAnswer {
   profile: Profile;
+  /** The id in a new sign-in link for you (`transferPath`), as each of ember-rust's profile pages shows a new one. */
+  transferId: string;
 }
 
 /**

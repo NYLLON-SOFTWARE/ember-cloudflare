@@ -81,6 +81,15 @@ test("your profile, opened from the rail, fits the phone with Log out in the top
   await screenIsFine();
 });
 
+test("your sign-in link, at the foot of your profile, fits the phone", async ({ page, room: _, session, screenIsFine }) => {
+  await signInAs(page, session);
+  await page.goto("/users/me/profile");
+  const link = page.getByRole("textbox", { name: "Use this link to login automatically on another device" });
+  await link.scrollIntoViewIfNeeded();
+  await expect(link).toBeInViewport();
+  await screenIsFine();
+});
+
 test("translation buttons, and the list each opens, fit the phone", async ({ page, safeArea, screenIsFine }) => {
   await showTranslationButtons(page);
   await page.goto("/session/new");

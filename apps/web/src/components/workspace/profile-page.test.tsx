@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Profile, ProfileChanges } from "@ember/protocol";
+import type { Account, Profile, ProfileAnswer, ProfileChanges } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -12,6 +12,8 @@ import { ProfilePage } from "./profile-page";
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program" };
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" };
+/** The sign-in links loading and saving the profile give. */
+const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
 
 interface Answers {
   /** What loading the profile answers, rather than `profile`. */
@@ -21,7 +23,7 @@ interface Answers {
 }
 
 /** Answers the page's requests as the server does, or as `answers` says. */
-function serve({ loaded = () => Response.json({ profile }), saved }: Answers = {}) {
+function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer), saved }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     switch (request) {
@@ -29,7 +31,7 @@ function serve({ loaded = () => Response.json({ profile }), saved }: Answers = {
         return loaded();
       case "PATCH /api/users/me/profile": {
         const { password: _, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
-        return saved ? saved() : Response.json({ profile: { ...profile, ...changes } });
+        return saved ? saved() : Response.json({ profile: { ...profile, ...changes }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       }
       default:
         throw new Error(`Unexpected request for ${request}`);
@@ -236,5 +238,25 @@ describe(feature("accounts.translation-buttons"), () => {
   it("has none while they're hidden", () => {
     showPage();
     expect(screen.queryByText("Translate")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.sign-in-link"), () => {
+  const signInLink = () => screen.queryByRole("textbox", { name: "Use this link to login automatically on another device" });
+
+  it("ends with a sign-in link for you once your profile loads", async () => {
+    showPage();
+    expect(signInLink()).toBeNull();
+    await loaded();
+    expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers/${LOADED_LINK}`);
+    expect(saveButton().compareDocumentPosition(signInLink()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows a new one each time it saves, as ember-rust's page comes back with one", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Bio"), "!");
+    await user.click(saveButton());
+    await waitFor(() => expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers/${SAVED_LINK}`));
   });
 });

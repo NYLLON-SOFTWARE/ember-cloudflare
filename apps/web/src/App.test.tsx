@@ -13,6 +13,8 @@ vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 const ada = { id: "u1", name: "Ada", administrator: true };
 const grace = { id: "u2", name: "Grace", administrator: false };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
+/** The id in Grace's sign-in link. */
+const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
@@ -88,7 +90,7 @@ class WorkspaceSocket extends QuietSocket {
 /**
  * Plays the server, which may be waiting to be set up, and whose session cookie this browser starts
  * out with or without. Ada, its administrator, signs in as ada@example.com with "correct horse", and
- * Grace joins.
+ * Grace joins, or signs in with her sign-in link.
  */
 function serve({
   signedIn,
@@ -126,6 +128,11 @@ function serve({
       signedIn = false;
       return new Response(null, { status: 204 });
     }
+    if (route === `PUT /api/session/transfers/${TRANSFER_ID}`) {
+      [signedIn, me] = [true, grace];
+      return Response.json({ user: grace }, { status: 201 });
+    }
+    if (route.startsWith("PUT /api/session/transfers/")) return new Response(null, { status: 400 });
     if (route === `POST /api/join/${JOIN_CODE}`) {
       const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
@@ -524,6 +531,36 @@ describe(feature("auth.sign-up"), () => {
     expect(await roomHeading()).toBeInTheDocument();
     // Home, which goes on to the last room visited.
     expect(location.pathname).toBe("/rooms/general");
+  });
+});
+
+describe(feature("auth.sign-in-link"), () => {
+  it("signs in with a sign-in link rather than going to sign in, then loads home as whoever it's for", async () => {
+    history.replaceState(null, "", `/session/transfers/${TRANSFER_ID}`);
+    const fetch = serve({ signedIn: false });
+    render(<App />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
+    expect(fetch).toHaveBeenCalledWith(`/api/session/transfers/${TRANSFER_ID}`, expect.objectContaining({ method: "PUT" }));
+    expect(location.pathname).toBe(`/session/transfers/${TRANSFER_ID}`);
+    expect(screen.queryByRole("heading", { name: "Sign in to Ember" })).not.toBeInTheDocument();
+  });
+
+  it("signs in with it over the session this browser has, without opening the workspace, as ember-rust does", async () => {
+    history.replaceState(null, "", `/session/transfers/${TRANSFER_ID}`);
+    serve({ signedIn: true });
+    render(<App />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
+    expect(screen.queryAllByRole("link", { name: "Your profile" })).toEqual([]);
+  });
+
+  it("leaves the page blank for a link that doesn't work", async () => {
+    history.replaceState(null, "", "/session/transfers/nonsense");
+    serve({ signedIn: false });
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "false"));
+    expect(screen.getByRole("main")).toBeEmptyDOMElement();
+    expect(location.pathname).toBe("/session/transfers/nonsense");
+    expect(loadPage).not.toHaveBeenCalled();
   });
 });
 

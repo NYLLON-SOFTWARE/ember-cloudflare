@@ -12,6 +12,7 @@ import { changeProfile, fetchProfile, isSignedOut } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { SignInLink } from "./sign-in-link";
 
 interface Props {
   me: Me;
@@ -54,15 +55,17 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 /**
  * ember-rust's profile (users/profiles/show.html), as far as it's built: your name, email address, a
  * new password and your bio, which Save changes saves with the notice "✓", keeping the page where
- * ember-rust reloads it, and Log out in the top bar. Go Back returns to the page it was opened from.
- * Your name and bio reach everyone's open pages at once, through the workspace socket, as your new
- * name reaches the rail. There's no photo picker until photos are stored, and no conversation
- * notifications, sign-in link or install instructions until those are built.
+ * ember-rust reloads it, then a sign-in link for you, a new one each time the page loads or saves, as
+ * each of ember-rust's pages has, and Log out in the top bar. Go Back returns to the page it was
+ * opened from. Your name and bio reach everyone's open pages at once, through the workspace socket,
+ * as your new name reaches the rail. There's no photo picker until photos are stored, and no
+ * conversation notifications or install instructions until those are built.
  */
 export function ProfilePage({ me, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
+  const [transferId, setTransferId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const back = useBackPath();
   const flash = useFlash();
@@ -72,10 +75,11 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
   useEffect(() => {
     let stopped = false;
     fetchProfile().then(
-      (profile) => {
+      (answer) => {
         if (stopped) return;
-        saved.current = fieldsOf(profile);
+        saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
+        setTransferId(answer.transferId);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -94,12 +98,13 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
     setSaving(true);
     const sent = fields;
     changeProfile(changesOf(saved.current, sent)).then(
-      (profile) => {
+      (answer) => {
         if (!mounted.current) return;
         setSaving(false);
-        const now = fieldsOf(profile);
+        const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
+        setTransferId(answer.transferId);
         flash("notice", "✓");
       },
       (error: unknown) => {
@@ -180,6 +185,7 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
+        {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>
   );
