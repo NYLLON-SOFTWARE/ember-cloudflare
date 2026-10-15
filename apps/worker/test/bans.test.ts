@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { banProblem } from "../src/bans";
 import type { Env } from "../src/env";
 import type { Revocation } from "../src/revocations";
-import { MESSAGES_BY } from "../src/store";
+import { MESSAGES_BY, MESSAGES_BY_UNTIL } from "../src/store";
 import type { Workspace } from "../src/workspace";
 import { DUE_PURGES, type WorkspaceStore } from "../src/workspace-store";
 import {
@@ -101,7 +101,7 @@ const purges = () => workspaceSql("SELECT room_id, user_id, attempts, due_at FRO
 /** What the Workspace's alarm calls, standing in for each room. */
 interface Rooms {
   revoke?(roomId: RoomId, revocations: Revocation[], revokedAt: number): Promise<void>;
-  removeMessagesBy(roomId: RoomId, userId: UserId, limit: number): Promise<boolean>;
+  removeMessagesBy(roomId: RoomId, userId: UserId, limit: number, liftedAt: string | null): Promise<boolean>;
 }
 
 /** Runs the Workspace's alarm, as the runtime does once it's due, with `rooms` answering for the rooms. */
@@ -440,6 +440,29 @@ describe(feature("accounts.ban"), () => {
     expect((await signInFrom(grace, "203.0.113.7")).status).toBe(201);
   });
 
+  it("keeps what they write once the ban is lifted, however late a room answers, deleting everything of theirs from before", async () => {
+    const administrator = await setUp();
+    const member = await join(grace);
+    const lobby = await freshRoom("lobby");
+    const graceInLobby = await connect(lobby, member);
+    await post(graceInLobby, "Before the ban");
+    // A year on, so the alarm the ban sets waits for the test, as the outbox does for a room it can't reach.
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    expect((await ban(administrator, member.user.id)).status).toBe(200);
+    vi.setSystemTime(LATER + 1_000);
+    // Through the socket she had, before the room has closed it.
+    await post(graceInLobby, "While banned");
+    vi.setSystemTime(LATER + 2_000);
+    expect((await unban(administrator, member.user.id)).status).toBe(200);
+    vi.setSystemTime(LATER + 3_000);
+    const back = await post(await connect(lobby, await signInAsGrace("203.0.113.7")), "Once back");
+    expect(await workspaceSql("SELECT DISTINCT lifted_at FROM pending_purges")).toEqual([{ lifted_at: new Date(LATER + 2_000).toISOString() }]);
+
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.alarm());
+    expect(await written(lobby, member.user.id)).toEqual([back.id]);
+    expect(await workspaceSql("SELECT * FROM pending_purges")).toEqual([]);
+  });
+
   it("leaves someone active as they are, telling nobody", async () => {
     const administrator = await setUp();
     const member = await join(grace);
@@ -491,8 +514,8 @@ describe(feature("accounts.ban"), () => {
 
     await runAlarm(rooms);
     expect(calls).toEqual([
-      ["lobby", "u1", 100],
-      ["annex", "u1", 100],
+      ["lobby", "u1", 100, null],
+      ["annex", "u1", 100, null],
     ]);
     expect(await purges()).toEqual([
       { room_id: "lobby", user_id: "u1", attempts: 0, due_at: LATER },
@@ -577,19 +600,43 @@ describe(feature("accounts.ban"), () => {
     expect(await purges()).toEqual([{ room_id: "elsewhere", user_id: "u1", attempts: 0, due_at: LATER }]);
   });
 
+  it("never gives a purge the id of one a room took with it while the alarm was asking that room, which it settles by", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    await queuePurge("doomed", "u1", LATER);
+    const rooms: Rooms = {
+      removeMessagesBy: async (roomId) => {
+        if (roomId === "doomed") {
+          // Meanwhile the room is deleted, as `deleteRoom` deletes its purges, and someone else is banned.
+          await workspaceSql("DELETE FROM pending_purges WHERE room_id = ?", roomId);
+          await queuePurge("lobby", "u2", LATER);
+        }
+        return false;
+      },
+    };
+
+    await runAlarm(rooms);
+    expect(await purges()).toEqual([{ room_id: "lobby", user_id: "u2", attempts: 0, due_at: LATER }]);
+  });
+
   it("finds the purges that are due by their index, however many are waiting", async () => {
     const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${DUE_PURGES}`, 0, 40)).map((row) => (row as { detail: string }).detail).join("; ");
     expect(plan).toContain("USING INDEX index_pending_purges_on_due_at (due_at<?)");
     expect(plan).not.toContain("TEMP B-TREE");
   });
 
-  it("finds someone's messages in a room by the room's index, however many others wrote", async () => {
+  it("finds someone's messages in a room by the room's index, however many others wrote, before a time or not", async () => {
     const room = await freshRoom("purge-plan");
     const ada = await connect(room, "Ada");
-    const plan = await roomSql(room, `EXPLAIN QUERY PLAN ${MESSAGES_BY}`, room, ada.me.id, 100);
-    expect(plan.map((row) => (row as { detail: string }).detail).join("; ")).toContain(
-      "index_messages_on_room_id_and_creator_id_and_client_message_id (room_id=? AND creator_id=?)",
-    );
+    const queries: Array<[string, ...Array<string | number>]> = [
+      [MESSAGES_BY, room, ada.me.id, 100],
+      [MESSAGES_BY_UNTIL, room, ada.me.id, new Date().toISOString(), 100],
+    ];
+    for (const [query, ...params] of queries) {
+      const plan = await roomSql(room, `EXPLAIN QUERY PLAN ${query}`, ...params);
+      expect(plan.map((row) => (row as { detail: string }).detail).join("; "), query).toContain(
+        "index_messages_on_room_id_and_creator_id_and_client_message_id (room_id=? AND creator_id=?)",
+      );
+    }
   });
 
   // ember-rust's tests of `Ban::validate` (crates/db/src/models/ban.rs), and more of what it inherits

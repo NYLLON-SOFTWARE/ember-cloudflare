@@ -19,9 +19,16 @@ CREATE INDEX IF NOT EXISTS index_bans_on_user_id ON bans (user_id);
 -- messages a page at a time, as ember-rust's `RemoveBannedContentJob` deletes them one by one
 -- (crates/ember/src/jobs.rs), until it has none of theirs left (src/workspace.ts).
 CREATE TABLE IF NOT EXISTS pending_purges (
-  id INTEGER PRIMARY KEY,
+  -- What the alarm settles each purge by once its room has answered. AUTOINCREMENT never hands out an
+  -- id again, so a ban while it waits can't give a new purge the id of the one it's asking about, which
+  -- deleting that room deletes.
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   room_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
+  -- When the ban was lifted, if it has been, as an ISO time. The room then deletes only what they wrote
+  -- by then, so what they write once they're back stays, however late it answers. Until then it
+  -- deletes all of theirs, what a socket of theirs sent before the room closed it too.
+  lifted_at TEXT,
   -- Failed deliveries in a row.
   attempts INTEGER NOT NULL DEFAULT 0,
   -- When to ask the room next, in milliseconds since the epoch.

@@ -42,6 +42,9 @@ export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
 /** Up to a number of someone's messages, in no particular order, read through the same index as the above. */
 export const MESSAGES_BY = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? LIMIT ?`;
 
+/** As MESSAGES_BY, but only those written by a time. */
+export const MESSAGES_BY_UNTIL = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND created_at <= ? LIMIT ?`;
+
 const toBoost = (row: BoostRow): Boost => ({
   id: row.id,
   messageId: row.message_id,
@@ -254,9 +257,13 @@ export class MessageStore {
     return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
 
-  /** The ids of up to `limit` of `creatorId`'s messages here. */
-  async messageIdsBy(creatorId: UserId, limit: number): Promise<string[]> {
-    return (await this.db.all<{ id: string }>(MESSAGES_BY, this.roomId, creatorId, limit)).map((row) => row.id);
+  /** The ids of up to `limit` of `creatorId`'s messages here, only those written by `until` unless it's null. */
+  async messageIdsBy(creatorId: UserId, limit: number, until: string | null): Promise<string[]> {
+    const rows =
+      until === null
+        ? await this.db.all<{ id: string }>(MESSAGES_BY, this.roomId, creatorId, limit)
+        : await this.db.all<{ id: string }>(MESSAGES_BY_UNTIL, this.roomId, creatorId, until, limit);
+    return rows.map((row) => row.id);
   }
 
   /**

@@ -137,6 +137,8 @@ export interface PendingPurge {
   id: number;
   roomId: RoomId;
   userId: UserId;
+  /** When their ban was lifted, if it has been, after which what they write stays. */
+  liftedAt: string | null;
 }
 
 interface SessionRow {
@@ -369,7 +371,8 @@ const QUEUE_PURGES = `INSERT INTO pending_purges (room_id, user_id, due_at)
   SELECT id, ?1, ?2 FROM rooms WHERE kind <> 'direct' OR id IN (SELECT room_id FROM memberships WHERE user_id = ?1) RETURNING id`;
 
 /** Purges due by a time, those due longest first, up to a number of them. */
-export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId FROM pending_purges WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
+export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId, lifted_at AS liftedAt FROM pending_purges
+  WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
 /** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
@@ -887,12 +890,16 @@ export class WorkspaceStore {
 
   /**
    * Lifts someone's ban, as ember-rust's `User#unban` does (user.rs): unblocks their IP addresses and
-   * makes them active, recording when, unless they were already, whatever their status was.
+   * makes them active, recording when, unless they were already, whatever their status was. The rooms
+   * yet to delete their messages delete only those written by then, as ember-rust's job finds only
+   * what they'd written when it runs, at once (jobs.rs).
    */
   async unbanPerson(userId: UserId, now: string): Promise<void> {
     await this.db.batch([
       statement(`DELETE FROM bans WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status <> ${ACTIVE}`, now, userId),
+      // The outbox holds a row only until its room answers, so this reads it all rather than keep an index.
+      statement(`UPDATE pending_purges SET lifted_at = ? WHERE user_id = ? AND lifted_at IS NULL`, now, userId),
     ]);
   }
 

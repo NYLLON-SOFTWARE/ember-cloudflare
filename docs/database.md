@@ -189,7 +189,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   catch up on, and asks again at once while the room has more, so a big room never holds the room's
   object for long. It delivers revocations first, and 40 rows a run in all, and puts off a room it
   can't reach as it does a revocation, but never gives up, which would leave the messages up.
-  Deleting a room drops its purges, since its messages all go anyway.
+  Deleting a room drops its purges, since its messages all go anyway, so their ids are
+  `AUTOINCREMENT`, never handed out again: the alarm settles a purge by its id once the room has
+  answered, and a ban meanwhile could otherwise give a new purge the id of one deleted with its room.
+  Lifting the ban records when on each purge still waiting, and the room then deletes only what they
+  wrote by then, as ember-rust's job only finds what they'd written when it ran, at once. What they
+  write once they're back stays however late a room answers, and what a socket of theirs sent before
+  the room closed it still goes.
 - **Granting rooms is one statement.** ember-rust reads the ids of everyone a room takes in (or of
   every open room a new person joins) and inserts them 1,000 rows at a time. Our bound-value limit
   would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so

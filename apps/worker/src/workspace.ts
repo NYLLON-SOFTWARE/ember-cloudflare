@@ -875,8 +875,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Lifts the ban on `userId` as the person `credentials` signs in, as ember-rust's `users/bans#destroy`
    * does (`User#unban`, user.rs), unblocking their IP addresses and making them active, whatever their
-   * status was, removed included, without bringing back their messages. Answers them as the people
-   * directory then lists them, or why not, as `banPerson` does. Everyone's workspace sockets hear of it.
+   * status was, removed included, without bringing back their messages, though rooms yet to delete
+   * theirs keep what they write from then on. Answers them as the people directory then lists them, or
+   * why not, as `banPerson` does. Everyone's workspace sockets hear of it.
    */
   async unbanPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -1135,8 +1136,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Asks rooms to delete the messages of the people banned since, up to `limit` rooms, each
-   * `MESSAGES_PER_PURGE` at a time. A room that has more of theirs left is asked again at once, and one
-   * that can't be reached later, as a revocation is.
+   * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been. A
+   * room that has more of theirs left is asked again at once, and one that can't be reached later, as a
+   * revocation is.
    */
   private async deliverPurges(limit: number): Promise<void> {
     if (limit <= 0) return;
@@ -1145,9 +1147,9 @@ export class Workspace extends DurableObject<Env> {
     const finished: number[] = [];
     const unfinished: number[] = [];
     const failed: number[] = [];
-    await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId }) => {
+    await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId, liftedAt }) => {
       try {
-        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE);
+        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, liftedAt);
         (more ? unfinished : finished).push(id);
       } catch (error) {
         console.error(`Could not delete messages in room ${roomId}; trying again later`, error);

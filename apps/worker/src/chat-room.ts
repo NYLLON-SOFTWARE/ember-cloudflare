@@ -215,12 +215,13 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Deletes up to `limit` of `userId`'s messages here, with their boosts, telling everyone in the room
    * of each, as ember-rust's `RemoveBannedContentJob` does once someone is banned (jobs.rs), and
-   * answers whether any of theirs are left.
+   * answers whether any of theirs are left. Once the ban has been lifted, at `liftedAt`, only those
+   * written by then count.
    */
-  async removeMessagesBy(roomId: RoomId, userId: UserId, limit: number): Promise<boolean> {
+  async removeMessagesBy(roomId: RoomId, userId: UserId, limit: number, liftedAt: string | null): Promise<boolean> {
     return this.serially(async () => {
       const store = this.storeFor(roomId);
-      const ids = await store.messageIdsBy(userId, limit + 1);
+      const ids = await store.messageIdsBy(userId, limit + 1, liftedAt);
       const removed = ids.slice(0, limit);
       if (removed.length === 0) return false;
       const seq = await store.delete(removed);
