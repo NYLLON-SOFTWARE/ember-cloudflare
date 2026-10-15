@@ -20,6 +20,21 @@ const formattingOptions = (member: Member) => member.page.getByRole("button", { 
 /** Lexxy's formatting toolbar in the composer. */
 const toolbar = (member: Member) => member.page.locator("form.composer lexxy-toolbar");
 
+/** A button of the formatting toolbar, by its title. */
+const tool = (member: Member, name: string) => toolbar(member).getByRole("button", { name, exact: true });
+
+/** Pastes `text` into the composer, and `html` if given, as Campfire's tests do. */
+const paste = (member: Member, text: string, html?: string) =>
+  member.composer().evaluate(
+    (content, [text, html]) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", text);
+      if (html) clipboardData.setData("text/html", html);
+      content.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    },
+    [text, html] as const,
+  );
+
 /** Replaces what's in the composer with `markup`, as Lexxy holds what's typed. */
 const write = (member: Member, markup: string) =>
   member.composer().evaluate((content, markup) => {
@@ -132,6 +147,288 @@ test.describe(feature("composer.formatting-toolbar"), () => {
     await formattingOptions(ada).click();
     await expect(toolbar(ada)).toBeHidden();
   });
+
+  test("formats what's selected with each of its tools, and sends the formatting", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    const tools = [
+      ["Bold", "strong"],
+      ["Italic", "em"],
+      ["Strikethrough", "s"],
+      ["Quote", "blockquote"],
+      ["Code", "code"],
+      ["Bullet list", "ul > li"],
+      ["Numbered list", "ol > li"],
+    ] as const;
+    for (const [name, element] of tools) {
+      await formattingOptions(ada).click();
+      await ada.composer().fill(`${name} text`);
+      await ada.composer().press("ControlOrMeta+a");
+      await tool(ada, name).click();
+      await expect(tool(ada, name)).toHaveAttribute("aria-pressed", "true");
+      await ada.composer().press("ControlOrMeta+Enter");
+      await expect(grace.message(`${name} text`).locator(`.message-content ${element}`)).toHaveText(`${name} text`);
+    }
+
+    // Code marks words selected on one line as code, and otherwise makes a code block of the line.
+    await formattingOptions(ada).click();
+    await ada.composer().fill("Block of code");
+    await tool(ada, "Code").click();
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Block of code").locator(".message-content pre")).toHaveText("Block of code");
+  });
+
+  // ember-rust's keeps the format the cursor had as it sends for the next message, with the toolbar shut.
+  test("leaves no formatting on for the next message", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await formattingOptions(ada).click();
+    await ada.composer().fill("Loud");
+    await ada.composer().press("ControlOrMeta+a");
+    await tool(ada, "Bold").click();
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Loud").locator(".message-content strong")).toHaveText("Loud");
+
+    await formattingOptions(ada).click();
+    await expect(tool(ada, "Bold")).toHaveAttribute("aria-pressed", "false");
+    await ada.composer().pressSequentially("Quiet");
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Quiet").locator(".message-content")).toHaveText("Quiet");
+    await expect(grace.message("Quiet").locator(".message-content strong")).toHaveCount(0);
+  });
+
+  test("offers Normal, Large Heading and Clear formatting under Text formatting, in a menu that opens upward", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await formattingOptions(ada).click();
+    await ada.composer().fill("Big news");
+    await tool(ada, "Text formatting").click();
+    const menu = toolbar(ada).getByRole("menu");
+    await expect(menu.getByRole("menuitem")).toHaveText(["Normal", "Large Heading", "Clear formatting"]);
+    const menuBox = await box(menu);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual((await box(tool(ada, "Text formatting"))).y);
+    await menu.getByRole("menuitem", { name: "Large Heading" }).click();
+    await expect(ada.composer().locator("h1")).toHaveText("Big news");
+
+    await tool(ada, "Text formatting").click();
+    await menu.getByRole("menuitem", { name: "Normal" }).click();
+    await expect(ada.composer().locator("p")).toHaveText("Big news");
+
+    await ada.composer().press("ControlOrMeta+a");
+    await tool(ada, "Bold").click();
+    await tool(ada, "Italic").click();
+    await expect(ada.composer().locator("strong")).toHaveText("Big news");
+    await tool(ada, "Text formatting").click();
+    await menu.getByRole("menuitem", { name: "Clear formatting" }).click();
+    await expect(ada.composer().locator("strong, em")).toHaveCount(0);
+
+    await tool(ada, "Text formatting").click();
+    await menu.getByRole("menuitem", { name: "Large Heading" }).click();
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Big news").locator(".message-content h1")).toHaveText("Big news");
+  });
+
+  test("links what's selected to the address given in Link, and Unlink takes the link off", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await formattingOptions(ada).click();
+    await ada.composer().fill("Ember");
+    await ada.composer().press("ControlOrMeta+a");
+    await tool(ada, "Link").click();
+    const field = toolbar(ada).getByRole("dialog", { name: "Link" });
+    const address = field.getByPlaceholder("Enter a URL…");
+    await expect(address).toBeFocused();
+    await address.fill("https://example.com/");
+    await field.getByRole("button", { name: "Link", exact: true }).click();
+    await expect(ada.composer().getByRole("link", { name: "Ember" })).toHaveAttribute("href", "https://example.com/");
+
+    await tool(ada, "Link").click();
+    await expect(address).toHaveValue("https://example.com/");
+    await field.getByRole("button", { name: "Unlink" }).click();
+    await expect(ada.composer().getByRole("link")).toHaveCount(0);
+
+    // An address has to be a URL.
+    await ada.composer().press("ControlOrMeta+a");
+    await tool(ada, "Link").click();
+    await address.fill("example.com");
+    await address.press("Enter");
+    await expect(address).toBeFocused();
+    await address.fill("https://example.com/");
+    await address.press("Enter");
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Ember").getByRole("link", { name: "Ember" })).toHaveAttribute("href", "https://example.com/");
+  });
+
+  // ember-rust opens the field in its hidden toolbar, so nothing shows and what's typed next replaces what was selected.
+  test("shows the toolbar with its Link field on Ctrl or Cmd+K, and shuts it again as the field closes", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().fill("Ember");
+    await ada.composer().press("ControlOrMeta+a");
+    await ada.composer().press("ControlOrMeta+k");
+    const address = toolbar(ada).getByPlaceholder("Enter a URL…");
+    await expect(address).toBeVisible();
+    await expect(address).toBeFocused();
+    await address.press("Escape");
+    await expect(toolbar(ada)).toBeHidden();
+    await expect(ada.composer()).toBeFocused();
+
+    await ada.composer().press("ControlOrMeta+a");
+    await ada.composer().press("ControlOrMeta+k");
+    await address.fill("https://example.com/");
+    await address.press("Enter");
+    await expect(toolbar(ada)).toBeHidden();
+    await expect(ada.composer()).toBeFocused();
+    // Enter sends again, as it does while the toolbar is shut.
+    await ada.composer().press("Enter");
+    await expect(grace.message("Ember").getByRole("link", { name: "Ember" })).toHaveAttribute("href", "https://example.com/");
+
+    // Opened by Formatting options, the toolbar stays.
+    await formattingOptions(ada).click();
+    await ada.composer().press("ControlOrMeta+k");
+    await expect(address).toBeFocused();
+    await address.press("Escape");
+    await expect(toolbar(ada)).toBeVisible();
+  });
+
+  test("formats Markdown as it's typed, and Ctrl or Cmd+B, I and U", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    const blocks = [
+      ["# Heading", "h1", "Heading"],
+      ["## Subheading", "h2", "Subheading"],
+      ["> Quoted", "blockquote", "Quoted"],
+      ["- Bulleted", "ul > li", "Bulleted"],
+      ["1. Numbered", "ol > li", "Numbered"],
+      ["```js let x = 1", "pre[data-language=js]", "let x = 1"],
+    ] as const;
+    for (const [typed, element, text] of blocks) {
+      await ada.composer().pressSequentially(typed);
+      await ada.composer().press("Enter");
+      await expect(grace.message(text).locator(`.message-content ${element}`)).toHaveText(text);
+    }
+
+    await ada.composer().pressSequentially("Some `code`, ~~struck~~ and [linked](https://example.com/) text");
+    await ada.composer().press("Enter");
+    const inline = grace.message("Some code").locator(".message-content");
+    await expect(inline.locator("code")).toHaveText("code");
+    await expect(inline.locator("s")).toHaveText("struck");
+    await expect(inline.getByRole("link", { name: "linked" })).toHaveAttribute("href", "https://example.com/");
+
+    for (const [key, element] of [
+      ["b", "strong"],
+      ["i", "em"],
+      ["u", "u"],
+    ] as const) {
+      await ada.composer().fill(`Pressed ${key}`);
+      await ada.composer().press("ControlOrMeta+a");
+      await ada.composer().press(`ControlOrMeta+${key}`);
+      await ada.composer().press("Enter");
+      await expect(grace.message(`Pressed ${key}`).locator(`.message-content ${element}`)).toHaveText(`Pressed ${key}`);
+    }
+
+    // A divider starts a paragraph, where Enter, which sends while the toolbar's shut, can't take you.
+    await formattingOptions(ada).click();
+    await ada.composer().pressSequentially("Above");
+    await ada.composer().press("Enter");
+    await ada.composer().pressSequentially("--- Below");
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Above").locator(".message-content > *")).toHaveText(["Above", "", "Below"]);
+    await expect(grace.message("Above").locator(".message-content hr")).toHaveCount(1);
+  });
+
+  test("fits on one row on the narrowest screen, and wraps rather than hiding any under Show more where it can't", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 568 } } });
+    await formattingOptions(ada).tap();
+    const showMore = toolbar(ada).getByRole("button", { name: "Show more toolbar buttons" });
+    expect((await box(tool(ada, "Numbered list"))).y).toBe((await box(tool(ada, "Bold"))).y);
+    await expect(showMore).toBeHidden();
+
+    // Narrower than a page lets it be, since nothing is under 320px wide.
+    await ada.page.locator("form.composer").evaluate((form) => (form.style.inlineSize = "200px"));
+    await expect.poll(async () => (await box(tool(ada, "Numbered list"))).y).toBeGreaterThan((await box(tool(ada, "Bold"))).y);
+    await expect(showMore).toBeHidden();
+  });
+});
+
+test.describe(feature("composer.paste"), () => {
+  test("pastes an address as a link, and over selected text, links the text to it", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await paste(ada, "https://example.com/article");
+    await expect(ada.composer().getByRole("link", { name: "https://example.com/article" })).toHaveAttribute("href", "https://example.com/article");
+
+    await ada.composer().press("ControlOrMeta+a");
+    await ada.composer().press("Delete");
+    await ada.composer().pressSequentially("Ember");
+    await ada.composer().press("ControlOrMeta+a");
+    await paste(ada, "https://example.com/");
+    await expect(ada.composer()).toHaveText("Ember");
+    await ada.composer().press("Enter");
+    await expect(grace.message("Ember").getByRole("link", { name: "Ember" })).toHaveAttribute("href", "https://example.com/");
+  });
+
+  test("converts pasted Markdown, keeping its line breaks, and pastes other text as it is", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await paste(ada, "**Bold** and _italic_\nsecond line\n\n- one\n- two");
+    await expect(ada.composer().locator("strong")).toHaveText("Bold");
+    await expect(ada.composer().locator("em")).toHaveText("italic");
+    await expect(ada.composer().locator("li")).toHaveText(["one", "two"]);
+    await ada.composer().press("Enter");
+    const message = grace.message("Bold and italic").locator(".message-content");
+    await expect(message.locator("p")).toHaveText("Bold and italic\nsecond line", { useInnerText: true });
+    await expect(message.locator("p > br")).toHaveCount(1);
+    await expect(message.locator("ul > li")).toHaveText(["one", "two"]);
+
+    // Without Markdown, nothing is changed: not runs of spaces, nor backslashes.
+    await paste(ada, "C:\\Users\\ada\\my  notes.txt");
+    await ada.composer().press("Enter");
+    await expect(grace.message("notes.txt")).toBeVisible();
+    expect(await grace.message("notes.txt").locator(".message-content").textContent()).toBe("C:\\Users\\ada\\my  notes.txt");
+  });
+
+  test("keeps text pasted into a code block as it is", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("```");
+    await ada.composer().press("Space");
+    await paste(ada, "**not bold**\n  indented");
+    await ada.composer().press("Enter");
+    const code = grace.message("not bold").locator(".message-content pre");
+    await expect(code).toBeVisible();
+    expect(await code.innerText()).toBe("**not bold**\n  indented");
+  });
+
+  test("keeps pasted formatting, tables included", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await paste(ada, "Name Points\nJason 10", "<table><tr><th>Name</th><th>Points</th></tr><tr><td>Jason</td><td>10</td></tr></table>");
+    await expect(ada.composer().locator("table")).toBeVisible();
+    await ada.composer().press("Enter");
+    const table = grace.message("Jason").locator(".message-content table");
+    await expect(table.locator("th")).toHaveText(["Name", "Points"]);
+    await expect(table.locator("td")).toHaveText(["Jason", "10"]);
+
+    await paste(ada, "Bold, struck and linked", '<p><b>Bold</b>, <s>struck</s> and <a href="https://example.com/">linked</a></p>');
+    await ada.composer().press("Enter");
+    const formatted = grace.message("struck and linked").locator(".message-content");
+    await expect(formatted.locator("strong")).toHaveText("Bold");
+    await expect(formatted.locator("s")).toHaveText("struck");
+    await expect(formatted.getByRole("link", { name: "linked" })).toHaveAttribute("href", "https://example.com/");
+  });
+
+  test("leaves pasted files out of the text, as files can't be sent yet", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("Look");
+    await ada.composer().evaluate((content) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(new File([new Uint8Array([137, 80, 78, 71])], "screenshot.png", { type: "image/png" }));
+      content.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    });
+    await expect(ada.composer()).toHaveText("Look");
+    await expect(ada.composer().locator("img, action-text-attachment, figure")).toHaveCount(0);
+  });
 });
 
 test.describe(feature("composer.send"), () => {
@@ -167,7 +464,7 @@ test.describe(feature("composer.send"), () => {
     await expect(toolbar(ada)).toBeHidden();
   });
 
-  test("sends from the Send button with an address left unfinished in Link, or Link opened out of sight", async ({ members }) => {
+  test("sends from the Send button with an address left unfinished in Link, or Link left open and empty", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const send = ada.page.getByRole("button", { name: "Send Message" });
     await formattingOptions(ada).click();
@@ -181,7 +478,7 @@ test.describe(feature("composer.send"), () => {
     await send.click();
     await expect(ada.message("Never mind the link")).toBeVisible();
 
-    // With the toolbar shut, the shortcut opens Link where it can't be seen, wanting an address.
+    // Ctrl or Cmd+K opens Link, which wants an address.
     await ada.composer().fill("Linked nowhere");
     await ada.composer().press("ControlOrMeta+k");
     await send.click();

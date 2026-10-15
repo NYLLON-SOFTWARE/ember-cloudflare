@@ -2216,22 +2216,22 @@ export const features = [
     id: "composer.formatting-toolbar",
     title: "Formatting toolbar",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
-      "Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit go under \"Show more toolbar buttons\", and its menus open upward.",
+      "Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit wrap onto another row, and its menus open upward.",
       "Link, or Cmd or Ctrl+K, asks for an address (\"Enter a URL…\") with Link and Unlink buttons.",
       "There's no underline, highlight color, table, divider, undo, redo or upload button, though Cmd or Ctrl+U still underlines.",
-      "Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~`, `==highlight==` and `[text](url)`.",
+      "Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~` and `[text](url)`. `==text==` loses its equals signs but keeps no highlight.",
     ],
     sources: ["crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "reference/app/javascript/initializers/rich_text.js", "reference/app/assets/stylesheets/actiontext.css", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb"],
-    notes: "This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is. Each tool has yet to be checked against ember-rust's.",
+    notes: "This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is, and each tool and shortcut writes what ember-rust's does. Two things differ on purpose. Cmd or Ctrl+K shows the toolbar while its Link field is open, where ember-rust opens the field in its hidden toolbar, so nothing seems to happen and the address typed next replaces the selected text. And sending leaves no formatting on, where ember-rust keeps the format the cursor had, so a message sent all in bold leaves the next one bold, with the toolbar that would show it shut.",
   },
   {
     id: "composer.paste",
     title: "Pasting into the composer",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Pasted files join the files waiting to be sent rather than going into the text.",
       "A pasted address goes in as a link and asks for its preview (see `unfurl.composer`); pasted over selected text, it only turns the selection into a link.",
@@ -2240,6 +2240,7 @@ export const features = [
     ],
     sources: ["crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb"],
+    notes: "Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`), and an address's preview waits for `unfurl.composer`.",
   },
 
   // Workspace interface
