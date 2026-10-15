@@ -699,18 +699,39 @@ describe(feature("boosts.remove"), () => {
 });
 
 describe(feature("mentions.highlight"), () => {
-  const highlighted = (article: HTMLElement) => article.querySelector(".border-mention") !== null;
+  const highlight = (article: HTMLElement) => article.querySelector(".border-mention");
 
-  it("highlights messages from others that mention you by name", () => {
-    expect(highlighted(show(message({ creator: grace, plainText: "Thanks @ada!" })).article)).toBe(true);
+  it("highlights a message that mentions you, wiggling it as it shows unless motion is reduced", () => {
+    const { article } = show(message({ creator: grace, plainText: "Thanks @Ada!", mentions: [ada] }));
+    expect(highlight(article)).toHaveClass("animate-wiggle", "motion-reduce:animate-none");
+  });
+
+  it("highlights your own messages that mention you too", () => {
+    expect(highlight(show(message({ plainText: "Note to self @Ada", mentions: [grace, ada] })).article)).not.toBeNull();
   });
 
   it.each([
-    ["your own messages", ada, "Note to self @Ada"],
-    ["other names that start with yours", grace, "Ask @Adam"],
-    ["your name without an @", grace, "Ada said so"],
-  ])("leaves %s alone", (_, creator, plainText) => {
-    expect(highlighted(show(message({ creator, plainText })).article)).toBe(false);
+    ["mentions of others", [grace]],
+    ["your name typed without mentioning you", []],
+  ])("leaves %s alone", (_, mentions) => {
+    expect(highlight(show(message({ creator: grace, plainText: "Thanks @Ada", mentions })).article)).toBeNull();
+  });
+});
+
+describe(feature("mentions.render"), () => {
+  it("edits a message with its mentions as the people directory lists them now, dropping those of no one", async () => {
+    const mention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id}"></action-text-attachment>`;
+    const hopper: User = { id: "0123456789abcdef", name: "Grace" };
+    const body = `<p>Thanks ${mention(hopper.id)} and ${mention("fedcba9876543210")}!</p>`;
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+    const listed = { ...hopper, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "" } as const;
+    render(
+      <PeopleContext value={new Map([[hopper.id, listed]])}>
+        <MessageItem message={message({ body, plainText: "Thanks @Grace and !", mentions: [hopper] })} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
+      </PeopleContext>,
+    );
+    expect(await editBox()).toHaveValue("Thanks @Grace Hopper and !");
   });
 });
 

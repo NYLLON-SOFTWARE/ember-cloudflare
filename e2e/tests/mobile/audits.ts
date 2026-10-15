@@ -244,7 +244,10 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
       continue;
     }
 
-    const isOnControl = (hit: Element) => element.contains(hit) || labels.some((label) => label.contains(hit));
+    // A control's own popup, such as the people an @ lists, may cover it while it shows: WAI-ARIA's
+    // combobox pattern makes the two one control, and a tap on the popup does what the control is for.
+    const popup = element.hasAttribute("aria-haspopup") ? document.getElementById(element.getAttribute("aria-controls") ?? "") : null;
+    const isOnControl = (hit: Element) => element.contains(hit) || labels.some((label) => label.contains(hit)) || !!popup?.contains(hit);
     const axis = scrollerOf(element, "y") ? "y" : "x";
     const list = scrollerOf(element, axis);
     const floatsOver = (hit: Element) => list !== null && list !== document.scrollingElement && !list.contains(hit);

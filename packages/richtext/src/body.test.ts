@@ -36,7 +36,7 @@ describe(feature("messages.rich-text"), () => {
     // and keeps the newlines a code block starts with, which the stored form drops
     const mentionInside = `<action-text-attachment content-type="text/html" content="&lt;p&gt;Hi ${mention(1).replaceAll('"', "&quot;")}&lt;/p&gt;"></action-text-attachment>`;
     const codeAfterBlankLines = `<pre>${"\n".repeat(10)}x = 1</pre>`;
-    expect(prepare(mentionInside)).toMatchObject({ plainText: "Hi @David", mentions: [testUserId(1)] });
+    expect(prepare(mentionInside)).toMatchObject({ plainText: "Hi @David", mentions: [{ id: testUserId(1), name: "David" }] });
     expect(prepare(codeAfterBlankLines)).toMatchObject({ html: "<pre>x = 1</pre>", plainText: "x = 1" });
     for (const body of [mentionInside, codeAfterBlankLines]) {
       const prepared = prepare(body)!;
@@ -59,12 +59,15 @@ describe(feature("messages.rich-text"), () => {
 });
 
 describe(feature("mentions.render"), () => {
-  it("stores a mention as an attachment that renders the person as they are now", () => {
+  it("stores a mention as an attachment that renders the person as they are now, and names them as they are", () => {
     const body = `<p>Hi ${mention(1, ' content="&lt;img src=&quot;/x.png&quot;&gt; David"')} and ${mention(2)}, and ${mention(1)}!</p>`;
     expect(prepare(body)).toEqual({
       html: `<p>Hi ${storedMention(1)} and ${storedMention(2)}, and ${storedMention(1)}!</p>`,
       plainText: "Hi @David and @Jason, and @David!",
-      mentions: [testUserId(1), testUserId(2)],
+      mentions: [
+        { id: testUserId(1), name: "David" },
+        { id: testUserId(2), name: "Jason" },
+      ],
       blank: false,
     });
   });
@@ -79,7 +82,7 @@ describe(feature("mentions.render"), () => {
     expect(stored?.html).toBe(
       '<p><action-text-attachment content-type="application/vnd.campfire.mention" sgid="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"></action-text-attachment></p>',
     );
-    expect(stored?.mentions).toEqual([user.id]);
+    expect(stored?.mentions).toEqual([user]);
   });
 });
 

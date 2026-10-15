@@ -6,7 +6,7 @@ import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
 import { ParseLimitError, type HtmlParser } from "./markup";
-import { mentionedUsers, userIdsIn, usersAttached } from "./mentions";
+import { editableBody, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
 import { canonicalize } from "./render";
 import { chompNewlines, isBlank } from "./ruby";
@@ -22,8 +22,8 @@ export interface PreparedBody {
   html: string;
   /** Action Text's plain text of it: for search, notifications, emoji-only bodies and `/play`. */
   plainText: string;
-  /** The ids of the users it mentions, once each, in order. */
-  mentions: string[];
+  /** The users it mentions, once each, in order, named as `resolve` named them. */
+  mentions: MentionUser[];
   /** Nothing to send: no text but whitespace, and no mentions. */
   blank: boolean;
 }
@@ -31,6 +31,16 @@ export interface PreparedBody {
 /** `message.body.to_plain_text`. Throws `ParseLimitError` past the parser's limits. */
 export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMention): string {
   return contentToPlainText(parse, loadContent(parse, markup), resolve);
+}
+
+/**
+ * What markup the editor wrote says: its plain text, and whom it mentions, once each, in order, named as
+ * their mentions show them. It's what the room makes of it but for renames since, so it stands in for that
+ * until the room says. Throws `ParseLimitError` past the parser's limits.
+ */
+export function writtenBody(parse: HtmlParser, markup: string): { plainText: string; mentions: MentionUser[] } {
+  const mentions = writtenMentions(parse, markup);
+  return { plainText: plainText(parse, markup, (sgid) => mentions.find((person) => person.id === userIdFromSgid(sgid))), mentions };
 }
 
 /**
@@ -60,7 +70,7 @@ export function prepareParsedBody(parse: HtmlParser, markup: string, resolve: Re
     const html = canonicalize(parse, markup, resolve);
     const content = loadContent(parse, html);
     const attachments = attachmentNodes(content);
-    const mentions = usersAttached(attachments, resolve).map((user) => user.id);
+    const mentions = usersAttached(attachments, resolve).map(({ id, name }) => ({ id, name }));
     const text = contentToPlainText(parse, content, resolve);
     return { html, plainText: text, mentions, blank: isBlank(text) && attachments.length === 0 };
   } catch (error) {
@@ -89,6 +99,8 @@ export function withParser(parse: HtmlParser) {
     plainText: (markup: string, resolve: ResolveMention) => plainText(parse, markup, resolve),
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
+    writtenBody: (markup: string) => writtenBody(parse, markup),
+    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined) => editableBody(parse, stored, card),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string) => displayBody(parse, html),
   };

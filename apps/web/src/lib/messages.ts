@@ -45,16 +45,6 @@ export function timeline(messages: Message[], now = new Date()): TimelineItem[] 
 }
 
 /**
- * Whether `body` @-mentions `name`, ignoring case. The mention can't run on into more letters
- * or digits, judged by Unicode rather than ASCII, so "@José" and "@Alice!" count but "@Adam"
- * doesn't mention Ada.
- */
-export function mentions(body: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`@${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, "iu").test(body);
-}
-
-/**
  * What Reply writes in the composer (reply_controller.js): what the message shows, quoted, with each
  * mention as the bare name `nameOf` gives, then its author with a link to it, and a line to reply on.
  */

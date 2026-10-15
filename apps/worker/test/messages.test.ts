@@ -3,7 +3,7 @@ import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type NewWorkspace, type Pe
 import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
 import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
-import { api, connect, cookieOf, freshDeploy, freshRoom, post, roomSql, settle, shown, signIn, type Session } from "./support";
+import { api, connect, cookieOf, freshDeploy, freshRoom, post, roomSql, settle, shown, signIn, workspaceSql, type Session } from "./support";
 
 /** Sets Ember up afresh, with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -149,7 +149,19 @@ describe(feature("mentions.render"), () => {
     const nobody = "0000000000000000";
     const message = await post(ada, `<p>Hi ${mention(grace.me.id)}, ${mention(nobody)} and ${mention(grace.me.id)}</p>`);
     const stored = `<action-text-attachment content-type="${MENTION_CONTENT_TYPE}" sgid="${grace.me.id}"></action-text-attachment>`;
-    expect(message).toMatchObject({ body: `<p>Hi ${stored}, ☒ and ${stored}</p>`, plainText: "Hi @Grace, ☒ and @Grace", mentions: [grace.me.id] });
+    expect(message).toMatchObject({ body: `<p>Hi ${stored}, ☒ and ${stored}</p>`, plainText: "Hi @Grace, ☒ and @Grace", mentions: [{ id: grace.me.id, name: "Grace" }] });
+  });
+
+  it("names the people a message mentions as they were when it was written, or not at all in a row from before", async () => {
+    const room = await freshRoom("mention-names");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const message = await post(ada, `<p>Hi ${mention(grace.me.id)}</p>`);
+    await workspaceSql("UPDATE users SET name = 'Grace Hopper' WHERE id = ?", grace.me.id);
+    expect((await connect(room, "Linus")).welcome.messages.find(({ id }) => id === message.id)?.mentions).toEqual([{ id: grace.me.id, name: "Grace" }]);
+
+    await roomSql(room, "UPDATE messages SET mentions = ? WHERE id = ?", JSON.stringify([grace.me.id]), message.id);
+    expect((await connect(room, "Katherine")).welcome.messages.find(({ id }) => id === message.id)?.mentions).toEqual([{ id: grace.me.id, name: "" }]);
   });
 });
 

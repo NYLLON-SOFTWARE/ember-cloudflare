@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 55 ported and 57 partial of 172 features; 55 not started, 5 not applicable.
+**Overall:** 55 ported and 58 partial of 172 features; 54 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -25,7 +25,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Sidebar and navigation](#sidebar-and-navigation) | 4 | 4 | 2 | 0 | 10 |
 | [Messages](#messages) | 4 | 15 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
-| [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
+| [Mentions](#mentions) | 0 | 3 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **55** | **57** | **55** | **5** | **172** |
+| **Total** | **55** | **58** | **54** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1012,7 +1012,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Rich text: [plain-paragraph](packages/richtext/src/plain-paragraph.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [display](packages/richtext/src/display.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [highlight](apps/web/src/lib/highlight.test.ts)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | See your message before it's saved | `messages.optimistic` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | Delete a message | `messages.delete` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Scroll back through history | `messages.history` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts) |
 | Group messages by author | `messages.grouping` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -1080,7 +1080,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Saving without changes leaves the message as it was, its update time included.
 - Up Arrow pressed anywhere on the page, while the composer is blank and the newest messages are loaded, edits your latest loaded message.
 
-Note: Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: adding mentions (`mentions.autocomplete`), link previews (`unfurl.composer`), file messages (`attachments.upload`), search (`search.messages`) and bots.
+Note: Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: link previews (`unfurl.composer`), file messages (`attachments.upload`), search (`search.messages`) and bots.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/composer.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/composer.css)
 
@@ -1231,7 +1231,7 @@ ember-rust tests: [`crates/db/src/tests/message_test.rs`](https://github.com/NYL
 - Mentions read "@Name", images "[caption]" or "[Image]", and link previews add nothing. A message with no text reads as its file's name, and one whose body can't be converted is empty.
 - Search indexes this text, push notifications and webhooks carry it, and emoji-only and /play detection read it.
 
-Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and mention highlighting read it; nothing searches, pushes or sends it to bots yet.
+Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it; nothing searches, pushes or sends it to bots yet.
 
 Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/plain_text.rs) · [`crates/richtext/src/content.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/content.rs) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
 
@@ -1319,18 +1319,20 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| @-mention people | `mentions.autocomplete` | Campfire | ⬜ Not started |  |
-| Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| How mentions look | `mentions.render` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
+| @-mention people | `mentions.autocomplete` | Campfire | 🟡 Partial | Rich text: [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [mentions](apps/worker/test/mentions.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
+| Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
+| How mentions look | `mentions.render` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**@-mention people** (`mentions.autocomplete`) ⬜
+**@-mention people** (`mentions.autocomplete`) 🟡
 
 - Typing @ at the start of a line or after a space, outside code, lists the room's active members whose name contains what follows, bots and you included, or "No matches". Only the first 20 are offered.
 - Up and Down move through the list; Enter, Tab, Space and comma pick; Escape closes it. Picking inserts a mention shown as the person's avatar and name.
 - The people search answers HTML or JSON (`name`, `value`, `avatar_url`, `sgid`) ordered by name, 20 a page; a room you're not in is 404. Names are matched with SQL `LIKE`, so case is ignored only for ASCII letters and `%` and `_` act as wildcards.
+
+Note: The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick "@ka" lists everyone until the next key. The avatars aren't links (`users.avatar-links`).
 
 Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js)
 
@@ -1341,7 +1343,7 @@ ember-rust tests: [`reference/test/controllers/autocompletable/users_controller_
 - Messages that mention you get a 2px left border and a light tint, in rooms and in search results.
 - Only a mention picked from the list counts; "@Name" typed out by hand is plain text.
 
-Note: Without mention autocomplete, a message mentions you when it has "@" followed by your name as a whole word, in any case. Unlike ember-rust, this port shows the highlight: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches.
+Note: Unlike ember-rust, this port shows the highlight, on any message that mentions you, your own included, wiggling as it shows unless motion is reduced, as Campfire's message_formatter.js and messages.css mean it to: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches. Search results come with search (`search.messages`).
 
 Sources: [`reference/app/models/message/mentionee.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/mentionee.rb) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
@@ -1352,7 +1354,7 @@ ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/b
 - A mention shows the person's avatar, linked to their profile and titled "Name – bio", then their current name, every time they're mentioned. Renaming someone updates every mention of them.
 - A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.
 
-Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Nothing can write a mention until the composer can, and the web app shows each as ☒ until it draws mentions.
+Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Each message carries the people it mentions as the room knew them when it was last written, so a page can draw someone its people directory doesn't list; it draws everyone else from the directory as they are now, and ☒ for anyone neither knows. The message editor opens with each mention drawn as Lexxy draws one, dropping mentions of no one, as ember-rust's `editable_value` does. The avatar isn't a link to their page or titled with their bio yet (`users.avatar-links`).
 
 Sources: [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/views/templates/users/_mention.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_mention.html) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs)
 
@@ -2098,9 +2100,9 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
 | Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
 | Formatting toolbar | `composer.formatting-toolbar` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Pasting into the composer | `composer.paste` | Campfire | 🟡 Partial | E2E: [composer](e2e/tests/features/composer.spec.ts) |
 
@@ -2114,7 +2116,7 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 - With the mention list open, Enter picks a mention instead of sending.
 - Blank messages aren't sent, though one holding only a mention is. After sending, the toolbar closes and the composer keeps focus, on touch screens too.
 
-Note: There's no mention list yet. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too. An address left unfinished in Link, or Link opened out of sight by Cmd or Ctrl+K, doesn't stop Send, where in ember-rust it keeps the message from reaching the server.
+Note: Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too. An address left unfinished in Link, or Link opened out of sight by Cmd or Ctrl+K, doesn't stop Send, where in ember-rust it keeps the message from reaching the server.
 
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
 

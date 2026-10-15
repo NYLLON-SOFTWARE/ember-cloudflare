@@ -114,7 +114,7 @@ afterEach(() => {
 describe(feature("realtime.reconnect"), () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -283,13 +283,13 @@ describe(feature("realtime.reconnect"), () => {
     joinGeneral();
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2&since=0");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=0");
     socket().open();
     socket().receive({ type: "resumed", you: ada, messages: [message("m1")], deletedIds: [], present: [ada], seq: 3 });
     socket().receive({ type: "message.deleted", messageId: "m1", seq: 4 });
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2&since=4");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=4");
   });
 
   it("names the change before one the room never announced, so connecting again brings it", () => {
@@ -300,7 +300,7 @@ describe(feature("realtime.reconnect"), () => {
     socket().receive({ type: "message.deleted", messageId: "m1", seq: 4 });
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2&since=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=1");
   });
 
   it("names no change until the room has let it in, nor in the next room it opens", () => {
@@ -308,12 +308,12 @@ describe(feature("realtime.reconnect"), () => {
     socket().open();
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 7 });
 
     rerender({ roomId: "random" });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=2");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=3");
   });
 
   it("catches up on what changed while it was away, keeping what's loaded, and asks about a message it doesn't confirm", () => {
@@ -818,7 +818,7 @@ describe(feature("realtime.presence"), () => {
   it("tells the room whether the tab is shown as it connects", () => {
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=2");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3");
   });
 
   it("tells the room once the tab has been hidden for 5 seconds, and once it has been shown for 5 again", () => {

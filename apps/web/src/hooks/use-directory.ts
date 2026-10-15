@@ -18,6 +18,15 @@ export function useNameOf(): (user: User) => string {
   return useCallback((user: User) => people.get(user.id)?.name ?? user.name, [people]);
 }
 
+/**
+ * Someone a message mentions: as the people directory lists them now, or as the message named them
+ * (`mentions`) until the directory lists them, or no one, where neither knows them. A message from
+ * before messages named the people they mention knows them by id alone, with no name.
+ */
+export function mentionedPerson(people: People, mentions: User[], userId: UserId): User | undefined {
+  return people.get(userId) ?? mentions.find((person) => person.id === userId && person.name !== "");
+}
+
 /** `people` with each of `changed` as they are now. */
 function withChanges(people: People, changed: DirectoryUser[]): People {
   const next = new Map(people);

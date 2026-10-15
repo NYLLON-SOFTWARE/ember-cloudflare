@@ -1,9 +1,13 @@
-import { Suspense, useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { Message } from "@ember/protocol";
+import { editableBody } from "@ember/richtext/dom";
 import { Check, Remove, Trash } from "@/components/icons/campfire";
+import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
+import { avatarUrlOf } from "./user-avatar";
 
 /**
  * Campfire's round icon buttons (buttons.css), as the edit form's are: 36px, or 44px on touch screens,
@@ -31,11 +35,20 @@ export interface MessageEditorHandle {
  * the message's place: a card holding the text in Lexxy, with its formatting toolbar above the text on
  * wide screens with a mouse (rich-text-editor.css), and round Save changes and Delete message buttons
  * under it, beside a button that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a
- * new paragraph. Like ember-rust's, it takes no files and tells no one you're typing.
+ * new paragraph. @ offers the room's people, as the composer's does. Like ember-rust's, it takes no files
+ * and tells no one you're typing.
  */
 export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
+  const people = useContext(PeopleContext);
+  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now.
+  const [editable] = useState(() =>
+    editableBody(message.body, (userId) => {
+      const person = mentionedPerson(people, message.mentions, userId);
+      return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
+    }),
+  );
 
   useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
 
@@ -48,7 +61,8 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const save = () => {
     const written = editor.current;
     // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
-    // keeps it open, so what was written isn't lost.
+    // keeps it open, so what was written isn't lost. Lexxy writes mentions with their content, so a
+    // message with them is sent as it was, which the room keeps as it is.
     if (written && !written.isBlank() && written.value() !== message.body && !onSave(written.value())) return;
     onClose();
   };
@@ -81,7 +95,14 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
           <div className="rounded-[9px] border bg-background px-[0.8em] py-[0.5em] text-base transition-shadow duration-150 focus-within:ring-2 focus-within:ring-selected-dark">
             {/* The composer has loaded the editor by the time a message can be edited. */}
             <Suspense fallback={<div className="min-h-6" />}>
-              <RichTextEditor ref={editor} label="Edit message" rows={1} initialValue={message.body} autoFocus />
+              <RichTextEditor
+                ref={editor}
+                label="Edit message"
+                rows={1}
+                initialValue={editable}
+                mentionsFrom={mentionPromptSrc(message.roomId)}
+                autoFocus
+              />
             </Suspense>
           </div>
           <div className="flex items-center justify-between pt-2">

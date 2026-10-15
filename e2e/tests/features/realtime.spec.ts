@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { WebSocketRoute } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
-import { expect, test, type Members } from "./fixtures";
+import { expect, test, type Member, type Members } from "./fixtures";
 
 test.describe(feature("realtime.who-is-here"), () => {
   test("shows who is in the room as people come and go", async ({ members }) => {
@@ -70,10 +70,10 @@ test.describe(feature("realtime.typing"), () => {
 
   test("keeps names that don't fit on one line, clear of the message box", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 320, height: 640 } } });
-    for (const name of ["Grace Brewster Murray Hopper", "Kenneth Lane Thompson", "Linus Benedict Torvalds"]) {
-      const typist = await members.signIn(name);
-      await typist.composer().fill("…");
-    }
+    const typists: Member[] = [];
+    for (const name of ["Grace Brewster Murray Hopper", "Kenneth Lane Thompson", "Linus Benedict Torvalds"]) typists.push(await members.signIn(name));
+    // Everyone signs in first, as someone typing shows for only 5 seconds after they last typed.
+    for (const typist of typists) await typist.composer().fill("…");
     await expect(ada.typingIndicator()).toHaveText("Grace Brewster Murray Hopper, Kenneth Lane Thompson, Linus Benedict Torvalds");
 
     const names = (await ada.typingIndicator().boundingBox())!;

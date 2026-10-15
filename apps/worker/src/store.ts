@@ -14,7 +14,10 @@ interface MessageRow {
   creator_name: string;
   body: string;
   plain_text: string;
-  /** A JSON array of the mentioned users' ids. */
+  /**
+   * A JSON array of the people it mentions, each `{ "id", "name" }` as they were when its text was last
+   * written, or each an id alone in a row from before mentions kept names.
+   */
   mentions: string;
   created_at: string;
   updated_at: string;
@@ -307,7 +310,7 @@ export class MessageStore {
       creator: { id: row.creator_id, name: row.creator_name },
       body: row.body,
       plainText: row.plain_text,
-      mentions: JSON.parse(row.mentions) as UserId[],
+      mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       editedAt: row.edited_at,

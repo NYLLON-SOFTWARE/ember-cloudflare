@@ -1,11 +1,9 @@
-import { bodyFromPlainText, plainText } from "@ember/richtext/dom";
+import { bodyFromPlainText, writtenBody } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, type ComponentProps } from "react";
 import type Editor from "../rich-text-editor";
 
 /** What Lexxy holds while nothing's written. */
 const EMPTY = "<p><br></p>";
-
-const NO_ONE = () => undefined;
 
 /**
  * Lexxy's stand-in in unit tests, which test-setup.ts swaps in because Lexxy doesn't keep what's
@@ -27,7 +25,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     focus: () => box.current?.focus(),
     replace: (markup) => {
       const text = box.current!;
-      text.value = plainText(markup, NO_ONE);
+      text.value = writtenBody(markup).plainText;
       onChange?.();
       text.focus();
       text.setSelectionRange(text.value.length, text.value.length);
@@ -57,7 +55,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
       aria-label={label}
       placeholder={placeholder}
       rows={rows}
-      defaultValue={initialValue && plainText(initialValue, NO_ONE)}
+      defaultValue={initialValue && writtenBody(initialValue).plainText}
       onChange={() => onChange?.()}
     />
   );
