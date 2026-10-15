@@ -18,8 +18,8 @@ test.describe(feature("accounts.regenerate-join-link"), () => {
     expect(regenerated).toMatch(new RegExp(`^${baseURL}/join/[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$`));
     await expect(page.getByRole("alert")).toHaveCount(0);
 
-    // The welcome card in the first room has the new link too.
-    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "All Talk" }).click();
+    // The welcome card in the first room, general, has the new link too.
+    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
     await expect(page.getByRole("log").getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(regenerated);
 
     const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });

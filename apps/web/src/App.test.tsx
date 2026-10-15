@@ -16,7 +16,11 @@ const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 const general = { id: "general", name: "general", kind: "open", icon: null };
-const allTalk = { id: "r1", name: "All Talk", kind: "open", icon: null };
+/** The rooms first run makes, general first. */
+const firstRooms = [
+  { id: "r1", name: "general", kind: "open", icon: null },
+  { id: "r2", name: "random", kind: "open", icon: null },
+];
 
 class QuietSocket {
   static readonly OPEN = 1;
@@ -88,8 +92,8 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
       return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
-      [setup, signedIn, rooms] = ["complete", true, [allTalk]];
-      return Response.json({ user: ada, room: allTalk }, { status: 201 });
+      [setup, signedIn, rooms] = ["complete", true, firstRooms];
+      return Response.json({ user: ada, room: firstRooms[0] }, { status: 201 });
     }
     if (route === "POST /api/session") {
       const fields = JSON.parse(String(init?.body)) as Record<string, string>;
@@ -156,7 +160,7 @@ describe(feature("auth.first-run"), () => {
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
 
-  it("sets up Ember at /first_run, then opens All Talk signed in as its administrator", async () => {
+  it("sets up Ember at /first_run, then opens general signed in as its administrator", async () => {
     history.replaceState(null, "", "/first_run");
     serve({ signedIn: false, setup: "pending" });
     render(<App />);
@@ -165,7 +169,7 @@ describe(feature("auth.first-run"), () => {
     await user.type(screen.getByLabelText("Email address"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse{Enter}");
 
-    expect(await screen.findByRole("heading", { level: 1, name: "All Talk" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/r1");
     expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Ada");
     expect(loadPage).not.toHaveBeenCalled();

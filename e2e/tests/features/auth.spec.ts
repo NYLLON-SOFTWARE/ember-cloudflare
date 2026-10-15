@@ -65,7 +65,7 @@ test.describe(feature("auth.sign-up"), () => {
 
   test("someone new joins with the welcome card's link, signs out and signs back in", async ({ browser, baseURL, page, request, rooms, session }) => {
     const { roomId } = await invitation(request, session);
-    const administrator = await administratorOn(browser, baseURL!, { id: roomId, name: "All Talk" });
+    const administrator = await administratorOn(browser, baseURL!, { id: roomId, name: "general" });
     const link = await administrator.getByRole("textbox", { name: "Share to invite more people" }).inputValue();
     await administrator.context().close();
 

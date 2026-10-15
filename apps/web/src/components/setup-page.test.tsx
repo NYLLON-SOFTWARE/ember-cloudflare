@@ -8,7 +8,7 @@ import { SetupPage } from "./setup-page";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
-const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "All Talk", icon: null } };
+const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "general", icon: null } };
 
 /** The server's answer to the form. */
 const answer = (status: number, body: object) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));
@@ -69,7 +69,7 @@ describe(feature("auth.first-run"), () => {
     expect(toggle).toHaveAccessibleName("Show password");
   });
 
-  it("sets up the workspace and opens All Talk in this page's place", async () => {
+  it("sets up the workspace and opens general in this page's place", async () => {
     history.replaceState(null, "", "/first_run");
     const length = history.length;
     const fetch = answer(201, workspace);

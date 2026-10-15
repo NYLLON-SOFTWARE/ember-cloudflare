@@ -68,9 +68,14 @@ export interface Credentials {
   guests: boolean;
 }
 
-/** What first run names the workspace and its first room, as ember-rust's does (crates/db/src/models/first_run.rs). */
+/** What first run names the workspace, as ember-rust's does (crates/db/src/models/first_run.rs). */
 export const ACCOUNT_NAME = "Ember";
-const FIRST_ROOM_NAME = "All Talk";
+/**
+ * The open rooms first run makes, everyone's to begin with, as a Slack workspace's are, where
+ * ember-rust's first run makes just All Talk. The first, general, is the workspace's first room, which
+ * first run opens and the welcome card shows in.
+ */
+const FIRST_ROOM_NAMES = ["general", "random"];
 
 const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -324,8 +329,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Creates the workspace, its first administrator, the open room All Talk and the session their
-   * cookie's token opens, as ember-rust's first run does. Answers null if the workspace exists.
+   * Creates the workspace, its first administrator, the open rooms general and random, and the session
+   * their cookie's token opens, as ember-rust's first run does with All Talk, answering general, which
+   * opens. A room of either name that the workspace has open already, such as one `LEGACY_ROOMS`
+   * registered, stands in for it. Answers null if the workspace exists.
    */
   async createWorkspace(administrator: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
     if (await this.account()) return null;
@@ -337,10 +344,12 @@ export class Workspace extends DurableObject<Env> {
       lastActiveAt: Date.now(),
     };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
-    const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME, icon: null };
+    // Ids sort in the order they're made, which makes general the older of two rooms made at once.
+    const rooms = FIRST_ROOM_NAMES.map((name) => ({ id: sortableId(), name }));
     const now = new Date(session.lastActiveAt).toISOString();
+    let room: Room;
     try {
-      await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, room, session.id, tokenDigest, client, now);
+      room = await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, rooms, session.id, tokenDigest, client, now);
     } catch (error) {
       // On D1 two first runs can overlap, and the account's singleton guard refuses the second.
       if (await this.store.account()) return null;

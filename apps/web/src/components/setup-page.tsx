@@ -18,7 +18,7 @@ const TITLE = "Set up Ember";
 const INPUT = "h-10 touch:h-11 rounded-[0.7rem] bg-card pr-3 pl-9 text-base shadow-none md:text-base dark:bg-card focus-visible:border-input focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring";
 const FIELD_ICON = "pointer-events-none absolute top-1/2 left-3 z-[1] size-[1.125rem] -translate-y-1/2 text-muted-foreground";
 
-/** Creates the workspace and its first administrator, then opens All Talk. */
+/** Creates the workspace and its first administrator, then opens general, its first room. */
 export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => void }) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");

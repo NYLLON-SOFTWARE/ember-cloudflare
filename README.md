@@ -38,7 +38,7 @@ pnpm dev            # wrangler dev on :8787 and Vite on :5173 (proxies /api)
 ```
 
 Open http://localhost:5173 and set up Ember: the first visitor creates the workspace's administrator
-and its first room, All Talk. Then open a second browser, pick a name, and chat with yourself.
+and its rooms, general and random. Then open a second browser, pick a name, and chat with yourself.
 
 ```sh
 pnpm typecheck
@@ -128,7 +128,7 @@ so keep the link to yourself. Without `EMBER_SETUP_TOKEN`, setup is open to whoe
 as in Campfire: fine on your own machine, but not on the internet.
 
 The administrator then signs in at `/session/new` with the email address and password they set up
-with, and invites people with the join link on All Talk's welcome card.
+with, and invites people with the join link on general's welcome card.
 
 Ember insists on HTTPS, as ember-rust does: plain HTTP is redirected to the same address over HTTPS,
 and every answer from the Worker carries HSTS, except on `localhost` and loopback addresses, where
@@ -153,19 +153,20 @@ makes the Worker's `SESSION_SECRET`, and later ones keep it.
 
 The preview is a private workspace, which its administrator invites people to with the join link.
 Its `LEGACY_ROOMS` keeps the general and random rooms it had before the Workspace kept a list of
-rooms, and its version, under the sign-in page's help contact, is the commit it deployed. After each
-deploy, `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that
-`/api/health` answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object
-reading their storage), that the page loads through the Worker with its headers, that the API asks
-for sign-in, and that setup, until it's done, takes the private link. The link is on the run's
-summary and under the repository's Deployments.
+rooms, which stand in for the ones first run makes, and its version, under the sign-in page's help
+contact, is the commit it deployed. After each deploy,
+`node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
+answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
+storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
+and that setup, until it's done, takes the private link. The link is on the run's summary and under
+the repository's Deployments.
 
 ## Status
 
-This is the starter. Working now: first-run setup, which creates the administrator and All Talk and
-can be kept to whoever has the private setup link, the join link on All Talk's welcome card, sign-in
-by email address and password (10 tries per IP address every 3 minutes) or, when
-`EMBER_GUEST_SIGN_IN` allows it, by display name, with a session cookie the Workspace keeps,
+This is the starter. Working now: first-run setup, which creates the administrator and the rooms
+general and random and can be kept to whoever has the private setup link, the join link on general's
+welcome card, sign-in by email address and password (10 tries per IP address every 3 minutes) or,
+when `EMBER_GUEST_SIGN_IN` allows it, by display name, with a session cookie the Workspace keeps,
 sign-out, which closes that browser's sockets, open and private rooms that only their members can
 open (made through the API until the New room page lands), live messages with optimistic sends, edit
 and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history
