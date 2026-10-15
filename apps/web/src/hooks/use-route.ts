@@ -55,19 +55,20 @@ function subscribe(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-// How many times the app has shown another page.
-let pagesShown = 0;
+// How many times the app has gone to a page, the page it shows included, as a link to the page Turbo
+// shows renders it afresh, so following a permalink again goes to its message again.
+let visits = 0;
 
 const notify = () => {
-  pagesShown++;
+  visits++;
   listeners.forEach((listener) => listener());
 };
 
 /**
- * A mark of the page the app shows, which changes whenever it shows another: work that takes a while
- * compares it with the mark from when it began, to tell whether the person has gone elsewhere since.
+ * A mark of the page the app shows, which changes whenever the app goes to a page: work that takes a
+ * while compares it with the mark from when it began, to tell whether the person has gone elsewhere since.
  */
-export const pageMark = () => pagesShown;
+export const pageMark = () => visits;
 
 /** The number the app gave a history entry, or null for one it didn't number. */
 function positionOf(state: unknown): number | null {
@@ -145,6 +146,7 @@ export function navigate(path: string, { replace = false } = {}): void {
   followUp = null;
   if (shownPath() === path) {
     gone = navigation;
+    notify();
     return;
   }
   const go = () => {
@@ -191,6 +193,11 @@ export function useBackPath(): string {
   const from = useSyncExternalStore(subscribe, () => openedFrom(history.state));
   const here = useSyncExternalStore(subscribe, shownPath);
   return from !== null && from !== here ? from : "/";
+}
+
+/** How many times the app has gone to a page, re-rendering each time, even when it's the page shown. */
+export function useVisit(): number {
+  return useSyncExternalStore(subscribe, pageMark);
 }
 
 /** The page the address shows, re-rendering when it changes. */

@@ -194,6 +194,11 @@ export class Participant {
     return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
   }
 
+  /** Posts messages back to back, without waiting for each, and resolves once the room has stored them all, in order. */
+  sayAll(texts: string[]): Promise<Message[]> {
+    return Promise.all(texts.map((text) => this.say(text)));
+  }
+
   /** Reacts to a message and resolves once the room has broadcast it. */
   async boost(messageId: string, content: string): Promise<void> {
     const created = this.next((frame) => frame.type === "boost.created" && frame.boost.messageId === messageId && frame.boost.content === content);

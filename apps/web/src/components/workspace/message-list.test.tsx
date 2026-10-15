@@ -1,22 +1,29 @@
 import { feature } from "@ember/parity";
 import type { Invitation, Me, Message } from "@ember/protocol";
+import type { ComponentProps } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
 import { MessageList } from "./message-list";
 
 /**
- * jsdom has no layout, so tests say whether the top of the timeline is in view. Like the real
+ * jsdom has no layout, so tests say whether each end of the timeline is in view. Like the real
  * thing, an observer reports once when it starts observing, then on every change.
  */
 class FakeIntersectionObserver {
-  static topVisible = false;
+  static inView = { top: false, bottom: false };
   static observers = new Set<FakeIntersectionObserver>();
+  private end: "top" | "bottom" = "top";
   constructor(readonly callback: (entries: Array<{ isIntersecting: boolean }>) => void) {}
-  observe() {
+  observe(target: Element) {
+    // The timeline's top is the first thing in it, and its bottom the last.
+    this.end = target.previousElementSibling ? "bottom" : "top";
     FakeIntersectionObserver.observers.add(this);
-    this.callback([{ isIntersecting: FakeIntersectionObserver.topVisible }]);
+    this.report();
+  }
+  report() {
+    this.callback([{ isIntersecting: FakeIntersectionObserver.inView[this.end] }]);
   }
   disconnect() {
     FakeIntersectionObserver.observers.delete(this);
@@ -36,19 +43,38 @@ class FakeResizeObserver {
   }
 }
 
-const scrollTopIntoView = () =>
+const scrollIntoView = (end: "top" | "bottom") =>
   act(() => {
-    FakeIntersectionObserver.topVisible = true;
-    FakeIntersectionObserver.observers.forEach((o) => o.callback([{ isIntersecting: true }]));
+    FakeIntersectionObserver.inView[end] = true;
+    FakeIntersectionObserver.observers.forEach((o) => o.report());
   });
 
-/** jsdom has no layout either, so tests say how tall the timeline's content is. It shows 400px of it. */
-function layOut(log: HTMLElement, height: number) {
-  const layout = { height };
-  Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => layout.height });
-  Object.defineProperty(log, "clientHeight", { configurable: true, value: 400 });
-  FakeResizeObserver.observers.forEach((o) => o.callback());
-  return layout;
+/**
+ * jsdom has no layout either, so tests lay the timeline out: its messages one after another, each 100px
+ * tall unless `heights` says otherwise, in a log that shows 400px of them and scrolls only as far as they
+ * go. A test that changes a height calls `resize`, as a message that grows after it's drawn makes the
+ * browser report.
+ */
+function layOut(log: HTMLElement, heights: Record<string, number> = {}) {
+  const rows = () => [...log.querySelectorAll<HTMLElement>("[data-row]")];
+  const heightOf = (row: HTMLElement) => heights[row.dataset.messageId!] ?? 100;
+  const total = (rows: HTMLElement[]) => rows.reduce((sum, row) => sum + heightOf(row), 0);
+  const scrollHeight = () => Math.max(400, total(rows()));
+  let scrollTop = 0;
+  Object.defineProperties(log, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, get: scrollHeight },
+    scrollTop: { configurable: true, get: () => scrollTop, set: (top: number) => (scrollTop = Math.min(Math.max(0, top), scrollHeight() - 400)) },
+  });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this === log) return DOMRect.fromRect({ width: 800, height: 400 });
+    const above = rows().indexOf(this);
+    if (above < 0) return DOMRect.fromRect();
+    return DOMRect.fromRect({ y: total(rows().slice(0, above)) - scrollTop, width: 800, height: heightOf(this) });
+  });
+  const resize = () => act(() => FakeResizeObserver.observers.forEach((o) => o.callback()));
+  resize();
+  return { heights, resize };
 }
 
 const scrollTo = (log: HTMLElement, top: number) => {
@@ -59,6 +85,9 @@ const scrollTo = (log: HTMLElement, top: number) => {
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
 const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+
+/** Messages from Ada named m`from` to m`to`. */
+const messages = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => message(`m${from + i}`));
 
 /** A message from Ada, named by its id. */
 const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message => ({
@@ -75,20 +104,33 @@ const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message =>
   boosts: [],
 });
 
-const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invitation: Invitation | null = null) => (
-  <MessageList roomName="general" invitation={invitation} state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={onLoadOlder} />
+const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invitation: Invitation | null = null, more: Partial<ComponentProps<typeof MessageList>> = {}) => (
+  <MessageList
+    roomName="general"
+    invitation={invitation}
+    state={{ ...initialRoomState, status: "open", ...state }}
+    me={ada}
+    actions={actions}
+    editing={new Set()}
+    editors={editors}
+    onLoadOlder={onLoadOlder}
+    onLoadNewer={vi.fn()}
+    onJumpToNewest={vi.fn(() => true)}
+    {...more}
+  />
 );
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-12T18:00:00"));
-  FakeIntersectionObserver.topVisible = false;
+  FakeIntersectionObserver.inView = { top: false, bottom: false };
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe(feature("ui.empty-room"), () => {
@@ -103,7 +145,7 @@ describe(feature("ui.empty-room"), () => {
   });
 
   it("loads earlier messages instead when every message it had was deleted", () => {
-    FakeIntersectionObserver.topVisible = true;
+    FakeIntersectionObserver.inView.top = true;
     const onLoadOlder = vi.fn();
     render(list({ messages: [], hasMore: true }, onLoadOlder));
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
@@ -114,7 +156,7 @@ describe(feature("ui.empty-room"), () => {
 describe(feature("dms.naming"), () => {
   it("names a DM's messages and its beginning for the others in it", () => {
     render(
-      <MessageList roomName="Grace and Linus" direct invitation={null} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} />,
+      <MessageList roomName="Grace and Linus" direct invitation={null} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
     );
     expect(screen.getByRole("log", { name: "Messages with Grace and Linus" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Grace and Linus" })).toBeInTheDocument();
@@ -180,12 +222,12 @@ describe(feature("messages.history"), () => {
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m2")], hasMore: true }, onLoadOlder));
     expect(onLoadOlder).not.toHaveBeenCalled();
-    scrollTopIntoView();
+    scrollIntoView("top");
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
   });
 
   it("keeps loading while a tall window still shows the top, but not after a failed page", () => {
-    FakeIntersectionObserver.topVisible = true;
+    FakeIntersectionObserver.inView.top = true;
     const onLoadOlder = vi.fn();
     const messages = [message("m3")];
     const { rerender } = render(list({ messages, hasMore: true }, onLoadOlder));
@@ -205,71 +247,202 @@ describe(feature("messages.history"), () => {
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m2")], hasMore: true, loadingOlder: true }, onLoadOlder));
     expect(screen.getByText("Loading earlier messages…")).toBeInTheDocument();
-    scrollTopIntoView();
+    scrollIntoView("top");
     expect(onLoadOlder).not.toHaveBeenCalled();
   });
 
-  it("keeps a scrolled-up reader's place when older messages arrive, whether or not the browser kept it already", () => {
-    const onLoadOlder = vi.fn();
-    const { rerender } = render(list({ messages: [message("m5")], hasMore: true }, onLoadOlder));
+  it("keeps a reader's place as earlier messages come in above them", () => {
+    const { rerender } = render(list({ messages: messages(5, 12), hasMore: true }));
     const log = screen.getByRole("log");
-    const layout = layOut(log, 2000);
-    scrollTo(log, 150);
+    const { resize } = layOut(log);
+    scrollTo(log, 50);
 
-    // Without scroll anchoring, the reader stays put only if the timeline moves them down by the page's height.
-    layout.height = 3000;
-    rerender(list({ messages: [message("m4"), message("m5")], hasMore: true }, onLoadOlder));
-    expect(log.scrollTop).toBe(1150);
-
-    // With it, the browser has already moved them by the time the page renders.
-    layout.height = 4000;
-    log.scrollTop = 2150;
-    rerender(list({ messages: [message("m3"), message("m4"), message("m5")], hasMore: true }, onLoadOlder));
-    expect(log.scrollTop).toBe(2150);
+    // The two that came are 200px tall, so the reader moves down as far and sees what they saw.
+    rerender(list({ messages: messages(3, 12), hasMore: true }));
+    expect(log.scrollTop).toBe(250);
+    // The browser's own scroll anchoring may have moved them already, which changes nothing.
+    resize();
+    expect(log.scrollTop).toBe(250);
   });
 
-  it("leaves a scrolled-up reader to the browser when the oldest message goes or a reconnect replaces history", () => {
-    const onLoadOlder = vi.fn();
-    const { rerender } = render(list({ messages: [message("m1"), message("m2"), message("m3")] }, onLoadOlder));
+  it("keeps a reader's place as messages above them go, deleted or cut from the start of a long timeline", () => {
+    // Reading older history, so pages come at the end and the oldest messages are cut.
+    const { rerender } = render(list({ messages: messages(1, 10), hasNewer: true }));
     const log = screen.getByRole("log");
-    const layout = layOut(log, 2000);
-    scrollTo(log, 500);
+    layOut(log);
+    scrollTo(log, 550);
 
-    // The browser's scroll anchoring keeps the reader's place as the deleted message goes.
-    layout.height = 1957;
-    log.scrollTop = 457;
-    rerender(list({ messages: [message("m2"), message("m3")] }, onLoadOlder));
-    expect(log.scrollTop).toBe(457);
+    rerender(list({ messages: messages(2, 10), hasNewer: true }));
+    expect(log.scrollTop).toBe(450);
+    rerender(list({ messages: messages(4, 12), hasNewer: true }));
+    expect(log.scrollTop).toBe(250);
+  });
 
-    // The room's latest page no longer has the message the timeline started with.
-    layout.height = 1500;
-    rerender(list({ messages: [message("m3"), message("m4")] }, onLoadOlder));
-    expect(log.scrollTop).toBe(457);
+  it("loads later messages when the bottom comes into view while the timeline holds older history", () => {
+    const onLoadNewer = vi.fn();
+    const more = { onLoadNewer };
+    const { rerender } = render(list({ messages: messages(1, 2), hasNewer: true }, vi.fn(), null, more));
+    expect(onLoadNewer).not.toHaveBeenCalled();
+    scrollIntoView("bottom");
+    expect(onLoadNewer).toHaveBeenCalledTimes(1);
+
+    // Not while they're on their way, nor once it holds the newest.
+    rerender(list({ messages: messages(1, 2), hasNewer: true, loadingNewer: true }, vi.fn(), null, more));
+    rerender(list({ messages: messages(1, 3), hasNewer: true, loadingNewer: true }, vi.fn(), null, more));
+    rerender(list({ messages: messages(1, 4) }, vi.fn(), null, more));
+    expect(onLoadNewer).toHaveBeenCalledTimes(1);
   });
 
   it("stops once history runs out", () => {
-    FakeIntersectionObserver.topVisible = true;
+    FakeIntersectionObserver.inView.top = true;
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m1")], hasMore: false }, onLoadOlder));
-    scrollTopIntoView();
+    scrollIntoView("top");
     expect(onLoadOlder).not.toHaveBeenCalled();
   });
 });
 
 describe(feature("ui.scroll"), () => {
-  it("offers a way back to the latest messages after scrolling up", async () => {
-    render(list({ messages: [message("first")] }));
+  const jump = () => screen.queryByRole("button", { name: "Jump to newest message" });
+
+  it("stays at the newest message as new ones come while you're near it", () => {
+    const { rerender } = render(list({ messages: messages(1, 6) }));
     const log = screen.getByRole("log", { name: "Messages in general" });
-    expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
+    layOut(log);
+    expect(log.scrollTop).toBe(200);
 
-    layOut(log, 2000);
-    scrollTo(log, 600);
-    const button = screen.getByRole("button", { name: "Return to latest messages" });
-    log.scrollTo = vi.fn();
-    await userEvent.click(button);
-    expect(log.scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: "smooth" });
+    rerender(list({ messages: messages(1, 7), arrivals: 1 }));
+    expect(log.scrollTop).toBe(300);
+    // Within 100px of the end is at it, as in ember-rust.
+    scrollTo(log, 220);
+    rerender(list({ messages: messages(1, 8), arrivals: 2 }));
+    expect(log.scrollTop).toBe(400);
+    expect(jump()).not.toBeInTheDocument();
+  });
 
-    scrollTo(log, 1550);
-    expect(screen.queryByRole("button", { name: "Return to latest messages" })).not.toBeInTheDocument();
+  it("offers Jump to newest message when new ones come while you're further up, rather than on scrolling up", async () => {
+    const onJumpToNewest = vi.fn(() => true);
+    const more = { onJumpToNewest };
+    const { rerender } = render(list({ messages: messages(1, 6) }, vi.fn(), null, more));
+    const log = screen.getByRole("log");
+    layOut(log);
+    scrollTo(log, 0);
+    expect(jump()).not.toBeInTheDocument();
+
+    rerender(list({ messages: messages(1, 7), arrivals: 1 }, vi.fn(), null, more));
+    expect(log.scrollTop).toBe(0);
+    await userEvent.click(jump()!);
+    expect(onJumpToNewest).toHaveBeenCalledTimes(1);
+    expect(jump()).not.toBeInTheDocument();
+
+    // It goes once the reader is back at the end, too.
+    rerender(list({ messages: messages(1, 8), arrivals: 2 }, vi.fn(), null, more));
+    expect(jump()).toBeInTheDocument();
+    scrollTo(log, 400);
+    expect(jump()).not.toBeInTheDocument();
+  });
+
+  it("offers it whenever new ones come while the timeline holds older history, which they wait beyond", () => {
+    const { rerender } = render(list({ messages: messages(1, 6), hasNewer: true }));
+    const log = screen.getByRole("log");
+    layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }));
+    expect(jump()).toBeInTheDocument();
+  });
+
+  it("keeps it to try again when it can't go yet, as while the room is away and the newest aren't loaded", async () => {
+    const onJumpToNewest = vi.fn(() => false);
+    const more = { onJumpToNewest };
+    const { rerender } = render(list({ messages: messages(1, 6), hasNewer: true }, vi.fn(), null, more));
+    const log = screen.getByRole("log");
+    layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }, vi.fn(), null, more));
+    await userEvent.click(jump()!);
+    expect(jump()).toBeInTheDocument();
+
+    onJumpToNewest.mockReturnValue(true);
+    await userEvent.click(jump()!);
+    expect(onJumpToNewest).toHaveBeenCalledTimes(2);
+    expect(jump()).not.toBeInTheDocument();
+  });
+
+  it("follows new ones again once a short last page of later messages leaves the reader at the end", () => {
+    const { rerender } = render(list({ messages: messages(1, 6), hasNewer: true }));
+    const log = screen.getByRole("log");
+    layOut(log, { m7: 40 });
+    scrollTo(log, 200);
+    rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }));
+    expect(jump()).toBeInTheDocument();
+
+    // The last page adds 40px below the view, which doesn't scroll the reader, but leaves them at the end.
+    rerender(list({ messages: messages(1, 7), arrivals: 1 }));
+    expect(log.scrollTop).toBe(200);
+    expect(jump()).not.toBeInTheDocument();
+    rerender(list({ messages: messages(1, 8), arrivals: 2 }));
+    expect(log.scrollTop).toBe(340);
+    expect(jump()).not.toBeInTheDocument();
+  });
+
+  it("keeps what's in view where it is as a message above its end grows, as an edit or a reaction does", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    scrollTo(log, 200);
+
+    // m5 is in view, above m6, the last message that starts in view, whose bottom stays where it was.
+    heights.m5 = 150;
+    resize();
+    expect(log.scrollTop).toBe(250);
+    // m8 is below it, so nothing moves.
+    heights.m8 = 300;
+    resize();
+    expect(log.scrollTop).toBe(250);
+    // Nor as a message changes in the room, as ember-rust's maintain_scroll_controller.js keeps the
+    // bottom for an edit above the fold.
+    heights.m2 = 200;
+    rerender(list({ messages: messages(1, 8) }));
+    expect(log.scrollTop).toBe(350);
+  });
+
+  it("goes to the end as you send or jump there", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    layOut(log);
+    scrollTo(log, 0);
+    rerender(list({ messages: messages(1, 8), focus: { messageId: null } }));
+    expect(log.scrollTop).toBe(400);
+  });
+});
+
+describe(feature("messages.permalink"), () => {
+  it("centres the message a permalink goes to and outlines it, each time it's gone to", () => {
+    // jsdom can't animate.
+    const animate = vi.fn();
+    Element.prototype.animate = animate;
+    onTestFinished(() => void delete (Element.prototype as Partial<Element>).animate);
+    const { rerender } = render(list({ messages: messages(1, 10) }));
+    const log = screen.getByRole("log");
+    layOut(log);
+    const body = log.querySelector('[data-message-id="m5"] [data-body-content]');
+
+    // m5 is 400px down and 100px tall, so it's in the middle of the 400px view at 250px.
+    let focus = { messageId: "m5" };
+    rerender(list({ messages: messages(1, 10), focus }));
+    expect(log.scrollTop).toBe(250);
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(animate.mock.contexts[0]).toBe(body);
+
+    scrollTo(log, 0);
+    focus = { messageId: "m5" };
+    rerender(list({ messages: messages(1, 10), focus }));
+    expect(log.scrollTop).toBe(250);
+    expect(animate).toHaveBeenCalledTimes(2);
+
+    // Away from the end, the reader stays as new messages come, and can jump to them.
+    rerender(list({ messages: messages(1, 11), focus, arrivals: 1 }));
+    expect(log.scrollTop).toBe(250);
+    expect(screen.getByRole("button", { name: "Jump to newest message" })).toBeInTheDocument();
   });
 });

@@ -108,12 +108,12 @@ export class ChatRoom extends DurableObject<Env> {
     const sessionId = request.headers.get(SESSION_HEADER);
     const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
-    const { visible, since, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
+    const { visible, since, around, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId)];
       // Read side by side, so a room that has just woken waits on D1 once.
-      const [refused, opening] = await Promise.all([this.revocationsFor(roomId).refuse(tags, authorizedAt), this.opening(roomId, since)]);
+      const [refused, opening] = await Promise.all([this.revocationsFor(roomId).refuse(tags, authorizedAt), this.opening(roomId, since, around)]);
       if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
       this.ctx.acceptWebSocket(server, tags);
@@ -135,13 +135,14 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What a socket starts with: what changed since `since`, the latest change its tab has seen, if it
-   * names one and the room keeps every change after it, or else a welcome's newest page.
+   * names one and the room keeps every change after it, or else a welcome's page, which is the one
+   * around the message `around` names, for a tab opened at its permalink, or the newest.
    */
-  private async opening(roomId: RoomId, since: number | undefined) {
+  private async opening(roomId: RoomId, since: number | undefined, around: string | undefined) {
     const store = this.storeFor(roomId);
     const changes = since === undefined ? null : await store.changesSince(since);
     if (changes) return { type: "resumed" as const, ...changes };
-    return { type: "welcome" as const, ...(await store.newest(HISTORY_PAGE_SIZE)) };
+    return { type: "welcome" as const, ...(await store.opening(HISTORY_PAGE_SIZE, around)) };
   }
 
   /** Resolves once the room's messages can be read. */
@@ -304,8 +305,14 @@ export class ChatRoom extends DurableObject<Env> {
         return this.broadcast({ type: "typing", user, typing: frame.type === "typing.start" }, ws);
       case "history.before": {
         const { messages, hasMore } = await store.page(frame.limit ?? HISTORY_PAGE_SIZE, frame.before);
-        return this.send(ws, { type: "history", messages, hasMore });
+        return this.send(ws, { type: "history", before: frame.before, messages, hasMore });
       }
+      case "history.after": {
+        const { messages, hasNewer } = await store.after(frame.limit ?? HISTORY_PAGE_SIZE, frame.after);
+        return this.send(ws, { type: "history.after", after: frame.after, messages, hasNewer });
+      }
+      case "history.around":
+        return this.send(ws, { type: "history.around", ...(await store.timeline(HISTORY_PAGE_SIZE, frame.messageId)) });
       case "message.check": {
         const stored = await store.storedClientMessageIds(user, frame.clientMessageIds);
         const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));

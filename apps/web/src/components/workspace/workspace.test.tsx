@@ -474,6 +474,43 @@ describe(feature("rooms.member-only-access"), () => {
   });
 });
 
+describe(feature("messages.permalink"), () => {
+  /** A room's socket, which keeps what it's sent, and which the test lets in. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn() {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 }) });
+      });
+    }
+  }
+
+  it("goes to the message whose permalink is followed while the room is away, once the room lets the page in", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    act(() => navigate("/rooms/general/@m1"));
+    const room = RoomSocket.last!;
+    expect(room.sent).toEqual([]);
+    room.letIn();
+    expect(room.sent).toContainEqual({ type: "history.around", messageId: "m1" });
+  });
+});
+
 describe(feature("dms.naming"), () => {
   it("names a DM for the others in it, in its header, the tab, its messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);

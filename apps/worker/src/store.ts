@@ -1,4 +1,4 @@
-import type { Boost, Message, RoomId, User, UserId } from "@ember/protocol";
+import type { Boost, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { logEvent } from "./room-log";
@@ -59,11 +59,12 @@ const SELECT_MESSAGES = `SELECT messages.*, (
     FROM boosts WHERE boosts.message_id = messages.id
   ) AS boosts FROM messages`;
 
-// The newest page and the page before a message are separate statements, as ember-rust's
-// `last_page` and `page_before` are: SQLite can't seek an index through `? IS NULL OR id < ?`, so a
-// single statement walked the room from its newest message down to the cursor.
+// The newest page and the pages before and after a message are separate statements, as ember-rust's
+// `last_page`, `page_before` and `page_after` are: SQLite can't seek an index through
+// `? IS NULL OR id < ?`, so a single statement walked the room from its newest message down to the cursor.
 export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id DESC LIMIT ?`;
 export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
+export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
 
 /**
  * How many changes behind a tab that connects again can be and still catch up, which is as long as the
@@ -114,12 +115,37 @@ export class MessageStore {
     return this.toPage(rows, limit);
   }
 
+  /** The oldest `limit` messages newer than `after`, oldest first, and whether there are newer ones still. */
+  async after(limit: number, after: string): Promise<{ messages: Message[]; hasNewer: boolean }> {
+    const rows = await this.db.all<MessageRow>(MESSAGES_AFTER, this.roomId, after, limit + 1);
+    return { messages: rows.slice(0, limit).map((row) => this.toMessage(row)), hasNewer: rows.length > limit };
+  }
+
   /**
-   * The newest `limit` messages, as `page` reads them, and the room's latest change, for a welcome. The
-   * room is the only writer of its messages and changes them one event at a time, so the two agree.
+   * The page around the message `id`, as ember-rust's `page_around` reads it: up to `limit` messages before
+   * it, it, and up to `limit` after, or null when the room doesn't have it.
    */
-  async newest(limit: number): Promise<{ messages: Message[]; hasMore: boolean; seq: number }> {
-    const [page, seq] = await Promise.all([this.page(limit), this.latestChange()]);
+  async around(id: string, limit: number): Promise<TimelinePage | null> {
+    const [message, before, after] = await Promise.all([this.find(id), this.page(limit, id), this.after(limit, id)]);
+    if (!message) return null;
+    return { messages: [...before.messages, message, ...after.messages], hasMore: before.hasMore, hasNewer: after.hasNewer, around: id };
+  }
+
+  /**
+   * A page to show in place of a timeline: the one around the message `around` names, if the room has it,
+   * or else the newest `limit` messages, as ember-rust's rooms#show picks.
+   */
+  async timeline(limit: number, around?: string): Promise<TimelinePage> {
+    const page = around === undefined ? null : await this.around(around, limit);
+    return page ?? { ...(await this.page(limit)), hasNewer: false, around: null };
+  }
+
+  /**
+   * `timeline`'s page and the room's latest change, for a welcome. The room is the only writer of its
+   * messages and changes them one event at a time, so the two agree.
+   */
+  async opening(limit: number, around?: string): Promise<TimelinePage & { seq: number }> {
+    const [page, seq] = await Promise.all([this.timeline(limit, around), this.latestChange()]);
     return { ...page, seq };
   }
 

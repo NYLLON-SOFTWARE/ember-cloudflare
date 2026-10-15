@@ -408,6 +408,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               key={`${room.id}/${returns}`}
               ref={roomView}
               room={room}
+              messageId={route.page === "room" ? route.messageId : undefined}
               invitation={invitation?.roomId === room.id ? invitation : null}
               me={me}
               favorite={starred.has(room.id)}

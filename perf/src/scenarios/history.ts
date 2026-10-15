@@ -17,7 +17,7 @@ export interface HistoryOptions {
 export interface HistoryResult extends HistoryOptions {
   /** Opening a socket to its welcome frame, which carries the newest page. */
   welcome: Summary | null;
-  /** A history.before request to its page of 50. */
+  /** A history.before request to its page of 40. */
   page: Summary | null;
 }
 
