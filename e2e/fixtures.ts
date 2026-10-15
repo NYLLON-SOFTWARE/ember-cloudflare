@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type BrowserContext, type Page, type WebSocketRoute } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
 import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
@@ -134,6 +134,15 @@ export async function openRoom(page: Page, room: TestRoom): Promise<void> {
   const timeline = page.getByRole("log", { name: `Messages in ${room.name}` });
   await expect(timeline).toBeVisible();
   await expect(timeline).not.toHaveAttribute("aria-busy");
+}
+
+/**
+ * A message editor's text box, such as the composer's ("Write a message"), once Lexical has taken it
+ * over. Lexxy shows the box a frame before then, and Lexical empties it as it takes over, so anything
+ * typed into it sooner is lost.
+ */
+export function editorField(scope: Page | Locator, name: string): Locator {
+  return scope.getByRole("textbox", { name }).and(scope.locator("[data-lexical-editor]"));
 }
 
 /**

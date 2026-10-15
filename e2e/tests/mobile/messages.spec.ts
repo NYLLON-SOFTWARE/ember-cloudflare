@@ -1,4 +1,4 @@
-import { openRoom, signInAs } from "../../fixtures";
+import { editorField, openRoom, signInAs } from "../../fixtures";
 import { expect, REACTION_CHIPS, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
@@ -73,7 +73,7 @@ test("tapping anywhere else closes the actions, so only one message has them ope
 
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   await composer.tap();
   await page.keyboard.type("A message to edit");
   await page.getByRole("button", { name: "Send Message" }).tap();
@@ -83,7 +83,7 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   const edit = page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Edit" });
   await message.getByRole("button", { name: "Message options" }).tap();
   await edit.tap();
-  const field = message.getByRole("textbox", { name: "Edit message" });
+  const field = editorField(message, "Edit message");
   await expect(field).toBeFocused();
   await screenIsFine();
 

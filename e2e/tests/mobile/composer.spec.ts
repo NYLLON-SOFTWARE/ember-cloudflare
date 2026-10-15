@@ -1,4 +1,4 @@
-import { openRoom, signInAs } from "../../fixtures";
+import { editorField, openRoom, signInAs } from "../../fixtures";
 import { expect, openKeyboard, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
@@ -7,7 +7,7 @@ test.beforeEach(async ({ page, session }) => {
 
 test("Enter starts a new line on a phone, and Send posts", async ({ page, room }) => {
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   await composer.tap();
   // Phone keyboards have no Shift+Enter, so Enter has to start the new paragraph, as in ember-rust.
   await page.keyboard.type("First line");
@@ -23,7 +23,7 @@ test("Enter starts a new line on a phone, and Send posts", async ({ page, room }
 
 test("sending keeps the keyboard up", async ({ page, room }) => {
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   await composer.tap();
   await page.keyboard.type("Hello");
   // A blur would drop the keyboard and, with resizes-content, resize the whole page twice.
@@ -43,7 +43,7 @@ test("the composer keeps its size as its editor loads, so the timeline doesn't m
     await route.continue();
   });
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   const timeline = page.getByRole("log", { name: `Messages in ${room.name}` });
   await expect(composer).toHaveCount(0);
   const before = await timeline.boundingBox();
@@ -55,7 +55,7 @@ test("the composer keeps its size as its editor loads, so the timeline doesn't m
 
 test("tapping anywhere in the text area of the composer focuses it", async ({ page, room }) => {
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   const box = (await composer.boundingBox())!;
   await expect(composer).not.toBeFocused();
   await page.touchscreen.tap(box.x + 4, box.y + 4);
@@ -69,7 +69,7 @@ test("the composer and the newest message stay in view when the keyboard opens",
   const newest = page.getByText("Message 30", { exact: true });
   await expect(newest).toBeInViewport();
 
-  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const composer = editorField(page, "Write a message");
   await composer.tap();
   await openKeyboard(page);
 
