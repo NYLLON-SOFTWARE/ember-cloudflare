@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
-import { ROOM_SOCKET } from "../../fixtures";
+import { administratorOn, editorField, ROOM_SOCKET } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
@@ -320,7 +320,7 @@ test.describe(feature("messages.actions"), () => {
 });
 
 test.describe(feature("messages.edit"), () => {
-  test("lets the author edit a message, for everyone", async ({ members }) => {
+  test("lets the author edit a message, for everyone, saving on Ctrl or Cmd+Enter", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Helo");
@@ -329,14 +329,16 @@ test.describe(feature("messages.edit"), () => {
     await expect(ada.editor()).toBeFocused();
     await expect(ada.editor()).toHaveText("Helo");
     await ada.editor().fill("Hello");
-    await ada.editor().press("Enter");
+    await ada.editor().press("ControlOrMeta+Enter");
 
     await expect(grace.message("Hello")).toContainText("(edited)");
     await expect(grace.message("Helo")).toHaveCount(0);
     await expect(ada.message("Hello")).toContainText("(edited)");
+    // Where ember-rust loses focus, it goes back to the composer.
+    await expect(ada.composer()).toBeFocused();
   });
 
-  test("edits the formatting along with the text", async ({ members }) => {
+  test("edits the formatting along with the text, starting a new paragraph on Enter", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.composer().pressSequentially("A **bold** claim");
     await ada.composer().press("Enter");
@@ -345,31 +347,103 @@ test.describe(feature("messages.edit"), () => {
     // The cursor is after the text.
     await ada.page.keyboard.type(", revised");
     await ada.editor().press("Enter");
+    await ada.page.keyboard.type("Second thoughts");
+    await ada.editor().press("ControlOrMeta+Enter");
+    const content = ada.message("A bold claim, revised").locator(".message-content");
     await expect(ada.message("A bold claim, revised")).toContainText("(edited)");
-    await expect(ada.message("A bold claim, revised").locator(".message-content strong")).toHaveText("bold");
+    await expect(content.locator("strong")).toHaveText("bold");
+    await expect(content.locator("p")).toHaveText(["A bold claim, revised", "Second thoughts"]);
   });
 
-  test("saves from the Save button after Ctrl or Cmd+K, which opens the Link field out of sight", async ({ members }) => {
+  test("keeps the editor and what's written when the edit is too long to save", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Short");
+    await (await ada.actions("Short")).getByRole("button", { name: "Edit" }).click();
+    await ada.editor().evaluate((content) => {
+      (content.closest("lexxy-editor") as HTMLElement & { value: string }).value = `<p>${"x".repeat(10_001)}</p>`;
+    });
+    await ada.editor().press("ControlOrMeta+Enter");
+    await expect(ada.page.getByRole("alert")).toHaveText("Messages can be up to 10,000 characters.");
+    await expect(ada.editor().locator("p")).toHaveText(["x".repeat(10_001)]);
+    await expect(ada.page.getByRole("article")).not.toContainText("(edited)");
+  });
+
+  test("shows the formatting toolbar above the text on a wide screen with a mouse", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Format me");
+    await (await ada.actions("Format me")).getByRole("button", { name: "Edit" }).click();
+    const bold = ada.message("Format me").getByRole("toolbar").getByRole("button", { name: "Bold" });
+    await expect(bold).toBeVisible();
+    expect((await box(bold)).y).toBeLessThan((await box(ada.editor())).y);
+  });
+
+  test("saves from Save changes with the Link field open, as Lexxy checks that itself", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Draft");
     await (await ada.actions("Draft")).getByRole("button", { name: "Edit" }).click();
     await ada.editor().fill("Final");
     await ada.editor().press("ControlOrMeta+k");
-    await ada.page.getByRole("button", { name: "Save" }).click();
+    await ada.page.getByRole("button", { name: "Save changes" }).click();
     await expect(ada.message("Final")).toContainText("(edited)");
   });
 
-  test("cancels an edit with Escape", async ({ members }) => {
+  test("discards an edit with Escape or Close editor and discard changes", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Unchanged");
     await (await ada.actions("Unchanged")).getByRole("button", { name: "Edit" }).click();
     await ada.editor().fill("Something else");
     await ada.editor().press("Escape");
     await expect(ada.editor()).toHaveCount(0);
+    await expect(ada.composer()).toBeFocused();
+
+    await (await ada.actions("Unchanged")).getByRole("button", { name: "Edit" }).click();
+    await ada.editor().fill("Something else");
+    await ada.page.getByRole("button", { name: "Close editor and discard changes" }).click();
+    await expect(ada.editor()).toHaveCount(0);
     await expect(ada.message("Unchanged")).not.toContainText("(edited)");
+    await expect(ada.composer()).toBeFocused();
   });
 
-  test("offers no Edit or Delete on other people's messages", async ({ members }) => {
+  test("edits your newest message on Up Arrow, from an empty composer", async ({ members, participant }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("My first");
+    await ada.send("My newest");
+    await expect(ada.message("My newest")).not.toHaveAttribute("aria-busy");
+    await (await participant("Grace")).say("Grace's, after mine");
+
+    await ada.composer().pressSequentially("Half written");
+    await ada.composer().press("ArrowUp");
+    await expect(ada.editor()).toHaveCount(0);
+
+    await ada.composer().fill("");
+    await ada.composer().press("ArrowUp");
+    const editor = editorField(ada.message("My newest"), "Edit message");
+    await expect(editor).toBeFocused();
+    await expect(ada.editor()).toHaveText("My newest");
+
+    // Up Arrow returns to the editor while it's open, with what's written in it.
+    await editor.pressSequentially(", changed");
+    await ada.composer().click();
+    await ada.composer().press("ArrowUp");
+    await expect(editor).toBeFocused();
+    await expect(editor).toHaveText("My newest, changed");
+    await expect(ada.composer()).toHaveText("");
+  });
+
+  test("takes no files", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Look");
+    await (await ada.actions("Look")).getByRole("button", { name: "Edit" }).click();
+    await ada.editor().evaluate((content) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(new File([new Uint8Array([137, 80, 78, 71])], "screenshot.png", { type: "image/png" }));
+      content.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    });
+    await expect(ada.editor()).toHaveText("Look");
+    await expect(ada.editor().locator("img, action-text-attachment, figure")).toHaveCount(0);
+  });
+
+  test("offers no Edit on other people's messages", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Ada's");
@@ -377,28 +451,70 @@ test.describe(feature("messages.edit"), () => {
     const toolbar = await grace.actions("Ada's");
     await expect(toolbar.getByRole("button", { name: "Thumbs up" })).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "Edit" })).toHaveCount(0);
-    await expect(toolbar.getByRole("button", { name: "Delete" })).toHaveCount(0);
+  });
+
+  test("lets an administrator edit anyone's message, for everyone", async ({ browser, baseURL, members, rooms }) => {
+    const grace = await members.signIn("Grace");
+    await grace.send("Grace's typo");
+    await expect(grace.message("Grace's typo")).not.toHaveAttribute("aria-busy");
+    const administrator = await administratorOn(browser, baseURL!, rooms.general);
+    const message = administrator.getByRole("article").filter({ hasText: "Grace's typo" });
+
+    await message.hover();
+    await message.getByRole("button", { name: "Edit" }).click();
+    const editor = editorField(administrator, "Edit message");
+    await editor.fill("Grace's fix");
+    await editor.press("ControlOrMeta+Enter");
+    await expect(grace.message("Grace's fix")).toContainText("(edited)");
+    await expect(grace.message("Grace's fix")).toContainText("Grace");
+    await administrator.context().close();
   });
 });
 
 test.describe(feature("messages.delete"), () => {
-  test("deletes the author's message for everyone after asking", async ({ members }) => {
+  test("deletes a message for everyone from its editor, after asking", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Oops");
     await expect(grace.message("Oops")).toBeVisible();
+    await (await ada.actions("Oops")).getByRole("button", { name: "Edit" }).click();
 
     ada.page.once("dialog", (dialog) => dialog.dismiss());
-    await (await ada.actions("Oops")).getByRole("button", { name: "Delete" }).click();
-    await expect(ada.message("Oops")).toBeVisible();
+    await ada.page.getByRole("button", { name: "Delete message" }).click();
+    await expect(ada.editor()).toBeVisible();
 
     ada.page.once("dialog", (dialog) => {
-      expect(dialog.message()).toBe("Delete this message?");
+      expect(dialog.message()).toBe("Are you sure you want to delete this message?");
       void dialog.accept();
     });
-    await (await ada.actions("Oops")).getByRole("button", { name: "Delete" }).click();
+    await ada.page.getByRole("button", { name: "Delete message" }).click();
     await expect(grace.message("Oops")).toHaveCount(0);
     await expect(ada.message("Oops")).toHaveCount(0);
+    await expect(ada.composer()).toBeFocused();
+  });
+
+  test("lets an administrator delete anyone's message, for everyone", async ({ browser, baseURL, members, rooms }) => {
+    const grace = await members.signIn("Grace");
+    await grace.send("Grace's mistake");
+    await expect(grace.message("Grace's mistake")).not.toHaveAttribute("aria-busy");
+    const administrator = await administratorOn(browser, baseURL!, rooms.general);
+    const message = administrator.getByRole("article").filter({ hasText: "Grace's mistake" });
+
+    await message.hover();
+    await message.getByRole("button", { name: "Edit" }).click();
+    administrator.once("dialog", (dialog) => void dialog.accept());
+    await administrator.getByRole("button", { name: "Delete message" }).click();
+    await expect(grace.message("Grace's mistake")).toHaveCount(0);
+    await expect(message).toHaveCount(0);
+    await administrator.context().close();
+  });
+
+  test("offers Delete in the editor, not on the action bar", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Mine to delete");
+    const bar = await ada.actions("Mine to delete");
+    await expect(bar.getByRole("button", { name: "Edit" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: /Delete/ })).toHaveCount(0);
   });
 });
 

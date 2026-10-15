@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
 import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
@@ -134,6 +134,19 @@ export async function openRoom(page: Page, room: TestRoom): Promise<void> {
   const timeline = page.getByRole("log", { name: `Messages in ${room.name}` });
   await expect(timeline).toBeVisible();
   await expect(timeline).not.toHaveAttribute("aria-busy");
+}
+
+/**
+ * Opens `room` on a browser of the administrator's own, signing in on the way, and waits until its
+ * history has loaded. Close its context afterwards.
+ */
+export async function administratorOn(browser: Browser, baseURL: string, room: TestRoom): Promise<Page> {
+  const page = await (await browser.newContext({ baseURL })).newPage();
+  await useOwnAddress(page);
+  await page.goto(`/rooms/${room.id}`);
+  await signInAsAdministrator(page);
+  await expect(page.getByRole("log", { name: `Messages in ${room.name}` })).not.toHaveAttribute("aria-busy");
+  return page;
 }
 
 /**

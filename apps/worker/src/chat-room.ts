@@ -8,6 +8,7 @@ import {
   parseRoomSocketParams,
   ROOM_PROTOCOL,
   type ClientFrame,
+  type Message,
   type RoomId,
   type ServerFrame,
   type User,
@@ -269,7 +270,7 @@ export class ChatRoom extends DurableObject<Env> {
       }
       case "message.update": {
         const message = await store.find(frame.messageId);
-        if (!message || message.creator.id !== user.id) return this.refuse(ws, "You can only edit your own messages");
+        if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only edit your own messages");
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
@@ -280,7 +281,7 @@ export class ChatRoom extends DurableObject<Env> {
       }
       case "message.delete": {
         const message = await store.find(frame.messageId);
-        if (!message || message.creator.id !== user.id) return this.refuse(ws, "You can only delete your own messages");
+        if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only delete your own messages");
         const seq = await store.delete(message.id);
         return this.broadcast({ type: "message.deleted", messageId: message.id, seq });
       }
@@ -320,6 +321,14 @@ export class ChatRoom extends DurableObject<Env> {
       case "ping":
         return this.send(ws, { type: "pong" });
     }
+  }
+
+  /**
+   * Whether `user` may edit or delete `message`: its author or an administrator, as ember-rust's
+   * `can_administer?` decides (messages.rs). Only someone else's message asks the Workspace.
+   */
+  private async canAdminister(user: User, message: Message): Promise<boolean> {
+    return message.creator.id === user.id || (await workspace(this.env).isAdministrator(user.id));
   }
 
   /**

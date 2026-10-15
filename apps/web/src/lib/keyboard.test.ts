@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { opensLink, sendsMessage } from "./keyboard";
+import { opensLink, pressedAlone, savesEdit, sendsMessage } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
@@ -60,5 +60,35 @@ describe("opensLink", () => {
     expect(opensLink(press("k", { ctrlKey: true, shiftKey: true }))).toBe(false);
     expect(opensLink(press("k", { metaKey: true, altKey: true }))).toBe(false);
     expect(opensLink(press("j", { ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe("savesEdit", () => {
+  it("is Ctrl+Enter or Cmd+Enter, as ember-rust's edit form takes them", () => {
+    expect(savesEdit(press("Enter", { ctrlKey: true }))).toBe(true);
+    expect(savesEdit(press("Enter", { metaKey: true }))).toBe(true);
+  });
+
+  it("isn't Enter on its own, with other keys held, or while an input method is composing", () => {
+    expect(savesEdit(press("Enter"))).toBe(false);
+    expect(savesEdit(press("Enter", { shiftKey: true }))).toBe(false);
+    expect(savesEdit(press("Enter", { ctrlKey: true, metaKey: true }))).toBe(false);
+    expect(savesEdit(press("Enter", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(savesEdit(press("Enter", { metaKey: true, altKey: true }))).toBe(false);
+    expect(savesEdit(press("Enter", { ctrlKey: true, isComposing: true }))).toBe(false);
+  });
+});
+
+describe("pressedAlone", () => {
+  it("is the key with nothing held", () => {
+    expect(pressedAlone(press("Escape"), "Escape")).toBe(true);
+    expect(pressedAlone(press("ArrowUp"), "ArrowUp")).toBe(true);
+  });
+
+  it("isn't another key, the key with a modifier held, or one an input method is composing", () => {
+    expect(pressedAlone(press("ArrowDown"), "ArrowUp")).toBe(false);
+    for (const modifier of ["ctrlKey", "metaKey", "altKey", "shiftKey", "isComposing"]) {
+      expect(pressedAlone(press("ArrowUp", { [modifier]: true }), "ArrowUp"), modifier).toBe(false);
+    }
   });
 });

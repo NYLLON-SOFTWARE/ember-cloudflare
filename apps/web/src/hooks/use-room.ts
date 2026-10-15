@@ -230,7 +230,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         warn(MESSAGE_TOO_LONG);
         return false;
       },
-      remove: (messageId: string) => void sendOrWarn({ type: "message.delete", messageId }),
+      remove: (messageId: string) => sendOrWarn({ type: "message.delete", messageId }),
       boost: (messageId: string, content: string) => void sendOrWarn({ type: "boost.create", messageId, content }),
       unboost: (boostId: string) => void sendOrWarn({ type: "boost.delete", boostId }),
     };

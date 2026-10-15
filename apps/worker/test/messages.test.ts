@@ -1,9 +1,24 @@
 import { feature } from "@ember/parity";
-import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type NewWorkspace, type PersonRole, type UserId } from "@ember/protocol";
 import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
 import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
-import { connect, freshRoom, post, roomSql, settle, signIn } from "./support";
+import { api, connect, cookieOf, freshDeploy, freshRoom, post, roomSql, settle, shown, signIn, type Session } from "./support";
+
+/** Sets Ember up afresh, with Ada as its administrator, signed in. */
+async function setUp(): Promise<Session> {
+  await freshDeploy();
+  const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
+  const response = await api("/api/first_run", { method: "POST", body: JSON.stringify(ada) });
+  expect(response.status).toBe(201);
+  return { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
+}
+
+/** Gives `userId` the role `role`, as the administrator `session`. */
+async function changeRole(session: Session, userId: UserId, role: PersonRole): Promise<void> {
+  const response = await api(`/api/account/users/${userId}`, { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify({ role }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
 
 /** A mention of `userId`, as Lexxy writes one. */
 const mention = (userId: string) => `<action-text-attachment sgid="${mentionSgid(userId)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
@@ -169,6 +184,19 @@ describe(feature("messages.edit"), () => {
     expect((await connect(room, "Grace")).welcome.messages).toEqual([original]);
   });
 
+  it("lets an administrator edit anyone's message, for everyone", async () => {
+    const administrator = await setUp();
+    const room = await freshRoom("edit-administrator");
+    const ada = await connect(room, administrator);
+    const grace = await connect(room, "Grace");
+    const original = await post(grace, "<p>Helo</p>");
+
+    ada.send({ type: "message.update", messageId: original.id, body: "<p>Hello</p>" });
+    const { message } = await grace.next("message.updated");
+    expect(message).toMatchObject({ id: original.id, body: "<p>Hello</p>", creator: grace.me, createdAt: original.createdAt });
+    expect((await ada.next("message.updated")).message).toEqual(message);
+  });
+
   it("refuses edits to someone else's message, telling only the person who tried", async () => {
     const room = await freshRoom("edit-other");
     const ada = await connect(room, "Ada");
@@ -258,6 +286,30 @@ describe(feature("messages.delete"), () => {
     ada.send({ type: "message.delete", messageId: message.id });
     await ada.next("message.deleted");
     expect(await roomSql(room, "SELECT content FROM boosts WHERE message_id = ?", message.id)).toEqual([]);
+  });
+
+  it("lets an administrator delete anyone's message, until they're a member again", async () => {
+    const administrator = await setUp();
+    const room = await freshRoom("delete-administrator");
+    const grace = await connect(room, "Grace");
+    const linus = await connect(room, "Linus");
+    const first = await post(grace, "First");
+    const second = await post(grace, "Second");
+
+    await changeRole(administrator, linus.me.id, "administrator");
+    linus.send({ type: "message.delete", messageId: first.id });
+    expect(await grace.next("message.deleted")).toEqual({ type: "message.deleted", messageId: first.id, seq: 3 });
+
+    // Their socket stays open as their role changes, and the room goes by the role they have now.
+    await changeRole(administrator, linus.me.id, "member");
+    linus.send({ type: "message.delete", messageId: second.id });
+    expect((await linus.next("error")).message).toBe("You can only delete your own messages");
+    linus.send({ type: "message.update", messageId: second.id, body: "Changed" });
+    expect((await linus.next("error")).message).toBe("You can only edit your own messages");
+    await settle(linus, grace);
+    expect(grace.pending("message.deleted")).toEqual([]);
+    expect(grace.pending("message.updated")).toEqual([]);
+    expect((await connect(room, "Margaret")).welcome.messages).toEqual([second]);
   });
 
   it("refuses to delete someone else's message", async () => {

@@ -91,13 +91,13 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("with a second line");
-  await message.getByRole("button", { name: "Save" }).tap();
+  await message.getByRole("button", { name: "Save changes" }).tap();
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
   await message.getByRole("button", { name: "Message options" }).tap();
   await edit.tap();
-  await message.getByRole("button", { name: "Cancel" }).tap();
+  await message.getByRole("button", { name: "Close editor and discard changes" }).tap();
   await expect(field).toBeHidden();
 });
 

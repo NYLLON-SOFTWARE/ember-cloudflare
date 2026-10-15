@@ -266,23 +266,44 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
   }
 }
 
-/* Editing a message, until ember-rust's edit form is ported: the size of the text box it replaced. */
+/*
+ * A message's editor (message-editor.tsx), as ember-rust's edit form has it (Campfire's composer.css): on
+ * wide screens with a mouse, the formatting toolbar over the text, ruled off from it across the field.
+ */
 .message-edit {
-  lexxy-editor {
-    font-size: 14px;
-  }
+  @media (min-width: 100ch) and (any-hover: hover) and (pointer: fine) {
+    lexxy-toolbar {
+      display: flex;
+      border-block-end: 1px solid var(--border);
+      margin-inline: -0.8em;
+      padding-inline: 0.3em;
+      padding-block-end: 0.5em;
+    }
 
-  .lexxy-editor__content {
-    min-block-size: 40px;
-  }
-
-  @media (width < 56.3125rem), (pointer: coarse) {
     lexxy-editor {
-      font-size: 16px;
+      margin-block-start: 8px;
     }
+  }
 
+  /*
+   * Where the toolbar doesn't show, the text takes the field's padding, as the composer's takes its
+   * card's, so a tap anywhere in the field lands in it, and it's at least 44px tall, where ember-rust's
+   * field is 40px inside.
+   */
+  @media not ((min-width: 100ch) and (any-hover: hover) and (pointer: fine)) {
     .lexxy-editor__content {
+      margin: -0.5em -0.8em;
       min-block-size: 44px;
+      padding: 0.5em 0.8em;
     }
+  }
+
+  /*
+   * The field rings as it takes focus, so its text isn't outlined too. ember-rust means it not to be, as
+   * for every field in such a box (zz-ember.css, `.input--actor .input:focus-visible`), but that rule
+   * misses Lexxy's text, which ember-rust outlines inside the ring.
+   */
+  .lexxy-editor__content:focus {
+    outline: none;
   }
 }

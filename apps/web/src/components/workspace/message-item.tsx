@@ -1,19 +1,16 @@
-import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QUICK_REACTION_COUNT, REACTIONS, type Me, type Message, type User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
-import { Trash } from "@/components/icons/campfire";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
-import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { sendsMessage } from "@/lib/keyboard";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageBody } from "./message-body";
+import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UserAvatar } from "./user-avatar";
 
 export interface MessageActions {
@@ -21,17 +18,33 @@ export interface MessageActions {
   unboost: (boostId: string) => void;
   /** Returns whether the edit was sent. */
   edit: (messageId: string, body: string) => boolean;
-  remove: (messageId: string) => void;
+  /** Returns whether the deletion was sent. */
+  remove: (messageId: string) => boolean;
+}
+
+/** Opens and closes messages' editors, which the room keeps, so that Up Arrow can open one too. */
+export interface MessageEditors {
+  /** Opens a message's editor, or focuses it where it's open already, keeping what's written in it. */
+  open: (messageId: string) => void;
+  /** Closes a message's editor, returning focus to the composer. */
+  close: (messageId: string) => void;
+  /** Returns focus to the composer from an editor, as a message deleted from its editor goes. */
+  returnFocus: () => void;
+  /** Keeps a message's editor while it's open, for `open` to focus; called with null as it goes. */
+  attach: (messageId: string, editor: MessageEditorHandle | null) => void;
 }
 
 const actionButton = "flex size-8 items-center justify-center rounded-md text-message-muted hover:bg-hover touch:size-11 [&_svg]:size-4";
 
 interface Props {
   message: Message | PendingMessage;
-  me: User;
+  me: Me;
   threaded: boolean;
+  /** Whether the message's editor is open in its place. */
+  editing: boolean;
   /** What can be done to the message, or null where nothing can, as in a room that's gone. */
   actions: MessageActions | null;
+  editors: MessageEditors;
 }
 
 /** What a stored body shows, or null when it can't be shown. */
@@ -92,19 +105,20 @@ function Reactions({ message, me, actions }: Pick<Props, "message" | "me" | "act
 }
 
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
-export const MessageItem = memo(function MessageItem({ message, me, threaded, actions }: Props) {
+export const MessageItem = memo(function MessageItem({ message, me, threaded, editing: editorOpen, actions, editors }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [timeline, setTimeline] = useState<Element | null>(null);
   const article = useRef<HTMLElement>(null);
-  const editor = useRef<RichTextEditorHandle>(null);
   const options = useRef<HTMLButtonElement>(null);
   const actionBar = useRef<HTMLDivElement>(null);
   // Set while the More reactions menu is up: to "chosen" once a reaction is picked from it, and to
   // "elsewhere" once a click outside it closes it.
   const moreReactions = useRef<"open" | "chosen" | "elsewhere" | null>(null);
   const touch = useMediaQuery("(hover: none)");
+  const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
+  // The editor shows only while the message can still be changed.
+  const editing = editorOpen && actions !== null && !pending;
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
   const mentioned = !mine && mentions(message.plainText, me.name);
@@ -112,25 +126,6 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const allEmoji = isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
-
-  const saveEdit = () => {
-    const written = editor.current;
-    // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
-    // keeps it open, so what was written isn't lost.
-    if (written && !written.isBlank() && written.value() !== message.body && !actions?.edit(message.id, written.value())) return;
-    setEditing(false);
-  };
-
-  // Until ember-rust's keys come with its edit form, Escape cancels and Enter saves, as in the composer.
-  const editKeyDown = (event: KeyboardEvent) => {
-    if (editor.current?.hasOpenPrompt()) return;
-    if (event.key === "Escape") setEditing(false);
-    if (sendsMessage(event)) {
-      event.preventDefault();
-      event.stopPropagation();
-      saveEdit();
-    }
-  };
 
   // With a mouse, a click or focus anywhere else closes the actions, so only one message has them open,
   // as in ember-rust (message_actions_controller.js). The More reactions menu is outside the message
@@ -203,6 +198,22 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           {emoji}
         </button>
       ))}
+      {/* As ember-rust's `.message__edit-btn` shows (Campfire's messages.css): on your own messages, and
+          on everyone's for administrators. */}
+      {(mine || me.administrator) && (
+        <button
+          type="button"
+          title="Edit"
+          aria-label="Edit"
+          className={actionButton}
+          onClick={() => {
+            setMenuOpen(false);
+            editors.open(message.id);
+          }}
+        >
+          <Pencil />
+        </button>
+      )}
       {/* Keep the bar shown until the closing menu hands focus back to its button. Hiding it
           first drops keyboard focus to the page. */}
       <DropdownMenu
@@ -250,25 +261,6 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
-      {mine && (
-        <>
-          <button
-            type="button"
-            title="Edit"
-            aria-label="Edit"
-            className={actionButton}
-            onClick={() => {
-              setMenuOpen(false);
-              setEditing(true);
-            }}
-          >
-            <Pencil />
-          </button>
-          <button type="button" title="Delete" aria-label="Delete" className={actionButton} onClick={() => confirm("Delete this message?") && actions?.remove(message.id)}>
-            <Trash className="size-4" />
-          </button>
-        </>
-      )}
     </div>
   );
 
@@ -283,68 +275,53 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         // Where the options button shows, each message is at least as tall as it, as in ember-rust,
         // so the buttons of short messages in a row don't overlap.
         "[@media(hover:none)]:min-h-11",
-        threaded ? "pt-0" : "pt-2",
+        // The editor starts 4px above where the avatar does, as ember-rust's does.
+        threaded || editing ? "pt-0" : "pt-2",
         pending && "opacity-60",
       )}
     >
+      {/* The editor replaces the time beside a grouped message too, as it replaces the header. */}
       {threaded ? (
-        <span className="pt-[7px] text-right text-[10px] opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">{time}</span>
+        !editing && <span className="pt-[7px] text-right text-[10px] opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">{time}</span>
       ) : (
-        <UserAvatar user={message.creator} square className="mt-0 size-9 max-md:size-[30px]" />
+        <UserAvatar user={message.creator} square className={cn("size-9 max-md:size-[30px]", editing ? "mt-2" : "mt-0")} />
       )}
 
-      <div
-        className={cn(
-          "min-w-0",
-          allEmoji ? "py-0" : "py-1",
-          threaded && "[@media(hover:none)]:pr-8",
-          mentioned && "border-l-2 border-mention bg-mention/10 pl-2",
-        )}
-      >
-        {!threaded && (
-          <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
-            <strong className="font-bold text-message-ink">
-              <Name user={message.creator} />
-            </strong>
-            {time}
-            {edited}
-          </div>
-        )}
-
-        {editing && actions ? (
-          // Not validated, as the composer isn't, so the editor's hidden Link field can't stop Save.
-          <form
-            noValidate
-            className="message-edit rounded-[10px] border bg-surface p-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              saveEdit();
-            }}
-          >
-            {/* The composer has loaded the editor by the time a message can be edited. */}
-            <Suspense fallback={<div className="min-h-10 touch:min-h-11" />}>
-              <RichTextEditor ref={editor} label="Edit message" rows={1} initialValue={message.body} autoFocus onKeyDown={editKeyDown} />
-            </Suspense>
-            {/* Phones have no Escape key and use Enter for new lines, so editing needs buttons. */}
-            <div className="mt-1 flex items-center justify-end gap-1">
-              <p className="mr-auto text-xs text-muted-foreground touch:hidden">Escape to cancel, Enter to save</p>
-              <Button type="button" variant="ghost" size="sm" className="touch:h-11" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" className="touch:h-11">
-                Save
-              </Button>
+      {editing ? (
+        <MessageEditor
+          ref={attachEditor}
+          message={message}
+          onSave={(body) => actions.edit(message.id, body)}
+          onDelete={() => actions.remove(message.id) && editors.returnFocus()}
+          onClose={() => editors.close(message.id)}
+        />
+      ) : (
+        <div
+          className={cn(
+            "min-w-0",
+            allEmoji ? "py-0" : "py-1",
+            threaded && "[@media(hover:none)]:pr-8",
+            mentioned && "border-l-2 border-mention bg-mention/10 pl-2",
+          )}
+        >
+          {!threaded && (
+            <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
+              <strong className="font-bold text-message-ink">
+                <Name user={message.creator} />
+              </strong>
+              {time}
+              {edited}
             </div>
-          </form>
-        ) : (
-          // A grouped message has no header, so its mark follows the text.
+          )}
+
+          {/* A grouped message has no header, so its mark follows the text. */}
           <MessageBody nodes={shown} emoji={allEmoji} trailing={(threaded && edited) || undefined} />
-        )}
 
-        {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
+          {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
 
-        {message.boosts.length > 0 && <Reactions message={message} me={me} actions={actions} />}
-      </div>
+          {message.boosts.length > 0 && <Reactions message={message} me={me} actions={actions} />}
+        </div>
+      )}
 
       {actions &&
         !pending &&

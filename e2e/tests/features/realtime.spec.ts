@@ -142,10 +142,11 @@ test.describe(feature("realtime.reconnect"), () => {
     await cut();
     await (await grace.actions("Typo heer")).getByRole("button", { name: "Edit" }).click();
     await grace.editor().fill("Typo here");
-    await grace.editor().press("Enter");
+    await grace.editor().press("ControlOrMeta+Enter");
     await expect(grace.message("Typo here")).toContainText("(edited)");
+    await (await grace.actions("Gone soon")).getByRole("button", { name: "Edit" }).click();
     grace.page.once("dialog", (dialog) => void dialog.accept());
-    await (await grace.actions("Gone soon")).getByRole("button", { name: "Delete" }).click();
+    await grace.page.getByRole("button", { name: "Delete message" }).click();
     await expect(grace.message("Gone soon")).toHaveCount(0);
     await (await grace.actions("React to me")).getByRole("button", { name: "Thumbs up" }).click();
     await expect(grace.message("React to me").getByRole("list", { name: "Reactions" })).toContainText("👍1");

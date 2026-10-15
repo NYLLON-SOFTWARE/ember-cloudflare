@@ -1,10 +1,10 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import type { Invitation, User } from "@ember/protocol";
+import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { timeline } from "@/lib/messages";
 import type { RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
-import { MessageItem, type MessageActions } from "./message-item";
+import { MessageItem, type MessageActions, type MessageEditors } from "./message-item";
 
 const NEAR_BOTTOM_PX = 120;
 
@@ -13,14 +13,17 @@ interface Props {
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   state: RoomState;
-  me: User;
+  me: Me;
   /** What can be done to the messages, or null for a room that's gone, whose messages stay as they are. */
   actions: MessageActions | null;
+  /** The messages whose editors are open. */
+  editing: ReadonlySet<string>;
+  editors: MessageEditors;
   onLoadOlder: () => void;
 }
 
 /** The scrolling timeline. Stays pinned to the newest message unless you've scrolled up. */
-export function MessageList({ roomName, invitation, state, me, actions, onLoadOlder }: Props) {
+export function MessageList({ roomName, invitation, state, me, actions, editing, editors, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -113,7 +116,7 @@ export function MessageList({ roomName, invitation, state, me, actions, onLoadOl
                 <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
               </div>
             )}
-            <MessageItem message={message} me={me} threaded={threaded} actions={actions} />
+            <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
           </div>
         ))}
       </div>
