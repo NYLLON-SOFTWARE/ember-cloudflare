@@ -167,6 +167,14 @@ export async function changeRole(userId: UserId, role: PersonRole): Promise<Dire
   return (await request<ChangedPerson>(`/api/account/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) })).user;
 }
 
+/**
+ * Removes someone from the workspace, answering them as the people directory then lists them. Fails
+ * with a 403 ApiError for anyone but an administrator, and for themselves, and a 404 unless they're active.
+ */
+export async function removePerson(userId: UserId): Promise<DirectoryUser> {
+  return (await request<ChangedPerson>(`/api/account/users/${encodeURIComponent(userId)}`, { method: "DELETE" })).user;
+}
+
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
 export interface SidebarCopy {
   sidebar: Sidebar;

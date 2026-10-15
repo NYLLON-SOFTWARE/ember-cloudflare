@@ -170,8 +170,17 @@ export function useSidebar(
     };
 
     // A refused upgrade looks like any other failure, so ask whether the session has expired, as when
-    // the Workspace says to reconnect, which it does when this browser signs out.
+    // the Workspace says to reconnect, which it does when this browser signs out. When the person loses
+    // access for good, removed from the workspace or banned, which ends all their sessions, this
+    // connects again only if the browser is still signed in as them, as a room's socket does.
     const onClose = (code: number, opened: boolean) => {
+      if (code === CloseCode.Revoked) {
+        void fetchMe().then(
+          (user) => !closed && (isSomeoneElse(user) ? sessionChanged(user) : workspace.retry()),
+          (error) => !closed && (isSignedOut(error) ? sessionChanged(null) : workspace.retry()),
+        );
+        return false;
+      }
       if (!opened || code === CloseCode.Reconnect) void fetchMe().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
       return true;
     };

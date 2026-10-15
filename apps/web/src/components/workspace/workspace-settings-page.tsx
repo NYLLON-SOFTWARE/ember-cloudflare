@@ -12,7 +12,7 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
+import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removePerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { InviteLink } from "./invite-link";
 import { HEADER_TEXT_BUTTON } from "./page-header";
@@ -47,8 +47,8 @@ interface Props {
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
  * the workspace, show or hide the translation buttons, and have a link to the Custom CSS page, and
  * members see its name, then everyone gets the Rooms section with New room, the join link, which
- * administrators can regenerate, the people, whom administrators can make administrators or members,
- * and "Ember™ version" at the foot.
+ * administrators can regenerate, the people, whom administrators can make administrators or members
+ * and remove, and "Ember™ version" at the foot.
  */
 export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
@@ -172,6 +172,23 @@ export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoin
     [onPersonChanged, onFailed, mounted, listPeople],
   );
 
+  // As ember-rust's Delete does: no notice after, once it's confirmed. The person leaves the list as the
+  // directory hears they're removed, from this answer or the workspace socket, as a role's answer is kept.
+  const removeOf = useCallback(
+    (person: DirectoryUser) =>
+      removePerson(person.id).then(
+        (removed) => {
+          const listed = peopleNow.current.get(person.id);
+          if (listed === person) onPersonChanged(removed);
+          else if (listed?.status !== removed.status) listPeople();
+        },
+        (error: unknown) => {
+          if (mounted.current || isSignedOut(error)) onFailed(error);
+        },
+      ),
+    [onPersonChanged, onFailed, mounted, listPeople],
+  );
+
   // ember-rust's top bar links to Chat bots too, which isn't built yet.
   const links = settings?.canAdminister && (
     <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
@@ -245,7 +262,13 @@ export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoin
             <h2 id="people-heading" className="mb-3 text-base font-semibold">
               People
             </h2>
-            <PeopleList people={people} myId={me.id} onChangeRole={settings.canAdminister ? changeRoleOf : undefined} aria-labelledby="people-heading" />
+            <PeopleList
+              people={people}
+              myId={me.id}
+              onChangeRole={settings.canAdminister ? changeRoleOf : undefined}
+              onRemove={settings.canAdminister ? removeOf : undefined}
+              aria-labelledby="people-heading"
+            />
           </div>
         )}
       </Panel>

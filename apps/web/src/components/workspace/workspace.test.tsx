@@ -755,6 +755,24 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
+describe(feature("accounts.remove-person"), () => {
+  const grace: DirectoryUser = { ...withGrace.members[1]!, bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
+  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+
+  it("suggests nobody the workspace socket says has been removed since the sidebar loaded", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [withGrace.members[1]] }),
+      "GET /api/users": () => Response.json({ users: [grace] }),
+    });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(suggestion()).toBeInTheDocument();
+    await workspaceSends({ type: "user.updated", user: { ...grace, status: "deactivated" } });
+    expect(suggestion()).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("accounts.name"), () => {
   it("passes on the workspace's name as its settings load it, which another administrator may have changed", async () => {
     serve({ "GET /api/account": () => Response.json({ ...workspaceSettings, account: { name: "Difference Engines" } }) });

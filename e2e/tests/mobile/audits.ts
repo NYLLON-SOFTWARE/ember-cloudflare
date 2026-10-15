@@ -272,15 +272,15 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const size = dense && element.matches(dense) ? DENSE_TARGET : TARGET;
     const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
     const partlyShown = isCut(rect, shown);
-    // What takes the control's taps: its box, and its hit area where that spreads past it, which can be
-    // partly scrolled out of view while all of the control shows, as an avatar's can by the screen's edge.
-    const hitAreas = [rect, ...spreadHitAreas(element)];
+    // What takes the control's taps: its box, its labels, and its hit area where that spreads past it,
+    // which can be partly scrolled out of view while all of the control shows, as an avatar's can by the
+    // screen's edge, or the label around a field by the edge of the list it's in.
+    const hitAreas = [rect, ...spreadHitAreas(element), ...labels.flatMap((label) => [...label.getClientRects()])];
     const reach = boundsOf(hitAreas);
     if (isCut(reach, paintedPart(reach, clipping)!) && !cutOff(element, reach, clipping)) {
       // Scrolling can bring the rest into view, but the audits don't scroll and can't probe what's
       // scrolled away, so probe the boxes of the control, its labels and what spreads its hit area.
-      const boxes = [...hitAreas, ...labels.flatMap((label) => [...label.getClientRects()])];
-      if (!fingertip(middle(rect), size).every((point) => boxes.some((box) => isWithin(point, box)))) {
+      if (!fingertip(middle(rect), size).every((point) => hitAreas.some((box) => isWithin(point, box)))) {
         touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)} and partly scrolled out of view; a ${size}px fingertip on it can land beside it`);
       }
       continue;

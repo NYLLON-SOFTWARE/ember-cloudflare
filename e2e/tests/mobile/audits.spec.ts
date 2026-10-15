@@ -55,6 +55,25 @@ test("a small control scrolled partly out of view fails with a small label, but 
   expect(touchTargets).toEqual([expect.stringContaining('<input> "Small" is 16px×16px and partly scrolled out of view')]);
 });
 
+test("a field all of which shows, in a label partly scrolled out of view, fails only if a fingertip on it can miss the label", async ({ page, safeArea }) => {
+  // Each list has scrolled the top of a label out of view, but not the 24px field in it, as a page can
+  // scroll past the top of the box around its join link. The first label ends with its field.
+  const list = (label: string, height: number, align: string) => `
+    <div class="list" style="height: 120px; margin-top: 60px; overflow-y: auto">
+      <div style="height: 100px"></div>
+      <label style="display: flex; align-items: ${align}; height: ${height}px"><input aria-label="${label}" style="box-sizing: border-box; width: 100%; height: 24px; margin: 0; border: 0"></label>
+      <div style="height: 200px"></div>
+    </div>`;
+  await page.setContent(phonePage(`${list("Small", 32, "end")}${list("Big", 50, "center")}`));
+  await page.evaluate(() => {
+    const [small, big] = document.querySelectorAll(".list");
+    small!.scrollTop = 104;
+    big!.scrollTop = 106;
+  });
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringMatching(/^<input> "Small" is .* partly scrolled out of view/)]);
+});
+
 test("a control covered for good by something floating over its list fails, but not one the list can scroll clear", async ({ page, safeArea }) => {
   // The last button in each list sits under a floating notice; only the second list has room to
   // scroll it out from under.

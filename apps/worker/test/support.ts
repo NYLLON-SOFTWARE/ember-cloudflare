@@ -49,11 +49,17 @@ export const builtPages = {
  * as a fresh deploy does: no account, people or rooms.
  */
 export async function freshDeploy(): Promise<void> {
-  await reset();
-  const { DB, TEST_MIGRATIONS } = env as unknown as { DB?: D1Database; TEST_MIGRATIONS: D1Migration[] };
-  if (DB) await applyD1Migrations(DB, TEST_MIGRATIONS);
+  // A reset can leave the storage of a Durable Object that's still busy, as the Workspace is while its
+  // alarm delivers what the last test queued, so it's made again until the Workspace has nobody.
+  do {
+    await reset();
+    const { DB, TEST_MIGRATIONS } = env as unknown as { DB?: D1Database; TEST_MIGRATIONS: D1Migration[] };
+    if (DB) await applyD1Migrations(DB, TEST_MIGRATIONS);
+  } while (await anyoneLeft());
   host = undefined;
 }
+
+const anyoneLeft = async () => ((await workspaceSql("SELECT count(*) AS n FROM users")) as Array<{ n: number }>)[0]!.n > 0;
 
 export interface Session {
   user: User;

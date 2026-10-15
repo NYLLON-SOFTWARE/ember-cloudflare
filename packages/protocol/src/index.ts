@@ -235,7 +235,10 @@ export interface RoleChange {
   role: PersonRole;
 }
 
-/** What `PATCH /api/account/users/<id>` answers: the person as the people directory now lists them. */
+/**
+ * What `PATCH /api/account/users/<id>` answers, and `DELETE`, which removes them from the workspace: the
+ * person as the people directory now lists them.
+ */
 export interface ChangedPerson {
   user: DirectoryUser;
 }
