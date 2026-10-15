@@ -91,24 +91,24 @@ describe(feature("messages.rich-text"), () => {
   });
 });
 
-describe(feature("mentions.render"), () => {
-  const grace: DirectoryUser = { id: "0123456789abcdef", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/g.abc/avatar?v=1" };
+const grace: DirectoryUser = { id: "0123456789abcdef", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/g.abc/avatar?v=1" };
+
+/** Shows a message mentioning Grace with the directory listing `people`, the message having named whom it mentions as `mentions` does. */
+function mention(people: People, mentions: User[]) {
   const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${grace.id}"></action-text-attachment>!</p>`;
+  const { container } = render(
+    <PeopleContext value={people}>
+      <MessageBody nodes={displayBody(body)} mentions={mentions} />
+    </PeopleContext>,
+  );
+  return container.querySelector(".message-content")!;
+}
 
-  /** Shows `body` with the directory listing `people`, the message having named whom it mentions as `mentions` does. */
-  function mention(people: People, mentions: User[]) {
-    const { container } = render(
-      <PeopleContext value={people}>
-        <MessageBody nodes={displayBody(body)} mentions={mentions} />
-      </PeopleContext>,
-    );
-    return container.querySelector(".message-content")!;
-  }
-
+describe(feature("mentions.render"), () => {
   it("shows the person's avatar, hidden from screen readers, then their name as the directory lists them now", () => {
     const content = mention(new Map([[grace.id, grace]]), [{ id: grace.id, name: "Grace" }]);
     expect(content).toHaveTextContent("Hi Grace Hopper!");
-    const avatar = content.querySelector("p > span > img")!;
+    const avatar = content.querySelector("p > span > a > img")!;
     expect(avatar).toHaveAttribute("src", grace.avatarUrl);
     expect(avatar).toHaveAttribute("aria-hidden", "true");
   });
@@ -122,6 +122,22 @@ describe(feature("mentions.render"), () => {
   it("shows ☒ for someone no one knows, as a message from before messages named the people they mention doesn't", () => {
     expect(mention(new Map(), []).innerHTML).toBe("<p>Hi ☒!</p>");
     expect(mention(new Map(), [{ id: grace.id, name: "" }]).innerHTML).toBe("<p>Hi ☒!</p>");
+  });
+});
+
+describe(feature("users.avatar-links"), () => {
+  it("links a mention's avatar to the person's page, titled with their name and bio, and follows it in place", async () => {
+    const content = mention(new Map([[grace.id, { ...grace, bio: "Wrote the first compiler" }]]), [{ id: grace.id, name: "Grace" }]);
+    const link = screen.getByRole("link", { name: "Grace Hopper – Wrote the first compiler" });
+    expect(content.querySelector("p > span > a")).toBe(link);
+    expect(link).toHaveAttribute("href", `/users/${grace.id}`);
+    await userEvent.click(link);
+    expect(location.pathname).toBe(`/users/${grace.id}`);
+  });
+
+  it("links the avatar of someone the directory doesn't list yet, titled with the name the message gave", () => {
+    mention(new Map(), [{ id: grace.id, name: "Grace" }]);
+    expect(screen.getByRole("link", { name: "Grace" })).toHaveAttribute("href", `/users/${grace.id}`);
   });
 });
 

@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type WorkspacePage } from "@ember/protocol";
+import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
 // The app's few pages, at ember-rust's addresses, which @ember/protocol lists for the Worker too: a
 // small typed router over the History API rather than a library. A page with changes to lose can
@@ -14,6 +14,8 @@ export type Access = RoomAccess;
 export type Route = WorkspacePage;
 
 export const roomPath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)}`;
+/** Someone's page, as ember-rust's `user_path` gives it. */
+export const personPath = (userId: UserId) => `/users/${encodeURIComponent(userId)}`;
 /** A message's permalink, as ember-rust's `room_at_message_path` gives it, which opens its room. */
 export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(roomId)}/@${encodeURIComponent(messageId)}`;
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;

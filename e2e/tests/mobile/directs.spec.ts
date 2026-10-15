@@ -50,5 +50,7 @@ test.describe(feature("dms.suggestions"), () => {
     await expect(page.getByRole("region", { name: "DMs" }).getByRole("button", { name: /^Start a direct message with / }).first()).toBeVisible();
     await settle(page);
     await screenIsFine();
+    // Lets the test end while the sidebar is loading again.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   });
 });

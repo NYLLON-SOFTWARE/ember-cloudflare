@@ -5,7 +5,7 @@ import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 /** React's names for the attributes a message keeps, where they aren't HTML's. */
 const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "xmlLang" };
@@ -60,17 +60,16 @@ function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode): Reac
 
 /**
  * ember-rust's users/_mention.html, styled by Campfire's autocomplete.css: the person's avatar, as tall as
- * the line, then their name as they're named now, in semibold, every time they're mentioned. The avatar is
- * a `.btn`'s weight, which its `ch` is measured in, and isn't a link until people's pages are built
- * (`users.avatar-links`), so unlike Campfire's it isn't lifted over what follows, such as the next
- * message's Message options.
+ * the line and linking to their page, then their name as they're named now, in semibold, every time
+ * they're mentioned. The avatar is a `.btn`'s weight, which its `ch` is measured in. Unlike Campfire's,
+ * the mention isn't lifted over what follows, such as the next message's Message options.
  */
 function Mention({ userId, mentions }: { userId: UserId; mentions: User[] }) {
   const person = mentionedPerson(useContext(PeopleContext), mentions, userId);
   if (!person) return UNKNOWN_PERSON;
   return (
     <span className="relative inline-flex items-center ps-[calc(1.1em+1ch/3)] leading-[1.1em] font-semibold">
-      <UserAvatar user={person} className="absolute inset-y-0 start-[0.1ch] size-[1.1em] font-medium" />
+      <AvatarLink user={person} reach="none" className="absolute inset-y-0 start-[0.1ch] size-[1.1em] font-medium" />
       {person.name}
     </span>
   );

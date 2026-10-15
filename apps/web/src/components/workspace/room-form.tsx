@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { IconPicker } from "./icon-picker";
 import { ListRow, ListSeparator } from "./list-row";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 // ember-rust's room forms, which New room and a room's settings share (rooms/layouts/_form.html, with
 // rooms/opens/_form.html or rooms/closeds/_form.html in its `.room-access` box): the room's name and
@@ -105,7 +105,7 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
         <Fragment key={index}>
           {index > 0 && <ListSeparator />}
           {group.filter(shown).map((person) => (
-            <ListRow key={person.id} figure={<UserAvatar user={person} className="size-[4ch]" lazy />} name={person.name}>
+            <ListRow key={person.id} figure={<AvatarLink user={person} className="size-[4ch]" lazy />} name={person.name}>
               {mark(person)}
             </ListRow>
           ))}
