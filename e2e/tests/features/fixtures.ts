@@ -1,7 +1,10 @@
 import type { BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, createRoom, createSession, expect, type Session, type TestRoom } from "../../fixtures";
+import { test as app, createRoom, createSession, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
+
+/** A name no other test's people or rooms have, since they all share the server. */
+export const unique = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
 
 /** The rooms each test has to itself. Its browsers show these instead of the server's own. */
 export interface Rooms {
@@ -10,10 +13,11 @@ export interface Rooms {
 }
 
 /**
- * Makes every page in `context` list just `rooms` of the server's rooms, since every other test's
- * open rooms take everyone in too. The server still answers first, so a session it refuses gets
- * its 401 as usual, a page whose list is current gets its 304, and the welcome card's invitation is
- * the server's, for the general that setup made, which isn't listed.
+ * Makes every page in `context` list just `rooms` of the server's rooms, as the list loads and as the
+ * workspace socket brings rooms saved since, since every other test's open rooms take everyone in too.
+ * The server still answers first, so a session it refuses gets its 401 as usual, a page whose list is
+ * current gets its 304, and the welcome card's invitation is the server's, for the general that setup
+ * made, which isn't listed.
  */
 async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
   const ids = new Set(Object.values(rooms).map((room) => room.id));
@@ -23,6 +27,7 @@ async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
     const list = (await response.json()) as { rooms: TestRoom[] };
     await route.fulfill({ response, json: { ...list, rooms: list.rooms.filter((room) => ids.has(room.id)) } });
   });
+  await keepOtherRoomsOut(context, ids);
 }
 
 /**

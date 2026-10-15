@@ -8,6 +8,7 @@ import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
+import type { RoomAnswer } from "@/lib/room-list";
 import { CONFIRM_DELETE, RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
@@ -49,7 +50,7 @@ function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH"
   return (response: Response) => act(async () => answer(response));
 }
 
-type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "onSaved" | "onLeft" | "onMissing" | "onFailed">;
+type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "askForRoom" | "onMissing" | "onFailed">;
 
 /** The page, as Ada, at the form its address names, as the workspace shows it, with general the last room she visited. */
 function SettingsRoute(callbacks: Callbacks) {
@@ -61,10 +62,12 @@ function SettingsRoute(callbacks: Callbacks) {
 
 function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`) {
   const [onSaved, onLeft, onMissing, onFailed] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+  // The answers the page lists: rooms saved, and those it took Ada out of or deleted.
+  const askForRoom = () => (answer: RoomAnswer) => (answer.type === "saved" ? onSaved(answer.room) : onLeft(answer.roomId));
   history.replaceState(null, "", path);
   const { unmount } = render(
     <Sheet>
-      <SettingsRoute onSaved={onSaved} onLeft={onLeft} onMissing={onMissing} onFailed={onFailed} />
+      <SettingsRoute askForRoom={askForRoom} onMissing={onMissing} onFailed={onFailed} />
     </Sheet>,
   );
   return { onSaved, onLeft, onMissing, onFailed, unmount, user: userEvent.setup() };

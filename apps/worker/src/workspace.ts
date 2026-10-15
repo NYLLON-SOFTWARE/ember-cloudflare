@@ -46,6 +46,7 @@ import {
   type JoinableAccount,
   type NewPerson,
   type ProfileEntry,
+  type SavedRoomChange,
   type StoredSession,
 } from "./workspace-store";
 
@@ -611,16 +612,33 @@ export class Workspace extends DurableObject<Env> {
 
   /** Tells every tab of `userId`'s what their stars are now. */
   private starsChanged(userId: UserId, favorites: Favorites) {
-    const frame: WorkspaceServerFrame = { type: "favorites.changed", favorites };
-    for (const socket of this.ctx.getWebSockets(userId)) send(socket, frame);
+    this.tell([userId], { type: "favorites.changed", favorites });
   }
 
-  /** Creates a room as the person `credentials` signs in, or answers null without a valid session. */
+  /** Sends `frame` on the workspace sockets of each of `userIds`, every tab of theirs, and nobody else's. */
+  private tell(userIds: Iterable<UserId>, frame: WorkspaceServerFrame): void {
+    const data = JSON.stringify(frame);
+    for (const userId of userIds) {
+      for (const socket of this.ctx.getWebSockets(userId)) {
+        try {
+          socket.send(data);
+        } catch {
+          // It has closed since, and its close handler has nothing to clean up.
+        }
+      }
+    }
+  }
+
+  /**
+   * Creates a room as the person `credentials` signs in, or answers null without a valid session.
+   * Everyone it puts in sees it in their sidebars at once, and nobody else hears of it.
+   */
   async createRoom(credentials: Credentials, room: NewRoom): Promise<Room | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const created: Room = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
-    await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
+    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
+    this.tell(memberIds, { type: "room.saved", room: created });
     return created;
   }
 
@@ -772,7 +790,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to room `roomId` as the person `credentials` signs in, answering the room as it
    * is then: "not found" as for its settings, "forbidden" unless they can change it, or null without
-   * a valid session. Anyone it takes out of the room is told to reconnect, and finds it gone.
+   * a valid session. Anyone it takes out of the room is told to reconnect, and finds it gone, and it
+   * leaves their sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it
+   * changed, the people it puts in do.
    */
   async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<Room | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -791,11 +811,15 @@ export class Workspace extends DurableObject<Env> {
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
       let queued = changes.kind === "closed";
+      let saved: SavedRoomChange;
       try {
-        queued = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
+        saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
+        queued = saved.removedIds.length > 0;
       } finally {
         if (queued) await this.wakeAt(now);
       }
+      this.tell(saved.removedIds, { type: "room.gone", roomId });
+      this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
       return changed;
     });
   }
@@ -816,7 +840,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Deletes room `roomId` as the person `credentials` signs in, as ember-rust's `destroy` does
    * (rooms.rs): "not found" as for its settings, "forbidden" unless they can change it, or null
-   * without a valid session. Everyone with it open is told it's gone, and its messages go with it.
+   * without a valid session. Everyone with it open is told it's gone, and its messages go with it. It
+   * leaves the sidebars of the people who were in it, and nobody else hears of it, where ember-rust tells
+   * everyone (broadcasts.rs).
    */
   async deleteRoom(credentials: Credentials, roomId: RoomId): Promise<"deleted" | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -826,12 +852,14 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
       const now = Date.now();
+      let memberIds: UserId[];
       try {
-        await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
+        memberIds = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
       } finally {
         // As when signing out: the database may have saved the deletion, and so queued it, though its answer was lost.
         await this.wakeAt(now);
       }
+      this.tell(memberIds, { type: "room.gone", roomId });
       return "deleted";
     });
   }
@@ -845,10 +873,7 @@ export class Workspace extends DurableObject<Env> {
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<void> {
     if (events.length === 0) return;
     const marks = await this.store.applyRoomEvents(roomId, events, viewerIds);
-    for (const [userId, unread] of marks) {
-      const frame: WorkspaceServerFrame = { type: unread ? "room.unread" : "room.read", roomId };
-      for (const socket of this.ctx.getWebSockets(userId)) send(socket, frame);
-    }
+    for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
   }
 
   /**

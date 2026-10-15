@@ -1,5 +1,5 @@
-import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User } from "@ember/protocol";
+import { test as base, expect, type APIRequestContext, type BrowserContext, type Page, type WebSocketRoute } from "@playwright/test";
+import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
@@ -76,6 +76,34 @@ export async function createRoom(request: APIRequestContext, session: Session, n
 }
 
 /**
+ * Connects a tab's routed workspace socket to the server, passing on to the page what the server sends
+ * when `passes` says so, and returns the server's end.
+ */
+export function connectWorkspace(ws: WebSocketRoute, passes: (frame: WorkspaceServerFrame) => boolean): WebSocketRoute {
+  const server = ws.connectToServer();
+  server.onMessage((message) => {
+    if (passes(JSON.parse(String(message)) as WorkspaceServerFrame)) ws.send(message);
+  });
+  return server;
+}
+
+/**
+ * Whether the workspace socket of a tab that lists just `roomIds` passes `frame` on: all but the rooms
+ * saved that aren't among them, as the socket brings each room saved to everyone in it, and everyone's
+ * in the rooms every other test opens to all.
+ */
+export function listing(roomIds: Iterable<string>): (frame: WorkspaceServerFrame) => boolean {
+  const listed = new Set(roomIds);
+  return (frame) => frame.type !== "room.saved" || listed.has(frame.room.id);
+}
+
+/** Keeps the rooms every other test saves out of the sidebars of `target`'s tabs, which list just `roomIds`. */
+export async function keepOtherRoomsOut(target: Page | BrowserContext, roomIds: Iterable<string>): Promise<void> {
+  const passes = listing(roomIds);
+  await target.routeWebSocket(WORKSPACE_SOCKET, (ws) => void connectWorkspace(ws, passes));
+}
+
+/**
  * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
  * own instead of among every other test's open rooms. Given a `joinCode`, it's the room with the
  * welcome card too, inviting people with that code.
@@ -85,6 +113,7 @@ export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { jo
   await page.route("**/api/sidebar", (route) =>
     route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation } satisfies Sidebar }),
   );
+  await keepOtherRoomsOut(page, [room.id]);
 }
 
 /**

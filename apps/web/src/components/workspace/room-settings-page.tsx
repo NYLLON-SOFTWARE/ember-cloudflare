@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Room, RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { Trash } from "@/components/icons/campfire";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut } from "@/lib/api";
+import type { RoomAnswer } from "@/lib/room-list";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
@@ -26,10 +27,12 @@ interface Props {
   me: User;
   /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
   back: string;
-  /** Lists the room as saved, for the sidebar. The page then shows it, unless it was left first. */
-  onSaved: (room: Room) => void;
-  /** Takes a room out of the sidebar once it's saved without this person, or deleted. The page then goes home, unless it was left first. */
-  onLeft: (roomId: RoomId) => void;
+  /**
+   * Called as the room is saved or deleted, with what lists it, for the sidebar, as the server answers:
+   * as saved, or gone once it's saved without this person, or deleted. The page then shows the room, or
+   * goes home, unless it was left first.
+   */
+  askForRoom: () => (answer: RoomAnswer) => void;
   /** For a room this person isn't in, one that doesn't exist, or a DM. */
   onMissing: () => void;
   /** Says why something else failed, as the workspace's alerts do. */
@@ -43,7 +46,7 @@ interface Props {
  * whose switches are on; under the form, they can delete it. Leaving with changes asks first. Everyone
  * else sees its name and people, in the form for the room's kind.
  */
-export function RoomSettingsPage({ roomId, access, me, back, onSaved, onLeft, onMissing, onFailed }: Props) {
+export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
@@ -101,9 +104,9 @@ export function RoomSettingsPage({ roomId, access, me, back, onSaved, onLeft, on
   const send = () => {
     const changes: RoomChanges = access === "open" ? { name, icon: icon ?? "", kind: access } : { name, icon: icon ?? "", kind: access, memberIds: [...chosen] };
     const leaving = access === "closed" && !chosen.has(me.id);
+    const answered = askForRoom();
     return changeRoom(roomId, changes).then((room) => {
-      if (leaving) onLeft(room.id);
-      else onSaved(room);
+      answered(leaving ? { type: "gone", roomId: room.id } : { type: "saved", room });
       // An open room takes in everyone.
       setSettings((settings) => settings && { ...settings, room, people: settings.people.map((person) => ({ ...person, member: access === "open" || chosen.has(person.id) })) });
       setOpened(access);
@@ -124,8 +127,9 @@ export function RoomSettingsPage({ roomId, access, me, back, onSaved, onLeft, on
   const remove = () => {
     if (!confirm(CONFIRM_DELETE)) return;
     setBusy(true);
+    const answered = askForRoom();
     deleteRoom(roomId).then(() => {
-      onLeft(roomId);
+      answered({ type: "gone", roomId });
       // As ember-rust goes home once the room's deleted, with no alert.
       if (mounted.current) navigate("/");
     }, failed);

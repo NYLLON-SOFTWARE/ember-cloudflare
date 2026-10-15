@@ -1,17 +1,21 @@
 import type { Page } from "@playwright/test";
-import type { Account } from "@ember/protocol";
-import { isolateRoom, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
+import type { Account, WorkspaceServerFrame } from "@ember/protocol";
+import { isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
 const LONG_NAME = "The-Analytical-Engine-Appreciation-Society-of-Greater-Marylebone-and-the-Surrounding-Districts";
 
+/** Which of the workspace socket's frames reach the page. */
+type Passes = (frame: WorkspaceServerFrame) => boolean;
+
 /**
  * Shows `page` the workspace as `change` makes it wherever the server says what it is, its socket's
- * welcome included, without changing the test server's, which every other test shows.
+ * welcome included, without changing the test server's, which every other test shows. Its socket takes
+ * over from any the page routed before, such as `isolateRoom`'s, so it passes on just what `passes` does.
  */
-async function changeTheWorkspace(page: Page, change: (account: Account) => Account): Promise<void> {
+async function changeTheWorkspace(page: Page, change: (account: Account) => Account, passes: Passes = () => true): Promise<void> {
   const changed = <T extends { account: Account }>(body: T): T => ({ ...body, account: change(body.account) });
   for (const path of ["**/api/bootstrap", "**/api/account"]) {
     await page.route(path, async (route) => {
@@ -24,13 +28,13 @@ async function changeTheWorkspace(page: Page, change: (account: Account) => Acco
     const server = ws.connectToServer();
     server.onMessage((message) => {
       const frame = JSON.parse(String(message));
-      ws.send(JSON.stringify("account" in frame ? changed(frame) : frame));
+      if (passes(frame)) ws.send(JSON.stringify("account" in frame ? changed(frame) : frame));
     });
   });
 }
 
 const nameTheWorkspaceLong = (page: Page) => changeTheWorkspace(page, (account) => ({ ...account, name: LONG_NAME }));
-const showTranslationButtons = (page: Page) => changeTheWorkspace(page, (account) => ({ ...account, hideTranslationButtons: false }));
+const showTranslationButtons = (page: Page, passes?: Passes) => changeTheWorkspace(page, (account) => ({ ...account, hideTranslationButtons: false }), passes);
 
 test("an administrator's workspace settings, with a long name, fit the phone", async ({ page, screenIsFine }) => {
   await useOwnAddress(page);
@@ -93,9 +97,9 @@ test("translation buttons, and the list each opens, fit the phone", async ({ pag
 });
 
 test("the welcome card's translation list, by the screen's edge, opens where it fits the phone", async ({ page, room, session, safeArea }) => {
-  await showTranslationButtons(page);
-  await signInAs(page, session);
   await isolateRoom(page, room, { joinCode: "aB3d-Ef5h-iJ7k" });
+  await showTranslationButtons(page, listing([room.id]));
+  await signInAs(page, session);
   await openRoom(page, room);
   await page.getByRole("main").locator("summary", { hasText: "Translate" }).tap();
   await expect(page.locator("details[open] dl")).toBeVisible();
