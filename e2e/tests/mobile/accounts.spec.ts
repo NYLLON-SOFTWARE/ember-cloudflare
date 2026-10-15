@@ -50,6 +50,16 @@ test("an administrator's workspace settings, with a long name, fit the phone", a
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
+test("an administrator's people list, with Delete by everyone else, fits the phone", async ({ page, session, screenIsFine }) => {
+  await useOwnAddress(page);
+  await page.goto("/account/edit");
+  await signInAsAdministrator(page);
+  const remove = page.getByRole("list", { name: "People" }).getByRole("button", { name: `Delete ${session.user.name}` }).first();
+  await remove.scrollIntoViewIfNeeded();
+  await expect(remove).toBeInViewport();
+  await screenIsFine();
+});
+
 test("a member's workspace settings, with a long name, fit the phone", async ({ page, session, screenIsFine }) => {
   await nameTheWorkspaceLong(page);
   await signInAs(page, session);

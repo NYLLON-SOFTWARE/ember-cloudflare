@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, AccountChanges, DirectoryUser, Me, RoleChange, WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import cancel from "@/components/icons/campfire/cancel.svg";
+import minus from "@/components/icons/campfire/minus.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
+import { CONFIRM_REMOVE } from "./people-list";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
@@ -48,10 +50,12 @@ interface Answers {
   regenerated?: () => Response | Promise<Response>;
   /** What changing someone's role answers, rather than them with the role sent. */
   roleChanged?: () => Response | Promise<Response>;
+  /** What removing someone answers, rather than them removed. */
+  removed?: () => Response | Promise<Response>;
 }
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
-function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }: Answers = {}) {
+function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed }: Answers = {}) {
   let { account } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -60,6 +64,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }:
       const { role } = JSON.parse(String(init?.body)) as RoleChange;
       return roleChanged ? roleChanged() : Response.json({ user: { ...everyone.find((user) => user.id === person[1]), role } });
     }
+    const removing = request.match(/^DELETE \/api\/account\/users\/(.+)$/);
+    if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
     switch (request) {
       case "GET /api/account":
         return Response.json({ ...settings, account });
@@ -479,7 +485,9 @@ describe(feature("accounts.roles"), () => {
   it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it", async () => {
     const { onPersonChanged, user } = showPage();
     (await crownOf("Grace Hopper")).focus();
-    // Past linus's avatar, which links to his page.
+    // Past Grace's Delete, and linus's avatar, which links to his page.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Delete Grace Hopper" })).toHaveFocus();
     await user.tab();
     expect(within(await rowOf("linus Torvalds")).getByRole("link")).toHaveFocus();
     await user.tab();
@@ -551,6 +559,100 @@ describe(feature("accounts.roles"), () => {
     expect(await nameField()).toBeInTheDocument();
     expect(await crownOf("linus Torvalds")).toBeDisabled();
     expect(await readList()).toContain("Mallory");
+  });
+});
+
+const deleteOf = async (name: string) => within(await rowOf(name)).queryByRole("button", { name: `Delete ${name}` });
+/** Whom the page has asked to remove. */
+const removals = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.filter(([, init]) => init?.method === "DELETE")
+    .map(([input]) => String(input).split("/").at(-1));
+const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+
+describe(feature("accounts.remove-person"), () => {
+  it("gives administrators Delete on each active person's row but their own, white on red, named for them", async () => {
+    showPage();
+    const remove = await deleteOf("Grace Hopper");
+    expect(remove).toBeEnabled();
+    const [icon] = remove!.querySelectorAll("img");
+    expect(icon).toHaveAttribute("src", minus);
+    expect(icon).toHaveClass("invert");
+    expect(remove).toHaveClass("bg-negative-button");
+    expect(await deleteOf("linus Torvalds")).toBeInTheDocument();
+    expect(await deleteOf("Ada Lovelace")).toBeNull();
+    expect(await deleteOf("Mallory")).toBeNull();
+    // After the crown, as in ember-rust's row.
+    expect((await crownOf("linus Torvalds")).closest("label")!.nextElementSibling).toBe(await deleteOf("linus Torvalds"));
+  });
+
+  it("gives members none", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    await peopleList();
+    expect(within(await peopleList()).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("removes someone once you confirm, with no notice, as ember-rust does, and they leave the list", async () => {
+    const confirm = confirmed(true);
+    const { onPersonChanged, user } = showPage();
+    await user.click((await deleteOf("linus Torvalds"))!);
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_REMOVE);
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, status: "deactivated" }));
+    expect(removals()).toEqual(["u3"]);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "Mallory"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("removes nobody unless you confirm", async () => {
+    confirmed(false);
+    const { user } = showPage();
+    await user.click((await deleteOf("linus Torvalds"))!);
+    expect(removals()).toEqual([]);
+    expect(await readList()).toContain("linus Torvalds");
+  });
+
+  it("can't be pressed again until the removal is answered", async () => {
+    confirmed(true);
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { removed: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const remove = (await deleteOf("linus Torvalds"))!;
+    await user.click(remove);
+    expect(remove).toBeDisabled();
+    await user.click(remove);
+    expect(removals()).toEqual(["u3"]);
+    answer(Response.json({ user: { ...linus, status: "deactivated" } }));
+    await waitFor(async () => expect(await readList()).not.toContain("linus Torvalds"));
+  });
+
+  it("needs no answer the workspace socket has already brought", async () => {
+    confirmed(true);
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { removed: () => new Promise((resolve) => (answer = resolve)) });
+    const { onPersonChanged, reloadPeople, user } = showPage();
+    await user.click((await deleteOf("linus Torvalds"))!);
+    act(() => socketSays({ ...linus, status: "deactivated" }));
+    expect(await readList()).not.toContain("linus Torvalds");
+    answer(Response.json({ user: { ...linus, status: "deactivated" } }));
+    // Answered after Linus's, Grace's removal shows his answer has been heard.
+    serve(asAdministrator);
+    await user.click((await deleteOf("Grace Hopper"))!);
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...grace, status: "deactivated" }));
+    expect(onPersonChanged).toHaveBeenCalledOnce();
+    expect(reloadPeople).toHaveBeenCalledOnce();
+  });
+
+  it("says why a removal was refused, keeping them listed, to be tried again", async () => {
+    confirmed(true);
+    serve(asAdministrator, { removed: () => Response.json({ error: "Only administrators can remove people" }, { status: 403 }) });
+    const { onFailed, onPersonChanged, user } = showPage();
+    await user.click((await deleteOf("linus Torvalds"))!);
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(await deleteOf("linus Torvalds")).toBeEnabled();
+    expect(await readList()).toContain("linus Torvalds");
+    expect(onPersonChanged).not.toHaveBeenCalled();
   });
 });
 

@@ -510,6 +510,46 @@ describe(feature("platform.live-socket"), () => {
   });
 });
 
+describe(feature("accounts.remove-person"), () => {
+  it("goes to sign in, connecting no more, once the person is removed, which ends their sessions and closes the socket for good", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    await settle();
+    server.signedIn = null;
+    socket().drop(CloseCode.Revoked);
+    await settle();
+    expect(onSessionChanged).toHaveBeenCalledExactlyOnceWith(null);
+    await wait(60_000);
+    expect(FakeSocket.all).toHaveLength(1);
+  });
+
+  it("connects again while the browser is still signed in as them, as when the removal didn't save", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    await settle();
+    socket().drop(CloseCode.Revoked);
+    await settle();
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/me", expect.anything());
+    expect(FakeSocket.all).toHaveLength(1);
+    await wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("hands the tab over to whoever the browser is signed in as now", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    await settle();
+    server.signedIn = grace;
+    socket().drop(CloseCode.Revoked);
+    await settle();
+    expect(onSessionChanged).toHaveBeenCalledExactlyOnceWith(grace);
+  });
+});
+
 describe(feature("accounts.custom-css"), () => {
   it("says what the workspace is each time its socket connects, and whenever an administrator changes it", async () => {
     const onAccountChanged = vi.fn();

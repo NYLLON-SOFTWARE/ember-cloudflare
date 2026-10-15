@@ -494,6 +494,20 @@ const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
+/**
+ * Takes someone out of every room but their DMs, which they stay in, as ember-rust's `User#deactivate`
+ * does (user.rs). It looks up each of their rooms, where `room_id IN (SELECT ...)` would read them all.
+ */
+const LEAVE_SHARED_ROOMS = `DELETE FROM memberships WHERE user_id = ?
+  AND EXISTS (SELECT 1 FROM rooms WHERE rooms.id = memberships.room_id AND rooms.kind <> 'direct')`;
+
+/**
+ * Marks someone removed and records when, writing the first value before each "@" of their email
+ * address, which frees it, as ember-rust's `deactivated_email_address` does (user.rs). No email address
+ * stays none.
+ */
+const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = replace(email_address, '@', ?), updated_at = ? WHERE id = ?`;
+
 /** Someone as the directory lists them, with their email address, whatever their status. */
 const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
 
@@ -803,6 +817,24 @@ export class WorkspaceStore {
       statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /**
+   * Removes someone from the workspace, as ember-rust's `User#deactivate` does (user.rs), in one
+   * transaction: queues closing each of their sessions' sockets with `code` in every room they're in,
+   * DMs included, due at `dueAt`, takes them out of every room but their DMs, ends their sessions, and
+   * marks them removed, recording when, with `-deactivated-<uuid>` before each "@" of their email
+   * address. Their messages, boosts, DMs, role and avatar stay. Answers whether it queued any.
+   */
+  async removePerson(userId: UserId, uuid: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      // Before they leave the rooms it finds their sockets in.
+      statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
+      statement(LEAVE_SHARED_ROOMS, userId),
+      statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(DEACTIVATE, `-deactivated-${uuid}@`, now, userId),
     ]);
     return queued!.length > 0;
   }

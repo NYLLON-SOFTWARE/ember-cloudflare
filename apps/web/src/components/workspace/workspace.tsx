@@ -179,6 +179,13 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
+  // Not anyone the directory has heard is removed or banned since the list loaded, whom ember-rust's
+  // next page, such as the one removing someone loads, no longer suggests.
+  const listedSuggestions = list?.suggestions ?? NO_PEOPLE;
+  const suggestions = useMemo(
+    () => listedSuggestions.filter((person) => (directory.people.get(person.id)?.status ?? "active") === "active"),
+    [listedSuggestions, directory.people],
+  );
 
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -350,7 +357,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
-      suggestions={list?.suggestions ?? NO_PEOPLE}
+      suggestions={suggestions}
       favorites={favorites}
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}

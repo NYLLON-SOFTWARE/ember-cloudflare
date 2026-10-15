@@ -106,7 +106,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/app/tests.rs"],
-    notes: "The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered, forged or signed-out cookie counts as signed out; nobody can be removed or banned or reset a password yet. The Worker redirects a signed-in person's join link to `/`, and the join form's post answers them 409 naming `/`, which the page then loads.",
+    notes: "The API answers 401 without a valid session cookie. Signed out, the app moves itself to `/session/new` rather than being redirected there, keeping the page asked for in the tab's sessionStorage rather than the session, and signing in returns there once. A missing, tampered or forged cookie counts as signed out, and so does one whose session was deleted by signing out, removal or a password reset; nobody can be banned yet. The Worker redirects a signed-in person's join link to `/`, and the join form's post answers them 409 naming `/`, which the page then loads.",
   },
   {
     id: "auth.sessions",
@@ -120,7 +120,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/db/src/models/session.rs", "reference/app/models/session.rb", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["reference/test/controllers/sessions_controller_test.rb", "reference/test/models/user_test.rb", "crates/db/src/tests/callbacks_test.rs", "crates/db/src/tests/user_test.rs"],
-    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Resetting a password ends all of the person's sessions (`accounts.reset-password`); nobody can be removed or banned yet.",
+    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Resetting a password or removing the person ends all of their sessions (`accounts.reset-password`, `accounts.remove-person`); nobody can be banned yet.",
   },
   {
     id: "auth.sign-out",
@@ -179,7 +179,6 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/_help_contact.html", "crates/ember/src/controllers/presenters/accounts.rs", "reference/app/views/accounts/_help_contact.html.erb"],
     upstreamTests: ["parity/screens.yml"],
-    notes: "Nobody can be removed yet, so no scrambled address shows.",
   },
   {
     id: "auth.csrf",
@@ -360,7 +359,7 @@ export const features = [
     id: "accounts.remove-person",
     title: "Remove someone from the workspace",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators remove an active person with their row's Delete button (\"Delete <name>\" to screen readers) after confirming \"Are you sure you want to permanently remove this person from the account? This can’t be undone.\", with no notice after. Their own row has no Delete.",
       "Removal closes the person's live connections for good and deletes their sessions, so they're signed out everywhere and can't reconnect.",
@@ -371,6 +370,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/users.rs", "crates/db/src/models/user.rs", "crates/ember/src/channels/revocation.rs", "crates/views/templates/accounts/users/_user.html", "reference/app/models/user.rb"],
     upstreamTests: ["reference/test/controllers/accounts/users_controller_test.rb", "reference/test/models/user_test.rb", "crates/ember/src/channels/tests/revocation_test.rs"],
+    notes: "Workspace settings' Delete sends `DELETE /api/account/users/<id>`, which answers the person as the people directory now lists them rather than redirecting, and the list drops them without loading again. Unlike ember-rust, administrators can't remove themselves (403), as they can't change their own role (`accounts.roles`); bots can be removed, as there. One batch queues closing the person's room sockets in the Workspace's outbox, takes them out of every room but their DMs, deletes their sessions and rewrites each \"@\" in their address to `-deactivated-<uuid>@`; then their workspace sockets close with 4003, so each of their tabs asks who it's signed in as and goes to sign-in at once. The workspace socket tells everyone `user.updated`, and sidebars stop suggesting them for DMs, which in ember-rust waits for the next page. There are no push subscriptions or recent searches to delete until those are ported (`notifications.subscriptions`, `search.recent`).",
   },
   {
     id: "accounts.ban",
@@ -1738,7 +1738,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/connection.rs", "crates/ember/src/channels/revocation.rs", "crates/cable/src/connection.rs", "crates/cable/src/server.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/user.rs", "crates/ember/src/concerns.rs", "reference/app/channels/application_cable/connection.rb"],
     upstreamTests: ["reference/test/channels/application_cable/connection_test.rb", "crates/ember/src/channels/tests/revocation_test.rs", "crates/ember/src/channels/tests/channels_test.rs", "crates/cable/tests/protocol.rs"],
-    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Signing out closes just that session's sockets (`auth.sign-out`), and taking someone out of a room closes theirs there, after which the Worker closes their reconnecting socket at once with 4004 and the app stops connecting (`rooms.members`). Deleting a room has its object close every socket in it with 4004 (`rooms.delete`). Nobody can be removed or banned until people's administration is ported.",
+    notes: "Room sockets need a valid session cookie, a request to the socket's address answers 404 with JSON unless it's a WebSocket upgrade from the app's own origin, and a socket refused for want of a session sends the app back to sign-in. In place of the `disconnect` frame, a room closes a socket with code 4001 to say reconnect or 4003 to say don't, which can't go missing as a frame sent just before the close can; after a 4003 the app asks who it's signed in as and goes to sign-in, or connects again if it's still the same person. A change that ends access queues the sockets to close in the Workspace's outbox, in the same transaction, and the Workspace's alarm has each room close them, trying a room it can't reach again later. A room turns away a socket the Workspace let through at or before a revocation it has had, or over a minute before it arrives, telling it to reconnect, so a check that just preceded a revocation can't slip through. Signing out closes just that session's sockets (`auth.sign-out`), and taking someone out of a room closes theirs there, after which the Worker closes their reconnecting socket at once with 4004 and the app stops connecting (`rooms.members`). Deleting a room has its object close every socket in it with 4004 (`rooms.delete`). Removing someone closes all of their sockets for good, the workspace socket's too (`accounts.remove-person`); nobody can be banned yet.",
   },
   {
     id: "realtime.keepalive",
