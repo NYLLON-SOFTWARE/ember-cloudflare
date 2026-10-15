@@ -167,6 +167,15 @@ test.describe(feature("composer.send"), () => {
     await expect(toolbar(ada)).toBeHidden();
   });
 
+  test("says a message over 10,000 characters is too long instead of sending it, keeping it to be cut down", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await write(ada, `<p>${"x".repeat(10_001)}</p>`);
+    await ada.composer().press("Enter");
+    await expect(ada.page.getByRole("alert")).toHaveText("Messages can be up to 10,000 characters.");
+    await expect(ada.composer()).toHaveText("x".repeat(10_001));
+    await expect(ada.page.getByRole("article")).toHaveCount(0);
+  });
+
   test("starts a new paragraph on Enter on a touch screen, where only the Send button sends", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: phone });
     await ada.composer().tap();

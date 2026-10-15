@@ -66,6 +66,7 @@ export function RoomView({ room, invitation, me, favorite, onStarred, onSessionC
           <Composer
             roomId={room.id}
             roomName={room.name}
+            userId={me.id}
             typing={typingUsers}
             disabled={state.offline}
             // Only while the room's first messages are on their way, not once it's been out of reach a while.

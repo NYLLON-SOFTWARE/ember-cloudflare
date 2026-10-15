@@ -11,9 +11,9 @@ import { editorLoaded } from "./editor";
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
 async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1" } = {}) {
-  const onSend = vi.fn();
+  const onSend = vi.fn((_body: string) => true);
   const onTyping = vi.fn();
-  const view = render(<Composer roomId={roomId} roomName="general" typing={typing} disabled={disabled} onSend={onSend} onTyping={onTyping} />);
+  const view = render(<Composer roomId={roomId} roomName="general" userId="u1" typing={typing} disabled={disabled} onSend={onSend} onTyping={onTyping} />);
   // The editor loads as the first composer shows.
   const input = await screen.findByRole("textbox", { name: "Write a message" });
   return { onSend, onTyping, view, user: userEvent.setup(), input };
@@ -50,7 +50,7 @@ describe(feature("composer.layout"), () => {
     expect(input).not.toHaveFocus();
   });
 
-  const room = { roomId: "r1", roomName: "general", typing: [], disabled: false, onSend: () => {}, onTyping: () => {} };
+  const room = { roomId: "r1", roomName: "general", userId: "u1", typing: [], disabled: false, onSend: () => true, onTyping: () => {} };
 
   it("holds the editor back while the room's first messages are on their way, which loading it would delay", async () => {
     // React has the editor's code from an earlier composer, so it would show at once if it weren't held back.
@@ -157,6 +157,16 @@ describe(feature("composer.send"), () => {
     expect(input).toHaveFocus();
   });
 
+  it("keeps what's written when the room won't take it, as when it's too long", async () => {
+    const { onSend, input, user } = await showComposer();
+    onSend.mockReturnValue(false);
+    await user.type(input, "Too much{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Too much</p>");
+    expect(input).toHaveValue("Too much");
+    expect(input).toHaveFocus();
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Too much</p>");
+  });
+
   it("holds on to the text while the room is disconnected", async () => {
     const { onSend, input, user } = await showComposer({ disabled: true });
     await user.type(input, "Are you there?{Enter}");
@@ -167,7 +177,7 @@ describe(feature("composer.send"), () => {
 });
 
 describe(feature("composer.draft"), () => {
-  const draft = (roomId = "r1") => localStorage.getItem(`composer-draft-${roomId}`);
+  const draft = (roomId = "r1") => localStorage.getItem(`composer-draft-u1-${roomId}`);
 
   it("keeps what's written in this browser until it's sent", async () => {
     const { input, user } = await showComposer();
@@ -186,7 +196,7 @@ describe(feature("composer.draft"), () => {
   });
 
   it("brings it back, with the cursor at the end, when the room opens again", async () => {
-    localStorage.setItem("composer-draft-r1", "<p>Where was I</p>");
+    localStorage.setItem("composer-draft-u1-r1", "<p>Where was I</p>");
     const { input } = await showComposer();
     expect(input).toHaveValue("Where was I");
     expect(input).toHaveFocus();
@@ -194,7 +204,13 @@ describe(feature("composer.draft"), () => {
   });
 
   it("keeps each room's apart", async () => {
-    localStorage.setItem("composer-draft-r2", "<p>For the other room</p>");
+    localStorage.setItem("composer-draft-u1-r2", "<p>For the other room</p>");
+    const { input } = await showComposer({ roomId: "r1" });
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps each person's apart, so whoever signs in on this browser next doesn't see it", async () => {
+    localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
     expect(input).toHaveValue("");
   });

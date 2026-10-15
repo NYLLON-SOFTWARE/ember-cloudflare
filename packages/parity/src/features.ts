@@ -1026,7 +1026,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "reference/app/controllers/messages_controller.rb", "reference/app/models/message.rb"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/controllers/messages_controller_test.rb"],
-    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload (\"Ember has been updated. Reload the page to keep chatting.\"), and its messages and edits are refused until it does. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.",
+    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload (\"Ember has been updated. Reload the page to keep chatting.\"), and its messages and edits are refused until it does. The composer doesn't send a message the room would refuse as too long, where ember-rust has no limit: it says \"Messages can be up to 10,000 characters.\" and keeps it to be cut down.",
   },
   {
     id: "messages.rich-text",
@@ -1074,7 +1074,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/composer.css"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Only authors can edit, since there are no administrators yet. The editor is Lexxy, as in ember-rust, but until its edit form is ported it has Cancel and Save buttons, Enter saves on a computer (Shift+Enter starts a new line), and its formatting toolbar never shows. Up Arrow does nothing. An edit is refused as a new message is. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
+    notes: "Only authors can edit, since there are no administrators yet. The editor is Lexxy, as in ember-rust, but until its edit form is ported it has Cancel and Save buttons, Enter saves on a computer (Shift+Enter starts a new line), and its formatting toolbar never shows. Up Arrow does nothing. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
   },
   {
     id: "messages.delete",
@@ -2202,6 +2202,7 @@ export const features = [
       "Sending, or emptying the box, clears it.",
     ],
     sources: ["crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/composer_controller.js"],
+    notes: "Drafts are kept for each person apart (`composer-draft-<user id>-<room id>`), where ember-rust keeps one a room, so whoever signs in on the same browser next doesn't see them.",
   },
   {
     id: "composer.formatting-toolbar",

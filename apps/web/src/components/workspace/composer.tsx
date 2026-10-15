@@ -42,22 +42,25 @@ const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-
  */
 const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center touch:size-11";
 
-/** Where what's written in a room and not yet sent is kept in this browser, as ember-rust keeps it. */
-const draftKey = (roomId: string) => `composer-draft-${roomId}`;
+/**
+ * Where what someone has written in a room and not yet sent is kept in this browser, as ember-rust
+ * keeps it, though for each person apart, so whoever signs in here next doesn't see it.
+ */
+const draftKey = (userId: string, roomId: string) => `composer-draft-${userId}-${roomId}`;
 
 // Storage can be unavailable, as in some private windows, which only means drafts aren't kept.
-function readDraft(roomId: string): string | undefined {
+function readDraft(key: string): string | undefined {
   try {
-    return localStorage.getItem(draftKey(roomId)) ?? undefined;
+    return localStorage.getItem(key) ?? undefined;
   } catch {
     return undefined;
   }
 }
 
-function keepDraft(roomId: string, body: string | null) {
+function keepDraft(key: string, body: string | null) {
   try {
-    if (body === null) localStorage.removeItem(draftKey(roomId));
-    else localStorage.setItem(draftKey(roomId), body);
+    if (body === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, body);
   } catch {
     // Not kept, then.
   }
@@ -100,6 +103,8 @@ function focusStayedOn(element: Element | null): boolean {
 interface Props {
   roomId: string;
   roomName: string;
+  /** Who's writing, whose drafts are their own. */
+  userId: string;
   typing: User[];
   disabled: boolean;
   /**
@@ -108,8 +113,8 @@ interface Props {
    * the editor shows anyway.
    */
   deferEditor?: boolean;
-  /** Sends a message, its body markup. */
-  onSend: (body: string) => void;
+  /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
+  onSend: (body: string) => boolean;
   onTyping: (active: boolean) => void;
 }
 
@@ -118,10 +123,11 @@ interface Props {
  * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
  * and a round Send button. What's written is kept as a draft until it's sent.
  */
-export function Composer({ roomId, roomName, typing, disabled, deferEditor = false, onSend, onTyping }: Props) {
+export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
-  const [draft] = useState(() => readDraft(roomId));
+  const key = draftKey(userId, roomId);
+  const [draft] = useState(() => readDraft(key));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
   // Where focus was as the room opened. The editor can be ready a moment later, by when you may have put
@@ -137,7 +143,7 @@ export function Composer({ roomId, roomName, typing, disabled, deferEditor = fal
     if (!blank) onTyping(true);
     else if (!wasBlank.current) onTyping(false);
     wasBlank.current = blank;
-    keepDraft(roomId, blank ? null : editor.current!.value());
+    keepDraft(key, blank ? null : editor.current!.value());
   };
 
   // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends
@@ -146,11 +152,12 @@ export function Composer({ roomId, roomName, typing, disabled, deferEditor = fal
     const written = editor.current;
     if (!written || disabled) return;
     if (!written.isBlank()) {
-      onSend(written.value());
+      // One the room won't take, as when it's too long, stays to be cut down.
+      if (!onSend(written.value())) return;
       // Everyone else stops showing you as typing when your message arrives.
       wasBlank.current = true;
       written.setValue("");
-      keepDraft(roomId, null);
+      keepDraft(key, null);
     }
     setToolbarOpen(false);
     written.focus();

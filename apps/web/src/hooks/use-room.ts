@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
-import { CloseCode, HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, parseServerFrame, type ClientFrame, type Me, type Message, type User } from "@ember/protocol";
+import {
+  CloseCode,
+  HISTORY_PAGE_SIZE,
+  isMessageTooLong,
+  MAX_CHECKED_MESSAGES,
+  MAX_MESSAGE_HTML_LENGTH,
+  MESSAGE_TOO_LONG,
+  parseServerFrame,
+  type ClientFrame,
+  type Me,
+  type Message,
+  type User,
+} from "@ember/protocol";
 import { plainText } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
@@ -13,6 +25,12 @@ const TYPING_THROTTLE_MS = 1_000;
 
 /** Whom a message being sent mentions, until the room says: the composer can't write a mention yet. */
 const NO_ONE = () => undefined;
+
+/**
+ * Whether the room would refuse `body`, whose plain text is `text`, as too long: more text than it
+ * takes, or more markup than a frame carries, which only so much formatting makes.
+ */
+const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body.length > MAX_MESSAGE_HTML_LENGTH;
 
 /**
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
@@ -132,9 +150,17 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   }, [roomId]);
 
   const send = useCallback((frame: ClientFrame) => socket.current?.send(frame) ?? false, []);
+  // Says why something written didn't go, as the room says why it refused something.
+  const warn = useCallback((message: string) => dispatch({ type: "frame", frame: { type: "error", message }, now: Date.now() }), []);
 
+  // Answers whether the message went. One longer than the room takes doesn't, and stays where it was written.
   const postMessage = useCallback(
     (body: string) => {
+      const text = plainText(body, NO_ONE);
+      if (isTooLong(body, text)) {
+        warn(MESSAGE_TOO_LONG);
+        return false;
+      }
       const clientMessageId = crypto.randomUUID();
       const now = new Date().toISOString();
       const message: PendingMessage = {
@@ -143,7 +169,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         roomId,
         creator: me,
         body,
-        plainText: plainText(body, NO_ONE),
+        plainText: text,
         mentions: [],
         createdAt: now,
         updatedAt: now,
@@ -155,8 +181,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       // once the page is offline.
       if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;
       dispatch({ type: "pending", message });
+      return true;
     },
-    [me, roomId, send],
+    [me, roomId, send, warn],
   );
 
   // Starting is throttled, and stopping isn't, as in ember-rust: a start within a second of the last
@@ -183,16 +210,21 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     // Unlike new messages, these aren't kept to send later, so say when one couldn't go.
     const sendOrWarn = (frame: ClientFrame) => {
       const sent = send(frame);
-      if (!sent) dispatch({ type: "frame", frame: { type: "error", message: "Not connected. Try again once you're reconnected." }, now: Date.now() });
+      if (!sent) warn("Not connected. Try again once you're reconnected.");
       return sent;
     };
     return {
-      edit: (messageId: string, body: string) => sendOrWarn({ type: "message.update", messageId, body }),
+      // An edit longer than the room takes isn't sent either, so its editor keeps it.
+      edit: (messageId: string, body: string) => {
+        if (!isTooLong(body, plainText(body, NO_ONE))) return sendOrWarn({ type: "message.update", messageId, body });
+        warn(MESSAGE_TOO_LONG);
+        return false;
+      },
       remove: (messageId: string) => void sendOrWarn({ type: "message.delete", messageId }),
       boost: (messageId: string, content: string) => void sendOrWarn({ type: "boost.create", messageId, content }),
       unboost: (boostId: string) => void sendOrWarn({ type: "boost.delete", boostId }),
     };
-  }, [send]);
+  }, [send, warn]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
