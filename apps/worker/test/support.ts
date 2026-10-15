@@ -1,4 +1,5 @@
 import {
+  ROOM_PROTOCOL,
   roomSocketQuery,
   type ClientFrame,
   type Me,
@@ -88,7 +89,7 @@ export interface Access {
 
 /** A room socket's upgrade as the Worker sends it on to the room, once the Workspace has let it through. */
 export const forwardUpgrade = (room: RoomId, { user, sessionId, authorizedAt }: Access) =>
-  roomStub(room).fetch(`https://room/${room}`, {
+  roomStub(room).fetch(`https://room/${room}?protocol=${ROOM_PROTOCOL}`, {
     headers: { Upgrade: "websocket", [USER_HEADER]: JSON.stringify(user), [ROOM_HEADER]: room, [SESSION_HEADER]: sessionId, [AUTHORIZED_AT_HEADER]: String(authorizedAt) },
   });
 
@@ -141,11 +142,13 @@ export type Client = Awaited<ReturnType<typeof connect>>;
 
 /**
  * Opens a room socket as `name` (or in an existing session) and queues every frame it receives. Its
- * address says whether its tab is shown only when `params` does.
+ * address names the room protocol's revision, as the app's do, and says whether its tab is shown only
+ * when `params` does. An `outdated` tab's names nothing, as the app's did before rich text.
  */
-export async function connect(room: string, as: string | Session, params?: RoomSocketParams) {
+export async function connect(room: string, as: string | Session, params?: RoomSocketParams | "outdated") {
   const session = typeof as === "string" ? await signIn(as) : as;
-  const response = await api(`/api/rooms/${room}/socket${params ? roomSocketQuery(params) : ""}`, upgrade(session.cookie));
+  const query = params === "outdated" ? "" : params ? roomSocketQuery(params) : `?protocol=${ROOM_PROTOCOL}`;
+  const response = await api(`/api/rooms/${room}/socket${query}`, upgrade(session.cookie));
   const ws = response.webSocket;
   if (!ws) throw new Error(`No socket: ${response.status} ${await response.text()}`);
   ws.accept();

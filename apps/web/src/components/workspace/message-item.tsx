@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
-import { bodyFromPlainText, displayBody, isAllEmoji } from "@ember/richtext/dom";
+import { bodyFromPlainText, displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { Trash } from "@/components/icons/campfire";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
@@ -33,11 +33,36 @@ interface Props {
   actions: MessageActions | null;
 }
 
+/** What a stored body shows, or null when it can't be shown. */
+function shownBody(body: string): DisplayNode[] | null {
+  try {
+    return displayBody(body);
+  } catch (error) {
+    console.error("Could not show a message", error);
+    return null;
+  }
+}
+
+/**
+ * ember-rust's messages/_unrenderable.html, in place of a message whose text can't be shown, with no
+ * author, time, actions or reactions. As `.message--failed.center` does, it centers the message,
+ * whose avatar's column stays empty, and fades it, and the text wiggles in a dashed red outline.
+ */
+function UnrenderableMessage() {
+  return (
+    <article className="mx-auto grid w-fit grid-cols-[36px_minmax(0,1fr)] gap-x-2 px-5 pt-2 opacity-50 max-md:grid-cols-[30px_minmax(0,1fr)] max-md:gap-x-2.5 max-md:px-3">
+      <p className="col-start-2 animate-wiggle py-1 text-center text-sm leading-normal text-message-ink outline outline-dashed outline-negative motion-reduce:animate-none">
+        Failed to load message content
+      </p>
+    </article>
+  );
+}
+
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
 export const MessageItem = memo(function MessageItem({ message, me, threaded, actions }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.body);
+  const [draft, setDraft] = useState(message.plainText);
   const [timeline, setTimeline] = useState<Element | null>(null);
   const article = useRef<HTMLElement>(null);
   const options = useRef<HTMLButtonElement>(null);
@@ -49,17 +74,17 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const pending = isPending(message);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
-  const mentioned = !mine && mentions(message.body, me.name);
-  // Messages are still plain text, which shows as the paragraph Lexxy would have sent for it.
-  const shown = useMemo(() => displayBody(bodyFromPlainText(message.body)), [message.body]);
-  const allEmoji = isAllEmoji(message.body);
+  const mentioned = !mine && mentions(message.plainText, me.name);
+  const shown = useMemo(() => shownBody(message.body), [message.body]);
+  const allEmoji = isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
-  const edited = message.updatedAt !== message.createdAt && <span className="text-xs text-message-muted">(edited)</span>;
+  const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
   const saveEdit = () => {
-    const body = draft.trim();
-    // An edit that couldn't be sent keeps the editor open, so the draft isn't lost.
-    if (body && body !== message.body && !actions?.edit(message.id, body)) return;
+    const text = draft.trim();
+    // Until the editor is Lexxy, it edits the plain text, which it sends as Lexxy would. An edit that
+    // couldn't be sent keeps the editor open, so the draft isn't lost.
+    if (text && text !== message.plainText && !actions?.edit(message.id, bodyFromPlainText(text))) return;
     setEditing(false);
   };
 
@@ -190,7 +215,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             className={actionButton}
             onClick={() => {
               setMenuOpen(false);
-              setDraft(message.body);
+              setDraft(message.plainText);
               setEditing(true);
             }}
           >
@@ -203,6 +228,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
       )}
     </div>
   );
+
+  if (shown === null) return <UnrenderableMessage />;
 
   return (
     <article

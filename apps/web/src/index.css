@@ -127,8 +127,9 @@
 @theme {
   --breakpoint-md: 56.3125rem;
 
-  /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, and a flash fades away. */
+  /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, a message that can't be shown wiggles, and a flash fades away. */
   --animate-shake: shake 400ms both;
+  --animate-wiggle: wiggle 400ms both;
   --animate-flash: appear-then-fade 3s 300ms both;
   /* Without motion, a flash shows at once and stays until the fade would have ended, when it goes. */
   --animate-flash-still: stay 3.3s;
@@ -148,6 +149,17 @@
     }
     75% {
       transform: translateX(1rem);
+    }
+  }
+
+  @keyframes wiggle {
+    20%,
+    60% {
+      transform: rotate(3deg);
+    }
+    40%,
+    80% {
+      transform: rotate(-3deg);
     }
   }
 

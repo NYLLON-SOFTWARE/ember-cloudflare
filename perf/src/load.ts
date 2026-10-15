@@ -18,8 +18,11 @@ const BODIES = [
   "Can someone review the onboarding copy before lunch? It's the last thing blocking the release notes.",
 ];
 
-/** A chat-sized message body. */
-export const messageBody = (i: number) => `${BODIES[i % BODIES.length]} (#${i})`;
+/** A chat-sized message's text. */
+export const messageText = (i: number) => `${BODIES[i % BODIES.length]} (#${i})`;
+
+/** A chat-sized message body: its text in a paragraph, as the composer sends it. */
+export const messageBody = (i: number) => `<p>${messageText(i)}</p>`;
 
 /**
  * Signs in `count` users and joins them to `room`, `concurrency` at a time. If a join fails, no new

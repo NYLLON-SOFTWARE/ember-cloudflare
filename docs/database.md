@@ -95,7 +95,7 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **Catching up after a reconnect:** an index on `(room_id, updated_at)`, and boosts that touch their
   message's `updated_at`, so a client asks for what changed since it left
   ([`57a44a9`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/57a44a9)). Our "(edited)" label
-  reads `updated_at`, so it would need its own edit time first.
+  reads `edited_at`, so a boost can touch `updated_at` without marking its message edited.
 - **Names from the users table.** People have their own table now, but we still copy the sender's
   name into each message and boost. That's fine while names can't change, but renaming someone would
   leave the old name on their messages.
@@ -111,6 +111,19 @@ search index. On top of that schema it adds indexes and query changes for speed.
 
 ### Ours alone
 
+- **Bodies are stored as they show, with their plain text and whom they mention.** ember-rust keeps
+  each body nearly as its sender wrote it, in `action_text_rich_texts`, and sanitizes it each time
+  it renders one (`crates/ember/src/controllers/presenters.rs`). Our clients render, so the room
+  sanitizes once, as a message is written or edited (`prepareBody` in `packages/richtext`):
+  `messages.body` holds the markup it shows, `plain_text` its plain text, which ember-rust writes
+  only to its search index, and `mentions` the ids of the people it mentions as a JSON array, so a
+  page of history is sent without parsing anything. A paragraph of plain text, which is what the
+  composer sends, is read without parsing it, in a few microseconds; parsing anything else costs a
+  write about 0.1 ms of CPU, and up to 1 ms in a room that has just started. A body that can't be
+  shown is refused rather than stored. `edited_at` is when
+  a message's text last changed. Room migration 0012 turned the plain-text bodies from before it into
+  the paragraph Lexxy sends for typed text, in SQL, and set `edited_at` from `updated_at` for the
+  messages already edited.
 - **Sessions keep a digest of their token.** ember-rust stores each session's token as it is and
   signs the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a
   leaked database or backup holds no live sessions; changing the secret still signs everyone out, as
@@ -169,7 +182,7 @@ search index. On top of that schema it adds indexes and query changes for speed.
   name and access. As in ember-rust, saving the icon a room already has leaves `updated_at` alone.
 - **Stars are rows of their own.** ember-rust keeps each person's starred rooms as a list in the
   account's settings (`ember_favorite_channels`, `crates/db/src/models/account.rs`) and rewrites the
-  settings to star or unstar one. Ours is a `favorites` row for each star (workspace migration 0012),
+  settings to star or unstar one. Ours is a `favorites` row for each star (workspace migration 0013),
   keyed by person and room, whose `position` orders them, so a star or unstar writes its row and
   bumps its person's `users.favorites_version`, in one batch. That version is how a tab keeps the
   newer of two lists of their stars, which can reach it in either order. As in ember-rust, a star

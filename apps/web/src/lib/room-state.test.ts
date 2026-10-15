@@ -12,8 +12,11 @@ const message = (overrides: Partial<Message> = {}): Message => ({
   roomId: "general",
   creator: ada,
   body: "hi",
+  plainText: "hi",
+  mentions: [],
   createdAt: "2026-10-12T10:00:00.000Z",
   updatedAt: "2026-10-12T10:00:00.000Z",
+  editedAt: null,
   boosts: [],
   ...overrides,
 });

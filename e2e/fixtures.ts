@@ -1,5 +1,6 @@
 import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
-import type { ClientFrame, Invitation, Message, ServerFrame, Sidebar, User } from "@ember/protocol";
+import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User } from "@ember/protocol";
+import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
 // that the config's webServer runs; nothing here mocks the backend except the room list.
@@ -118,7 +119,7 @@ export class Participant {
   }
 
   static async join(baseURL: string, session: Session, roomId: string): Promise<Participant> {
-    const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, baseURL);
+    const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket${roomSocketQuery({ visible: true })}`, baseURL);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     // The room only takes upgrades from the app's own pages, with a session cookie.
     const headers = { Cookie: cookieHeader(session), Origin: new URL(baseURL).origin };
@@ -127,11 +128,11 @@ export class Participant {
     return participant;
   }
 
-  /** Posts a message and resolves once the room has stored it. */
-  async say(body: string): Promise<Message> {
+  /** Posts a message, sending its text as the composer does, and resolves once the room has stored it. */
+  async say(text: string): Promise<Message> {
     const clientMessageId = crypto.randomUUID();
     const created = this.next((frame) => frame.type === "message.created" && frame.message.clientMessageId === clientMessageId);
-    this.send({ type: "message.create", clientMessageId, body });
+    this.send({ type: "message.create", clientMessageId, body: bodyFromPlainText(text) });
     const frame = await created;
     return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
   }
