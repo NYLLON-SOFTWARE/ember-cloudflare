@@ -258,10 +258,25 @@ test.describe(feature("ui.mobile-drawer"), () => {
 
 test.describe(feature("ui.accessibility"), () => {
   test("starts Tab at Skip to main content, shown under the header's start, which focuses the main content", async ({ members, rooms }) => {
-    const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
+    // The composer takes focus as its editor's code arrives, unless you've moved it, so Tab would start there
+    // when the code came first. Holding the code until Tab has moved focus keeps that from racing the test.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const ada = await members.signIn("Ada", {
+      context: { viewport: { width: 1280, height: 800 } },
+      beforeOpen: async (page) => {
+        await page.route(/\/assets\/rich-text-editor-[^/]+\.js$/, async (route) => {
+          await held;
+          await route.continue();
+        });
+      },
+    });
     const skip = ada.page.getByRole("link", { name: "Skip to main content" });
     expect((await box(skip)).width).toBeLessThanOrEqual(1);
     await ada.page.keyboard.press("Tab");
+    await expect(skip).toBeFocused();
+    release();
+    await expect(ada.composer()).toBeVisible();
     await expect(skip).toBeFocused();
     expect(await box(skip)).toMatchObject({ y: 64 });
     await expect(skip).toBeInViewport({ ratio: 1 });
