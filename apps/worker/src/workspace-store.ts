@@ -5,6 +5,7 @@ import {
   type Favorites,
   type HelpContact,
   type PersonRole,
+  type Profile,
   type Role,
   type Room,
   type RoomChanges,
@@ -84,6 +85,16 @@ export interface DirectoryEntry extends User {
   role: Role;
   status: UserStatus;
   updatedAt: string;
+}
+
+/** Someone as the people directory lists them, with their email address, which their profile shows too. */
+export interface ProfileEntry extends DirectoryEntry {
+  emailAddress: string | null;
+}
+
+/** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
+export interface ProfileChange extends Profile {
+  passwordDigest: string | null;
 }
 
 /** What someone's avatar is drawn from. */
@@ -367,6 +378,13 @@ const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users
 
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
+
+/** Someone as the directory lists them, with their email address, whatever their status. */
+const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
+
+/** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
+const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, password_digest = coalesce(?, password_digest), updated_at = ?
+  WHERE id = ?`;
 
 /** The same, with whether each is in a room, for its settings. */
 export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.user_id IS NOT NULL AS member
@@ -779,6 +797,17 @@ export class WorkspaceStore {
   /** Gives someone `role`, recording when. */
   async changeRole(userId: UserId, role: PersonRole, now: string): Promise<void> {
     await this.db.run(CHANGE_ROLE, ROLES.indexOf(role), now, userId);
+  }
+
+  /** Someone with their email address, whatever their status, or null if nobody has id `userId`. */
+  async personWithProfile(userId: UserId): Promise<ProfileEntry | null> {
+    const [row] = await this.db.all<DirectoryRow & { email_address: string | null }>(PERSON_WITH_PROFILE, userId);
+    return row ? { ...directoryEntry(row), emailAddress: row.email_address } : null;
+  }
+
+  /** Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. */
+  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string): Promise<void> {
+    await this.db.run(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
   }
 
   /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */

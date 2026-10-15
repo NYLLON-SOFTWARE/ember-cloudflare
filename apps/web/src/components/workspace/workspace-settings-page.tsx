@@ -15,6 +15,7 @@ import { useTitle } from "@/hooks/use-title";
 import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { InviteLink } from "./invite-link";
+import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
@@ -173,11 +174,7 @@ export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoin
 
   // ember-rust's top bar links to Chat bots too, which isn't built yet.
   const links = settings?.canAdminister && (
-    <PageLink
-      href={CUSTOM_STYLES_PATH}
-      // 44px tall for fingers, which ember-rust's isn't once it shows its text, as on a phone in landscape.
-      className="inline-flex items-center justify-center gap-[0.5em] rounded-lg border border-transparent px-[1.1em] py-[0.5em] font-medium hover:bg-hover touch:min-h-11 max-[500px]:size-11 max-[500px]:p-0"
-    >
+    <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
       <Art width={20} height={20} className="h-5 w-[1.3em]" />
       {/* zz-ember.css leaves only the icon on screen at 500px wide and below. */}
       <span className="max-[500px]:sr-only">Custom styles</span>

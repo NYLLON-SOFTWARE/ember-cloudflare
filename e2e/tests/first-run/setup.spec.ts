@@ -36,7 +36,7 @@ test.describe(feature("auth.first-run"), () => {
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
     // Setup made the rooms general and random, and nothing else.
     const rooms = page.getByRole("region", { name: "Rooms" }).getByRole("link");
     await expect(rooms).toHaveCount(2);

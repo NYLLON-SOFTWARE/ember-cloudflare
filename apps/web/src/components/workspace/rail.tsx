@@ -1,10 +1,8 @@
 import type { ComponentType } from "react";
 import type { Me } from "@ember/protocol";
-import { Logout } from "@/components/icons/campfire";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { leave, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { UserAvatar } from "./user-avatar";
@@ -74,10 +72,10 @@ function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
 
 /**
  * The page shown, whose links the rail marks as ember-rust's shell.js does: every link to the page's
- * own path (the logo and Home at home, Admin or Workspace on workspace settings), and Home on a room's page,
- * but none while Activity is on.
+ * own path (the logo and Home at home, Admin or Workspace on workspace settings, your avatar on your
+ * profile), and Home on a room's page, but none while Activity is on.
  */
-export type RailPage = "home" | "room" | "workspace" | null;
+export type RailPage = "home" | "room" | "workspace" | "profile" | null;
 
 interface Props {
   me: Me;
@@ -85,11 +83,10 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
-  onSignOut: () => Promise<boolean>;
 }
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
-export function Rail({ me, workspaceName, current, activity, onSignOut }: Props) {
+export function Rail({ me, workspaceName, current, activity }: Props) {
   const marked = activity.on ? null : current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
@@ -113,19 +110,16 @@ export function Rail({ me, workspaceName, current, activity, onSignOut }: Props)
       <hr className="my-1 w-8 border-t" />
       <RailLink icon={Settings} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
       <AppearanceMenu />
-      <DropdownMenu>
-        <DropdownMenuTrigger aria-label="Your profile" title={me.name} className="shrink-0 rounded-full touch:p-1">
-          <UserAvatar user={me} />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="right" align="end" sideOffset={8} className="w-48 rounded-xl p-2">
-          <DropdownMenuLabel className="truncate">{me.name}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {/* A form with unsaved changes asks first, as ember-rust's settings.js asks before another form is sent. */}
-          <DropdownMenuItem onSelect={() => leave(onSignOut)}>
-            <Logout className="size-[18px]" /> Log out
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* ember-rust's `.mb-rail__profile`: your avatar, at 36px, links to your profile, where you log out. */}
+      <PageLink
+        href={PROFILE_PATH}
+        aria-label="Your profile"
+        title={me.name}
+        aria-current={marked === "profile" ? "page" : undefined}
+        className="flex shrink-0 rounded-full touch:p-1"
+      >
+        <UserAvatar user={me} />
+      </PageLink>
     </nav>
   );
 }

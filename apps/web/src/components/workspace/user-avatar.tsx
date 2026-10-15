@@ -37,9 +37,11 @@ interface Props {
  * ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and presence use circles.
  */
 export function UserAvatar({ user, className, square = false, lazy = false }: Props) {
-  const served = useContext(PeopleContext).get(user.id)?.avatarUrl;
+  const listed = useContext(PeopleContext).get(user.id);
+  const served = listed?.avatarUrl;
   const [failed, setFailed] = useState<string | null>(null);
-  const placeholder = drawn(user);
+  // The initials of the name they have now, which may be newer than the one copied into `user`.
+  const placeholder = drawn(listed ?? user);
   return (
     <img
       src={served && served !== failed ? served : placeholder}

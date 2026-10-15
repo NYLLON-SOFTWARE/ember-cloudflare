@@ -30,6 +30,12 @@ describe(feature("users.avatars"), () => {
     expect(picture(<UserAvatar user={ada} />, new Map()).image).toHaveAttribute("src", drawn);
   });
 
+  it("draws the initials of the name the directory lists, which follows a rename since the user was copied", () => {
+    const renamed = { ...ada, name: "Grace Hopper" };
+    const { image } = picture(<UserAvatar user={ada} />, new Map([[ada.id, renamed]]));
+    expect(image.style.backgroundImage).toBe(`url("data:image/svg+xml;base64,${btoa(avatarSvg(ada.id, "Grace Hopper"))}")`);
+  });
+
   it("goes back to the initials when the image can't load, until the directory gives another", () => {
     const { image, rerender } = picture(<UserAvatar user={ada} />);
     fireEvent.error(image);

@@ -27,6 +27,13 @@ describe(feature("platform.error-pages"), () => {
   });
 
   it("goes home for now from the pages the app links to before it has them", () => {
-    for (const path of ["/users/me/profile", "/rooms/directs/new", "/rooms/directs/ada-grace/edit"]) expect(workspacePageOf(path), path).toEqual({ page: "home" });
+    for (const path of ["/rooms/directs/new", "/rooms/directs/ada-grace/edit"]) expect(workspacePageOf(path), path).toEqual({ page: "home" });
+  });
+});
+
+describe(feature("users.profile"), () => {
+  it("shows your profile at anyone's profile address, as ember-rust ignores whose it names", () => {
+    for (const path of ["/users/me/profile", "/users/01J9Z3/profile"]) expect(workspacePageOf(path), path).toEqual({ page: "profile" });
+    for (const path of ["/users/profile", "/users/me/profile/", "/users/me/profile/edit"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });

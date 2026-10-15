@@ -11,6 +11,7 @@ import {
   roomPath,
   roomSettingsPath,
   routeOf,
+  useBackPath,
   useJoinRoute,
   useRoute,
   type LeaveGuard,
@@ -117,6 +118,44 @@ describe(feature("rooms.settings-page"), () => {
 describe(feature("accounts.settings-page"), () => {
   it("has workspace settings at /account/edit", () => {
     expect(routeOf("/account/edit")).toEqual({ page: "workspace-settings" });
+  });
+});
+
+describe(feature("users.profile"), () => {
+  it("has your profile at /users/me/profile", () => {
+    expect(routeOf("/users/me/profile")).toEqual({ page: "profile" });
+  });
+
+  it("goes back to the page another was opened from, as ember-rust's `link_back` goes to the referrer", async () => {
+    history.replaceState(null, "", "/rooms/general");
+    const { result } = renderHook(() => useBackPath());
+    act(() => navigate("/users/me/profile"));
+    expect(result.current).toBe("/rooms/general");
+    act(() => navigate("/account/edit"));
+    expect(result.current).toBe("/users/me/profile");
+
+    // Back and Forward find where each page was opened from, as a browser keeps a page's referrer.
+    act(() => history.back());
+    await waitFor(() => expect(location.pathname).toBe("/users/me/profile"));
+    expect(result.current).toBe("/rooms/general");
+    act(() => history.forward());
+    await waitFor(() => expect(result.current).toBe("/users/me/profile"));
+  });
+
+  it("goes back to where a page that took another's place was opened from, as a redirect keeps the referrer", () => {
+    history.replaceState(null, "", "/account/edit");
+    const { result } = renderHook(() => useBackPath());
+    act(() => navigate("/"));
+    act(() => navigate("/rooms/general", { replace: true }));
+    expect(result.current).toBe("/account/edit");
+  });
+
+  it("goes home from a page the app didn't open, or one opened from itself", () => {
+    history.replaceState(null, "", "/users/me/profile");
+    const { result } = renderHook(() => useBackPath());
+    expect(result.current).toBe("/");
+    act(() => history.replaceState({ position: 0, from: "/users/me/profile" }, "", "/users/me/profile"));
+    expect(renderHook(() => useBackPath()).result.current).toBe("/");
   });
 });
 

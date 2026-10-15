@@ -15,6 +15,9 @@ import {
   type NewWorkspace,
   type PasswordSignIn,
   type PersonRole,
+  type Profile,
+  type ProfileAnswer,
+  type ProfileChanges,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -96,6 +99,19 @@ export async function signOut(): Promise<void> {
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
 export async function fetchMe(): Promise<Me> {
   return (await request<{ user: Me }>("/api/me")).user;
+}
+
+/** Your profile: your name, email address and bio, for the profile page. */
+export async function fetchProfile(): Promise<Profile> {
+  return (await request<ProfileAnswer>("/api/users/me/profile")).profile;
+}
+
+/**
+ * Changes your profile, answering it as it is then. A blank password keeps the one you have. Fails with
+ * a 422 ApiError for an email address someone else has.
+ */
+export async function changeProfile(changes: ProfileChanges): Promise<Profile> {
+  return (await request<ProfileAnswer>("/api/users/me/profile", { method: "PATCH", body: JSON.stringify(changes) })).profile;
 }
 
 /** Workspace settings: the workspace, its join code, and whether this person can change it. */

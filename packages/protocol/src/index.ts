@@ -6,7 +6,7 @@ import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
-export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
+export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -182,6 +182,31 @@ export interface RoleChange {
 /** What `PATCH /api/account/users/<id>` answers: the person as the people directory now lists them. */
 export interface ChangedPerson {
   user: DirectoryUser;
+}
+
+/** You, as your profile shows you. */
+export interface Profile {
+  name: string;
+  /** Null for someone who signed in with just a name, or who took theirs out. */
+  emailAddress: string | null;
+  /** What you say about yourself, or null when you haven't said. */
+  bio: string | null;
+}
+
+/** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
+export interface ProfileAnswer {
+  profile: Profile;
+}
+
+/**
+ * What `PATCH /api/users/me/profile` changes, as the profile's form saves it. What's left out stays as
+ * it is, and so does the password when it's blank.
+ */
+export interface ProfileChanges {
+  name?: string;
+  emailAddress?: string;
+  password?: string;
+  bio?: string;
 }
 
 /** Whom the sign-in page offers to email for help: the workspace's first administrator. */
@@ -442,6 +467,8 @@ export const MAX_CUSTOM_STYLES_LENGTH = 100_000;
 export const MAX_LISTED_USERS = 1_000;
 /** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
 export const MAX_FAVORITES = 4_096;
+/** The profile's Bio field's `maxlength` (users/profiles/show.html), which the server keeps too. */
+export const MAX_BIO_LENGTH = 200;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -650,6 +677,27 @@ export function parseCustomStyles(data: unknown): Partial<CustomStyles> | string
 export function parseRoleChange(data: unknown): RoleChange | null {
   if (typeof data !== "object" || data === null || Array.isArray(data) || !("role" in data)) return null;
   return { role: data.role === "administrator" ? "administrator" : "member" };
+}
+
+const PROFILE_FIELDS = { name: "Name", emailAddress: "Email address", password: "Password", bio: "Bio" } as const satisfies Record<keyof ProfileChanges, string>;
+
+/**
+ * Parses an untrusted change to your profile. Returns why it's refused instead. As in ember-rust
+ * (profiles.rs), each field is saved as typed, even a blank name. The server keeps the form's limits
+ * too: a password sign-in can take, and a 200-character bio.
+ */
+export function parseProfileChanges(data: unknown): ProfileChanges | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const changes: ProfileChanges = {};
+  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [keyof ProfileChanges, string][]) {
+    const value = data[field];
+    if (value === undefined) continue;
+    if (typeof value !== "string") return `${label} must be text`;
+    changes[field] = value;
+  }
+  if (changes.password !== undefined && isPasswordTooLong(changes.password)) return PASSWORD_TOO_LONG;
+  if (changes.bio !== undefined && changes.bio.length > MAX_BIO_LENGTH) return `Bio must be at most ${MAX_BIO_LENGTH} characters`;
+  return changes;
 }
 
 /**
