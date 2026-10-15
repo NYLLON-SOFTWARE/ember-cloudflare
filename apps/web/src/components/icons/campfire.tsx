@@ -6,6 +6,7 @@ import arrowDown from "./campfire/arrow-down.svg";
 import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
 import art from "./campfire/art.svg";
+import boost from "./campfire/boost.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
 import copyPaste from "./campfire/copy-paste.svg";
@@ -19,6 +20,7 @@ import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
 import messagesAdd from "./campfire/messages-add.svg";
 import messagesEmpty from "./campfire/messages-empty.svg";
 import messagesOutlined from "./campfire/messages-outlined.svg";
+import minus from "./campfire/minus.svg";
 import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
 import refresh from "./campfire/refresh.svg";
@@ -72,6 +74,10 @@ export function Art(props: CampfireIconProps) {
   return <CampfireIcon src={art} {...props} />;
 }
 
+export function Boost(props: CampfireIconProps) {
+  return <CampfireIcon src={boost} {...props} />;
+}
+
 export function Cancel(props: CampfireIconProps) {
   return <CampfireIcon src={cancel} {...props} />;
 }
@@ -122,6 +128,10 @@ export function MessagesEmpty(props: CampfireIconProps) {
 
 export function MessagesOutlined(props: CampfireIconProps) {
   return <CampfireIcon src={messagesOutlined} {...props} />;
+}
+
+export function Minus(props: CampfireIconProps) {
+  return <CampfireIcon src={minus} {...props} />;
 }
 
 export function PersonAdd(props: CampfireIconProps) {

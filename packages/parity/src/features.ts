@@ -1182,7 +1182,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it. Still to come: New boost and Add a boost (`boosts.add`), and Download and Share for files (`attachments.upload`).",
+    notes: "The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it, and a bar Add a boost opened opens beside Add a boost, as one Message options opened does beside it, where ember-rust's opens at Message options and can cover Add a boost. Still to come: Download and Share for files (`attachments.upload`).",
   },
   {
     id: "messages.reply",
@@ -1302,7 +1302,7 @@ export const features = [
     id: "boosts.add",
     title: "React to a message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Any member can react (\"boost\"), and the reaction appears for everyone at once. Reactions are listed oldest first, each its own pill with its booster's avatar (\"<name> boosted <content>\"), so one person can add the same reaction more than once.",
       "The bar's quick reactions are 👍 Thumbs up, 👏 Clapping and 👋 Waving hand; More reactions adds 💪 Muscle, ❤️ Red heart, 😂 Face with tears of joy, 🎉 Party popper, 🔥 Fire and New boost. Reacting closes the bar.",
@@ -1310,13 +1310,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/boosts.rs", "crates/views/templates/messages/_actions.html", "crates/views/src/messages.rs", "reference/app/controllers/messages/boosts_controller.rb"],
     upstreamTests: ["reference/test/controllers/messages/boosts_controller_test.rb", "reference/test/system/boosting_messages_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "Reactions are grouped by emoji with a count and the names of who reacted, and clicking someone else's adds yours, so each person can add each emoji once. There's no New boost in the tray and no Add a boost link.",
+    notes: "Unlike ember-rust, each person adds a reaction once: the room ignores one they've added already, so a second tap doesn't stack another. Add a boost is a button, since it opens the bar rather than going anywhere. Avatars don't link to people's pages until those are built (`users.avatar-links`).",
   },
   {
     id: "boosts.custom",
     title: "Custom reactions",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "New boost opens a small form, Custom reaction (\"Emoji or a short message\", \"Up to 16 characters.\"), with Add reaction and Cancel; Escape cancels. A reaction can't start with a space.",
       "The 16-character limit is the browser's; the server takes any length.",
@@ -1325,13 +1325,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/messages/boosts/new.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/system/boosting_messages_test.rb"],
-    notes: "The server takes custom reactions of up to 16 characters, but there's no form for them yet.",
+    notes: "Unlike ember-rust's, the server refuses reactions over 16 characters too, and trims spaces from their ends. Cancel is a button rather than a link. Adding a reaction, Cancel and Escape hand focus to Message options, where ember-rust's loses it with the form. The field and buttons take their phone sizes on every touch screen, where ember-rust's take them at 600px wide and below.",
   },
   {
     id: "boosts.remove",
     title: "Take back a reaction",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Only the person who reacted can remove a reaction (404 for anyone else, administrators included), and it disappears for everyone.",
       "Clicking your own reaction, or pressing Enter on it, reveals Delete this boost; other people's reactions do nothing. Only your own reactions take keyboard focus, described as \"Press enter to delete this boost\".",
@@ -1339,7 +1339,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/boosts.rs", "crates/views/templates/messages/boosts/_boost.html", "reference/app/javascript/controllers/boost_delete_controller.js"],
     upstreamTests: ["reference/test/controllers/messages/boosts_controller_test.rb", "reference/test/system/boosting_messages_test.rb"],
-    notes: "Clicking your reaction removes it straight away, without animating it out, and every reaction takes keyboard focus.",
+    notes: "The room refuses anyone else's removal with an error rather than a 404. Your reaction is a button, so Space reveals Delete this boost too, and \"Press enter to delete this boost\" only describes it rather than following it in the list. Deleting it hands focus to Message options, where ember-rust's loses it with the reaction, and if a dropped connection loses the deletion, the reaction comes back as the room catches up.",
   },
 
   // Mentions

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
+import { createContext, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
@@ -22,6 +22,12 @@ import { settledVisibility } from "@/lib/visibility";
 const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
+
+/**
+ * How many times the room has let the page in (`RoomState.connections`), for what shows a change as
+ * made before the room confirms it: once the page reconnects, the room may never have had it.
+ */
+export const RoomConnection = createContext(0);
 
 /** Whom a message being sent mentions, until the room says: the composer can't write a mention yet. */
 const NO_ONE = () => undefined;
@@ -231,8 +237,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         return false;
       },
       remove: (messageId: string) => sendOrWarn({ type: "message.delete", messageId }),
-      boost: (messageId: string, content: string) => void sendOrWarn({ type: "boost.create", messageId, content }),
-      unboost: (boostId: string) => void sendOrWarn({ type: "boost.delete", boostId }),
+      boost: (messageId: string, content: string) => sendOrWarn({ type: "boost.create", messageId, content }),
+      unboost: (boostId: string) => sendOrWarn({ type: "boost.delete", boostId }),
     };
   }, [send, warn]);
 

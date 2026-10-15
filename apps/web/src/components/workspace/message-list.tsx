@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
+import { RoomConnection } from "@/hooks/use-room";
 import { timeline } from "@/lib/messages";
 import type { RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
@@ -111,17 +112,19 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
           </div>
         )}
 
-        {items.map(({ message, daySeparator, threaded }) => (
-          // Stable from optimistic copy to stored message, and distinct across senders.
-          <div key={`${message.creator.id}:${message.clientMessageId}`}>
-            {daySeparator && (
-              <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
-                <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
-              </div>
-            )}
-            <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
-          </div>
-        ))}
+        <RoomConnection value={state.connections}>
+          {items.map(({ message, daySeparator, threaded }) => (
+            // Stable from optimistic copy to stored message, and distinct across senders.
+            <div key={`${message.creator.id}:${message.clientMessageId}`}>
+              {daySeparator && (
+                <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
+                  <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
+                </div>
+              )}
+              <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+            </div>
+          ))}
+        </RoomConnection>
       </div>
 
       {showLatest && (

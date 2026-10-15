@@ -1,5 +1,5 @@
 import { editorField, openRoom, signInAs } from "../../fixtures";
-import { expect, REACTION_CHIPS, test } from "./fixtures";
+import { expect, REACTION_PILLS, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -24,7 +24,7 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await expect(tray).toBeVisible();
   await screenIsFine();
   await tray.getByRole("button", { name: "Fire" }).tap();
-  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: /🔥/ })).toBeVisible();
+  await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
   // As in ember-rust, a reaction closes the bar, and focus goes back to Message options.
   await expect(actions).toBeHidden();
   await expect(options).toBeFocused();
@@ -34,7 +34,42 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button")).toHaveCount(2);
   await expect(actions).toBeHidden();
   await expect(options).toBeFocused();
-  await screenIsFine({ denseTargets: [REACTION_CHIPS] });
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+});
+
+// After ember-rust's "custom reactions use a spaced form with validation, cancel, and mobile layouts"
+// and "inline Add a boost opens the shared emoji tray" (parity/kro/workspace.test.mjs).
+test("Add a boost, New boost's form and Delete this boost fit the phone", async ({ page, room, participant, screenIsFine }) => {
+  const ada = await participant("Ada");
+  await ada.say("React to this in your own words");
+  await openRoom(page, room);
+
+  const message = page.getByRole("article").filter({ hasText: "React to this" });
+  const reactions = message.getByRole("list", { name: "Reactions" });
+  await message.getByRole("button", { name: "Message options" }).tap();
+  await page.getByRole("group", { name: "Message actions" }).getByRole("button", { name: "Thumbs up" }).tap();
+  await message.getByRole("button", { name: "Add a boost" }).tap();
+  const tray = page.getByRole("group", { name: "More reactions" });
+  await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+
+  // The form fits, and leaves the message its width.
+  await tray.getByRole("button", { name: "New boost" }).tap();
+  const field = message.getByRole("textbox", { name: "Custom reaction" });
+  await expect(field).toBeFocused();
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+  expect((await message.locator(".message-content").boundingBox())!.width).toBeGreaterThan(100);
+  await field.fill("Lovely!");
+  await message.getByRole("button", { name: "Add reaction" }).tap();
+  const mine = reactions.getByRole("button", { name: "Lovely!" });
+  await expect(mine).toBeVisible();
+
+  await mine.tap();
+  const remove = reactions.getByRole("button", { name: "Delete this boost" });
+  await expect(remove).toBeFocused();
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
+  await remove.tap();
+  await expect(mine).toHaveCount(0);
 });
 
 test("tapping Message options again closes the actions", async ({ page, room, participant }) => {

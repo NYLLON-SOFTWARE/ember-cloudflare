@@ -149,12 +149,12 @@ test.describe(feature("realtime.reconnect"), () => {
     await grace.page.getByRole("button", { name: "Delete message" }).click();
     await expect(grace.message("Gone soon")).toHaveCount(0);
     await (await grace.actions("React to me")).getByRole("button", { name: "Thumbs up" }).click();
-    await expect(grace.message("React to me").getByRole("list", { name: "Reactions" })).toContainText("👍1");
+    await expect(grace.message("React to me").getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();
 
     restore();
     await expect(ada.message("Typo here")).toContainText("(edited)", { timeout: 20_000 });
     await expect(ada.message("Gone soon")).toHaveCount(0);
-    await expect(ada.message("React to me").getByRole("list", { name: "Reactions" })).toContainText("👍1");
+    await expect(ada.message("React to me").getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();
     // The page named the latest change it had heard of, Grace's third message.
     expect(addresses.map((address) => address.searchParams.get("since"))).toEqual([null, "3"]);
   });

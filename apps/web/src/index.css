@@ -140,6 +140,8 @@
   /* And its `.btn--success` (buttons.css): a button that copied something pulses as its icon floats away. */
   --animate-success: success 1s ease-out;
   --animate-zoom-fade: zoom-fade 300ms ease-out;
+  /* And its `.boost--deleting` (boosts.css): a reaction you delete shrinks away. */
+  --animate-scale-fade-out: scale-fade-out 0.2s both;
 
   @keyframes shake {
     0% {
@@ -200,6 +202,17 @@
   @keyframes zoom-fade {
     100% {
       transform: translateY(-2em);
+      opacity: 0;
+    }
+  }
+
+  @keyframes scale-fade-out {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(0);
       opacity: 0;
     }
   }

@@ -126,6 +126,16 @@ describe(feature("realtime.reconnect"), () => {
     expect(state).toMatchObject({ status: "open", hasMore: true, present: [ada, grace], typing: {}, loadingOlder: false });
   });
 
+  it("counts the times the room lets the page in, so changes sent before the last can show as maybe lost", () => {
+    expect(initialRoomState.connections).toBe(0);
+    let state = loaded("m1");
+    expect(state.connections).toBe(1);
+    state = resumed(state, []);
+    expect(state.connections).toBe(2);
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 3 }, now: 0 });
+    expect(state.connections).toBe(3);
+  });
+
   it("leaves a changed message older than every one loaded for history to bring, and ignores ids it doesn't hold", () => {
     let state = loaded("m3", "m4");
     state = resumed(state, [message({ id: "m1", clientMessageId: "m1", body: "edited" }), message({ id: "m5", clientMessageId: "m5" })], ["m2", "gone-before-it-came"]);

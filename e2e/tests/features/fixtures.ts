@@ -67,8 +67,12 @@ export class Member {
     return editorField(this.page, "Edit message");
   }
 
-  /** Shows a message's action bar by hovering it, and returns the bar. */
+  /**
+   * Shows a message's action bar by hovering it, and returns the bar. It waits for the room to confirm a
+   * message just sent, which has no bar until then, so the pointer doesn't come to rest on it too soon.
+   */
   async actions(text: string): Promise<Locator> {
+    await expect(this.message(text)).not.toHaveAttribute("aria-busy");
     await this.message(text).hover();
     return this.message(text).getByRole("group", { name: "Message actions" });
   }
