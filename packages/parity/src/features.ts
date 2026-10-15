@@ -405,7 +405,7 @@ export const features = [
     id: "accounts.reset-password",
     title: "Reset a password from the server",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`ember reset-password <email>` reads exactly one password from stdin and refuses a terminal: \"Read the new password with a hidden prompt, then pipe it to ember reset-password; passwords are accepted only on stdin\".",
       "One trailing LF or CRLF is stripped and spaces are kept. Any other CR, LF or NUL gives \"provide exactly one password on stdin\", more than 4096 bytes \"password input exceeds 4096 bytes\", invalid UTF-8 \"password must be UTF-8\", and fewer than 8 characters \"password must contain at least 8 characters\".",
@@ -416,6 +416,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/admin.rs", "crates/ember/src/app.rs", "deploy/installer/emberctl.py"],
     upstreamTests: ["crates/ember/src/admin.rs", "deploy/installer/tests/test_installer.py"],
+    notes: "A Worker has no shell beside its data, so `POST /api/recovery/reset-password` does `ember reset-password`'s work behind a secret of its own, `EMBER_RECOVERY_TOKEN`, answering 404 while it's unset or to anything without it, and apps/worker/scripts/reset-password.ts does emberctl's: it prompts on a terminal as emberctl does, and otherwise reads stdin with `ember reset-password`'s rules and messages. Unlike ember-rust, the password must also fit sign-in's 72 characters (\"password must contain at most 72 characters\"), the person's live connections close at once, as emberctl's restart closes them, and a sign-in that checked the old password while it was reset starts no session. Pending migrations and a missing database have no counterpart: each Durable Object migrates itself as it opens, and D1 migrates at deploy.",
   },
 
   // People and profiles

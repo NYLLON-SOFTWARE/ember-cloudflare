@@ -461,11 +461,14 @@ export class Workspace extends DurableObject<Env> {
     return this.unfurls.attempt(user.id) ? "allowed" : "limited";
   }
 
-  /** Signs in someone whose password checked out, unless they've stopped being active since. */
-  async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
+  /**
+   * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
+   * active since, or their password has been reset while it was checked.
+   */
+  async startSession(userId: UserId, passwordDigest: string, tokenDigest: string, client: Client): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startSession(userId, passwordDigest, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -522,6 +525,35 @@ export class Workspace extends DurableObject<Env> {
       if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
       if (queued) await this.wakeAt(now);
     }
+  }
+
+  /**
+   * Gives whoever has exactly the email address `emailAddress` the password `passwordDigest` is the
+   * digest of, as ember-rust's `reset-password` does (admin.rs): "not found" if nobody has it, whatever
+   * their status, and "bot" for a bot, who never signs in with a password. Their role and status stay,
+   * a ban included. All their sessions end, and their sockets close and are told to reconnect: here at
+   * once, and in every room they're in through the outbox, where ember-rust's wait for a restart.
+   */
+  async resetPassword(emailAddress: string, passwordDigest: string): Promise<"reset" | "not found" | "bot"> {
+    return this.oneAtATime(async () => {
+      const person = await this.store.personWithEmailAddress(emailAddress);
+      if (!person) return "not found";
+      if (person.bot) return "bot";
+      const now = Date.now();
+      // As when signing out, until the database says it queued nothing.
+      let queued = true;
+      try {
+        queued = await this.sessions.change(
+          (session) => session.user.id === person.id,
+          () => this.store.resetPassword(person.id, passwordDigest, CloseCode.Reconnect, now, new Date(now).toISOString()),
+        );
+      } finally {
+        // Whether or not it saved: sockets whose sessions didn't end are let in again.
+        this.closeSockets(person.id, CloseCode.Reconnect);
+        if (queued) await this.wakeAt(now);
+      }
+      return "reset";
+    });
   }
 
   /**

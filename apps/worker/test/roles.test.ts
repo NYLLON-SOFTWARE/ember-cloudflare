@@ -74,6 +74,8 @@ describe(feature("accounts.roles"), () => {
   it("doesn't remember a sign-in that read someone's role before it changed", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
+    // As if she had a password, which the sign-in checked.
+    await workspaceSql("UPDATE users SET password_digest = ? WHERE id = ?", "checked", grace.user.id);
     const [ada, laptop] = await Promise.all(
       [administrator.cookie.split("=")[1]!, newSessionToken()].map((token) => credentialsFor(token, new Request(origin), env as unknown as Env)),
     );
@@ -92,7 +94,7 @@ describe(feature("accounts.roles"), () => {
         return session;
       });
 
-      const signingIn = workspace.startSession(grace.user.id, laptop!.tokenDigest, laptop!.client);
+      const signingIn = workspace.startSession(grace.user.id, "checked", laptop!.tokenDigest, laptop!.client);
       await reading;
       await workspace.changeRole(ada!, grace.user.id, "administrator");
       answer();

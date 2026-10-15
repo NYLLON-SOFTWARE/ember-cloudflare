@@ -1,5 +1,7 @@
 import { feature } from "@ember/parity";
+import { SIGN_IN_REFUSED } from "@ember/protocol";
 import { invitation, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { RECOVERY_TOKEN } from "../../projects/features";
 import { expect, test } from "./fixtures";
 
 // Renaming the workspace or regenerating its join link changes every other test's pages, so the
@@ -44,5 +46,36 @@ test.describe(feature("accounts.join-link"), () => {
     await expect(grace.page.getByRole("link", { name: "Show join link QR code" })).toBeVisible();
     await expect(grace.page.getByRole("button", { name: "Copy join link" })).toBeVisible();
     await expect(grace.page.getByRole("button", { name: "Regenerate join link" })).toHaveCount(0);
+  });
+});
+
+test.describe(feature("accounts.reset-password"), () => {
+  test("someone's open tab goes to sign in once their password is reset, where only the new one signs them in", async ({ page, request, session }) => {
+    await useOwnAddress(page);
+    await page.goto(`/join/${(await invitation(request, session)).joinCode}`);
+    const emailAddress = `grace-${crypto.randomUUID()}@example.com`;
+    await page.getByLabel("Name").fill("Grace Hopper");
+    await page.getByLabel("Email address").fill(emailAddress);
+    await page.getByLabel("Password").fill("compiler");
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+
+    // As apps/worker/scripts/reset-password.ts asks for it.
+    const reset = await request.post("/api/recovery/reset-password", {
+      headers: { Authorization: `Bearer ${RECOVERY_TOKEN}` },
+      data: { emailAddress, password: "correct horse" },
+    });
+    expect(reset.status()).toBe(200);
+    expect(await reset.json()).toEqual({ message: "Password updated; existing sessions and live connections for this user were revoked." });
+
+    // Without being loaded again.
+    await expect(page.getByRole("heading", { level: 1, name: "Sign in to Ember" })).toBeVisible();
+    await page.getByLabel("Email address").fill(emailAddress);
+    await page.getByLabel("Password").fill("compiler");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+    await page.getByLabel("Password").fill("correct horse");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
   });
 });

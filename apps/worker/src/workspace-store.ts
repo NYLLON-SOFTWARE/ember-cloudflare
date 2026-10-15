@@ -94,9 +94,12 @@ interface SessionRow {
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
-/** The same, for someone who signed in, unless they've stopped being active since. */
-const INSERT_SESSION_IF_ACTIVE = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE}`;
+/**
+ * The same, for someone who signed in, unless they've stopped being active since, or their password
+ * has been reset since it was checked.
+ */
+const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ?`;
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
@@ -191,6 +194,10 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
  */
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
   SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING id`;
+
+/** Queues closing someone's sockets in every room they're in, answering a row for each. Their person tag closes all their sockets there. */
+const QUEUE_PERSON_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE user_id = ? RETURNING id`;
 
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
@@ -500,10 +507,13 @@ export class WorkspaceStore {
     return row ? { userId: row.id, passwordDigest: row.password_digest } : null;
   }
 
-  /** Starts a session for someone who signed in, unless they've stopped being active since. */
-  async startSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+  /**
+   * Starts a session for someone who signed in with the password `passwordDigest` is the digest of,
+   * unless they've stopped being active since, or their password has been reset.
+   */
+  async startSession(userId: UserId, passwordDigest: string, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_SESSION_IF_ACTIVE, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId),
+      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -540,6 +550,30 @@ export class WorkspaceStore {
     const [queued] = await this.db.batch([
       statement(QUEUE_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, tokenDigest),
       statement(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /**
+   * Whoever has exactly the email address `emailAddress`, whatever their status, as ember-rust's
+   * `find_by_email_address` finds them (user.rs), and whether they're a bot.
+   */
+  async personWithEmailAddress(emailAddress: string): Promise<{ id: UserId; bot: boolean } | null> {
+    const [row] = await this.db.all<{ id: UserId; role: number }>(`SELECT id, role FROM users WHERE email_address = ?`, emailAddress);
+    return row ? { id: row.id, bot: ROLES[row.role] === "bot" } : null;
+  }
+
+  /**
+   * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
+   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs). In the
+   * same transaction it queues closing their sockets with `code` in every room they're in, due at
+   * `dueAt`. Answers whether it queued any.
+   */
+  async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      statement(QUEUE_PERSON_REVOCATIONS, code, dueAt, userId),
+      statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
+      statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
   }
