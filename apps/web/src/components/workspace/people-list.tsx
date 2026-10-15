@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
-import { Cancel, Crown, Pencil } from "@/components/icons/campfire";
+import { Cancel, Crown, Minus, Pencil } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import type { People } from "@/hooks/use-directory";
 import { PROFILE_PATH } from "@/hooks/use-route";
@@ -12,8 +12,11 @@ import { AvatarLink } from "./user-avatar";
 // ember-rust's people on workspace settings (accounts/edit.html, accounts/users/_user.html): everyone but
 // bots by name, administrators first, with a rule before the members when there are both, each avatar
 // linking to the person's page, and your own row to your profile. Administrators also see who's banned,
-// dimmed under Campfire's cancel mark (avatars.css), and a crown on each active person's row that makes
-// them an administrator or a member again.
+// dimmed under Campfire's cancel mark (avatars.css), and on each active person's row a crown that makes
+// them an administrator or a member again, and, but on their own, Delete, which removes them.
+
+/** What ember-rust's Delete asks before removing someone (accounts/users/_user.html). */
+export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
 
 interface Props {
   people: People;
@@ -21,6 +24,8 @@ interface Props {
   myId: UserId;
   /** Gives someone another role, settling once it has or failed. Only administrators have it, and the crowns. */
   onChangeRole?: (person: DirectoryUser, role: PersonRole) => Promise<void>;
+  /** Removes someone from the workspace, settling once it has or failed. Only administrators have it, and Delete. */
+  onRemove?: (person: DirectoryUser) => Promise<void>;
   /** The heading that names the list. */
   "aria-labelledby"?: string;
 }
@@ -31,11 +36,13 @@ function groupsOf(people: People, administrator: boolean): [DirectoryUser[], Dir
   return [listed.filter((person) => person.role === "administrator"), listed.filter((person) => person.role === "member")];
 }
 
-export function PeopleList({ people, myId, onChangeRole, "aria-labelledby": labelledBy }: Props) {
+export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelledby": labelledBy }: Props) {
   const administrator = onChangeRole !== undefined;
   const [administrators, members] = useMemo(() => groupsOf(people, administrator), [people, administrator]);
   // Roles on their way to the server, which their crowns show until it answers.
   const [changing, setChanging] = useState<ReadonlyMap<UserId, PersonRole>>(new Map());
+  // The people being removed, whose Delete waits for the server's answer.
+  const [removing, setRemoving] = useState<ReadonlySet<UserId>>(new Set());
 
   const changeRole = (person: DirectoryUser, role: PersonRole) => {
     setChanging((changing) => new Map(changing).set(person.id, role));
@@ -48,20 +55,34 @@ export function PeopleList({ people, myId, onChangeRole, "aria-labelledby": labe
     );
   };
 
+  const remove = (person: DirectoryUser) => {
+    if (!onRemove || !confirm(CONFIRM_REMOVE)) return;
+    setRemoving((removing) => new Set(removing).add(person.id));
+    void onRemove(person).finally(() =>
+      setRemoving((removing) => {
+        const next = new Set(removing);
+        next.delete(person.id);
+        return next;
+      }),
+    );
+  };
+
   const row = (person: DirectoryUser) => {
     const banned = person.status === "banned";
+    const mine = person.id === myId;
     const role = changing.get(person.id) ?? person.role;
     return (
       <ListRow key={person.id} figure={<Avatar person={person} banned={banned} />} name={person.name}>
         {onChangeRole && !banned && (
           <RoleCrown
             administrator={role === "administrator"}
-            mine={person.id === myId}
+            mine={mine}
             // A change on its way waits for the server's answer before another.
             onChange={(administrator) => !changing.has(person.id) && changeRole(person, administrator ? "administrator" : "member")}
           />
         )}
-        {person.id === myId && <MySettings />}
+        {onRemove && !banned && !mine && <RemoveButton name={person.name} removing={removing.has(person.id)} onClick={() => remove(person)} />}
+        {mine && <MySettings />}
       </ListRow>
     );
   };
@@ -96,6 +117,24 @@ function MySettings() {
       <Pencil className="size-[1.3em]" />
       <span className="sr-only">My settings</span>
     </PageLink>
+  );
+}
+
+/**
+ * ember-rust's Delete, a round `.btn.txt-small.btn--negative` with Campfire's minus, white on red, which
+ * darkens under a mouse (buttons.css, zz-ember.css), and waits while a removal is on its way.
+ */
+function RemoveButton({ name, removing, onClick }: { name: string; removing: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={removing}
+      onClick={onClick}
+      className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.8rem] touch:size-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50"
+    >
+      <Minus tone="white" className="size-[1.3em]" />
+      <span className="sr-only">Delete {name}</span>
+    </button>
   );
 }
 

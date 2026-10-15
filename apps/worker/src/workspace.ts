@@ -782,6 +782,48 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Removes the active person `userId` from the workspace as the person `credentials` signs in, as
+   * ember-rust's `accounts/users#destroy` does (`User#deactivate`, user.rs), answering them as the people
+   * directory then lists them: "forbidden" unless that's an administrator, "not found" unless `userId`
+   * is someone active, or null without a valid session. Unlike ember-rust, which leaves it to the page,
+   * nobody can remove themselves ("yourself"), so there's always an administrator. All their sessions
+   * end, and their sockets close for good: here at once, and in every room they're in through the
+   * outbox. Everyone's workspace sockets hear of it.
+   */
+  async removePerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | "yourself" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const person = await this.store.activePerson(userId);
+      if (!person) return "not found";
+      if (userId === user.id) return "yourself";
+
+      const now = Date.now();
+      const removedAt = new Date(now).toISOString();
+      const removed = await this.directoryUser({ ...person, status: "deactivated", updatedAt: removedAt });
+      // As when resetting a password, until the database says it queued nothing.
+      let queued = true;
+      this.helpContactChanges++;
+      try {
+        queued = await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.removePerson(userId, crypto.randomUUID(), CloseCode.Revoked, now, removedAt),
+        );
+      } finally {
+        this.helpContactChanges++;
+        // The first administrator, whose email address it may have changed.
+        this.knownHelpContact = undefined;
+        // Whether or not it saved: the app connects them again if they're still signed in.
+        this.closeSockets(userId, CloseCode.Revoked);
+        if (queued) await this.wakeAt(now);
+      }
+      this.broadcast({ type: "user.updated", user: removed });
+      return removed;
+    });
+  }
+
   /** Someone as the people directory lists them, with their avatar's address. */
   private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
     return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;

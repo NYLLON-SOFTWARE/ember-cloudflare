@@ -230,6 +230,22 @@ async function changeRole(request: Request, env: Env, userId: UserId): Promise<R
 }
 
 /**
+ * Removes someone from the workspace, as Delete on workspace settings does, answering them as the
+ * people directory then lists them. As in ember-rust, someone who isn't an administrator hears so
+ * first, then anyone who isn't active isn't found (accounts/users.rs). Unlike there, nobody can remove
+ * themselves.
+ */
+async function removePerson(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const person = credentials && (await workspace(env).removePerson(credentials, userId));
+  if (!person) return problem(401, "Not signed in");
+  if (person === "forbidden") return problem(403, "Only administrators can remove people");
+  if (person === "not found") return problem(404, "Not found");
+  if (person === "yourself") return problem(403, "Administrators can't remove themselves");
+  return json({ user: person } satisfies ChangedPerson);
+}
+
+/**
  * Your profile as its page shows it, with a new sign-in link for you, as each of ember-rust's profile
  * pages has (users/profiles/_transfer.html). No cache should keep it, since it holds your email address
  * and the link.
@@ -513,6 +529,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
+  if (person && request.method === "DELETE") return removePerson(request, env, person[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return mentionable(request, env);
