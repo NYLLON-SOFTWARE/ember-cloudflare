@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Me, type Message, type User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
@@ -10,7 +10,7 @@ import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { MessageBody } from "./message-body";
-import { MessageEditor } from "./message-editor";
+import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UserAvatar } from "./user-avatar";
 
 export interface MessageActions {
@@ -24,11 +24,14 @@ export interface MessageActions {
 
 /** Opens and closes messages' editors, which the room keeps, so that Up Arrow can open one too. */
 export interface MessageEditors {
+  /** Opens a message's editor, or focuses it where it's open already, keeping what's written in it. */
   open: (messageId: string) => void;
   /** Closes a message's editor, returning focus to the composer. */
   close: (messageId: string) => void;
   /** Returns focus to the composer from an editor, as a message deleted from its editor goes. */
   returnFocus: () => void;
+  /** Keeps a message's editor while it's open, for `open` to focus; called with null as it goes. */
+  attach: (messageId: string, editor: MessageEditorHandle | null) => void;
 }
 
 const actionButton = "flex size-8 items-center justify-center rounded-md text-message-muted hover:bg-hover touch:size-11 [&_svg]:size-4";
@@ -112,6 +115,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // "elsewhere" once a click outside it closes it.
   const moreReactions = useRef<"open" | "chosen" | "elsewhere" | null>(null);
   const touch = useMediaQuery("(hover: none)");
+  const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
   // The editor shows only while the message can still be changed.
   const editing = editorOpen && actions !== null && !pending;
@@ -285,6 +289,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
 
       {editing ? (
         <MessageEditor
+          ref={attachEditor}
           message={message}
           onSave={(body) => actions.edit(message.id, body)}
           onDelete={() => actions.remove(message.id) && editors.returnFocus()}

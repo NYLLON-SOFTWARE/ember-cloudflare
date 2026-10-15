@@ -9,6 +9,7 @@ import { hasTouchKeyboard } from "@/lib/keyboard";
 import { rememberLastRoom } from "@/lib/last-room";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import type { MessageEditorHandle } from "./message-editor";
 import type { MessageEditors } from "./message-item";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
@@ -47,18 +48,29 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
   const [editing, setEditing] = useState<ReadonlySet<string>>(() => new Set());
 
   const editors = useMemo<MessageEditors>(() => {
+    const open = new Map<string, MessageEditorHandle>();
     // As an editor closes, focus goes back to the composer, where ember-rust's is lost, except on touch
     // screens, where it would bring up the keyboard.
     const returnFocus = () => {
       if (!hasTouchKeyboard()) composer.current?.focus();
     };
     return {
-      open: (messageId) => setEditing((ids) => (ids.has(messageId) ? ids : new Set(ids).add(messageId))),
+      // Up Arrow returns to your newest message's editor if it's open, where ember-rust's finds no Edit
+      // button there to press, and does nothing.
+      open: (messageId) => {
+        const editor = open.get(messageId);
+        if (editor) editor.focus();
+        else setEditing((ids) => (ids.has(messageId) ? ids : new Set(ids).add(messageId)));
+      },
       close: (messageId) => {
         setEditing((ids) => new Set([...ids].filter((id) => id !== messageId)));
         returnFocus();
       },
       returnFocus,
+      attach: (messageId, editor) => {
+        if (editor) open.set(messageId, editor);
+        else open.delete(messageId);
+      },
     };
   }, []);
 

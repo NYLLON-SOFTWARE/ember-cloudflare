@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { Message } from "@ember/protocol";
 import { Check, Remove, Trash } from "@/components/icons/campfire";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -18,6 +18,12 @@ interface Props {
   onDelete: () => void;
   /** Closes the editor, discarding what's written in it. */
   onClose: () => void;
+  ref?: Ref<MessageEditorHandle>;
+}
+
+export interface MessageEditorHandle {
+  /** Focuses the text, keeping what's written in it. */
+  focus(): void;
 }
 
 /**
@@ -27,9 +33,11 @@ interface Props {
  * under it, beside a button that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a
  * new paragraph. Like ember-rust's, it takes no files and tells no one you're typing.
  */
-export function MessageEditor({ message, onSave, onDelete, onClose }: Props) {
+export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
 
   // ember-rust's scroll-into-view controller: once it's shown, the editor scrolls to the middle of the timeline.
   useEffect(() => {

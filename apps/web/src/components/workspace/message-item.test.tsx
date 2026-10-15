@@ -40,7 +40,7 @@ const boost = (id: string, booster: User, content: string): Boost => ({ id, mess
 function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
   const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
-  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn() };
+  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     setEditing = set;
@@ -214,8 +214,23 @@ describe(feature("messages.edit"), () => {
     expect(editors.close).not.toHaveBeenCalled();
   });
 
+  it("hands the room its open editor, to focus again with what's written as Up Arrow does, until it closes", async () => {
+    const { editors, user } = show(message());
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.type(await editBox(), " there");
+    expect(editors.attach).toHaveBeenLastCalledWith("m1", expect.anything());
+
+    act(() => (document.activeElement as HTMLElement).blur());
+    act(() => editors.attach.mock.lastCall![1].focus());
+    expect(await editBox()).toHaveFocus();
+    expect(await editBox()).toHaveValue("Hello there");
+
+    await user.keyboard("{Escape}");
+    expect(editors.attach).toHaveBeenLastCalledWith("m1", null);
+  });
+
   it("shows the message again, not its editor, once nothing can be done to it", () => {
-    const props = { message: message(), me: { ...ada, administrator: false }, threaded: false, editors: { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() } };
+    const props = { message: message(), me: { ...ada, administrator: false }, threaded: false, editors: { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() } };
     render(<MessageItem {...props} editing actions={null} />);
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(screen.getByText("Hello")).toBeInTheDocument();
@@ -348,7 +363,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("offers nothing where nothing can be done, as in a room that's gone", () => {
-    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() };
     render(<MessageItem message={message({ boosts: [boost("b1", grace, "👍")] })} me={{ ...ada, administrator: true }} threaded={false} editing={false} actions={null} editors={editors} />);
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
@@ -386,7 +401,7 @@ describe(feature("users.profile"), () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
     const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
-    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>
         <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />

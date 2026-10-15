@@ -58,7 +58,7 @@ const scrollTo = (log: HTMLElement, top: number) => {
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
-const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
+const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() };
 
 /** A message from Ada, named by its id. */
 const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message => ({

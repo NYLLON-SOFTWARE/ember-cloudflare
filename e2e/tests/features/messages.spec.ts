@@ -417,8 +417,17 @@ test.describe(feature("messages.edit"), () => {
 
     await ada.composer().fill("");
     await ada.composer().press("ArrowUp");
-    await expect(editorField(ada.message("My newest"), "Edit message")).toBeFocused();
+    const editor = editorField(ada.message("My newest"), "Edit message");
+    await expect(editor).toBeFocused();
     await expect(ada.editor()).toHaveText("My newest");
+
+    // Up Arrow returns to the editor while it's open, with what's written in it.
+    await editor.pressSequentially(", changed");
+    await ada.composer().click();
+    await ada.composer().press("ArrowUp");
+    await expect(editor).toBeFocused();
+    await expect(editor).toHaveText("My newest, changed");
+    await expect(ada.composer()).toHaveText("");
   });
 
   test("takes no files", async ({ members }) => {
