@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { ADMINISTRATOR, administratorOn, editorField, invitation, logOut, signInAsAdministrator, useOwnAddress } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, test, unique } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
 
@@ -141,6 +141,62 @@ test.describe(feature("auth.sessions"), () => {
 
   test("goes back to sign-in when the session cookie is no good", async ({ page, baseURL }) => {
     await page.context().addCookies([{ name: "session_token", value: "A".repeat(43), url: baseURL! }]);
+    await page.goto("/");
+    await expect(signInHeading(page)).toBeVisible();
+  });
+});
+
+test.describe(feature("auth.sign-in-link"), () => {
+  const YOURS = "Use this link to login automatically on another device";
+  const THEIRS = "Share to get them back into their account";
+
+  test("your profile's link signs you in on another device, and goes on to the page it was sent to sign in from", async ({ members, page, rooms }) => {
+    const grace = await members.signIn(unique("Grace"));
+    await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
+    const link = await grace.page.getByRole("textbox", { name: YOURS }).inputValue();
+    expect(new URL(link).pathname).toMatch(new RegExp(`^/session/transfers/${grace.session.user.id}\\.`));
+
+    // Another device, signed out, sent to sign in from the test's general.
+    await page.goto(`/rooms/${rooms.general.id}`);
+    await expect(signInHeading(page)).toBeVisible();
+    await page.goto(link);
+    await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", grace.name);
+
+    // The link works as often as it's opened until it expires, and Grace's first device stays signed in.
+    await logOut(page);
+    await expect(signInHeading(page)).toBeVisible();
+    await page.goto(link);
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", grace.name);
+    await grace.page.reload();
+    await expect(grace.page.getByLabel("Name", { exact: true })).toHaveValue(grace.name);
+  });
+
+  test("an administrator's link for someone gets them back into their account, on any device", async ({ browser, baseURL, members, page }) => {
+    const grace = await members.signIn(unique("Grace"));
+    await useOwnAddress(page);
+    await page.goto(`/users/${grace.session.user.id}`);
+    await signInAsAdministrator(page);
+    const link = await page.getByRole("textbox", { name: THEIRS }).inputValue();
+
+    const device = await browser.newContext({ baseURL });
+    try {
+      const other = await device.newPage();
+      await other.goto(link);
+      await expect(other.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", grace.name);
+    } finally {
+      await device.close();
+    }
+    // The administrator stays signed in as themselves.
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: THEIRS })).toBeVisible();
+  });
+
+  test("leaves the page blank for a link that doesn't work, signing nobody in", async ({ page }) => {
+    await page.goto("/session/transfers/nonsense");
+    await expect(page.getByRole("main")).toHaveAttribute("aria-busy", "false");
+    await expect(page.getByRole("main")).toBeEmpty();
+    await expect(page).toHaveURL(/\/session\/transfers\/nonsense$/);
     await page.goto("/");
     await expect(signInHeading(page)).toBeVisible();
   });

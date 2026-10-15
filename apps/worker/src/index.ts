@@ -11,6 +11,7 @@ import {
   parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
+  transferIdFromPath,
   workspacePageOf,
   type Bootstrap,
   type ChangedPerson,
@@ -60,10 +61,11 @@ import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { closedAtOnce } from "./sockets";
+import { newTransferId, transferPage, transferSession } from "./transfers";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
-import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace } from "./workspace";
+import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace, type YourProfile } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
@@ -227,11 +229,21 @@ async function changeRole(request: Request, env: Env, userId: UserId): Promise<R
   return json({ user: person } satisfies ChangedPerson);
 }
 
-/** Your profile, for its page (profiles.rs, `show`), which no cache should keep, since it holds your email address. */
+/**
+ * Your profile as its page shows it, with a new sign-in link for you, as each of ember-rust's profile
+ * pages has (users/profiles/_transfer.html). No cache should keep it, since it holds your email address
+ * and the link.
+ */
+async function profileAnswer({ userId, profile }: YourProfile, env: Env): Promise<Response> {
+  const transferId = await newTransferId(userId, env.SESSION_SECRET, Date.now());
+  return json({ profile, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Your profile, for its page (profiles.rs, `show`). */
 async function profile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const profile = credentials && (await workspace(env).profile(credentials));
-  return profile ? json({ profile } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+  const yours = credentials && (await workspace(env).profile(credentials));
+  return yours ? profileAnswer(yours, env) : problem(401, "Not signed in");
 }
 
 /**
@@ -247,10 +259,10 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (typeof changes === "string") return problem(422, changes);
   const { password, ...rest } = changes;
   const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
-  const profile = await workspace(env).changeProfile(credentials, rest, passwordDigest);
-  if (!profile) return problem(401, "Not signed in");
-  if (profile === "email address taken") return problem(422, "That email address has an account already");
-  return json({ profile } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
+  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest);
+  if (!yours) return problem(401, "Not signed in");
+  if (yours === "email address taken") return problem(422, "That email address has an account already");
+  return profileAnswer(yours, env);
 }
 
 /**
@@ -297,15 +309,16 @@ function segmentText(segment: string): string {
 
 /**
  * Someone's page, as ember-rust's `users#show` finds them (users.rs): anyone, whatever their status,
- * with their email address for administrators. An id nobody has is 404.
+ * with their email address and a new sign-in link for administrators. An id nobody has is 404.
  */
 async function showPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const found = credentials && (await workspace(env).person(credentials, userId));
   if (!found) return problem(401, "Not signed in");
   if (found === "not found") return problem(404, "Not found");
-  const [shown] = await directoryOf([found], env.SESSION_SECRET);
-  return json({ person: shown! } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+  const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
+  const transferId = found.transferable ? await newTransferId(found.person.id, env.SESSION_SECRET, Date.now()) : undefined;
+  return json({ person: shown!, transferId } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -489,6 +502,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
   if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
   if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
+  const transfer = pathname.match(/^\/api\/session\/transfers\/([^/]+)$/);
+  if (transfer && request.method === "PUT") return transferSession(request, env, segmentText(transfer[1]!));
   if (pathname === "/api/me") return me(request, env);
   if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
@@ -532,6 +547,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
+  if (transferIdFromPath(pathname) !== null) return transferPage(request, env);
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);

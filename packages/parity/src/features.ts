@@ -140,7 +140,7 @@ export const features = [
     id: "auth.sign-in-link",
     title: "Private sign-in link",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Your profile shows your private link `/session/transfers/<id>`, with \"Use this link to login automatically on another device\" for screen readers and buttons named \"Show auto-login QR code\", \"Copy auto-login link\" and \"Share auto-login link\"; sharing sends the title \"Your sign-in link\" and the text \"This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.\"",
       "Administrators also see it on every active person's page, their own included; on someone else's it reads \"Share to get them back into their account\", with a crown.",
@@ -150,6 +150,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions/transfers.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/views/templates/users/profiles/_transfer.html", "crates/views/templates/users/show.html", "reference/app/models/user/transferable.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions/transfers_controller_test.rb"],
+    notes: "A link's id is the person's id, when it expires (in base-36 milliseconds) and an HMAC-SHA256 of both under `SESSION_SECRET`, where ember-rust's is a Rails signed id, so changing the secret ends every link, as changing ember-rust's `SECRET_KEY_BASE` does. The Worker answers the app's page at `/session/transfers/<id>` for any id, which no cache keeps, nor the link's QR code (`accounts.qr-codes`), and the page signs in with `PUT /api/session/transfers/<id>` rather than a form sent to itself, with the API's cross-site check in place of ember-rust's form token. It answers 201 with who's signed in and the new session's cookie, and the page then loads the page asked for before signing in, else `/`, afresh, as ember-rust's redirect does. A link that doesn't work leaves the page blank, as ember-rust's empty 400 does; a request that can't reach Ember, or that Ember fails, is tried again, waiting longer each time up to 15 seconds, as the app's first request is. Someone who signed in with just a name gets a link too, which signs them in only while `EMBER_GUEST_SIGN_IN` lets guests stay signed in. Your profile makes a new link each time it loads or saves, and someone's page each time it loads; the page hides theirs as soon as they're banned or removed, or you stop being an administrator.",
   },
   {
     id: "auth.sign-up",
@@ -314,7 +315,7 @@ export const features = [
     id: "accounts.qr-codes",
     title: "QR codes for links",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.",
       "It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version=\"1.0\" standalone=\"yes\"?><svg`.",
@@ -324,7 +325,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/qr_code.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs", "crates/views/src/helpers/application.rs", "reference/app/controllers/qr_code_controller.rb"],
     upstreamTests: ["reference/test/controllers/qr_code_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs"],
-    notes: "The join link opens its QR code, on the welcome card and in workspace settings; the sign-in link gets its own when it's ported (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
+    notes: "The join link opens its QR code on the welcome card and in workspace settings, and the sign-in link opens its own on your profile and on someone's page (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500. The QR code of a sign-in link, to any site, answers `Cache-Control: no-store`, where ember-rust caches it publicly for a year as it does any other: the link signs someone in for 4 hours, and its page is kept out of caches too.",
   },
   {
     id: "accounts.people",
@@ -436,7 +437,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/profiles/show.html", "crates/ember/src/controllers/users/profiles.rs", "crates/views/src/users.rs", "reference/app/controllers/users/profiles_controller.rb"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/users/profiles_controller_test.rb"],
-    notes: "`GET` and `PATCH /api/users/me/profile` load and save it, and `/users/<any id>/profile` shows your own, as ember-rust's does. Saving says \"✓\" and keeps the page, where ember-rust reloads it, emptying the new password as its reloaded page does. It sends only the fields changed since the page loaded or last saved, where ember-rust's form sends them all, so a save can't put back what another tab has saved since, and the page then shows what's saved. Go Back returns to the page the app opened it from, which each history entry records, as a browser keeps a page's referrer. A new name or bio reaches every open page at once, through the workspace socket (`user.updated`), where ember-rust shows it on the next page load: the rail and the people directory follow, and messages, reactions, who's here and who's typing show the name the directory lists, with the name copied into a message only for someone it doesn't list. The name is saved as typed, even blank, as ember-rust saves it, though the form requires one. Unlike ember-rust, a blank email address or bio is saved as none rather than empty, so any number of people can be without an email address; the server refuses a password over 72 characters and a bio over 200, which ember-rust leaves to the browser; and an email address someone else has answers 422 \"That email address has an account already\" and saves nothing, where ember-rust fails with 500. Still to come: the photo picker (`users.avatar-upload`), conversation notifications (`notifications.profile-list`), the sign-in link (`auth.sign-in-link`) and the install instructions (`notifications.install-instructions`).",
+    notes: "`GET` and `PATCH /api/users/me/profile` load and save it, and `/users/<any id>/profile` shows your own, as ember-rust's does. Saving says \"✓\" and keeps the page, where ember-rust reloads it, emptying the new password as its reloaded page does. It sends only the fields changed since the page loaded or last saved, where ember-rust's form sends them all, so a save can't put back what another tab has saved since, and the page then shows what's saved. Go Back returns to the page the app opened it from, which each history entry records, as a browser keeps a page's referrer. A new name or bio reaches every open page at once, through the workspace socket (`user.updated`), where ember-rust shows it on the next page load: the rail and the people directory follow, and messages, reactions, who's here and who's typing show the name the directory lists, with the name copied into a message only for someone it doesn't list. The name is saved as typed, even blank, as ember-rust saves it, though the form requires one. Unlike ember-rust, a blank email address or bio is saved as none rather than empty, so any number of people can be without an email address; the server refuses a password over 72 characters and a bio over 200, which ember-rust leaves to the browser; and an email address someone else has answers 422 \"That email address has an account already\" and saves nothing, where ember-rust fails with 500. Your sign-in link (`auth.sign-in-link`) follows the form, a new one each time the page loads or saves, as each of ember-rust's pages makes one. Still to come: the photo picker (`users.avatar-upload`), conversation notifications (`notifications.profile-list`) and the install instructions (`notifications.install-instructions`).",
   },
   {
     id: "users.avatar-upload",
@@ -468,7 +469,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/show.html", "crates/views/templates/users/_ban_button.html", "crates/views/templates/users/profiles/_transfer.html", "crates/ember/src/controllers/users.rs"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/users_controller_test.rb"],
-    notes: "There's no sign-in link until `auth.sign-in-link` is ported, and no Ban or Remove ban until `accounts.ban`. `GET /api/users/<id>` answers someone as the people directory lists them, whatever their status, adding their email address, or null, for administrators, and 404 for an id nobody has; the page keeps what it shows current from the directory, as everyone's open pages show a rename. Signed in, the page of someone nobody is answers Campfire's 404 page, as ember-rust's does. The DM button starts the DM, or opens the one you have, as the sidebar's suggestions do (`dms.suggestions`), and says \"Ping <name>\" to screen readers, where ember-rust's says nothing: a person's labels its icon, which `aria-hidden` silences, and a bot's icon has no text at all. Someone with no email address shows administrators no link, where ember-rust's is an empty one, and a long name or bio wraps rather than running out of the panel.",
+    notes: "There's no Ban or Remove ban until `accounts.ban`. `GET /api/users/<id>` answers someone as the people directory lists them, whatever their status, adding their email address, or null, for administrators, with a new sign-in link (`auth.sign-in-link`) for anyone active who isn't a bot, and 404 for an id nobody has; the page keeps what it shows current from the directory, as everyone's open pages show a rename. Signed in, the page of someone nobody is answers Campfire's 404 page, as ember-rust's does. The DM button starts the DM, or opens the one you have, as the sidebar's suggestions do (`dms.suggestions`), and says \"Ping <name>\" to screen readers, where ember-rust's says nothing: a person's labels its icon, which `aria-hidden` silences, and a bot's icon has no text at all. Someone with no email address shows administrators no link, where ember-rust's is an empty one, and a long name or bio wraps rather than running out of the panel.",
   },
   {
     id: "users.avatars",

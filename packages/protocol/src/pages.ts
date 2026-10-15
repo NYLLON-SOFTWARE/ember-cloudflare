@@ -97,3 +97,15 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
  * setup's and the join link's addresses itself.
  */
 export const isAppPage = (pathname: string) => pathname === SIGN_IN_PATH || workspacePageOf(pathname) !== null;
+
+/**
+ * A sign-in link's address, as ember-rust's `session_transfer` route has it: opening it signs whoever
+ * does in as the person it was made for, until it expires.
+ */
+export const transferPath = (transferId: string) => `/session/transfers/${transferId}`;
+
+/**
+ * The id in a sign-in link's path, `/session/transfers/<id>`, or null if `pathname` isn't one. Ids are
+ * letters, digits, dots, dashes and underscores, which nothing escapes, so the path holds them as they are.
+ */
+export const transferIdFromPath = (pathname: string) => pathname.match(/^\/session\/transfers\/([^/]+)$/)?.[1] ?? null;

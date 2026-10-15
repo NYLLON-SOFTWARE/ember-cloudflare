@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Account, Bootstrap, Me, NewWorkspace } from "@ember/protocol";
+import { transferIdFromPath, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
+import { TransferPage } from "@/components/transfer-page";
 import { Workspace } from "@/components/workspace/workspace";
 import { AccountContext } from "@/hooks/use-account";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
-import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
+import { joinCodeFromPath, navigate, useIsAt, useJoinRoute, useTransferRoute } from "@/hooks/use-route";
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
@@ -29,6 +30,7 @@ export function App() {
   // As in ember-rust, the sign-in page opens even for someone who's signed in.
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
+  const transferId = useTransferRoute();
   const signingOut = useRef(false);
   // Before any page has fields, so even one focused as it opens is selected.
   useSelectOnEntry();
@@ -53,8 +55,9 @@ export function App() {
           // The join page is for someone signed out, as in ember-rust, which sends anyone else home.
           const atJoin = joinCodeFromPath(location.pathname) !== null;
           if (user && atJoin) navigate("/", { replace: true });
-          // Someone signed out goes to sign in, and comes back here afterwards.
-          if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin) {
+          // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
+          const atTransfer = transferIdFromPath(location.pathname) !== null;
+          if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && !atTransfer) {
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }
@@ -121,9 +124,11 @@ export function App() {
 
   // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
-  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn;
+  // As in ember-rust, a sign-in link signs in whoever opens it, even someone signed in as someone else.
+  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && transferId === null;
   const page = () => {
     if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
+    if (transferId !== null) return <TransferPage transferId={transferId} />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)
       return (

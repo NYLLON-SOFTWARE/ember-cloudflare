@@ -1,6 +1,7 @@
 import { Link } from "@/components/icons/ember";
 import { TranslationButton } from "@/components/translation-button";
-import { JoinLinkButtons, joinUrl } from "./join-link";
+import { JOIN_LINK, joinUrl } from "./join-link";
+import { LinkButtons } from "./link-buttons";
 
 // ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
 // `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css).
@@ -39,7 +40,7 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
           />
         </label>
         <div className="flex flex-none items-center gap-2">
-          <JoinLinkButtons url={url} className={BUTTON} />
+          <LinkButtons url={url} sharing={JOIN_LINK} className={BUTTON} />
         </div>
       </div>
     </div>

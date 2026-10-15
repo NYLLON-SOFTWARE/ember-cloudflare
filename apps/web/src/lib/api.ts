@@ -16,10 +16,8 @@ import {
   type NewRoomForm,
   type NewWorkspace,
   type PasswordSignIn,
-  type Person,
   type PersonAnswer,
   type PersonRole,
-  type Profile,
   type ProfileAnswer,
   type ProfileChanges,
   type Room,
@@ -97,6 +95,14 @@ export async function signInAsGuest(name: string): Promise<Me> {
   return (await request<{ user: Me }>("/api/session", { method: "POST", body: JSON.stringify({ name }) })).user;
 }
 
+/**
+ * Signs in with a sign-in link's id, as whoever it was made for, replacing any session this browser has.
+ * Fails with a 400 ApiError for a link that's expired, tampered with, or for someone no longer active.
+ */
+export async function signInWithLink(transferId: string): Promise<Me> {
+  return (await request<{ user: Me }>(`/api/session/transfers/${encodeURIComponent(transferId)}`, { method: "PUT" })).user;
+}
+
 /** Ends this browser's session. */
 export async function signOut(): Promise<void> {
   await request("/api/session", { method: "DELETE" });
@@ -108,24 +114,24 @@ export async function fetchMe(): Promise<Me> {
 }
 
 /**
- * Someone, whatever their status, for their page, with their email address if you're an administrator.
- * Fails with a 404 ApiError when nobody has id `userId`.
+ * Someone, whatever their status, for their page, with their email address and a new sign-in link for
+ * them if you're an administrator. Fails with a 404 ApiError when nobody has id `userId`.
  */
-export async function fetchPerson(userId: UserId): Promise<Person> {
-  return (await request<PersonAnswer>(`/api/users/${encodeURIComponent(userId)}`)).person;
+export async function fetchPerson(userId: UserId): Promise<PersonAnswer> {
+  return request<PersonAnswer>(`/api/users/${encodeURIComponent(userId)}`);
 }
 
-/** Your profile: your name, email address and bio, for the profile page. */
-export async function fetchProfile(): Promise<Profile> {
-  return (await request<ProfileAnswer>("/api/users/me/profile")).profile;
+/** Your profile, for the profile page: your name, email address and bio, and a new sign-in link. */
+export async function fetchProfile(): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>("/api/users/me/profile");
 }
 
 /**
- * Changes your profile, answering it as it is then. A blank password keeps the one you have. Fails with
- * a 422 ApiError for an email address someone else has.
+ * Changes your profile, answering it as it is then, with a new sign-in link. A blank password keeps the
+ * one you have. Fails with a 422 ApiError for an email address someone else has.
  */
-export async function changeProfile(changes: ProfileChanges): Promise<Profile> {
-  return (await request<ProfileAnswer>("/api/users/me/profile", { method: "PATCH", body: JSON.stringify(changes) })).profile;
+export async function changeProfile(changes: ProfileChanges): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>("/api/users/me/profile", { method: "PATCH", body: JSON.stringify(changes) });
 }
 
 /** Workspace settings: the workspace, its join code, and whether this person can change it. */
