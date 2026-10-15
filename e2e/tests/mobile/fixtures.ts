@@ -41,10 +41,11 @@ export const test = app.extend<MobileOptions & { screenIsFine: (options?: { dens
 export { expect };
 
 /**
- * Reaction chips sit in running content, as on Slack and Discord, so they get WCAG 2.5.8's 24px
- * floor instead of 44px; at 44px they would double the height of every message with reactions.
+ * Your own reactions, ember-rust's 28.8px pills, sit in running content, as on Slack and Discord, so
+ * they get WCAG 2.5.8's 24px floor instead of 44px; at 44px they would double the height of every
+ * message with reactions.
  */
-export const REACTION_CHIPS = "[aria-label=Reactions] button";
+export const REACTION_PILLS = "[aria-label=Reactions] button";
 
 /**
  * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones

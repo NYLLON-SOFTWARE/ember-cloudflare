@@ -40,6 +40,11 @@ export interface RoomState {
    * As ember-rust decides when it renders the room's page, it holds until the room is opened again.
    */
   paged: boolean | null;
+  /**
+   * How many times the room has let this page in, with a welcome or a resume. A change sent before the
+   * latest may never have reached the room.
+   */
+  connections: number;
 }
 
 export type RoomAction =
@@ -64,6 +69,7 @@ export const initialRoomState: RoomState = {
   loadingOlder: false,
   notice: null,
   paged: null,
+  connections: 0,
 };
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
@@ -170,6 +176,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         loadingOlder: false,
         typing: {},
         paged: state.paged ?? (frame.hasMore || frame.messages.length > WELCOME_CARD_MESSAGES),
+        connections: state.connections + 1,
       };
     }
     case "resumed":
@@ -182,6 +189,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         // A history request on the old socket will never be answered.
         loadingOlder: false,
         typing: {},
+        connections: state.connections + 1,
       };
     case "message.created": {
       const { message } = frame;

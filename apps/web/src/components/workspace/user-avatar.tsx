@@ -28,15 +28,18 @@ interface Props {
   square?: boolean;
   /** Whether the image waits until it's scrolled near, as ember-rust's people lists' do. */
   lazy?: boolean;
+  /** What screen readers call the image, where it says something, as a boost's does. */
+  label?: string;
 }
 
 /**
  * Someone's avatar, the image the people directory gives the address of, hidden from screen readers as
- * ember-rust's are (helpers/users.rs, `avatar_tag`). Until it loads, or if it can't, or the directory
- * doesn't list them yet, their initials show as the Worker would draw them. Messages use squares with
- * ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and presence use circles.
+ * ember-rust's are (helpers/users.rs, `avatar_tag`) unless it has a label. Until it loads, or if it
+ * can't, or the directory doesn't list them yet, their initials show as the Worker would draw them.
+ * Messages use squares with ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and
+ * presence use circles.
  */
-export function UserAvatar({ user, className, square = false, lazy = false }: Props) {
+export function UserAvatar({ user, className, square = false, lazy = false, label }: Props) {
   const listed = useContext(PeopleContext).get(user.id);
   const served = listed?.avatarUrl;
   const [failed, setFailed] = useState<string | null>(null);
@@ -45,8 +48,8 @@ export function UserAvatar({ user, className, square = false, lazy = false }: Pr
   return (
     <img
       src={served && served !== failed ? served : placeholder}
-      alt=""
-      aria-hidden="true"
+      alt={label ?? ""}
+      aria-hidden={label === undefined || undefined}
       loading={lazy ? "lazy" : undefined}
       onError={() => served && setFailed(served)}
       className={cn("inline-block size-9 shrink-0 select-none bg-cover", square ? "rounded-[6px]" : "rounded-full", className)}

@@ -366,7 +366,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.notice).toBe("Your message was sent. Scroll up to see it.");
   });
 
-  it("says so when an edit or reaction can't be sent, and the edit reports it", () => {
+  it("says so when an edit or reaction can't be sent, and reports it", () => {
     const { result } = joinGeneral({ connect: false });
     let sent: boolean | undefined;
     act(() => {
@@ -376,7 +376,10 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.notice).toMatch(/not connected/i);
 
     act(() => result.current.dismissNotice());
-    act(() => result.current.messageActions.boost("m1", "👍"));
+    act(() => {
+      sent = result.current.messageActions.boost("m1", "👍");
+    });
+    expect(sent).toBe(false);
     expect(result.current.state.notice).toMatch(/not connected/i);
 
     socket().open();
@@ -776,7 +779,11 @@ describe(feature("messages.delete"), () => {
 describe(feature("boosts.add"), () => {
   it("sends reactions to the room and shows them when the room confirms", () => {
     const { result } = joinGeneral({ messages: [message("m1")] });
-    act(() => result.current.messageActions.boost("m1", "🎉"));
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.messageActions.boost("m1", "🎉");
+    });
+    expect(sent).toBe(true);
     expect(socket().sentOfType("boost.create")).toEqual([{ type: "boost.create", messageId: "m1", content: "🎉" }]);
     const boost = { id: "b1", messageId: "m1", booster: ada, content: "🎉", createdAt: "" };
     socket().receive({ type: "boost.created", boost, seq: 1 });
@@ -788,7 +795,11 @@ describe(feature("boosts.remove"), () => {
   it("sends the removal to the room and drops the reaction when the room confirms", () => {
     const boost = { id: "b1", messageId: "m1", booster: ada, content: "🎉", createdAt: "" };
     const { result } = joinGeneral({ messages: [message("m1", { boosts: [boost] })] });
-    act(() => result.current.messageActions.unboost("b1"));
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.messageActions.unboost("b1");
+    });
+    expect(sent).toBe(true);
     expect(socket().sentOfType("boost.delete")).toEqual([{ type: "boost.delete", boostId: "b1" }]);
     socket().receive({ type: "boost.deleted", boostId: "b1", messageId: "m1", seq: 1 });
     expect(result.current.state.messages[0]!.boosts).toEqual([]);

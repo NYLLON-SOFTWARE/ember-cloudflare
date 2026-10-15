@@ -1,7 +1,7 @@
-import { useContext, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Ellipsis, FaceSlightlySmilingPlus, Link, Pencil, Reply } from "@/components/icons/lucide";
+import { Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply } from "@/components/icons/lucide";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath } from "@/hooks/use-route";
@@ -43,23 +43,39 @@ interface Props {
   /** Writes a reply in the composer, given the quote it starts with. */
   onReply: (quote: string) => void;
   onEdit: () => void;
+  /** Opens the message's Custom reaction form, from New boost. */
+  onNewBoost: () => void;
+  ref?: Ref<MessageActionsHandle>;
+}
+
+export interface MessageActionsHandle {
+  /**
+   * Opens the bar with More reactions showing and focuses the first of them, as Add a boost does.
+   * Clicking `from` again leaves the bar open, and Escape hands focus back to it.
+   */
+  openReactions: (from: HTMLElement) => void;
+  /** Focuses Message options, as sending a reaction does. */
+  focus: () => void;
 }
 
 /**
  * ember-rust's message actions (messages/_actions.html, message_actions_controller.js, zz-ember.css):
  * Message options, which opens a bar of three quick reactions, Reply, Copy link, Edit and More reactions,
- * whose tray holds the other reactions. With a mouse, hovering the message opens the bar too, laid over
- * the message's top edge at the timeline's right, with Message options pinned as its last button. On
- * touch screens it opens beside Message options. Once opened, the bar stays in the page while it's
- * shut, as ember-rust's does, so Copy link keeps its color.
+ * whose tray holds the other reactions and New boost. With a mouse, hovering the message opens the bar
+ * too, laid over the message's top edge at the timeline's right, with Message options pinned as its last
+ * button. On touch screens it opens beside Message options. Once opened, the bar stays in the page while
+ * it's shut, as ember-rust's does, so Copy link keeps its color.
  */
-export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit }: Props) {
+export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [rendered, setRendered] = useState(false);
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The Add a boost that opened the bar, if one did, and whether its first reaction is still to be focused.
+  const boostTrigger = useRef<HTMLElement | null>(null);
+  const focusingTray = useRef(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -79,6 +95,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   const close = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
+    boostTrigger.current = null;
     setOpen(false);
     setTrayOpen(false);
   };
@@ -105,6 +122,33 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     onEdit();
   };
 
+  // New boost closes the bar too, and the form it opens takes focus.
+  const newBoost = () => {
+    close();
+    onNewBoost();
+  };
+
+  const focusFirstReaction = () => {
+    focusingTray.current = false;
+    tray.current?.querySelector("button")?.focus({ preventScroll: true });
+  };
+
+  useImperativeHandle(ref, () => ({
+    // As the controller's click on `.message__boost-inline .boost__action` does.
+    openReactions: (from) => {
+      clearTimeout(leaveTimer.current);
+      hoverOpened.current = false;
+      boostTrigger.current = from;
+      focusingTray.current = true;
+      setRendered(true);
+      setOpen(true);
+      setTrayOpen(true);
+      // An open bar with its tray showing doesn't render again, so its reaction is focused here.
+      if (open && trayOpen) focusFirstReaction();
+    },
+    focus: () => trigger.current?.focus({ preventScroll: true }),
+  }));
+
   const toggle = () => {
     if (!open) return show(false);
     if (!hoverOpened.current) return close();
@@ -117,7 +161,9 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     // The bar can leave the page, with its message or as the message's editor opens, a moment before what
     // watches the page for it stops.
     if (!open || !container.current) return;
-    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, menu: menu.current!, bar: bar.current!, tray: tray.current!, overlapping })) close();
+    // Add a boost goes if the message's last reaction does while the bar is open.
+    const anchor = boostTrigger.current?.isConnected ? boostTrigger.current : trigger.current!;
+    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, anchor, menu: menu.current!, bar: bar.current!, tray: tray.current!, overlapping })) close();
   };
 
   const hovered = useEffectEvent((event: PointerEvent) => {
@@ -151,7 +197,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   }, [row]);
 
   const clickedElsewhere = useEffectEvent((event: Event) => {
-    if (!container.current?.contains(event.target as Node)) close();
+    const target = event.target as Node;
+    if (!container.current?.contains(target) && !boostTrigger.current?.contains(target)) close();
   });
 
   // Focus leaving the bar closes it. ember-rust's closes as focus lands anywhere else, but here that would
@@ -160,11 +207,18 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     if (event.relatedTarget && !container.current?.contains(event.relatedTarget as Node)) close();
   });
 
-  // Escape closes the tray first, handing focus to More reactions, then the bar, handing it to Message
-  // options. While you're elsewhere, as in the composer under a bar the pointer opened, it only closes
-  // the bar, where ember-rust's takes your focus to Message options.
+  // Escape closes a bar Add a boost opened, handing focus back to it. Otherwise it closes the tray first,
+  // handing focus to More reactions, then the bar, handing it to Message options. While you're elsewhere,
+  // as in the composer under a bar the pointer opened, it only closes the bar, where ember-rust's takes
+  // your focus to Message options.
   const keyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
+    const from = boostTrigger.current;
+    if (from) {
+      event.preventDefault();
+      close();
+      return (from.isConnected ? from : trigger.current)?.focus({ preventScroll: true });
+    }
     if (!container.current?.contains(document.activeElement)) return close();
     event.preventDefault();
     if (trayOpen) {
@@ -208,7 +262,10 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   }, [open]);
 
   // Placed before it's painted, and again as the tray opens or shuts.
-  useLayoutEffect(place, [open, trayOpen, overlapping]);
+  useLayoutEffect(() => {
+    place();
+    if (open && trayOpen && focusingTray.current) focusFirstReaction();
+  }, [open, trayOpen, overlapping]);
 
   const pinned = open && overlapping;
 
@@ -289,6 +346,10 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
                 <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
               ))}
+              <button type="button" title="New boost" className={ACTION} onClick={newBoost}>
+                <MessageCirclePlus />
+                <span className="sr-only">New boost</span>
+              </button>
             </div>
           </div>
         </div>
@@ -349,6 +410,8 @@ interface Placed {
   row: HTMLElement;
   container: HTMLElement;
   trigger: HTMLElement;
+  /** What the bar opens beside for fingers: Message options, or Add a boost when that opened it. */
+  anchor: HTMLElement;
   menu: HTMLElement;
   bar: HTMLElement;
   tray: HTMLElement;
@@ -360,11 +423,11 @@ interface Placed {
  * less 8px on each side, and within what's on screen. With a mouse, it overlaps the row, its top 17px
  * above the row's and its right 16px in from the timeline's, with Message options pinned as its last
  * button, and the tray opens below it, or above when there's more room there. For fingers, it opens 6px
- * below Message options, lined up with its right edge, or above when it doesn't fit, or to its left when
- * it fits neither. Answers false, placing nothing, once the row is out of the timeline's sight, when the
- * bar should close.
+ * below its anchor, lined up with its right edge, or above when it doesn't fit, or beside it when it
+ * fits neither, so it doesn't cover what opened it, as ember-rust's covers Add a boost. Answers false,
+ * placing nothing, once the row is out of the timeline's sight, when the bar should close.
  */
-function placeMenu({ row, container, trigger, menu, bar, tray, overlapping }: Placed): boolean {
+function placeMenu({ row, container, trigger, anchor, menu, bar, tray, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
   const top = viewport?.offsetTop || 0;
   const left = viewport?.offsetLeft || 0;
@@ -404,16 +467,19 @@ function placeMenu({ row, container, trigger, menu, bar, tray, overlapping }: Pl
     right = bounds.right - 8;
   } else {
     menu.removeAttribute("data-tray-above");
-    const below = triggerBox.bottom + 6;
-    const above = triggerBox.top - menuBox.height - 6;
-    right = triggerBox.right;
+    const anchorBox = anchor.getBoundingClientRect();
+    const below = anchorBox.bottom + 6;
+    const above = anchorBox.top - menuBox.height - 6;
+    right = anchorBox.right;
     if (below + menuBox.height <= bounds.bottom) y = below;
     else if (above >= bounds.top) y = above;
     else {
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
-      // left of Message options, where ember-rust's covers it.
-      y = Math.max(bounds.top, Math.min(triggerBox.top, bounds.bottom - menuBox.height));
-      right = triggerBox.left - 6;
+      // left of its anchor, where ember-rust's covers Message options, or to its right where only that has room.
+      y = Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - menuBox.height));
+      const roomLeft = anchorBox.left - 6 - bounds.left >= menuBox.width;
+      const roomRight = bounds.right - anchorBox.right - 6 >= menuBox.width;
+      right = roomRight && !roomLeft ? anchorBox.right + 6 + menuBox.width : anchorBox.left - 6;
     }
   }
   const x = Math.max(bounds.left, Math.min(right - menuBox.width, bounds.right - menuBox.width));
