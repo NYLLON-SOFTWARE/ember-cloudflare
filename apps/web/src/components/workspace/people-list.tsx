@@ -1,20 +1,23 @@
 import { useMemo, useState } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
-import { Cancel, Crown } from "@/components/icons/campfire";
+import { Cancel, Crown, Pencil } from "@/components/icons/campfire";
+import { PageLink } from "@/components/page-link";
 import type { People } from "@/hooks/use-directory";
+import { PROFILE_PATH } from "@/hooks/use-route";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { ListRow, ListSeparator } from "./list-row";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 // ember-rust's people on workspace settings (accounts/edit.html, accounts/users/_user.html): everyone but
-// bots by name, administrators first, with a rule before the members when there are both. Administrators
-// also see who's banned, dimmed under Campfire's cancel mark (avatars.css), and a crown on each active
-// person's row that makes them an administrator or a member again.
+// bots by name, administrators first, with a rule before the members when there are both, each avatar
+// linking to the person's page, and your own row to your profile. Administrators also see who's banned,
+// dimmed under Campfire's cancel mark (avatars.css), and a crown on each active person's row that makes
+// them an administrator or a member again.
 
 interface Props {
   people: People;
-  /** Whoever's looking, whose own crown can't be pressed, so there's always an administrator. */
+  /** Whoever's looking, whose own row has My settings, and whose crown can't be pressed, so there's always an administrator. */
   myId: UserId;
   /** Gives someone another role, settling once it has or failed. Only administrators have it, and the crowns. */
   onChangeRole?: (person: DirectoryUser, role: PersonRole) => Promise<void>;
@@ -58,6 +61,7 @@ export function PeopleList({ people, myId, onChangeRole, "aria-labelledby": labe
             onChange={(administrator) => !changing.has(person.id) && changeRole(person, administrator ? "administrator" : "member")}
           />
         )}
+        {person.id === myId && <MySettings />}
       </ListRow>
     );
   };
@@ -70,15 +74,28 @@ export function PeopleList({ people, myId, onChangeRole, "aria-labelledby": labe
   );
 }
 
-/** Someone's avatar, as ember-rust's lists draw it at 3.75ch, dimmed under a cancel mark when they're banned. */
+/**
+ * Someone's avatar, linking to their page, as ember-rust's lists draw it at 3.75ch, dimmed under a cancel
+ * mark when they're banned, which taps go through.
+ */
 function Avatar({ person, banned }: { person: DirectoryUser; banned: boolean }) {
-  const avatar = <UserAvatar user={person} className={cn("size-[3.75ch]", banned && "opacity-50")} lazy />;
+  const avatar = <AvatarLink user={person} className={cn("size-[3.75ch]", banned && "[&>img]:opacity-50")} lazy />;
   if (!banned) return avatar;
   return (
     <span className="relative grid shrink-0">
       {avatar}
-      <Cancel className="absolute inset-0 size-full" />
+      <Cancel className="pointer-events-none absolute inset-0 size-full" />
     </span>
+  );
+}
+
+/** ember-rust's My settings, a round `.btn.txt-small` with Campfire's pencil, on your own row, which opens your profile. */
+function MySettings() {
+  return (
+    <PageLink href={PROFILE_PATH} className="grid size-9 shrink-0 place-items-center rounded-full border bg-background text-[0.8rem] touch:size-11">
+      <Pencil className="size-[1.3em]" />
+      <span className="sr-only">My settings</span>
+    </PageLink>
   );
 }
 

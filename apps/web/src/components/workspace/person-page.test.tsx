@@ -70,7 +70,7 @@ describe(feature("users.show"), () => {
     serve(found(grace));
     showPage(grace, { people: new Map([[grace.id, grace]]) });
     expect(await heading()).toHaveTextContent("Grace Hopper");
-    // The title follows in an effect, which React can run after the heading is drawn.
+    // The tab is named once the page has drawn them, which can take a moment longer.
     await waitFor(() => expect(document.title).toBe("Grace Hopper"));
     expect(screen.getByText("Wrote the first compiler")).toBeVisible();
     expect(await avatar()).toHaveAttribute("src", grace.avatarUrl);
@@ -149,7 +149,7 @@ describe(feature("users.show"), () => {
     const renamed: DirectoryUser = { ...grace, name: "Grace Brewster Hopper", bio: "Rear admiral", avatarUrl: "/users/t2/avatar?v=2" };
     list(new Map([[grace.id, renamed]]));
     expect(await heading()).toHaveTextContent("Grace Brewster Hopper");
-    expect(document.title).toBe("Grace Brewster Hopper");
+    await waitFor(() => expect(document.title).toBe("Grace Brewster Hopper"));
     expect(screen.getByText("Rear admiral")).toBeVisible();
     expect(await avatar()).toHaveAttribute("src", renamed.avatarUrl);
   });

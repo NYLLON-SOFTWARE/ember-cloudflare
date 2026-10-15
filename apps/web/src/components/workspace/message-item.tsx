@@ -9,7 +9,7 @@ import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { MessageEditor, type MessageEditorHandle } from "./message-editor";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 export interface MessageActions {
   /** Returns whether the reaction was sent. */
@@ -131,7 +131,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
       {threaded ? (
         !editing && <span className="pt-[7px] text-right text-[10px] opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">{time}</span>
       ) : (
-        <UserAvatar user={message.creator} square className={cn("size-9 max-md:size-[30px]", editing ? "mt-2" : "mt-0")} />
+        <AvatarLink user={message.creator} square className={cn("size-9 max-md:size-[30px]", editing ? "mt-2" : "mt-0")} />
       )}
 
       {editing ? (

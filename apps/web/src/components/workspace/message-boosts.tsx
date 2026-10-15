@@ -7,7 +7,7 @@ import { RoomConnection } from "@/hooks/use-room";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink, UserAvatar } from "./user-avatar";
 
 /** A custom reaction starts with something other than a space (messages/boosts/new.html). */
 const CUSTOM_REACTION = String.raw`\S+.*`;
@@ -134,8 +134,17 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
         deleting && "pointer-events-none animate-scale-fade-out motion-reduce:animate-none motion-reduce:opacity-0",
       )}
     >
-      {/* 2.2ch of the medium weight of ember-rust's avatar button. */}
-      <UserAvatar user={boost.booster} label={`${nameOf(boost.booster)} boosted ${boost.content}`} className="size-[2.2ch] font-medium" />
+      {/*
+       * 2.2ch of the medium weight of ember-rust's avatar button, over the button that takes the rest of the
+       * pill's clicks. A pill has no room for two targets a fingertip can find, so on touch screens your own
+       * is all that button.
+       */}
+      <AvatarLink
+        user={boost.booster}
+        reach="dense"
+        label={`${nameOf(boost.booster)} boosted ${boost.content}`}
+        className={cn("z-[1] size-[2.2ch] font-medium", onDelete && "touch:pointer-events-none")}
+      />
       {onDelete ? (
         <button
           type="button"

@@ -330,7 +330,7 @@ export const features = [
     id: "accounts.people",
     title: "People list",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.",
       "Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.",
@@ -339,7 +339,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/users/_user.html", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/ember/src/controllers/accounts/users.rs"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/users_controller_test.rb"],
-    notes: "Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls. Avatars don't link to people's pages until those are built (`users.avatar-links`), and your own row gets My settings with your profile (`users.profile`).",
+    notes: "Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls, which taps on their avatars go through.",
   },
   {
     id: "accounts.roles",
@@ -491,7 +491,7 @@ export const features = [
     id: "users.avatar-links",
     title: "Avatars open people's pages",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Avatars on messages, boosts, mentions, mention suggestions, the people and bot lists, room member lists and the DM editor link to the person's page, `/users/<id>`, outside any frame.",
       "The link's title is \"<name> – <bio>\", or just the name when the bio is blank.",
@@ -500,7 +500,7 @@ export const features = [
     ],
     sources: ["crates/views/src/helpers/users.rs", "crates/db/src/models/user.rs", "crates/views/templates/messages/_message.html", "crates/views/templates/messages/boosts/_boost.html", "reference/app/helpers/users/avatars_helper.rb"],
     upstreamTests: ["crates/db/src/tests/user_test.rs"],
-    notes: "Avatars are images hidden from screen readers, and room member lists load theirs lazily (`users.avatars`), but none links anywhere yet: people's pages (`users.show`) come first.",
+    notes: "Each opens the page in place, as Turbo follows ember-rust's links, through the unsaved-changes guard (`rooms.unsaved-changes`), and is titled from the people directory, so a new name or bio shows at once. The avatars the @ lists and those of mentions in the composer and the message editor aren't links, unlike ember-rust's: a click there picks the person or the mention rather than leaving what's being written, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational. On touch screens, where ember-rust's take taps only as far as they're drawn, an avatar beside a message or in a list takes them 44px across, centered on it, and one in someone else's reaction 24px across, WCAG 2.5.8's floor. A tap on your own reaction's avatar there shows Delete this boost, as one anywhere on the pill does, since a pill has no room for two targets a fingertip can find. The bot list's avatars come with it (`bots.list`).",
   },
 
   // Rooms
@@ -625,7 +625,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`).",
   },
   {
     id: "rooms.edit-permissions",
@@ -812,7 +812,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/rooms/_direct.html", "crates/views/templates/rooms/directs/edit.html", "crates/views/src/rooms.rs", "crates/views/templates/rooms/show/_nav.html", "crates/views/templates/rooms/show/_composer.html"],
     upstreamTests: ["reference/test/models/rooms/direct_test.rb", "parity/screens.yml"],
-    notes: "The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. Until people's pages exist (`users.show`), the settings page's avatars aren't links to them. That page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says \"This is the very beginning of your direct messages.\" under the others' names rather than welcoming you to a room, and its messages are named \"Messages with <name>\" to screen readers.",
+    notes: "The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. The settings page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says \"This is the very beginning of your direct messages.\" under the others' names rather than welcoming you to a room, and its messages are named \"Messages with <name>\" to screen readers.",
   },
   {
     id: "dms.delete",
@@ -1314,7 +1314,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/boosts.rs", "crates/views/templates/messages/_actions.html", "crates/views/src/messages.rs", "reference/app/controllers/messages/boosts_controller.rb"],
     upstreamTests: ["reference/test/controllers/messages/boosts_controller_test.rb", "reference/test/system/boosting_messages_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "Unlike ember-rust, each person adds a reaction once: the room ignores one they've added already, so a second tap doesn't stack another. Add a boost is a button, since it opens the bar rather than going anywhere. Avatars don't link to people's pages until those are built (`users.avatar-links`).",
+    notes: "Unlike ember-rust, each person adds a reaction once: the room ignores one they've added already, so a second tap doesn't stack another. Add a boost is a button, since it opens the bar rather than going anywhere.",
   },
   {
     id: "boosts.custom",
@@ -1360,7 +1360,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/autocompletable.rs", "reference/app/controllers/autocompletable/users_controller.rb", "crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js"],
     upstreamTests: ["reference/test/controllers/autocompletable/users_controller_test.rb", "reference/test/system/composer_test.rb"],
-    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. The avatars aren't links (`users.avatar-links`).",
+    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.",
   },
   {
     id: "mentions.highlight",
@@ -1379,14 +1379,14 @@ export const features = [
     id: "mentions.render",
     title: "How mentions look",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A mention shows the person's avatar, linked to their profile and titled \"Name – bio\", then their current name, every time they're mentioned. Renaming someone updates every mention of them.",
       "A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.",
     ],
     sources: ["crates/richtext/src/attachables.rs", "crates/views/templates/users/_mention.html", "crates/richtext/src/lib.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"<user id>\">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Each message carries the people it mentions as the room knew them when it was last written, so a page can draw someone its people directory doesn't list; it draws everyone else from the directory as they are now, and ☒ for anyone neither knows. The message editor opens with each mention drawn as Lexxy draws one, dropping mentions of no one, as ember-rust's `editable_value` does. The avatar isn't a link to their page or titled with their bio yet (`users.avatar-links`).",
+    notes: "`packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type=\"application/vnd.campfire.mention\" sgid=\"<user id>\">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Each message carries the people it mentions as the room knew them when it was last written, so a page can draw someone its people directory doesn't list; it draws everyone else from the directory as they are now, and ☒ for anyone neither knows. The message editor opens with each mention drawn as Lexxy draws one, dropping mentions of no one, as ember-rust's `editable_value` does. In the composer and the message editor a mention's avatar isn't a link, unlike ember-rust's, which leaves what's being written for the person's page: a click there picks the mention, as one on the name does (`users.avatar-links`).",
   },
 
   // Attachments
