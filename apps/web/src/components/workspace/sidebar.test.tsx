@@ -283,17 +283,20 @@ describe(feature("sidebar.favorite-order"), () => {
       expect(sent()).toEqual([["/api/sidebar/order", "PUT", { roomIds: ["design", "general"] }]]);
     });
 
-    it("puts a dragged row back on Escape, saving nothing", () => {
+    it("puts a dragged row back on Escape wherever the focus is, saving nothing", () => {
       renderSidebar({ rooms: team, favorites: stars });
       hold("design");
       dragTo(0);
       expect(listed()).toEqual(["#design", "#general", "#random", "#ops"]);
 
-      fireEvent.keyDown(row("design"), { key: "Escape" });
+      // Safari leaves the focus where it was when a row is clicked, in the composer, say. Escape is
+      // taken as it's pressed, so it closes nothing else, but only while a row is dragged.
+      expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
       expect(listed()).toEqual(["#general", "#random", "#design", "#ops"]);
       expect(status()).toHaveTextContent("Room move canceled.");
       fireEvent.pointerUp(window);
       expect(fetch).not.toHaveBeenCalled();
+      expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(true);
     });
 
     it("ignores Alt and an arrow while a row is held, saving only where a dragged one is let go", async () => {

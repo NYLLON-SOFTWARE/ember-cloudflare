@@ -195,10 +195,6 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
    * a row is held down, whose drag saves where it's let go.
    */
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === "Escape" && press.current?.dragging) {
-      event.preventDefault();
-      return cancel();
-    }
     const roomId = roomOf(event.target);
     const up = event.key === "ArrowUp";
     if (!roomId || !movable.includes(roomId) || !event.altKey || (!up && event.key !== "ArrowDown")) return;
@@ -244,6 +240,15 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     };
     const onTouchEnd = () => pressedWith("touch") && latest.current.finish();
     const onCancel = () => latest.current.cancel();
+    // Escape puts a dragged row back wherever the focus is, where ember-rust's list hears it only from
+    // within, which a click doesn't move the focus to in Safari. Heard before anything else, it closes
+    // nothing else, such as the drawer the list is in.
+    const onEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || !press.current?.dragging) return;
+      event.preventDefault();
+      latest.current.cancel();
+    };
+    window.addEventListener("keydown", onEscape, { capture: true });
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onCancel);
@@ -251,6 +256,7 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     window.addEventListener("touchend", onTouchEnd);
     window.addEventListener("touchcancel", onCancel);
     return () => {
+      window.removeEventListener("keydown", onEscape, { capture: true });
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onCancel);
