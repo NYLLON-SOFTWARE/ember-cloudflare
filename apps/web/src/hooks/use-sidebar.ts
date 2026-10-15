@@ -112,6 +112,9 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
       void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
     };
 
+    // Whether this connection has said the person signed in changed, which can come before its welcome.
+    // The welcome may have read them before that change, so it doesn't undo it.
+    let toldOfChange = false;
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
       switch (frame?.type) {
@@ -122,12 +125,13 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
             return sessionChanged(frame.you);
           }
           workspace.connected();
-          signsIn(frame.you);
+          if (!toldOfChange) signsIn(frame.you);
           return reload();
         case "room.unread":
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
         case "user.updated":
+          if (!isSomeoneElse(frame.user)) toldOfChange = true;
           return changed(frame.user);
       }
     };
@@ -135,6 +139,7 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     // A refused upgrade looks like any other failure, so ask whether the session has expired, as when
     // the Workspace says to reconnect, which it does when this browser signs out.
     const onClose = (code: number, opened: boolean) => {
+      toldOfChange = false;
       if (!opened || code === CloseCode.Reconnect) void fetchMe().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
       return true;
     };

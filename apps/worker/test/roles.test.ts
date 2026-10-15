@@ -1,11 +1,11 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap, ChangedPerson, Directory, DirectoryUser, NewWorkspace, UserId } from "@ember/protocol";
-import { runInDurableObject } from "cloudflare:test";
+import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { credentialsFor, newSessionToken } from "../src/auth";
 import type { Env } from "../src/env";
-import type { Workspace } from "../src/workspace";
+import { CREDENTIALS_HEADER, type Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
 import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
@@ -100,6 +100,42 @@ describe(feature("accounts.roles"), () => {
     });
     expect(signedIn).toMatchObject({ administrator: false });
     expect(signedInNow).toMatchObject({ administrator: true });
+  });
+
+  it("welcomes a socket with someone as they are once it's among the sockets told when they change", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const [ada, graces] = await Promise.all(
+      [administrator, grace].map(({ cookie }) => credentialsFor(cookie.split("=")[1]!, new Request(origin), env as unknown as Env)),
+    );
+    // The Workspace starts afresh, so opening the socket has to read Grace's session rather than remember it.
+    await evictDurableObject(workspaceStub());
+    const welcome = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const findSession = store.findSession.bind(store);
+      let read!: () => void;
+      const reading = new Promise<void>((resolve) => (read = resolve));
+      let answer!: () => void;
+      const answering = new Promise<void>((resolve) => (answer = resolve));
+      // The first check reads Grace as a member, and answers only once she's an administrator, which
+      // the sockets already in hear of, as an answer from D1 can.
+      vi.spyOn(store, "findSession").mockImplementationOnce(async (digest) => {
+        const session = await findSession(digest);
+        read();
+        await answering;
+        return session;
+      });
+
+      const opening = workspace.fetch(new Request(`${origin}/api/socket`, { headers: { Upgrade: "websocket", [CREDENTIALS_HEADER]: JSON.stringify(graces) } }));
+      await reading;
+      await workspace.changeRole(ada!, grace.user.id, "administrator");
+      answer();
+      const ws = (await opening).webSocket!;
+      const welcomed = new Promise<unknown>((resolve) => ws.addEventListener("message", (event) => resolve(JSON.parse(event.data as string))));
+      ws.accept();
+      return welcomed;
+    });
+    expect(welcome).toMatchObject({ type: "welcome", you: { id: grace.user.id, administrator: true } });
   });
 
   it("tells everyone's workspace sockets who changed, as the directory now lists them", async () => {

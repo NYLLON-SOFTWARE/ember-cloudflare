@@ -179,7 +179,10 @@ export class Workspace extends DurableObject<Env> {
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
-    if (await this.session(credentials)) send(server, { type: "welcome", you: meOf(session) });
+    // The welcome says who they are as this check reads them, since a change to them while the first
+    // read was told only the sockets already in.
+    const current = await this.session(credentials);
+    if (current) send(server, { type: "welcome", you: meOf(current) });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
     return new Response(null, { status: 101, webSocket: client });
   }

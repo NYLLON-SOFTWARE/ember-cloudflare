@@ -33,12 +33,17 @@ class FakeSocket {
     this.readyState = FakeSocket.CLOSED;
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`. */
-  connect(you = ada) {
+  /** Opens, as the Workspace lets the socket in, before it says anything. */
+  open() {
     act(() => {
       this.readyState = FakeSocket.OPEN;
       this.onopen?.();
     });
+  }
+
+  /** Opens, and lets the socket in with a welcome for `you`. */
+  connect(you = ada) {
+    this.open();
     this.receive({ type: "welcome", you });
   }
 
@@ -280,6 +285,23 @@ describe(feature("accounts.roles"), () => {
     // Then nothing more for word that she's as she was last heard.
     socket().receive({ type: "user.updated", user: listed(ada, "member") });
     expect(onSessionChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes a change heard before the welcome over the welcome, which may be older, until it connects again", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    expect(onSessionChanged).toHaveBeenCalledTimes(1);
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The page still has Ada as a member, but she's an administrator as far as this hook has heard.
+    socket().drop();
+    await wait(60_000);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
   });
 
   it("says when the welcome finds the person signed in has changed since the page loaded", async () => {
