@@ -1,5 +1,5 @@
 import { bodyFromPlainText, plainText } from "@ember/richtext/dom";
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type ComponentProps } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, type ComponentProps } from "react";
 import type Editor from "../rich-text-editor";
 
 /** What Lexxy holds while nothing's written. */
@@ -40,11 +40,15 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     const text = box.current!;
     const listener = (event: KeyboardEvent) => keyPressed(event);
     text.addEventListener("keydown", listener, { capture: true });
-    if (typeof autoFocus === "function" ? autoFocus() : autoFocus) {
-      text.focus();
-      text.setSelectionRange(text.value.length, text.value.length);
-    }
     return () => text.removeEventListener("keydown", listener, { capture: true });
+  }, []);
+
+  // As it shows, rather than once React gets round to effects, so a test finds it focused when it finds it.
+  useLayoutEffect(() => {
+    if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
+    const text = box.current!;
+    text.focus();
+    text.setSelectionRange(text.value.length, text.value.length);
   }, []);
 
   return (
