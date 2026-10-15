@@ -4,6 +4,9 @@ import type { RoomId, RoomKind } from "./index.ts";
 // a path with `workspacePageOf`, and the Worker serves the app only where `isAppPage` says it shows a
 // page, so any other path answers 404 with Campfire's page, as ember-rust's router does.
 
+/** The most characters an id can have, as a frame or an address names it. */
+export const MAX_ID_LENGTH = 64;
+
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type RoomAccess = Exclude<RoomKind, "direct">;
 
@@ -78,10 +81,10 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const room = pathname.match(/^\/rooms\/([^/]+)(?:\/@([^/]+))?$/);
   const roomId = room && room[1] !== "new" ? decoded(room[1]!) : null;
   if (!room || !roomId) return null;
-  // A permalink whose message id is malformed opens the room at its newest messages, as one naming
-  // a message the room doesn't have does.
+  // A permalink whose message id is malformed, or longer than any message's, opens the room at its
+  // newest messages, as one naming a message the room doesn't have does.
   const messageId = room[2] === undefined ? null : decoded(room[2]);
-  return messageId ? { page: "room", roomId, messageId } : { page: "room", roomId };
+  return messageId && messageId.length <= MAX_ID_LENGTH ? { page: "room", roomId, messageId } : { page: "room", roomId };
 }
 
 /**

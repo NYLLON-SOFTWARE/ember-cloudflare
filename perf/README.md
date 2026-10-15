@@ -81,8 +81,8 @@ order" means writes finished in a different order than they started.
   bursts of messages. For each message it times the WebSocket frame landing, its row entering the
   DOM, and the next paint, and it reads Chrome's main-thread time per message (split into script,
   style and layout), long tasks, idle main-thread time and heap size. It does this with the newest
-  page of 40 messages loaded and again after scrolling back to 320, the most the timeline holds, at
-  normal speed and with the CPU slowed 4x like a mid-range phone.
+  page of 40 messages loaded and again after scrolling back until it holds 300, the most paging back
+  leaves it, since a page that takes it past 320 cuts it back to 300, at normal speed and with the CPU slowed 4x like a mid-range phone.
 
 ## Reading the numbers
 

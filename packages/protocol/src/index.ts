@@ -2,11 +2,12 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import { MAX_ID_LENGTH } from "./pages.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
-export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
+export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, MAX_ID_LENGTH, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -602,7 +603,7 @@ export const REACTIONS = [
 ] as const;
 export const QUICK_REACTION_COUNT = 3;
 
-const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
+const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_LENGTH;
 /** How many messages a page asked for may hold: 1 to 100, or undefined for a page's usual size. */
 const pageLimit = (v: unknown) => (typeof v === "number" ? Math.min(Math.max(1, Math.floor(v)), 100) : undefined);
 /** Whether `v` lists people's ids, as many as one request can name. */
