@@ -236,6 +236,17 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
       return [{ left: left + inset("left"), top: top + inset("top"), right: left + holder.clientWidth - inset("right"), bottom: top + holder.clientHeight - inset("bottom") }];
     });
 
+  /**
+   * Whether `element` is set in a line of text: inline itself, as a link in a sentence is, or in an
+   * inline box that holds words too, as a mention's avatar sits by the person's name.
+   */
+  const isInRunningText = (element: Element): boolean => {
+    if (getComputedStyle(element).display === "inline") return true;
+    const box = element.parentElement;
+    if (!box || !getComputedStyle(box).display.startsWith("inline")) return false;
+    return [...box.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim() !== "");
+  };
+
   // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
   // make sure every point lands on the control or a label for it. That catches small controls,
   // controls crowded together and controls partly covered or cut off, and credits hit areas enlarged
@@ -251,8 +262,8 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const isBehindModal = (element: Element) => !!element.closest("[inert], [data-aria-hidden=true]") || (modal !== null && !modal.contains(element));
   for (const element of elements(INTERACTIVE)) {
     if (isDisabled(element) || element.closest("[aria-hidden=true]") || isBehindModal(element) || getComputedStyle(element).pointerEvents === "none") continue;
-    // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
-    if (getComputedStyle(element).display === "inline") continue;
+    // WCAG 2.5.8 exempts targets in running text, which are sized by the text around them.
+    if (isInRunningText(element)) continue;
     const rect = element.getBoundingClientRect();
     const clipping = clippers(element, false);
     const shown = paintedPart(rect, clipping);

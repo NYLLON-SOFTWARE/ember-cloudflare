@@ -5,7 +5,7 @@ import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
-import { AvatarLink } from "./user-avatar";
+import { AvatarLink, UserAvatar } from "./user-avatar";
 
 /** React's names for the attributes a message keeps, where they aren't HTML's. */
 const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "xmlLang" };
@@ -39,11 +39,12 @@ export function MessageBody({ nodes, mentions, emoji = false, trailing }: Props)
   return createElement("div", { dir: "auto", className: cn("message-content", emoji && "text-[2.4em] leading-[1.4]") }, ...children);
 }
 
-function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode): ReactNode {
+/** `node` as React draws it, with `trailing` after its text, inside a link if `inLink`. */
+function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false): ReactNode {
   if (node.kind === "text") return node.value;
-  if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions });
+  if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
-  const children = shown.map((child) => nodeOf(child, mentions));
+  const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a"));
   if (trailing !== undefined) children.push(" ", trailing);
   const props = Object.fromEntries(Object.entries(node.attrs).map(([name, value]) => [PROP_NAMES[name] ?? name, value]));
   switch (node.name) {
@@ -62,14 +63,16 @@ function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode): Reac
  * ember-rust's users/_mention.html, styled by Campfire's autocomplete.css: the person's avatar, as tall as
  * the line and linking to their page, then their name as they're named now, in semibold, every time
  * they're mentioned. The avatar is a `.btn`'s weight, which its `ch` is measured in. Unlike Campfire's,
- * the mention isn't lifted over what follows, such as the next message's Message options.
+ * the mention isn't lifted over what follows, such as the next message's Message options. In a link,
+ * the avatar is only an image, as a link can't hold another, where the browser splits ember-rust's in two.
  */
-function Mention({ userId, mentions }: { userId: UserId; mentions: User[] }) {
+function Mention({ userId, mentions, inLink }: { userId: UserId; mentions: User[]; inLink: boolean }) {
   const person = mentionedPerson(useContext(PeopleContext), mentions, userId);
   if (!person) return UNKNOWN_PERSON;
+  const avatar = "absolute inset-y-0 start-[0.1ch] size-[1.1em] font-medium";
   return (
     <span className="relative inline-flex items-center ps-[calc(1.1em+1ch/3)] leading-[1.1em] font-semibold">
-      <AvatarLink user={person} reach="none" className="absolute inset-y-0 start-[0.1ch] size-[1.1em] font-medium" />
+      {inLink ? <UserAvatar user={person} className={avatar} /> : <AvatarLink user={person} reach="none" className={avatar} />}
       {person.name}
     </span>
   );

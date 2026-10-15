@@ -93,9 +93,13 @@ describe(feature("messages.rich-text"), () => {
 
 const grace: DirectoryUser = { id: "0123456789abcdef", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/g.abc/avatar?v=1" };
 
-/** Shows a message mentioning Grace with the directory listing `people`, the message having named whom it mentions as `mentions` does. */
-function mention(people: People, mentions: User[]) {
-  const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${grace.id}"></action-text-attachment>!</p>`;
+const GRACE_MENTION = `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${grace.id}"></action-text-attachment>`;
+
+/**
+ * Shows a message mentioning Grace with the directory listing `people`, the message having named whom it
+ * mentions as `mentions` does, and saying `body`, if given, where Grace is `GRACE_MENTION`.
+ */
+function mention(people: People, mentions: User[], body = `<p>Hi ${GRACE_MENTION}!</p>`) {
   const { container } = render(
     <PeopleContext value={people}>
       <MessageBody nodes={displayBody(body)} mentions={mentions} />
@@ -138,6 +142,12 @@ describe(feature("users.avatar-links"), () => {
   it("links the avatar of someone the directory doesn't list yet, titled with the name the message gave", () => {
     mention(new Map(), [{ id: grace.id, name: "Grace" }]);
     expect(screen.getByRole("link", { name: "Grace" })).toHaveAttribute("href", `/users/${grace.id}`);
+  });
+
+  it("leaves the avatar an image in a mention inside a link, as a link can't hold another", () => {
+    const content = mention(new Map([[grace.id, grace]]), [{ id: grace.id, name: "Grace" }], `<p><a href="https://example.com">Ask ${GRACE_MENTION}</a></p>`);
+    expect(screen.getAllByRole("link")).toEqual([screen.getByRole("link", { name: "Ask Grace Hopper" })]);
+    expect(content.querySelector("a img")).toHaveAttribute("src", grace.avatarUrl);
   });
 });
 
