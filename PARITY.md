@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 45 ported and 59 partial of 172 features; 63 not started, 5 not applicable.
+**Overall:** 46 ported and 59 partial of 172 features; 62 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -32,10 +32,10 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 3 | 3 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
-| [Composer](#composer) | 1 | 3 | 1 | 0 | 5 |
+| [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **45** | **59** | **63** | **5** | **172** |
+| **Total** | **46** | **59** | **62** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -2091,8 +2091,8 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 | Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Formatting toolbar | `composer.formatting-toolbar` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Pasting into the composer | `composer.paste` | Campfire | ⬜ Not started |  |
+| Formatting toolbar | `composer.formatting-toolbar` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Pasting into the composer | `composer.paste` | Campfire | 🟡 Partial | E2E: [composer](e2e/tests/features/composer.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -2131,25 +2131,27 @@ Note: Drafts are kept for each person apart (`composer-draft-<user id>-<room id>
 
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
 
-**Formatting toolbar** (`composer.formatting-toolbar`) 🟡
+**Formatting toolbar** (`composer.formatting-toolbar`) ✅
 
-- Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit go under "Show more toolbar buttons", and its menus open upward.
+- Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit wrap onto another row, and its menus open upward.
 - Link, or Cmd or Ctrl+K, asks for an address ("Enter a URL…") with Link and Unlink buttons.
 - There's no underline, highlight color, table, divider, undo, redo or upload button, though Cmd or Ctrl+U still underlines.
-- Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~`, `==highlight==` and `[text](url)`.
+- Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~` and `[text](url)`. `==text==` loses its equals signs but keeps no highlight.
 
-Note: This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is. Each tool has yet to be checked against ember-rust's.
+Note: This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is, and each tool and shortcut writes what ember-rust's does. Two things differ on purpose. Cmd or Ctrl+K shows the toolbar while its Link field is open, where ember-rust opens the field in its hidden toolbar, so nothing seems to happen and the address typed next replaces the selected text. And sending leaves no formatting on, where ember-rust keeps the format the cursor had, so a message sent all in bold leaves the next one bold, with the toolbar that would show it shut.
 
 Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`reference/app/javascript/initializers/rich_text.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/rich_text.js) · [`reference/app/assets/stylesheets/actiontext.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/actiontext.css) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
 ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
-**Pasting into the composer** (`composer.paste`) ⬜
+**Pasting into the composer** (`composer.paste`) 🟡
 
 - Pasted files join the files waiting to be sent rather than going into the text.
 - A pasted address goes in as a link and asks for its preview (see `unfurl.composer`); pasted over selected text, it only turns the selection into a link.
 - Pasted text that looks like Markdown is converted, keeping its line breaks; other text goes in as it is, and anything pasted into a code block stays raw.
 - Pasted formatting, tables included, is kept as far as messages allow.
+
+Note: Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`), and an address's preview waits for `unfurl.composer`.
 
 Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 

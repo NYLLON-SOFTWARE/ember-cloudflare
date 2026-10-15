@@ -17,10 +17,9 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
 
   useImperativeHandle(ref, () => ({
     value: () => (box.current?.value ? bodyFromPlainText(box.current.value) : EMPTY),
-    setValue: (markup) => {
-      const text = plainText(markup, NO_ONE);
-      if (!box.current || box.current.value === text) return;
-      box.current.value = text;
+    clear: () => {
+      if (!box.current?.value) return;
+      box.current.value = "";
       onChange?.();
     },
     isBlank: () => !box.current?.value.trim(),

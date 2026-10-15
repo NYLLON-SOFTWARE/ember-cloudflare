@@ -1,8 +1,9 @@
 import { Suspense, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { User } from "@ember/protocol";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
-import { hasTouchKeyboard, sendsMessage } from "@/lib/keyboard";
+import { hasTouchKeyboard, opensLink, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
 
@@ -128,7 +129,10 @@ interface Props {
  */
 export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
+  const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
+  // Whether the toolbar shows only for its Link field, which Ctrl or Cmd+K opened while it was shut.
+  const [toolbarForLink, setToolbarForLink] = useState(false);
   const key = draftKey(userId, roomId);
   const [draft] = useState(() => readDraft(key));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
@@ -159,14 +163,25 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
       if (!onSend(written.value())) return;
       // Everyone else stops showing you as typing when your message arrives.
       wasBlank.current = true;
-      written.setValue("");
+      written.clear();
       keepDraft(key, null);
     }
     setToolbarOpen(false);
+    setToolbarForLink(false);
     written.focus();
   };
 
   const keyDown = (event: KeyboardEvent) => {
+    if (opensLink(event) && !toolbarOpen) {
+      // Lexxy opens its Link field on this even while its toolbar is hidden, so in ember-rust nothing seems
+      // to happen, and the address you type next replaces what you'd selected. Here the toolbar shows
+      // first, so the field can take focus, and shuts again when the field closes.
+      flushSync(() => {
+        setToolbarOpen(true);
+        setToolbarForLink(true);
+      });
+      return;
+    }
     // Enter picks from an open list, such as the people to mention.
     if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { toolbarOpen })) return;
     event.preventDefault();
@@ -174,11 +189,27 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
     submit();
   };
 
+  // Shuts the toolbar Ctrl or Cmd+K showed once its Link field closes, returning focus to the text if it
+  // was in the toolbar.
+  useEffect(() => {
+    const link = form.current?.querySelector("lexxy-link-dropdown [data-dropdown-trigger]");
+    if (!toolbarForLink || !link) return;
+    const observer = new MutationObserver(() => {
+      if (link.getAttribute("aria-expanded") === "true") return;
+      if (link.closest("lexxy-toolbar")?.contains(document.activeElement)) editor.current?.focus();
+      setToolbarForLink(false);
+      setToolbarOpen(false);
+    });
+    observer.observe(link, { attributeFilter: ["aria-expanded"] });
+    return () => observer.disconnect();
+  }, [toolbarForLink]);
+
   return (
     <footer className={FOOTER}>
       {/* Not validated, since Lexxy checks its Link field itself. An address left unfinished there, or the field
-          opened out of sight by Ctrl or Cmd+K, would otherwise stop Send without a word, as it does in ember-rust. */}
+          left open and empty, would otherwise stop Send without a word, as it does in ember-rust. */}
       <form
+        ref={form}
         noValidate
         className="composer relative min-w-0 [contain:inline-size]"
         data-toolbar={toolbarOpen || undefined}
@@ -218,6 +249,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 setToolbarOpen((open) => !open);
+                setToolbarForLink(false);
                 editor.current?.focus();
               }}
               className={cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover")}

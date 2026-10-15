@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendsMessage } from "./keyboard";
+import { opensLink, sendsMessage } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
@@ -44,5 +44,21 @@ describe("sendsMessage", () => {
   it("ignores other keys", () => {
     pointer(false);
     expect(sendsMessage(press("a"))).toBe(false);
+  });
+});
+
+describe("opensLink", () => {
+  it("is Ctrl+K or Cmd+K, as Lexxy's toolbar takes them", () => {
+    expect(opensLink(press("k", { ctrlKey: true }))).toBe(true);
+    expect(opensLink(press("k", { metaKey: true }))).toBe(true);
+    expect(opensLink(press("K", { ctrlKey: true }))).toBe(true);
+  });
+
+  it("isn't K on its own or with other keys held", () => {
+    expect(opensLink(press("k"))).toBe(false);
+    expect(opensLink(press("k", { ctrlKey: true, metaKey: true }))).toBe(false);
+    expect(opensLink(press("k", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(opensLink(press("k", { metaKey: true, altKey: true }))).toBe(false);
+    expect(opensLink(press("j", { ctrlKey: true }))).toBe(false);
   });
 });
