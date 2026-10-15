@@ -81,6 +81,22 @@ function goneRoom(roomId: string, messages: Message[] = []) {
   };
 }
 
+/** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
+class WorkspaceSocket extends QuietSocket {
+  static last: WorkspaceSocket | null = null;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  constructor(url: string) {
+    super();
+    if (!url.includes("/api/socket")) return;
+    WorkspaceSocket.last = this;
+    setTimeout(() => {
+      this.onopen?.();
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+    });
+  }
+}
+
 function showWorkspace(path = "/") {
   const [onAccountChanged, onSignOut, onSessionChanged] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
@@ -109,6 +125,12 @@ const railCurrent = () =>
     .map((link) => link.getAttribute("aria-label") ?? link.textContent);
 /** How many times the room list was asked for. */
 const roomListRequests = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/sidebar").length;
+
+/** Has the workspace socket bring `frame`, once it has welcomed Ada and asked for her rooms again. */
+async function workspaceSends(frame: WorkspaceServerFrame) {
+  await waitFor(() => expect(roomListRequests()).toBe(2));
+  act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify(frame) }));
+}
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
@@ -481,6 +503,45 @@ describe(feature("dms.delete"), () => {
     expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link")).toEqual([]);
   });
 
+  it("goes home without an alert when the workspace socket tells of the deletion before it answers", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "DELETE /api/rooms/d1": () => new Promise<Response>((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/rooms/directs/d1/edit");
+    await user.click(await screen.findByRole("button", { name: "Delete Ping" }));
+    await workspaceSends({ type: "room.gone", roomId: "d1" });
+    // The page stays as it was until its deletion answers.
+    expect(screen.getByRole("button", { name: "Delete Ping" })).toBeDisabled();
+    expect(location.pathname).toBe("/rooms/directs/d1/edit");
+
+    await act(async () => answer(new Response(null, { status: 204 })));
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the settings of a DM someone else deletes on screen, going home with the alert once Delete finds it gone", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "DELETE /api/rooms/d1": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }),
+    });
+    const { user } = showWorkspace("/rooms/directs/d1/edit");
+    await screen.findByRole("button", { name: "Delete Ping" });
+    await workspaceSends({ type: "room.gone", roomId: "d1" });
+    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link")).toEqual([]);
+    expect(location.pathname).toBe("/rooms/directs/d1/edit");
+
+    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await roomHeading()).toHaveTextContent("general");
+  });
+
   it("goes home with an alert from the settings of a DM you aren't in, or of a room that isn't a DM", async () => {
     showWorkspace("/rooms/directs/d9/edit");
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
@@ -711,28 +772,6 @@ describe(feature("sidebar.rooms"), () => {
 });
 
 describe(feature("sidebar.live-updates"), () => {
-  /** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
-  class WorkspaceSocket extends QuietSocket {
-    static last: WorkspaceSocket | null = null;
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data: string }) => void) | null = null;
-    constructor(url: string) {
-      super();
-      if (!url.includes("/api/socket")) return;
-      WorkspaceSocket.last = this;
-      setTimeout(() => {
-        this.onopen?.();
-        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
-      });
-    }
-  }
-
-  /** Has the workspace socket bring `frame`, once it has welcomed Ada and asked for her rooms again. */
-  async function workspaceSends(frame: WorkspaceServerFrame) {
-    await waitFor(() => expect(roomListRequests()).toBe(2));
-    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify(frame) }));
-  }
-
   beforeEach(() => {
     WorkspaceSocket.last = null;
     vi.stubGlobal("WebSocket", WorkspaceSocket);

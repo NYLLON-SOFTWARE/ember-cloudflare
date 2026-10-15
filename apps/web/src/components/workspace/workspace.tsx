@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
+import type { Account, DirectRoom, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -10,7 +10,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
-import { markedUnread, type DirectSidebarRoom } from "@/lib/room-list";
+import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { CustomStylesPage } from "./custom-styles-page";
 import { DirectSettingsPage } from "./direct-settings-page";
@@ -68,7 +68,7 @@ function namedRoomId(route: Route): RoomId | null {
 }
 
 /** The DM `roomId` names among `rooms`, or null when it isn't one of them. */
-function directIn(rooms: SidebarRoom[], roomId: RoomId): DirectSidebarRoom | null {
+function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
   const room = rooms.find((r) => r.id === roomId);
   return room?.kind === "direct" ? room : null;
 }
@@ -204,7 +204,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
-  // own socket finds it gone or the workspace socket, which can hear first, says so.
+  // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
+  // stay too, which go home once their own deletion answers, as the workspace socket can tell of it first.
   const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
   const roomGone = (room: Room) => {
     setGone({ room, route });
@@ -265,11 +266,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   }, [goingOn, redirect]);
 
   const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
-  const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(rooms, route.roomId);
-  // The workspace socket's news that a room is gone takes it out of the list, and the room shown stays.
-  // Declared as a function, so that `useSidebar` above can take it.
+  const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
+  // The workspace socket's news that a room is gone takes it out of the list, and the room or the DM's
+  // settings shown stay. Declared as a function, so that `useSidebar` above can take it.
   function shownRoomGone(roomId: RoomId) {
-    if (room?.id === roomId) setGone({ room, route });
+    const shown = room ?? direct;
+    if (shown?.id === roomId) setGone({ room: shown, route });
   }
   // Go Back on the settings pages returns to the last room visited, as ember-rust's
   // `link_back_to_last_room_visited` does, or home when there's none.
