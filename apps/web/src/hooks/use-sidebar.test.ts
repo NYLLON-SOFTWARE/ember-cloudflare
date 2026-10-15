@@ -229,6 +229,73 @@ describe(feature("sidebar.live-updates"), () => {
     await settle();
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
+
+  it("adds the rooms the workspace socket brings as they're saved, and changes the ones it has, keeping their marks", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.saved", room: { id: general.id, name: "general", kind: "open", icon: null } });
+    expect(result.current.list?.rooms).toEqual([design, general]);
+
+    socket().receive({ type: "room.unread", roomId: design.id });
+    socket().receive({ type: "room.saved", room: { id: design.id, name: "Roadmap", kind: "closed", icon: "rocket" } });
+    expect(result.current.list?.rooms).toEqual([{ id: design.id, name: "Roadmap", kind: "closed", icon: "rocket", unread: true }, general]);
+  });
+
+  it("takes out each room the workspace socket says is gone, saying which", async () => {
+    const onGone = vi.fn();
+    server.change(unstarred([design, general]));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, onGone));
+    await settle();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.gone", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([general]);
+    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id);
+  });
+
+  it("lists a room as the server answers a change to it, unless the workspace socket has said what became of it since", async () => {
+    server.change(unstarred([design, general]));
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    const names = () => result.current.list?.rooms.map((room) => room.name);
+    const named = (room: SidebarRoom, name: string) => ({ id: room.id, name, kind: room.kind, icon: room.icon });
+
+    // Ada renames Design, and the socket brings a rename saved in another tab just after, before her answer.
+    const renamed = result.current.askForRoom();
+    socket().receive({ type: "room.saved", room: named(design, "Roadmap") });
+    act(() => renamed({ type: "saved", room: named(design, "Plans") }));
+    expect(names()).toEqual(["Roadmap", "general"]);
+
+    // She saves general, which is deleted before her answer comes.
+    const saved = result.current.askForRoom();
+    socket().receive({ type: "room.gone", roomId: general.id });
+    act(() => saved({ type: "saved", room: named(general, "general") }));
+    expect(names()).toEqual(["Roadmap"]);
+
+    // She leaves Design, and is put back in it before her answer comes.
+    const left = result.current.askForRoom();
+    socket().receive({ type: "room.saved", room: named(design, "Roadmap") });
+    act(() => left({ type: "gone", roomId: design.id }));
+    expect(names()).toEqual(["Roadmap"]);
+
+    // What the socket says of another room leaves an answer to take its place.
+    const answered = result.current.askForRoom();
+    socket().receive({ type: "room.saved", room: named(general, "general") });
+    act(() => answered({ type: "saved", room: named(design, "Plans") }));
+    expect(names()).toEqual(["Plans", "general"]);
+  });
+
+  it("keeps a room gone that a list on its way may still show", async () => {
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "room.gone", roomId: design.id });
+    await release();
+    await settle();
+    expect(result.current.list?.rooms).toEqual([]);
+  });
 });
 
 describe(feature("sidebar.unread"), () => {

@@ -1,8 +1,8 @@
 import { feature } from "@ember/parity";
-import type { Sidebar } from "@ember/protocol";
+import type { Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
-import { cookieHeader, invitation, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
-import { expect, test, type Member } from "./fixtures";
+import { connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
+import { expect, test, unique, type Member } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
   test("lists the rooms the server says you're in", async ({ members, rooms }) => {
@@ -31,17 +31,54 @@ test.describe(feature("sidebar.rooms"), () => {
 });
 
 test.describe(feature("sidebar.live-updates"), () => {
-  test("loads the sidebar again when the tab's workspace connection comes back", async ({ members, request, rooms, session }) => {
+  test("shows rooms as they're made, renamed and deleted, in everyone's sidebar at once", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"), { serverRooms: true });
+    const grace = await members.signIn(unique("Grace"), { serverRooms: true });
+    const row = (name: string) => grace.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name });
+
+    const plans = await createRoom(request, ada.session, unique("Plans"));
+    await expect(row(plans.name)).toBeVisible();
+
+    const roadmap = unique("Roadmap");
+    const renamed = await request.patch(`/api/rooms/${plans.id}`, { data: { name: roadmap }, headers: { Cookie: cookieHeader(ada.session) } });
+    expect(renamed.status(), await renamed.text()).toBe(200);
+    await expect(row(roadmap)).toBeVisible();
+    await expect(row(plans.name)).toHaveCount(0);
+
+    const deleted = await request.delete(`/api/rooms/${plans.id}`, { headers: { Cookie: cookieHeader(ada.session) } });
+    expect(deleted.status(), await deleted.text()).toBe(204);
+    await expect(row(roadmap)).toHaveCount(0);
+  });
+
+  test("loads the sidebar again when the tab's workspace connection comes back, for what it missed", async ({ members, request, rooms, session }) => {
+    const ownRooms = listing([rooms.general.id, rooms.random.id]);
     let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+    let welcomed = false;
+    // What the Workspace sends while this is set is lost on the way, as it is on a connection that's dropped.
+    let losing = false;
+    const lost: WorkspaceServerFrame[] = [];
     const ada = await members.signIn("Ada", {
-      beforeOpen: (page) => page.routeWebSocket(WORKSPACE_SOCKET, (ws) => void (connection = { page: ws, server: ws.connectToServer() })),
+      beforeOpen: (page) =>
+        page.routeWebSocket(WORKSPACE_SOCKET, (ws) => {
+          const server = connectWorkspace(ws, (frame) => {
+            welcomed ||= frame.type === "welcome";
+            if (losing) lost.push(frame);
+            return !losing && ownRooms(frame);
+          });
+          connection = { page: ws, server };
+        }),
     });
     const links = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link");
     await expect(links).toHaveText(["#general", "#random"]);
+    await expect.poll(() => welcomed).toBe(true);
 
+    losing = true;
     const renamed = await request.patch(`/api/rooms/${rooms.random.id}`, { data: { name: "watercooler" }, headers: { Cookie: cookieHeader(session) } });
     expect(renamed.status(), await renamed.text()).toBe(200);
-    await expect.poll(() => connection).toBeDefined();
+    await expect.poll(() => lost.some((frame) => frame.type === "room.saved" && frame.room.id === rooms.random.id)).toBe(true);
+    losing = false;
+    await expect(links).toHaveText(["#general", "#random"]);
+
     await connection!.server.close();
     await connection!.page.close();
     await expect(links).toHaveText(["#general", "#watercooler"]);
@@ -252,6 +289,7 @@ test.describe(feature("rooms.last-visited"), () => {
   test("shows someone in no rooms a picture of an empty room, with their name for screen readers", async ({ page, session }) => {
     await signInAs(page, session);
     await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null } satisfies Sidebar }));
+    await keepOtherRoomsOut(page, []);
     await page.goto("/");
     await expect(page).toHaveTitle("No rooms yet");
     const main = page.getByRole("main");
