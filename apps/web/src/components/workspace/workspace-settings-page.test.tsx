@@ -3,17 +3,22 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DirectoryUser, Me, RoleChange, WorkspaceSettings } from "@ember/protocol";
+import type { Account, AccountChanges, DirectoryUser, Me, RoleChange, WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import cancel from "@/components/icons/campfire/cancel.svg";
 import { Sheet } from "@/components/ui/sheet";
+import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
-const asAdministrator: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: JOIN_CODE, canAdminister: true };
+const asAdministrator: WorkspaceSettings = {
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" },
+  joinCode: JOIN_CODE,
+  canAdminister: true,
+};
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
 /** Someone as the people directory lists them. */
@@ -37,7 +42,7 @@ const asAda: Me = { id: ada.id, name: ada.name, administrator: true };
 const asLinus: Me = { id: linus.id, name: linus.name, administrator: false };
 
 interface Answers {
-  /** What saving the name answers, rather than the name sent. */
+  /** What saving the name or the settings answers, rather than the workspace changed as asked. */
   saved?: () => Response | Promise<Response>;
   /** What regenerating the join link answers, rather than `NEW_JOIN_CODE`. */
   regenerated?: () => Response | Promise<Response>;
@@ -47,6 +52,7 @@ interface Answers {
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }: Answers = {}) {
+  let { account } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -56,9 +62,13 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }:
     }
     switch (request) {
       case "GET /api/account":
-        return Response.json(settings);
-      case "PATCH /api/account":
-        return saved ? saved() : Response.json({ account: JSON.parse(String(init?.body)) });
+        return Response.json({ ...settings, account });
+      case "PATCH /api/account": {
+        if (saved) return saved();
+        const { name = account.name, settings: changed } = JSON.parse(String(init?.body)) as AccountChanges;
+        account = { ...account, name, hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons };
+        return Response.json({ account });
+      }
       case "POST /api/account/join_code":
         return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
       default:
@@ -78,23 +88,38 @@ type Callbacks = ReturnType<typeof spies>;
 
 /** Changes someone in the people directory the page shows, as the workspace socket does. */
 let socketSays: (person: DirectoryUser) => void;
+/** Changes the workspace the page shows, as the workspace socket does. */
+let workspaceSays: (account: Account) => void;
 
-/** The page, with the people directory as the workspace keeps it: changed as the page or the workspace socket says. */
+/**
+ * The page, with the workspace and the people directory as the app keeps them: changed as the page or
+ * the workspace socket says. The workspace starts as the app loaded it, before the page's settings came.
+ */
 function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; callbacks: Callbacks }) {
   const [people, setPeople] = useState(() => new Map(listed.map((person) => [person.id, person])));
+  const [account, setAccount] = useState<Account>({ ...asAdministrator.account, name: "Ember" });
   socketSays = (person) => setPeople((people) => new Map(people).set(person.id, person));
+  workspaceSays = setAccount;
   const personChanged = (person: DirectoryUser) => {
     callbacks.onPersonChanged(person);
     socketSays(person);
   };
+  // As the app's, which the page's loading waits on, it stays the same.
+  const [askForAccount] = useState(() => () => (account: Account) => {
+    callbacks.onAccountChanged(account);
+    setAccount(account);
+  });
+  const { onAccountChanged: _, ...handlers } = callbacks;
   return (
-    <PeopleContext value={people}>
-      <FlashProvider workspace>
-        <Sheet>
-          <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...callbacks} onPersonChanged={personChanged} />
-        </Sheet>
-      </FlashProvider>
-    </PeopleContext>
+    <AccountContext value={account}>
+      <PeopleContext value={people}>
+        <FlashProvider workspace>
+          <Sheet>
+            <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...handlers} askForAccount={askForAccount} onPersonChanged={personChanged} />
+          </Sheet>
+        </FlashProvider>
+      </PeopleContext>
+    </AccountContext>
   );
 }
 
@@ -159,14 +184,14 @@ describe(feature("accounts.name"), () => {
     const { onAccountChanged, user } = showPage();
     const name = await nameField();
     expect(name).toHaveValue("Analytical Engines");
-    expect(onAccountChanged).toHaveBeenCalledWith({ name: "Analytical Engines" });
+    expect(onAccountChanged).toHaveBeenCalledWith(asAdministrator.account);
     await user.clear(name);
     await user.type(name, "Difference Engines");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
     expect(saved()).toEqual([{ name: "Difference Engines" }]);
-    expect(onAccountChanged).toHaveBeenLastCalledWith({ name: "Difference Engines" });
+    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, name: "Difference Engines" });
     expect(name).toHaveValue("Difference Engines");
   });
 
@@ -215,6 +240,81 @@ describe(feature("accounts.name"), () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Workspace name" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  });
+
+  it("shows members a new name as soon as the workspace socket says it, where ember-rust's shows it on the next load", async () => {
+    serve(asMember);
+    showPage();
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    act(() => workspaceSays({ ...asMember.account, name: "Difference Engines" }));
+    expect(screen.getByRole("heading", { level: 2, name: "Difference Engines" })).toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  const hideSwitch = () => screen.findByRole("switch", { name: "Hide translation buttons" });
+
+  it("lets an administrator show translation buttons, and hide them again, saved at once with no notice", async () => {
+    const { onAccountChanged, user } = showPage();
+    const hide = await hideSwitch();
+    expect(hide).toBeChecked();
+    expect(hide).toHaveAccessibleDescription("Hide language help throughout the app for everyone.");
+    expect(screen.queryByText("Translate")).not.toBeInTheDocument();
+
+    await user.click(hide);
+    expect(hide).not.toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false }));
+    // The workspace name's globe.
+    expect(screen.getByText("Translate")).toBeInTheDocument();
+
+    await user.click(hide);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
+    expect(saved()).toEqual([{ settings: { hideTranslationButtons: false } }, { settings: { hideTranslationButtons: true } }]);
+    expect(screen.queryByText("Translate")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    showPage();
+    const hide = await hideSwitch();
+    act(() => workspaceSays({ ...asAdministrator.account, hideTranslationButtons: false }));
+    expect(hide).not.toBeChecked();
+  });
+
+  it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { onFailed, user } = showPage();
+    const hide = await hideSwitch();
+    await user.click(hide);
+    await user.click(hide);
+    expect(hide).not.toBeChecked();
+    expect(saved()).toEqual([{ settings: { hideTranslationButtons: false } }]);
+
+    answer(Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(hide).toBeChecked();
+  });
+
+  it("isn't shown to members", async () => {
+    serve(asMember);
+    showPage();
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.custom-css"), () => {
+  it("links administrators to Custom styles from its top bar", async () => {
+    showPage();
+    expect(await screen.findByRole("link", { name: "Custom styles" })).toHaveAttribute("href", "/account/custom_styles/edit");
+  });
+
+  it("gives members no link", async () => {
+    serve(asMember);
+    showPage();
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(screen.queryByRole("link", { name: "Custom styles" })).not.toBeInTheDocument();
   });
 });
 

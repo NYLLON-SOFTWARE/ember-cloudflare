@@ -3,6 +3,7 @@ import {
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
+  parseCustomStyles,
   parseFavoriteOrder,
   parseNewRoom,
   parseRoleChange,
@@ -10,6 +11,7 @@ import {
   SIGN_IN_REFUSED,
   type Bootstrap,
   type ChangedPerson,
+  type CustomStyles,
   type Directory,
   type Favorites,
   type NewJoinCode,
@@ -53,7 +55,7 @@ import { closedAtOnce } from "./sockets";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { versionOf } from "./version";
-import { ACCOUNT_NAME, CREDENTIALS_HEADER, workspace } from "./workspace";
+import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
@@ -115,7 +117,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setup: account ? "complete" : "pending",
     setupProtected: isSetupProtected(env),
     guestSignIn: guestSignIn(env),
-    account: account ?? { name: ACCOUNT_NAME },
+    account: account ?? ACCOUNT_BEFORE_SETUP,
     helpContact,
     version: versionOf(env),
     user,
@@ -168,6 +170,31 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return typeof changes === "string" ? problem(422, changes) : json({ account });
+}
+
+/** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
+async function customStyles(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const styles = credentials && (await workspace(env).customStyles(credentials));
+  if (!styles) return problem(401, "Not signed in");
+  if (styles === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return json(styles satisfies CustomStyles);
+}
+
+/**
+ * Saves the workspace's custom CSS, as the Custom CSS page does, answering the workspace as it is then.
+ * As in ember-rust, someone who isn't an administrator hears so before anything they sent is checked
+ * (custom_styles.rs).
+ */
+async function changeCustomStyles(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseCustomStyles(await request.json().catch(() => null));
+  // A change that doesn't parse changes nothing, but who's asking is still checked first.
+  const account = await workspace(env).changeCustomStyles(credentials, typeof change === "string" ? undefined : change.customStyles);
+  if (!account) return problem(401, "Not signed in");
+  if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return typeof change === "string" ? problem(422, change) : json({ account });
 }
 
 /**
@@ -360,6 +387,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
+  if (pathname === "/api/account/custom_styles" && request.method === "GET") return customStyles(request, env);
+  if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return changeCustomStyles(request, env);
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);

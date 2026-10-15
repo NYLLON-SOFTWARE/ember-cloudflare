@@ -5,7 +5,7 @@ import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type Room
 // small typed router over the History API rather than a library. A page with changes to lose can
 // hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
-export { WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;

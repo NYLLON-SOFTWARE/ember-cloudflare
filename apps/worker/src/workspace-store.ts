@@ -1,5 +1,6 @@
 import {
   MAX_FAVORITES,
+  type Account,
   type CloseCode,
   type Favorites,
   type HelpContact,
@@ -39,16 +40,23 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
+/** What a new account's settings and custom CSS read as: translation buttons hidden, and no CSS. */
+export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "" } as const;
+
 /** The workspace's account, with the code in its join link, which only the people in it see. */
-export interface JoinableAccount {
-  name: string;
+export interface JoinableAccount extends Account {
   joinCode: string;
 }
 
 /** The account first run creates. */
-export interface NewAccount extends JoinableAccount {
+export interface NewAccount {
   id: string;
+  name: string;
+  joinCode: string;
 }
+
+/** What `WorkspaceStore.changeAccount` changes: the name, Hide translation buttons, or both. */
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -130,6 +138,30 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   updatedAt: row.updated_at,
 });
 
+/** Whether a value is `present?`, as ember-rust reads a setting (account.rs): not null, false, blank, or empty. */
+function isPresent(value: unknown): boolean {
+  if (value === null || value === false || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value !== "object" || Object.keys(value).length > 0;
+}
+
+/**
+ * Whether the account's settings hide the translation buttons, as ember-rust reads them (account.rs,
+ * `hide_translation_buttons`): hidden until the setting is stored, even for an existing account, then
+ * only while it's present, so a stored false or blank shows them. Settings that don't parse hide them.
+ */
+function hidesTranslationButtons(settings: string | null): boolean {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(settings ?? "{}");
+  } catch {
+    return true;
+  }
+  const hide = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>).hide_translation_buttons : undefined;
+  return hide === undefined || isPresent(hide);
+}
+
 interface RoomToChangeRow extends Room {
   can_administer: number;
 }
@@ -155,11 +187,11 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
 /**
- * The workspace's first room, where the welcome card shows, as ember-rust's `Room::original` finds it
- * (room.rs). Ids sort in the order rooms were made, so the primary key's index finds it at once, and
- * rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have no creator and are passed over.
+ * The workspace's first room, where the welcome card shows: its oldest, of any kind, as ember-rust's
+ * `Room::original` finds it (room.rs). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`)
+ * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the preview's is its general.
  */
-export const ORIGINAL_ROOM = `SELECT id FROM rooms WHERE creator_id IS NOT NULL ORDER BY id LIMIT 1`;
+export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
 
 /**
  * Queues revoking a session's sockets in every room its person is in, the only rooms it can have
@@ -217,6 +249,19 @@ export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role =
  * `Account::update` changes only what differs (account.rs).
  */
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
+
+/**
+ * Sets Hide translation buttons, true or false as JSON, in the account's settings and records when.
+ * The other settings stay, as ember-rust merges a change into them (account.rs, `assign`), and
+ * settings that aren't a JSON object start afresh, as ember-rust reads them.
+ */
+const SET_HIDE_TRANSLATION_BUTTONS = `UPDATE accounts SET settings = json_set(
+    CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
+    '$.hide_translation_buttons', json(?1)
+  ), updated_at = ?2`;
+
+/** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
+const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
 
 /** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
 const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
@@ -321,6 +366,20 @@ const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, cre
 const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING`;
 
+/**
+ * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
+ * already, as the preview has its general and random from before the Workspace kept a list.
+ */
+const INSERT_FIRST_ROOM = `INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at)
+  SELECT ?1, 'open', ?2, ?3, ?4, ?4 WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE kind = 'open' AND name = ?2)`;
+
+/** Puts every active person in one of first run's rooms, if it was added: one it found has them already, being open. */
+const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT rooms.id, users.id, ?, ? FROM rooms, users WHERE rooms.id = ? AND users.status = ${ACTIVE} ON CONFLICT DO NOTHING`;
+
+/** The oldest open room with a name, which first run opens: the one it added, or the one it found. */
+const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
+
 /** Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do. */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING`;
@@ -352,13 +411,24 @@ export class WorkspaceStore {
 
   /** The workspace's account, or null until first run creates it. */
   async account(): Promise<JoinableAccount | null> {
-    const [row] = await this.db.all<{ name: string; join_code: string }>(`SELECT name, join_code FROM accounts`);
-    return row ? { name: row.name, joinCode: row.join_code } : null;
+    const [row] = await this.db.all<{ name: string; join_code: string; settings: string | null; custom_styles: string | null }>(
+      `SELECT name, join_code, settings, custom_styles FROM accounts`,
+    );
+    if (!row) return null;
+    return { name: row.name, joinCode: row.join_code, hideTranslationButtons: hidesTranslationButtons(row.settings), customStyles: row.custom_styles ?? "" };
   }
 
-  /** Renames the workspace. */
-  async renameAccount(name: string, now: string): Promise<void> {
-    await this.db.run(RENAME_ACCOUNT, name, now);
+  /** Changes the workspace's name, Hide translation buttons, or both, in one batch. */
+  async changeAccount({ name, hideTranslationButtons }: AccountChange, now: string): Promise<void> {
+    await this.db.batch([
+      ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
+      ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
+    ]);
+  }
+
+  /** Saves the workspace's custom CSS. */
+  async changeCustomStyles(customStyles: string, now: string): Promise<void> {
+    await this.db.run(CHANGE_CUSTOM_STYLES, customStyles, now);
   }
 
   /** Gives the join link a new code, so the old one joins no more. */
@@ -373,20 +443,22 @@ export class WorkspaceStore {
 
   /**
    * Creates the workspace as ember-rust's first run does (crates/db/src/models/first_run.rs): the
-   * account, its first administrator, an open room that takes in every active person, and the
-   * administrator's session, who also joins every other open room. If there's an account already,
-   * its singleton guard refuses the first statement, and so the whole batch.
+   * account, its first administrator, open rooms that take in every active person, and the
+   * administrator's session, who also joins every other open room. It adds `rooms` in order, all made
+   * at once, so the first is the workspace's first room by its id, except any the workspace has an
+   * open room of the same name for already, and answers the first, which opens. If there's an account
+   * already, its singleton guard refuses the first statement, and so the whole batch.
    */
   async createWorkspace(
     account: NewAccount,
     administrator: NewPerson,
-    room: Pick<Room, "id" | "name">,
+    rooms: Array<Pick<Room, "id" | "name">>,
     sessionId: string,
     tokenDigest: string,
     client: Client,
     now: string,
-  ): Promise<void> {
-    await this.db.batch([
+  ): Promise<Room> {
+    const results = await this.db.batch([
       statement(`INSERT INTO accounts (id, name, join_code, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, account.id, account.name, account.joinCode, NEW_ACCOUNT_SETTINGS, now, now),
       statement(
         `INSERT INTO users (id, name, email_address, password_digest, role, created_at, updated_at) VALUES (?, ?, ?, ?, ${ADMINISTRATOR}, ?, ?)`,
@@ -397,11 +469,12 @@ export class WorkspaceStore {
         now,
         now,
       ),
-      statement(`INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at) VALUES (?, 'open', ?, ?, ?, ?)`, room.id, room.name, administrator.id, now, now),
-      statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
+      ...rooms.flatMap((room) => [statement(INSERT_FIRST_ROOM, room.id, room.name, administrator.id, now), statement(GRANT_FIRST_ROOM, now, now, room.id)]),
       statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(OPEN_ROOM_NAMED, rooms[0]!.name),
     ]);
+    return (results.at(-1) as Room[])[0]!;
   }
 
   /**

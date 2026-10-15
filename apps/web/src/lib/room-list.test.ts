@@ -107,7 +107,7 @@ describe(feature("sidebar.unread"), () => {
 });
 
 describe(feature("accounts.regenerate-join-link"), () => {
-  const invited: Sidebar = { ...sidebar([room("r1", "All Talk")]), invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
+  const invited: Sidebar = { ...sidebar([room("r1", "general")]), invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
 
   it("gives the welcome card the join link's new code, even over a list asked for before it was made", () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: invited });

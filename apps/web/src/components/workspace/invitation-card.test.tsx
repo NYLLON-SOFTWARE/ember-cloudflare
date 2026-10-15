@@ -2,6 +2,8 @@ import { feature } from "@ember/parity";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
+import { TRANSLATIONS } from "@/lib/translations";
 import { InvitationCard } from "./invitation-card";
 
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
@@ -100,5 +102,17 @@ describe(feature("accounts.qr-codes"), () => {
     const show = screen.getByRole("link", { name: "Show join link QR code" });
     expect(show.previousElementSibling).toBeNull();
     expect(show.nextElementSibling).toBe(screen.getByRole("button", { name: "Copy join link" }));
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("has a translation button for its invitation once an administrator shows them", () => {
+    render(
+      <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "" }}>
+        <InvitationCard joinCode={JOIN_CODE} />
+      </AccountContext>,
+    );
+    expect(screen.getByText("Translate")).toBeInTheDocument();
+    expect(screen.getByText(TRANSLATIONS.invite_message[0][1])).toBeInTheDocument();
   });
 });

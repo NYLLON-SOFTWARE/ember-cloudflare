@@ -194,6 +194,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace
   kept a list, which `LEGACY_ROOMS` registers, keep their old addresses as ids and have no creator.
+- **The first room is found through an index.** The workspace's first room, where the welcome card
+  shows, is its oldest, as ember-rust's `Room::original` is (`crates/db/src/models/room.rs`), which
+  sorts every room by `created_at` to find it. Every sidebar here asks, so
+  `index_rooms_on_created_at_and_id` (workspace migration 0014) finds it at once. Our ids sort by
+  time too, but not the old addresses of the rooms `LEGACY_ROOMS` registers.
 - **Rooms send the Workspace their change logs.** ember-rust marks a room unread in the transaction
   that creates the message. Ours are in different objects, so a room logs each new message in
   `room_events`, in the batch that stores it, and each time someone opens it in a shown tab, then

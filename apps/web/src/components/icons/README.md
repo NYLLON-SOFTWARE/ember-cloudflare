@@ -45,6 +45,8 @@ Find the element you're porting in ember-rust's templates and see how it draws i
   - `colorize--black`, or a plain `<img>` in a `.btn`: `tone="black"` (the default).
   - `colorize--white`, or an `<img>` in a `btn--reversed` button: `tone="reversed"`.
   - An `<img>` in a `btn--negative` button or a flash: `tone="white"`, white in both modes.
+  - `color-icon`, which keeps a colored icon such as the translation buttons' globe out of those
+    rules: `tone="color"`, in its own colors in both modes.
 
 Size icons as `zz-ember.css` sizes that element (the rail's are 22px, sidebar headings 15px, message
 actions 16px, composer buttons 18px). Adding a shadcn/ui component brings `lucide-react` imports with

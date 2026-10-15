@@ -64,11 +64,11 @@ describe(feature("accounts.roles"), () => {
     expect((await me(grace)).user.administrator).toBe(true);
     expect(((await (await api("/api/bootstrap", { headers: { Cookie: grace.cookie } })).json()) as Bootstrap).user).toMatchObject({ administrator: true });
     expect((await (await api("/api/account", { headers: { Cookie: grace.cookie } })).json()) as object).toMatchObject({ canAdminister: true });
-    expect((await openWorkspaceSocket(grace)).welcome).toEqual({ type: "welcome", you: { ...grace.user, administrator: true } });
+    expect((await openWorkspaceSocket(grace)).welcome).toMatchObject({ type: "welcome", you: { ...grace.user, administrator: true } });
 
     await changeRole(administrator, grace.user.id, { role: "member" });
     expect((await me(grace)).user.administrator).toBe(false);
-    expect((await openWorkspaceSocket(grace)).welcome).toEqual({ type: "welcome", you: { ...grace.user, administrator: false } });
+    expect((await openWorkspaceSocket(grace)).welcome).toMatchObject({ type: "welcome", you: { ...grace.user, administrator: false } });
   });
 
   it("doesn't remember a sign-in that read someone's role before it changed", async () => {

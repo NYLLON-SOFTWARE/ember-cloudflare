@@ -5,6 +5,7 @@ import {
   parseWorkspaceClientFrame,
   type Account,
   type AccountChanges,
+  type CustomStyles,
   type DirectoryUser,
   type Favorites,
   type HelpContact,
@@ -33,7 +34,17 @@ import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import { SessionCache } from "./session-cache";
 import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./sockets";
-import { WorkspaceStore, type AvatarOwner, type Client, type DirectoryEntry, type JoinableAccount, type NewPerson, type StoredSession } from "./workspace-store";
+import {
+  NEW_ACCOUNT_LOOKS,
+  WorkspaceStore,
+  type AccountChange,
+  type AvatarOwner,
+  type Client,
+  type DirectoryEntry,
+  type JoinableAccount,
+  type NewPerson,
+  type StoredSession,
+} from "./workspace-store";
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
@@ -56,6 +67,9 @@ const REVOCATIONS_PER_RUN = 40;
 /** How many rooms the outbox calls at once: as many outgoing connections as an invocation can have open. */
 const ROOMS_AT_ONCE = 6;
 
+/** The account as every page shows it, without its join code, which only the people in it see. */
+const accountOf = ({ name, hideTranslationButtons, customStyles }: JoinableAccount): Account => ({ name, hideTranslationButtons, customStyles });
+
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
 export const CREDENTIALS_HEADER = "X-Ember-Credentials";
 
@@ -68,9 +82,17 @@ export interface Credentials {
   guests: boolean;
 }
 
-/** What first run names the workspace and its first room, as ember-rust's does (crates/db/src/models/first_run.rs). */
+/** What first run names the workspace, as ember-rust's does (crates/db/src/models/first_run.rs). */
 export const ACCOUNT_NAME = "Ember";
-const FIRST_ROOM_NAME = "All Talk";
+/**
+ * The open rooms first run makes, everyone's to begin with, as a Slack workspace's are, where
+ * ember-rust's first run makes just All Talk. The first, general, is the workspace's first room, which
+ * first run opens and the welcome card shows in.
+ */
+const FIRST_ROOM_NAMES = ["general", "random"];
+
+/** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
+export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
 
 const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -181,9 +203,10 @@ export class Workspace extends DurableObject<Env> {
     // sockets before this one is among them. Now that it is, checking again settles it: the session
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
     // The welcome says who they are as this check reads them, since a change to them while the first
-    // read was told only the sockets already in.
-    const current = await this.session(credentials);
-    if (current) send(server, { type: "welcome", you: meOf(current) });
+    // read was told only the sockets already in. It brings the workspace as it is now too, which may
+    // have changed while the tab was without a socket.
+    const [current, account] = await Promise.all([this.session(credentials), this.account()]);
+    if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -225,7 +248,7 @@ export class Workspace extends DurableObject<Env> {
   /** The workspace's account, or null until first run creates it. Its join code is only for the people in it. */
   async account(): Promise<Account | null> {
     const account = await this.joinableAccount();
-    return account && { name: account.name };
+    return account && accountOf(account);
   }
 
   private async joinableAccount(): Promise<JoinableAccount | null> {
@@ -256,20 +279,49 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
-    return account ? { account: { name: account.name }, joinCode: account.joinCode, canAdminister } : "not set up";
+    return account ? { account: accountOf(account), joinCode: account.joinCode, canAdminister } : "not set up";
   }
 
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
    * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), or null without a valid session.
+   * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change.
    */
-  async changeAccount(credentials: Credentials, changes: AccountChanges): Promise<Account | "forbidden" | null> {
+  async changeAccount(credentials: Credentials, { name, settings }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
-      if (changes.name === undefined) return { name: account.name };
-      const name = changes.name;
-      await this.saveAccount({ ...account, name }, (now) => this.store.renameAccount(name, now));
-      return { name };
+      // As ember-rust's `Account::update` writes only what differs (account.rs).
+      const hideTranslationButtons = settings?.hideTranslationButtons;
+      const change: AccountChange = {
+        ...(name !== undefined && name !== account.name && { name }),
+        ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
+      };
+      if (Object.keys(change).length === 0) return accountOf(account);
+      return this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
+    });
+  }
+
+  /**
+   * The workspace's custom CSS, for the Custom CSS page: "forbidden" unless the person `credentials`
+   * signs in is an administrator, as ember-rust's `edit` insists (custom_styles.rs), or null without a
+   * valid session.
+   */
+  async customStyles(credentials: Credentials): Promise<CustomStyles | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [account, administrator] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
+    return administrator && account ? { customStyles: account.customStyles } : "forbidden";
+  }
+
+  /**
+   * Saves `customStyles` as the workspace's custom CSS as the person `credentials` signs in, answering
+   * the account as it is then: "forbidden" unless they're an administrator, as ember-rust's `update`
+   * insists (custom_styles.rs), or null without a valid session. Undefined changes nothing, once that's
+   * checked. Everyone's workspace sockets hear of a change.
+   */
+  async changeCustomStyles(credentials: Credentials, customStyles: string | undefined): Promise<Account | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (customStyles === undefined || customStyles === account.customStyles) return accountOf(account);
+      return this.publishAccount({ ...account, customStyles }, (now) => this.store.changeCustomStyles(customStyles, now));
     });
   }
 
@@ -299,6 +351,18 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Saves a change to what every page shows of the account, as `saveAccount` does, then tells every
+   * workspace socket, so pages show it at once, where ember-rust's show it as they next load. Answers
+   * the account as it is now.
+   */
+  private async publishAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<Account> {
+    await this.saveAccount(account, save);
+    const shown = accountOf(account);
+    this.broadcast({ type: "account.updated", account: shown });
+    return shown;
+  }
+
   /** Saves the account as `account` with `save`, remembering it as that once it's saved. */
   private async saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<void> {
     this.accountChanges++;
@@ -324,8 +388,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Creates the workspace, its first administrator, the open room All Talk and the session their
-   * cookie's token opens, as ember-rust's first run does. Answers null if the workspace exists.
+   * Creates the workspace, its first administrator, the open rooms general and random, and the session
+   * their cookie's token opens, as ember-rust's first run does with All Talk, answering general, which
+   * opens. A room of either name that the workspace has open already, such as one `LEGACY_ROOMS`
+   * registered, stands in for it. Answers null if the workspace exists.
    */
   async createWorkspace(administrator: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
     if (await this.account()) return null;
@@ -337,16 +403,18 @@ export class Workspace extends DurableObject<Env> {
       lastActiveAt: Date.now(),
     };
     const account = { id: sortableId(), name: ACCOUNT_NAME, joinCode: newJoinCode() };
-    const room: Room = { id: sortableId(), kind: "open", name: FIRST_ROOM_NAME, icon: null };
+    // Ids sort in the order they're made, which makes general the older of two rooms made at once.
+    const rooms = FIRST_ROOM_NAMES.map((name) => ({ id: sortableId(), name }));
     const now = new Date(session.lastActiveAt).toISOString();
+    let room: Room;
     try {
-      await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, room, session.id, tokenDigest, client, now);
+      room = await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, rooms, session.id, tokenDigest, client, now);
     } catch (error) {
       // On D1 two first runs can overlap, and the account's singleton guard refuses the second.
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name, joinCode: account.joinCode };
+    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS };
     this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };

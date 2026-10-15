@@ -72,6 +72,8 @@
   --dialog-shadow-faint: #0001;
   /* And what it lays over the page behind the conversations drawer, `.mb-sidebar-backdrop`. */
   --drawer-backdrop: #0006;
+  /* Its `.shadow` (zz-ember.css), which the translation buttons' menus cast, in both modes. */
+  --menu-shadow: #00000012;
   /* The shadow under a starred room's row while it's dragged, `.mb-channel-dragging`, in both modes. */
   --drag-shadow: #0002;
   color-scheme: light;
@@ -344,6 +346,7 @@
   --color-dialog-shadow: var(--dialog-shadow);
   --color-dialog-shadow-faint: var(--dialog-shadow-faint);
   --color-drawer-backdrop: var(--drawer-backdrop);
+  --color-menu-shadow: var(--menu-shadow);
   --color-drag-shadow: var(--drag-shadow);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
   --spacing-rail: 80px;

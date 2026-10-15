@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type Account, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
@@ -10,6 +10,7 @@ const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null
 const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
+const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -43,10 +44,10 @@ class FakeSocket {
     });
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`. */
-  connect(you = ada) {
+  /** Opens, and lets the socket in with a welcome for `you`, with the workspace as `account`. */
+  connect(you = ada, account = ember) {
     this.open();
-    this.receive({ type: "welcome", you });
+    this.receive({ type: "welcome", you, account });
   }
 
   receive(frame: WorkspaceServerFrame) {
@@ -295,7 +296,7 @@ describe(feature("accounts.roles"), () => {
     await settle();
     socket().open();
     socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
-    socket().receive({ type: "welcome", you: ada });
+    socket().receive({ type: "welcome", you: ada, account: ember });
     expect(onSessionChanged).toHaveBeenCalledTimes(1);
     expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
 
@@ -312,7 +313,7 @@ describe(feature("accounts.roles"), () => {
     await settle();
     socket().open();
     socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
-    socket().receive({ type: "welcome", you: ada });
+    socket().receive({ type: "welcome", you: ada, account: ember });
     const silent = socket();
 
     // Two heartbeats without a word drop the socket without its closing, and the next one connects.
@@ -415,5 +416,59 @@ describe(feature("platform.live-socket"), () => {
     await visibility("visible");
     await settle();
     expect(sidebarRequests()).toHaveLength(1);
+  });
+});
+
+describe(feature("accounts.custom-css"), () => {
+  it("says what the workspace is each time its socket connects, and whenever an administrator changes it", async () => {
+    const onAccountChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, onAccountChanged));
+    await settle();
+    const styled = { ...ember, customStyles: "body { color: red; }" };
+    socket().connect(ada, styled);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(styled);
+    socket().receive({ type: "account.updated", account: { ...styled, hideTranslationButtons: false } });
+    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...styled, hideTranslationButtons: false });
+  });
+
+  it("takes a change heard before the welcome over the welcome's workspace, which may be older, until it connects again", async () => {
+    const onAccountChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, onAccountChanged));
+    await settle();
+    const styled = { ...ember, customStyles: "body { color: red; }" };
+    socket().open();
+    socket().receive({ type: "account.updated", account: styled });
+    socket().receive({ type: "welcome", you: ada, account: ember });
+    expect(onAccountChanged).toHaveBeenCalledTimes(1);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(styled);
+
+    socket().drop();
+    await wait(60_000);
+    socket().connect(ada, ember);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(ember);
+  });
+
+  it("takes the next connection's welcome workspace again after one that stopped answering", async () => {
+    const onAccountChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, onAccountChanged));
+    await settle();
+    socket().open();
+    socket().receive({ type: "account.updated", account: { ...ember, customStyles: "body { color: red; }" } });
+    socket().receive({ type: "welcome", you: ada, account: ember });
+    const silent = socket();
+
+    // Two heartbeats without a word drop the socket without its closing, and the next one connects.
+    await wait(60_000);
+    expect(socket()).not.toBe(silent);
+    socket().connect(ada, ember);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(ember);
+  });
+
+  it("says nothing of a workspace whose welcome was for someone else", async () => {
+    const onAccountChanged = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, onAccountChanged));
+    await settle();
+    socket().connect(grace);
+    expect(onAccountChanged).not.toHaveBeenCalled();
   });
 });
