@@ -43,11 +43,11 @@ test.describe(feature("auth.protected-setup"), () => {
     await page.getByLabel("Email address").fill("ada@example.com");
     await page.getByLabel("Password", { exact: true }).fill("correct horse battery");
     await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("All Talk");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     expect(await page.context().cookies()).toEqual([expect.objectContaining({ name: "__Host-session_token" })]);
 
     // Once it's set up, the link only goes home.
     await page.goto(`/first_run/access#token=${PROTECTED_SETUP_TOKEN}`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("All Talk");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
   });
 });

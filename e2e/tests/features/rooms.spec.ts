@@ -234,7 +234,7 @@ test.describe(feature("rooms.invitation-card"), () => {
   test("welcomes people to the first room with the workspace's join link", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
     const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true });
-    const log = ada.page.getByRole("log", { name: "Messages in All Talk" });
+    const log = ada.page.getByRole("log", { name: "Messages in general" });
     await expect(log.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
     await expect(log.getByText("To invite people to chat, share the join link below.")).toBeVisible();
     await expect(log.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(new URL(`/join/${joinCode}`, baseURL).href);

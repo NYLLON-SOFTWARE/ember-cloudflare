@@ -190,7 +190,7 @@ export interface SignUp {
   password: string;
 }
 
-/** What `POST /api/first_run` answers: the administrator it signed in, and All Talk, which opens first. */
+/** What `POST /api/first_run` answers: the administrator it signed in, and general, which opens first. */
 export interface NewWorkspace {
   user: Me;
   room: Room;

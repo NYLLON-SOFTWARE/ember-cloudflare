@@ -13,7 +13,7 @@ export interface Rooms {
  * Makes every page in `context` list just `rooms` of the server's rooms, since every other test's
  * open rooms take everyone in too. The server still answers first, so a session it refuses gets
  * its 401 as usual, a page whose list is current gets its 304, and the welcome card's invitation is
- * the server's, for All Talk, which isn't listed.
+ * the server's, for the general that setup made, which isn't listed.
  */
 async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
   const ids = new Set(Object.values(rooms).map((room) => room.id));
