@@ -70,7 +70,7 @@ describe(feature("messages.create"), () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(2);
+    expect(ROOM_PROTOCOL).toBe(3);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });

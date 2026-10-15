@@ -666,6 +666,18 @@ export class Workspace extends DurableObject<Env> {
     return user && { people: await this.store.activePeople() };
   }
 
+  /**
+   * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
+   * the first page of the active people there whose names contain `query`, by name. "not found" unless
+   * they're in the room, or null without a valid session.
+   */
+  async mentionable(credentials: Credentials, roomId: RoomId | null, query: string): Promise<DirectoryEntry[] | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
+    return this.store.mentionable(query, roomId);
+  }
+
   /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);

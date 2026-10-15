@@ -53,6 +53,16 @@ lexxy-editor {
   border: 1px solid var(--border);
 }
 
+/*
+ * On touch screens, and at 900px and below, each person the @ prompt lists is a fingertip's 44px tall, as
+ * zz-ember.css makes ember-rust's other controls there. ember-rust's list keeps Lexxy's 33px.
+ */
+@media (width < 56.3125rem), (pointer: coarse) {
+  .lexxy-prompt-menu__item {
+    min-block-size: 44px;
+  }
+}
+
 /* Same for the code block language picker: with a transparent canvas the
    native dropdown renders white-on-white in dark mode */
 lexxy-editor lexxy-code-language-picker select {
@@ -122,11 +132,63 @@ lexxy-editor action-text-attachment {
   white-space: normal;
 }
 
+/*
+ * Campfire's autocomplete.css, for mentions in the editor and the people the @ prompt lists: a mention is
+ * the person's avatar, as tall as the line, then their name in semibold, and the list's avatars are 2.5ch
+ * across. Campfire's avatars are `.btn`s there (avatars.css, buttons.css), whose weight, which their `ch`
+ * is measured in, and white backing these keep.
+ */
 action-text-attachment[content-type~="application/vnd.campfire.mention"] {
   display: inline-flex;
   margin: 0;
   padding: 0;
   position: relative;
+
+  .attachment__toolbar {
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    z-index: 2;
+  }
+}
+
+.mention {
+  --avatar-size: 1.1em;
+
+  align-items: center;
+  color: inherit;
+  display: inline-flex;
+  font-weight: 600;
+  line-height: var(--avatar-size);
+  margin: 0;
+  padding-inline-start: calc(var(--avatar-size) + 1ch / 3) !important;
+  position: relative;
+  z-index: 2;
+
+  .avatar {
+    inset-block: 0;
+    inset-inline: 0.1ch 0.3ch;
+    position: absolute;
+  }
+}
+
+.autocomplete__item {
+  --avatar-size: 2.5ch;
+
+  align-items: center;
+  column-gap: 1ch;
+  display: flex;
+}
+
+:is(.mention, .autocomplete__item) .avatar {
+  aspect-ratio: 1;
+  background-color: var(--background);
+  block-size: auto;
+  border-radius: 50%;
+  font-weight: 500;
+  inline-size: var(--avatar-size);
+  margin: 0;
+  max-inline-size: 100%;
+  object-fit: cover;
 }
 
 .lexxy-content {
@@ -201,6 +263,8 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
  */
 .composer {
   lexxy-editor {
+    --composer-padding: 12px;
+
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -209,9 +273,15 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
     padding: 0;
   }
 
-  .lexxy-editor__content {
-    --composer-padding: 12px;
+  /*
+   * Lexxy places the @ prompt's list where the cursor is in the text, measured from the text's edge,
+   * but from the editor's, which the text's padding sticks out past here.
+   */
+  .lexxy-prompt-menu {
+    margin-inline-start: calc(-1 * var(--composer-padding));
+  }
 
+  .lexxy-editor__content {
     flex: 1;
     margin: calc(-1 * var(--composer-padding)) calc(-1 * var(--composer-padding)) 0;
     max-block-size: calc(min(32dvh, 300px) + var(--composer-padding) + 4px);
@@ -252,9 +322,11 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
   }
 
   @media (width < 56.3125rem) {
-    .lexxy-editor__content {
+    lexxy-editor {
       --composer-padding: 10px;
+    }
 
+    .lexxy-editor__content {
       min-block-size: calc(30px + var(--composer-padding) + 4px);
     }
   }
@@ -295,6 +367,11 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
       margin: -0.5em -0.8em;
       min-block-size: 44px;
       padding: 0.5em 0.8em;
+    }
+
+    /* As in the composer, the list starts at the cursor, less the text's padding, at the field's 1rem. */
+    .lexxy-prompt-menu {
+      margin-inline-start: -0.8rem;
     }
   }
 

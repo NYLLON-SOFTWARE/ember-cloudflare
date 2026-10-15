@@ -12,7 +12,7 @@ import {
   type Message,
   type User,
 } from "@ember/protocol";
-import { plainText } from "@ember/richtext/dom";
+import { writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
@@ -28,9 +28,6 @@ const TYPING_THROTTLE_MS = 1_000;
  * made before the room confirms it: once the page reconnects, the room may never have had it.
  */
 export const RoomConnection = createContext(0);
-
-/** Whom a message being sent mentions, until the room says: the composer can't write a mention yet. */
-const NO_ONE = () => undefined;
 
 /**
  * Whether the room would refuse `body`, whose plain text is `text`, as too long: more text than it
@@ -172,7 +169,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // Answers whether the message went. One longer than the room takes doesn't, and stays where it was written.
   const postMessage = useCallback(
     (body: string) => {
-      const text = plainText(body, NO_ONE);
+      const { plainText: text, mentions } = writtenBody(body);
       if (isTooLong(body, text)) {
         warn(MESSAGE_TOO_LONG);
         return false;
@@ -186,7 +183,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         creator: me,
         body,
         plainText: text,
-        mentions: [],
+        mentions,
         createdAt: now,
         updatedAt: now,
         editedAt: null,
@@ -232,7 +229,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     return {
       // An edit longer than the room takes isn't sent either, so its editor keeps it.
       edit: (messageId: string, body: string) => {
-        if (!isTooLong(body, plainText(body, NO_ONE))) return sendOrWarn({ type: "message.update", messageId, body });
+        if (!isTooLong(body, writtenBody(body).plainText)) return sendOrWarn({ type: "message.update", messageId, body });
         warn(MESSAGE_TOO_LONG);
         return false;
       },

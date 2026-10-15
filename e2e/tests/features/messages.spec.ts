@@ -745,22 +745,6 @@ test.describe(feature("messages.grouping"), () => {
   });
 });
 
-test.describe(feature("mentions.highlight"), () => {
-  test("highlights messages that mention you", async ({ members }) => {
-    const ada = await members.signIn("Ada");
-    const grace = await members.signIn("Grace");
-    await grace.send("Thanks @Ada");
-    await grace.send("No mention here");
-
-    const highlight = (text: string) => ada.message(text).locator(".border-mention");
-    await expect(highlight("Thanks @Ada")).toBeVisible();
-    await expect(highlight("Thanks @Ada")).toHaveCSS("border-left-width", "2px");
-    await expect(ada.message("No mention here")).toBeVisible();
-    await expect(highlight("No mention here")).toHaveCount(0);
-    await expect(grace.message("Thanks @Ada").locator(".border-mention")).toHaveCount(0);
-  });
-});
-
 test.describe(feature("users.avatars"), () => {
   test("shows each person's avatar from the address the directory gives, the same everywhere", async ({ members }) => {
     const ada = await members.signIn("Ada Lovelace");

@@ -90,6 +90,20 @@ test("a control under something floating over its list must still be big enough 
   expect(touchTargets).toEqual([expect.stringContaining('<button> "Small" is 32px×32px')]);
 });
 
+test("a control's own popup may cover it while it shows, but not someone else's", async ({ page, safeArea }) => {
+  // Each list covers the top of a field, but only the first field's is the list it shows.
+  const field = (label: string, owns: boolean) => `
+    <div style="position: relative; margin-top: 60px">
+      <div role="textbox" aria-label="${label}" contenteditable="true" ${owns ? `aria-haspopup="listbox" aria-controls="${label}-list"` : ""} style="height: 44px"></div>
+      <ul role="listbox" id="${label}-list" style="position: absolute; inset: -40px 0 auto; margin: 0; padding: 0; background: Canvas">
+        <li role="option" style="height: 50px">Bea</li>
+      </ul>
+    </div>`;
+  await page.setContent(phonePage(`${field("Own", true)}${field("Other", false)}`));
+  const { touchTargets } = await auditScreen(page, safeArea);
+  expect(touchTargets).toEqual([expect.stringContaining('<div role=textbox> "Other" is')]);
+});
+
 test("controls behind a modal dialog are skipped, but the dialog's own must be big enough", async ({ page, safeArea }) => {
   // A modal <dialog> makes the page behind it inert without marking it, as a menu's aria-hidden does.
   await page.setContent(

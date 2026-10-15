@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { displayBody } from "@ember/richtext/dom";
-import { dayLabel, mentions, replyQuote, timeline } from "./messages";
+import { dayLabel, replyQuote, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -38,27 +38,6 @@ describe(feature("messages.grouping"), () => {
 describe(feature("messages.day-separators"), () => {
   it("names older days", () => {
     expect(dayLabel(new Date("2026-10-01T12:00:00"), new Date("2026-10-12T12:00:00"))).toMatch(/October/);
-  });
-});
-
-describe(feature("mentions.highlight"), () => {
-  it("matches the whole name, ignoring case", () => {
-    expect(mentions("thanks @ada!", "Ada")).toBe(true);
-    expect(mentions("ask @Adam", "Ada")).toBe(false);
-    expect(mentions("ada, are you there?", "Ada")).toBe(false);
-  });
-
-  it("handles names that start or end outside ASCII letters", () => {
-    expect(mentions("@José, lunch?", "José")).toBe(true);
-    expect(mentions("@Joséphine, lunch?", "José")).toBe(false);
-    expect(mentions("@Jose\u0301", "Jose")).toBe(false);
-    expect(mentions("hi @Alice!", "Alice!")).toBe(true);
-    expect(mentions("hi @Ünal", "Ünal")).toBe(true);
-  });
-
-  it("treats the name as text, not a pattern", () => {
-    expect(mentions("@a.b", "a.b")).toBe(true);
-    expect(mentions("@axb", "a.b")).toBe(false);
   });
 });
 

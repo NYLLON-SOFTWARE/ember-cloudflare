@@ -88,3 +88,26 @@ test("the composer and the newest message stay in view when the keyboard opens",
   await expect(composer).toBeFocused();
   await screenIsFine();
 });
+
+test("the people @ lists show above the text, fit the phone, each big enough to tap, and a tap mentions one", async ({ page, room, participant, screenIsFine }) => {
+  // A word only this test's people have in their names, as everyone is in the room.
+  const tag = crypto.randomUUID().slice(0, 8);
+  await participant(`Bea ${tag}`);
+  await participant(`Cy ${tag}`);
+  await openRoom(page, room);
+  const composer = editorField(page, "Write a message");
+  await composer.tap();
+  await page.keyboard.type(`Hi @${tag}`);
+  const people = page.getByRole("listbox").getByRole("option");
+  await expect(people).toHaveText([`Bea ${tag}`, `Cy ${tag}`]);
+  // Above the line being written: two would fit under it, where the keyboard and the home indicator cover them.
+  const line = (await composer.locator("p").first().boundingBox())!;
+  const list = (await page.getByRole("listbox").boundingBox())!;
+  expect(list.y + list.height).toBeLessThan(line.y + line.height);
+  await screenIsFine();
+
+  await people.filter({ hasText: "Cy" }).tap();
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect(composer.getByText(`Cy ${tag}`, { exact: true })).toBeVisible();
+  await expect(composer).toBeFocused();
+});

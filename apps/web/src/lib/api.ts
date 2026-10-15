@@ -219,6 +219,12 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
 }
 
+/**
+ * Where a room's @ prompt asks for the people it offers, as ember-rust's `mention_prompt_src`: Lexxy adds
+ * what's typed after the @ as `filter`, and the answer is its prompt items.
+ */
+export const mentionPromptSrc = (roomId: RoomId) => `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
+
 /** The address of a socket at `path` on this page's host, over wss on https pages. */
 function socketUrl(path: string): string {
   const url = new URL(path, location.href);

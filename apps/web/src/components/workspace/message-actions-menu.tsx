@@ -2,7 +2,7 @@ import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useL
 import { QUICK_REACTION_COUNT, REACTIONS, type Message } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
 import { Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply } from "@/components/icons/lucide";
-import { PeopleContext, useNameOf } from "@/hooks/use-directory";
+import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath } from "@/hooks/use-route";
 import { replyQuote } from "@/lib/messages";
@@ -379,7 +379,8 @@ function ReplyButton({ message, nodes, onClick }: { message: Message; nodes: Dis
   const nameOf = useNameOf();
   const reply = () => {
     const link = new URL(messagePath(message.roomId, message.id), document.baseURI).href;
-    onClick(replyQuote(nodes, nameOf(message.creator), link, (userId) => people.get(userId)?.name ?? UNKNOWN_PERSON));
+    const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
+    onClick(replyQuote(nodes, nameOf(message.creator), link, mentioned));
   };
   return (
     <button type="button" title="Reply" aria-label="Reply" className={ACTION} onClick={reply}>
