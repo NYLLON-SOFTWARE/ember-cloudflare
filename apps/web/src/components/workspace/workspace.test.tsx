@@ -403,7 +403,7 @@ describe(feature("rooms.member-only-access"), () => {
   });
 
   it("leaves the messages of a room that's gone with nothing to do to them", async () => {
-    const said: Message = { id: "m1", clientMessageId: "c1", roomId: "random", creator: ada, body: "Before it went", createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", boosts: [] };
+    const said: Message = { id: "m1", clientMessageId: "c1", roomId: "random", creator: ada, body: "<p>Before it went</p>", plainText: "Before it went", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
     vi.stubGlobal("WebSocket", goneRoom("random", [said]));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");

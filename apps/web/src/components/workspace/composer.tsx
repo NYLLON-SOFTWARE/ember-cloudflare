@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { User } from "@ember/protocol";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
+import { bodyFromPlainText } from "@ember/richtext/dom";
 import { ArrowUp } from "@/components/icons/campfire";
 import { sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ interface Props {
   roomName: string;
   typing: User[];
   disabled: boolean;
+  /** Sends a message, its body markup. */
   onSend: (body: string) => void;
   onTyping: (active: boolean) => void;
 }
@@ -51,7 +53,8 @@ export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props
   const submit = () => {
     const text = body.trim();
     if (!text || disabled) return;
-    onSend(text);
+    // Sent as Lexxy sends the text typed into it.
+    onSend(bodyFromPlainText(text));
     setBody("");
     input.current?.focus();
   };

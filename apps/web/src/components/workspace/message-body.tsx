@@ -11,7 +11,7 @@ const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "
 /** Elements whose whitespace the browser doesn't show, which React won't put in them. */
 const TABLE_PARTS = new Set(["table", "thead", "tbody", "tfoot", "tr"]);
 
-/** What a mention shows until the web app can look people up: ember-rust's mention of someone who's gone. */
+/** What a mention shows until the web app draws mentions: ember-rust's mention of someone who's gone. */
 const UNKNOWN_PERSON = "☒";
 
 interface Props {

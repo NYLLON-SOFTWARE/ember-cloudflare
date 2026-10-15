@@ -9,7 +9,7 @@ import {
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
   MAX_LISTED_USERS,
-  MAX_MESSAGE_LENGTH,
+  MAX_MESSAGE_HTML_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseAccountChanges,
   parseClientFrame,
@@ -21,32 +21,43 @@ import {
   parseSignUp,
   parseWorkspaceClientFrame,
   ROOM_ICON_NAMES,
+  ROOM_PROTOCOL,
   roomSocketQuery,
   type WorkspaceServerFrame,
 } from "./index";
 
 const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
+/** What a room socket's address with `params` says, as the worker's URLSearchParams reads it. */
+const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
 
 describe(feature("messages.create"), () => {
-  it("accepts a well-formed message and trims its body", () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "  hi  " })).toEqual({
-      type: "message.create",
-      clientMessageId: "c1",
-      body: "hi",
-    });
+  it("accepts a well-formed message, leaving its markup for the room to read", () => {
+    for (const body of ["<p>hi</p>", "  <p>hi</p>\n", "", " "]) {
+      expect(parse({ type: "message.create", clientMessageId: "c1", body }), body).toEqual({ type: "message.create", clientMessageId: "c1", body });
+    }
+    expect(parse({ type: "message.update", messageId: "m1", body: "" })).toEqual({ type: "message.update", messageId: "m1", body: "" });
   });
 
-  it("rejects blank bodies, unknown types and invalid JSON", () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "   " })).toBeNull();
+  it("rejects bodies that aren't strings, unknown types and invalid JSON", () => {
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: 7 })).toBeNull();
+    expect(parse({ type: "message.update", messageId: "m1" })).toBeNull();
     expect(parse({ type: "nope" })).toBeNull();
     expect(parseClientFrame("{")).toBeNull();
     expect(parseClientFrame("null")).toBeNull();
   });
 
-  it(`limits messages to ${MAX_MESSAGE_LENGTH} characters and client ids to 64`, () => {
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_LENGTH) })).not.toBeNull();
-    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_LENGTH + 1) })).toBeNull();
+  it(`limits a message's markup to ${MAX_MESSAGE_HTML_LENGTH} characters and client ids to 64`, () => {
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH) })).not.toBeNull();
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
+    expect(parse({ type: "message.update", messageId: "m1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
     expect(parse({ type: "message.create", clientMessageId: "c".repeat(65), body: "hi" })).toBeNull();
+  });
+
+  it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
+    expect(ROOM_PROTOCOL).toBe(2);
+    expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
+    expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
+    expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
   });
 });
 
@@ -87,14 +98,12 @@ describe(feature("realtime.presence"), () => {
   });
 
   it("carries whether a tab is shown on its room socket's address, which counts it as shown when it doesn't say", () => {
-    expect(roomSocketQuery({ visible: true })).toBe("?visible=1");
-    expect(roomSocketQuery({ visible: false })).toBe("?visible=0");
-    // As the worker's URLSearchParams reads them.
-    const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
-    expect(read({ visible: "1" })).toEqual({ visible: true });
-    expect(read({ visible: "0" })).toEqual({ visible: false });
-    expect(read({})).toEqual({ visible: true });
-    expect(read({ visible: "yes" })).toEqual({ visible: true });
+    expect(roomSocketQuery({ visible: true })).toBe(`?visible=1&protocol=${ROOM_PROTOCOL}`);
+    expect(roomSocketQuery({ visible: false })).toBe(`?visible=0&protocol=${ROOM_PROTOCOL}`);
+    expect(read({ visible: "1" })).toMatchObject({ visible: true });
+    expect(read({ visible: "0" })).toMatchObject({ visible: false });
+    expect(read({})).toMatchObject({ visible: true });
+    expect(read({ visible: "yes" })).toMatchObject({ visible: true });
   });
 });
 

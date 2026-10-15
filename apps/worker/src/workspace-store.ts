@@ -223,6 +223,9 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
   FROM users LEFT JOIN memberships ON memberships.room_id = ? AND memberships.user_id = users.id
   WHERE users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`;
 
+/** The people with the ids in a JSON array, whatever their status. */
+export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
+
 /**
  * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
  * room's creator can, as ember-rust's `can_administer` says (user.rs).
@@ -500,6 +503,11 @@ export class WorkspaceStore {
   /** Everyone active, by name. */
   async activePeople(): Promise<User[]> {
     return this.db.all<User>(ACTIVE_PEOPLE);
+  }
+
+  /** The people with `ids` who exist, active or not. */
+  async peopleWithIds(ids: UserId[]): Promise<User[]> {
+    return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
   }
 
   /** Everyone, whatever their status, for the people directory. */

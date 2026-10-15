@@ -7,6 +7,7 @@ import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH } from "./co
 import { getAttr, type Element } from "./tree";
 import type { MentionUser, ResolveMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
+import { isPlainParagraph } from "./plain-paragraph";
 
 /** An Ember id: 16 lowercase base-36 characters (the Worker's `sortableId`). */
 const USER_ID = /^[0-9a-z]{16}$/;
@@ -28,6 +29,7 @@ export function userIdFromSgid(sgid: string): string | undefined {
  * `prepareBody` refuses it anyway.
  */
 export function userIdsIn(parse: HtmlParser, markup: string): string[] {
+  if (isPlainParagraph(markup)) return [];
   const ids = new Set<string>();
   const collect = (markup: string, depth: number) => {
     let attachments: Element[];

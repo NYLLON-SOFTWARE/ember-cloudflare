@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 40 ported and 53 partial of 172 features; 74 not started, 5 not applicable.
+**Overall:** 40 ported and 54 partial of 172 features; 73 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 2 | 2 | 6 | 0 | 10 |
-| [Messages](#messages) | 3 | 12 | 4 | 0 | 19 |
+| [Messages](#messages) | 3 | 13 | 3 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **40** | **53** | **74** | **5** | **172** |
+| **Total** | **40** | **54** | **73** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -990,7 +990,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Rich text: [plain-paragraph](packages/richtext/src/plain-paragraph.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [display](packages/richtext/src/display.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [highlight](apps/web/src/lib/highlight.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | See your message before it's saved | `messages.optimistic` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -1006,9 +1006,9 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Link to a message | `messages.permalink` | Campfire | ⬜ Not started |  |
 | Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | /play sounds | `messages.sounds` | Campfire | 🟡 Partial | Rich text: [sounds](packages/richtext/src/sounds.test.ts) |
-| Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts) |
+| Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
 | Links in message text | `messages.autolink` | Campfire | ✅ Ported | Rich text: [autolink](packages/richtext/src/autolink.test.ts), [display](packages/richtext/src/display.test.ts), [hardening](packages/richtext/src/hardening.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Messages that can't be shown | `messages.unrenderable` | Campfire | ⬜ Not started |  |
+| Messages that can't be shown | `messages.unrenderable` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1020,7 +1020,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Sending to a room you're no longer in shows "This room was deleted." and saves nothing.
 - Times show in the viewer's locale and time zone, with the date and time on hover.
 
-Note: Messages are plain text sent over the room's WebSocket rather than rich text posted over HTTP, and are capped at 10,000 characters.
+Note: Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty ("Your message is empty."), one whose plain text is over 10,000 characters, or one it couldn't show ("That message couldn't be saved."), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload ("Ember has been updated. Reload the page to keep chatting."), and its messages and edits are refused until it does. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/message.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message.rb)
 
@@ -1034,7 +1034,7 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
 - While a message is sending, its pending copy shows the formatting as typed.
 
-Note: Messages here are still plain text, shown as the paragraph Lexxy sends for it: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). Nothing stores rich text with it yet, and the composer can't write any. It will store each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuse one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes.
+Note: What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. The composer is still a plain-text box, so nothing writes formatting yet.
 
 Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
@@ -1061,7 +1061,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Saving without changes leaves the message as it was, its update time included.
 - Up Arrow pressed anywhere on the page, while the composer is blank and the newest messages are loaded, edits your latest loaded message.
 
-Note: Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing, and the server saves an unchanged body as an edit, though the app never sends one. Edited messages say "(edited)", which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.
+Note: Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing. The editor edits a message's plain text and sends it as typed text, so saving a formatted message drops its formatting, though nothing can write formatting yet. An edit is refused as a new message is. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/composer.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/composer.css)
 
@@ -1208,7 +1208,7 @@ ember-rust tests: [`crates/db/src/tests/message_test.rs`](https://github.com/NYL
 - Mentions read "@Name", images "[caption]" or "[Image]", and link previews add nothing. A message with no text reads as its file's name, and one whose body can't be converted is empty.
 - Search indexes this text, push notifications and webhooks carry it, and emoji-only and /play detection read it.
 
-Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. Messages are still plain text, so nothing uses it yet, and a body that can't be converted will be refused rather than stored. The plain text kept with a body will be read from the form Ember stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one).
+Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and mention highlighting read it; nothing searches, pushes or sends it to bots yet.
 
 Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/plain_text.rs) · [`crates/richtext/src/content.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/content.rs) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
 
@@ -1227,12 +1227,14 @@ Sources: [`crates/richtext/src/autolink.rs`](https://github.com/NYLLON-SOFTWARE/
 
 ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/corpus.rs) · [`crates/richtext/tests/hardening.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/tests/hardening.rs)
 
-**Messages that can't be shown** (`messages.unrenderable`) ⬜
+**Messages that can't be shown** (`messages.unrenderable`) 🟡
 
 - A message whose author no longer exists, or whose body can't be read (markup nested too deep), shows a centered "Failed to load message content" with no avatar, name, time, actions or reactions.
 - A body that can't be read is still delivered, pushed and sent to bots, but as empty text (or its file's name), so search can't find its words.
 - A body that can be read but not shown, such as an image whose address is `javascript:`, shows as an empty message.
 - Attachments in the text that can't be resolved show ☒.
+
+Note: The room refuses a body it can't read or show rather than storing it, and each message keeps its author's name, so a stored message can always be shown. A message the web app still can't show, as one stored by a later version might be, shows ember-rust's centered, faded "Failed to load message content", wiggling in a dashed red outline. Attachments in the text that can't be resolved show ☒.
 
 Sources: [`crates/views/templates/messages/_unrenderable.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_unrenderable.html) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs) · [`crates/ember/src/rich_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/rich_text.rs)
 
@@ -1296,7 +1298,7 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 |---|---|---|---|---|
 | @-mention people | `mentions.autocomplete` | Campfire | ⬜ Not started |  |
 | Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| How mentions look | `mentions.render` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts) |
+| How mentions look | `mentions.render` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1327,7 +1329,7 @@ ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/b
 - A mention shows the person's avatar, linked to their profile and titled "Name – bio", then their current name, every time they're mentioned. Renaming someone updates every mention of them.
 - A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.
 
-Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and will store a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Messages are still plain text, so nothing shows mentions yet.
+Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Nothing can write a mention until the composer can, and the web app shows each as ☒ until it draws mentions.
 
 Sources: [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/views/templates/users/_mention.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_mention.html) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs)
 

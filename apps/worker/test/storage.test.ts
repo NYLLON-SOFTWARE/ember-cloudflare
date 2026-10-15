@@ -1,4 +1,5 @@
 import { feature } from "@ember/parity";
+import { bodyFromPlainText, prepareBody } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -83,8 +84,46 @@ describe(feature("platform.storage"), () => {
       migrate(state.storage, "room");
       return state.storage.sql.exec("SELECT body FROM messages").toArray();
     });
-    expect(messages).toEqual([{ body: "from before" }]);
+    expect(messages).toEqual([{ body: "<p>from before</p>" }]);
     expect(await roomSql(room, "SELECT name FROM d1_migrations ORDER BY id")).toEqual(roomMigrations.map(({ name }) => ({ name })));
+  });
+
+  it("stores the plain text messages had before rich text as the paragraph Lexxy sends for it, as the room would store that now", async () => {
+    // D1 runs the same SQL, at setup, with no messages from before to convert.
+    if ((env as { DB?: D1Database }).DB) return;
+    const room = await freshRoom("plain-text-before");
+    const texts = ["Hello", "Fish & chips <3 >_< &amp;", "Two\nlines\n\nand a gap", "Windows\r\nline", "Old Mac\rline", "No\u00a0break", "Tab\tand  spaces", "😄🤘"];
+    const rows = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      // A room's storage as it was before rich text, and the messages it kept then.
+      state.storage.sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+      for (const { name, sql } of roomMigrations.filter(({ name }) => name < "0012")) {
+        state.storage.sql.exec(sql);
+        state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      }
+      texts.forEach((text, i) => {
+        // Only the first was edited.
+        const updatedAt = i === 0 ? "2026-10-14T00:01:00.000Z" : "2026-10-14T00:00:00.000Z";
+        state.storage.sql.exec(
+          `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
+           VALUES (?, ?, ?, 'u1', 'Ada', ?, '2026-10-14T00:00:00.000Z', ?)`,
+          `m${i}`,
+          room,
+          `c${i}`,
+          text,
+          updatedAt,
+        );
+      });
+      migrate(state.storage, "room");
+      return state.storage.sql.exec("SELECT body, plain_text, mentions, edited_at FROM messages ORDER BY id").toArray();
+    });
+    expect(rows).toEqual(
+      texts.map((text, i) => {
+        const { html, plainText } = prepareBody(bodyFromPlainText(text), () => undefined)!;
+        return { body: html, plain_text: plainText, mentions: "[]", edited_at: i === 0 ? "2026-10-14T00:01:00.000Z" : null };
+      }),
+    );
+    expect(rows[1]).toMatchObject({ body: "<p>Fish &amp; chips &lt;3 &gt;_&lt; &amp;amp;</p>", plain_text: "Fish & chips <3 >_< &amp;" });
+    expect(rows[3]).toMatchObject({ body: "<p>Windows<br>line</p>", plain_text: "Windows\nline" });
   });
 
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {

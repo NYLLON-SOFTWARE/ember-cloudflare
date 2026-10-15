@@ -76,8 +76,11 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
   roomId: "general",
   creator: ada,
   body: id,
+  plainText: id,
+  mentions: [],
   createdAt: "2026-10-12T10:00:00.000Z",
   updatedAt: "2026-10-12T10:00:00.000Z",
+  editedAt: null,
   boosts: [],
   ...overrides,
 });
@@ -111,7 +114,7 @@ afterEach(() => {
 describe(feature("realtime.reconnect"), () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -500,6 +503,21 @@ describe(feature("messages.optimistic"), () => {
     expect(result.current.state.messages).toEqual([message("m1", { clientMessageId: pending!.clientMessageId, body: "Hello" })]);
   });
 
+  it("shows a message being sent with the plain text of its body, mentioning no one until the room says", () => {
+    const { result } = joinGeneral();
+    act(() => result.current.postMessage("<p>Hello <strong>all</strong></p><ul><li>One</li></ul>"));
+    expect(result.current.state.messages[0]).toMatchObject({ plainText: "Hello all\n\n• One", mentions: [], editedAt: null, pending: true });
+  });
+
+  it("marks a message the room refuses as not sent, saying why", () => {
+    const { result } = joinGeneral();
+    act(() => result.current.postMessage("<p><br></p>"));
+    const [pending] = result.current.state.messages;
+    socket().receive({ type: "error", message: "Your message is empty.", clientMessageId: pending!.clientMessageId, failed: "message.create" });
+    expect(result.current.state.messages[0]).toMatchObject({ pending: true, failed: true });
+    expect(result.current.state.notice).toBe("Your message is empty.");
+  });
+
   it("holds a message written before the room connects, and marks it not sent if the room takes too long", () => {
     const { result } = joinGeneral({ connect: false });
     act(() => result.current.postMessage("Hello?"));
@@ -576,10 +594,11 @@ describe(feature("messages.history"), () => {
 describe(feature("messages.edit"), () => {
   it("sends edits to the room and shows them when the room confirms", () => {
     const { result } = joinGeneral({ messages: [message("m1")] });
-    act(() => result.current.messageActions.edit("m1", "Better"));
-    expect(socket().sentOfType("message.update")).toEqual([{ type: "message.update", messageId: "m1", body: "Better" }]);
-    socket().receive({ type: "message.updated", message: message("m1", { body: "Better", updatedAt: "2026-10-12T10:01:00.000Z" }) });
-    expect(result.current.state.messages[0]!.body).toBe("Better");
+    act(() => result.current.messageActions.edit("m1", "<p>Better</p>"));
+    expect(socket().sentOfType("message.update")).toEqual([{ type: "message.update", messageId: "m1", body: "<p>Better</p>" }]);
+    const edited = message("m1", { body: "<p>Better</p>", plainText: "Better", updatedAt: "2026-10-12T10:01:00.000Z", editedAt: "2026-10-12T10:01:00.000Z" });
+    socket().receive({ type: "message.updated", message: edited });
+    expect(result.current.state.messages[0]).toEqual(edited);
   });
 
   it("shows the room's refusal", () => {
@@ -633,7 +652,7 @@ describe(feature("realtime.presence"), () => {
   it("tells the room whether the tab is shown as it connects", () => {
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=2");
   });
 
   it("tells the room once the tab has been hidden for 5 seconds, and once it has been shown for 5 again", () => {
@@ -662,14 +681,14 @@ describe(feature("realtime.presence"), () => {
     visibility("hidden");
     // The room is connected to again before the tab has been hidden long enough to count.
     wait(VISIBILITY_CHANGE_DELAY_MS);
-    expect(socket().url).toMatch(/visible=1$/);
+    expect(socket().url).toMatch(/visible=1&/);
     socket().open();
     socket().receive(welcome());
     expect(socket().sentOfType("presence.visible")).toEqual([{ type: "presence.visible", visible: false }]);
 
     socket().drop();
     wait(500);
-    expect(socket().url).toMatch(/visible=0$/);
+    expect(socket().url).toMatch(/visible=0&/);
     socket().open();
     socket().receive(welcome());
     expect(socket().sentOfType("presence.visible")).toEqual([]);
