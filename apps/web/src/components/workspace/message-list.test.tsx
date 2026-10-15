@@ -111,6 +111,18 @@ describe(feature("ui.empty-room"), () => {
   });
 });
 
+describe(feature("dms.naming"), () => {
+  it("names a DM's messages and its beginning for the others in it", () => {
+    render(
+      <MessageList roomName="Grace and Linus" direct invitation={null} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} />,
+    );
+    expect(screen.getByRole("log", { name: "Messages with Grace and Linus" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Grace and Linus" })).toBeInTheDocument();
+    expect(screen.getByText("This is the very beginning of your direct messages.")).toBeInTheDocument();
+    expect(screen.queryByText(/#/)).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("realtime.reconnect"), () => {
   it("marks the timeline busy until the room lets the socket in, which brings its messages afresh", () => {
     const { rerender } = render(list({ status: "connecting", messages: [] }));

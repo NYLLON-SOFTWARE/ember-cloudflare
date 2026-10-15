@@ -1,16 +1,17 @@
 import { feature } from "@ember/parity";
 import type { Favorites, Room, Sidebar, SidebarRoom } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { inSidebarOrder, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom } from "./room-list";
+import { apart, inSidebarOrder, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom, type DirectSidebarRoom, type SharedSidebarRoom } from "./room-list";
 
-const room = (id: string, name: string, unread = false): SidebarRoom => ({ id, kind: "open", name, icon: null, unread });
+const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread });
+const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({ id, kind: "direct", members: names.map((name) => ({ id: name.toLowerCase(), name })), unread: false });
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
 const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, invitation: null });
 
 describe(feature("rooms.create-open"), () => {
   it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
-    const rooms = withRoom([room("r1", "Design"), room("r2", "general"), room("r3", "Zebra")], room("r4", "Finance"));
+    const rooms = apart(withRoom([room("r1", "Design"), room("r2", "general"), room("r3", "Zebra")], room("r4", "Finance"))).shared;
     expect(rooms.map((r) => r.name)).toEqual(["Design", "general", "Zebra", "Finance"]);
     expect(inSidebarOrder(rooms, []).map((r) => r.name)).toEqual(["Design", "Finance", "general", "Zebra"]);
   });
@@ -25,7 +26,7 @@ describe(feature("rooms.create-open"), () => {
 
 describe(feature("rooms.settings-page"), () => {
   it("keeps a renamed room in its place, and the sidebar moves it to its new name's", () => {
-    const rooms = withRoom([room("r1", "Design"), room("r2", "general")], room("r1", "Product design"));
+    const rooms = apart(withRoom([room("r1", "Design"), room("r2", "general")], room("r1", "Product design"))).shared;
     expect(rooms).toEqual([room("r1", "Product design"), room("r2", "general")]);
     expect(inSidebarOrder(rooms, [])).toEqual([room("r2", "general"), room("r1", "Product design")]);
   });
@@ -170,5 +171,21 @@ describe(feature("sidebar.favorite-order"), () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four, { rooms: ["r1", "r3"], version: 2 }) });
     expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.favorites).toEqual({ rooms: ["r3"], version: 2 });
     expect(roomListReducer(loaded, { type: "gone", roomId: "r2" }).list!.favorites).toBe(loaded.list!.favorites);
+  });
+});
+
+describe(feature("sidebar.rooms"), () => {
+  it("lists DMs apart from the rooms, each in the order given", () => {
+    const rooms = [direct("d1", "Ada", "Grace"), room("r1", "Design"), direct("d2", "Ada"), room("r2", "general")];
+    expect(apart(rooms)).toEqual({ shared: [room("r1", "Design"), room("r2", "general")], directs: [direct("d1", "Ada", "Grace"), direct("d2", "Ada")] });
+  });
+});
+
+describe(feature("dms.create"), () => {
+  it("lists a new DM last, as the room made most recently, and keeps a DM's mark as it's saved again", () => {
+    const rooms = withRoom([room("r1", "Design")], { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }] });
+    expect(rooms).toEqual([room("r1", "Design"), direct("d1", "Ada")]);
+    const marked = rooms.map((r) => ({ ...r, unread: true }));
+    expect(withRoom(marked, { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }] }).at(-1)).toEqual({ ...direct("d1", "Ada"), unread: true });
   });
 });

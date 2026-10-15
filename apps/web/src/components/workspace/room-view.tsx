@@ -2,9 +2,11 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { Favorites, Invitation, Me } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
+import { useNameOf } from "@/hooks/use-directory";
 import { useRoom } from "@/hooks/use-room";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
+import { roomName } from "@/lib/directs";
 import { hasTouchKeyboard } from "@/lib/keyboard";
 import { rememberLastRoom } from "@/lib/last-room";
 import { isPending } from "@/lib/room-state";
@@ -32,7 +34,10 @@ interface Props {
 
 export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
-  useTitle(room.name);
+  const nameOf = useNameOf();
+  const name = roomName(room, me.id, nameOf);
+  const direct = room.kind === "direct";
+  useTitle(name);
   // As ember-rust's rooms#show remembers the room it shows, for home and Go Back to return to.
   useEffect(() => rememberLastRoom(room.id), [room.id]);
   const foundGone = state.status === "gone";
@@ -85,6 +90,7 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
     <>
       <RoomHeader
         room={room}
+        name={name}
         present={state.present}
         status={state.status}
         offline={state.offline}
@@ -103,7 +109,8 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
           </div>
         )}
         <MessageList
-          roomName={room.name}
+          roomName={name}
+          direct={direct}
           invitation={invitation}
           state={state}
           me={me}
@@ -118,7 +125,8 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
           <Composer
             ref={composer}
             roomId={room.id}
-            roomName={room.name}
+            roomName={name}
+            direct={direct}
             userId={me.id}
             typing={typingUsers}
             disabled={state.offline}

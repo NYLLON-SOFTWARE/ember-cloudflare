@@ -2,13 +2,14 @@ import {
   ROOM_PROTOCOL,
   roomSocketQuery,
   type ClientFrame,
+  type DirectRoom,
   type Me,
   type Room,
   type RoomIconChoice,
   type RoomId,
   type RoomSocketParams,
   type ServerFrame,
-  type SidebarRoom,
+  type SharedRoom,
   type User,
   type UserId,
   type WorkspaceServerFrame,
@@ -124,16 +125,34 @@ let host: Promise<Session> | undefined;
  * Creates a room through the API as `as`, or as the tests' host: an open room everyone is in, or a
  * closed one for just the people `closedTo` names.
  */
-export async function createRoom(name: string, { closedTo, icon, as }: { closedTo?: UserId[]; icon?: RoomIconChoice; as?: Session } = {}): Promise<Room> {
+export async function createRoom(name: string, { closedTo, icon, as }: { closedTo?: UserId[]; icon?: RoomIconChoice; as?: Session } = {}): Promise<SharedRoom> {
   const { cookie } = as ?? (await (host ??= signIn("Host")));
   const room = closedTo ? { kind: "closed", name, icon, memberIds: closedTo } : { kind: "open", name, icon };
   const response = await api("/api/rooms", { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify(room) });
   expect(response.status, await response.clone().text()).toBe(201);
-  return ((await response.json()) as { room: Room }).room;
+  return ((await response.json()) as { room: SharedRoom }).room;
+}
+
+/** Starts a DM through the API as `as`, with the people `userIds` names, answering how the Worker answered. */
+export const startDirect = (as: Session, userIds: unknown) =>
+  api("/api/directs", { method: "POST", headers: { Cookie: as.cookie }, body: JSON.stringify({ userIds }) });
+
+/** Starts the DM between `as` and `people`, or opens the one they have, answering it. */
+export async function direct(as: Session, ...people: Session[]): Promise<DirectRoom> {
+  const response = await startDirect(as, people.map((person) => person.user.id));
+  expect([200, 201], await response.clone().text()).toContain(response.status);
+  return ((await response.json()) as { room: DirectRoom }).room;
+}
+
+/** Adds someone who has left the workspace, as deactivating them will, answering their id. */
+export async function deactivatedPerson(name: string): Promise<UserId> {
+  const id = `former-${crypto.randomUUID()}`;
+  await workspaceSql(`INSERT INTO users (id, name, status, created_at, updated_at) VALUES (?, ?, 1, 'now', 'now')`, id, name);
+  return id;
 }
 
 /** `room` as the sidebar lists it to someone it isn't marked unread for. */
-export const listedRoom = (room: Room): SidebarRoom => ({ ...room, unread: false });
+export const listedRoom = <T extends Room>(room: T) => ({ ...room, unread: false });
 
 /** A new open room, so tests never share a ChatRoom. Everyone is in it, whenever they sign in. */
 export const freshRoom = async (label: string): Promise<RoomId> => (await createRoom(label)).id;

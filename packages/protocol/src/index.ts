@@ -53,14 +53,28 @@ export type RoomIconName = (typeof ROOM_ICON_NAMES)[number];
  */
 export type RoomIconChoice = RoomIconName | "";
 
-/** A room someone is in, as their room list shows it. */
-export interface Room {
+/** An open or a private room, which ember-rust calls a shared room (users/sidebars/rooms/_shared.html). */
+export interface SharedRoom {
   id: RoomId;
-  kind: RoomKind;
+  kind: Exclude<RoomKind, "direct">;
   name: string;
-  /** Null for the default `#`, which DMs always have. */
+  /** Null for the default `#`. */
   icon: RoomIconName | null;
 }
+
+/**
+ * A direct message. It has no name or icon of its own: it's named after its members, who are the same
+ * for as long as it lasts, as in ember-rust.
+ */
+export interface DirectRoom {
+  id: RoomId;
+  kind: "direct";
+  /** Everyone in it, whoever's reading included, by id, with the names they had when it was read. */
+  members: User[];
+}
+
+/** A room someone is in, as their room list shows it: a shared room, or a DM. */
+export type Room = SharedRoom | DirectRoom;
 
 /**
  * The welcome card's invitation: the workspace's first room, where the card shows while the room is
@@ -71,14 +85,11 @@ export interface Invitation {
   joinCode: string;
 }
 
-/** A room in someone's sidebar. */
-export interface SidebarRoom extends Room {
-  /**
-   * Whether a message has come since they last had the room open in a shown tab, which marks it
-   * unread for them until they do again.
-   */
-  unread: boolean;
-}
+/**
+ * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
+ * tab, which marks it unread for them until they do again.
+ */
+export type SidebarRoom = Room & { unread: boolean };
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them, as
@@ -117,9 +128,22 @@ export interface NewRoomForm {
   people: User[];
 }
 
-/** What `GET /api/rooms/<id>/settings` answers for a room's settings page. */
+/**
+ * A DM to start, as ember-rust's `user_ids[]` names its people: the DM between you and them, whom
+ * `userIds` names, or your DM with yourself when it names nobody else.
+ */
+export interface NewDirect {
+  userIds: UserId[];
+}
+
+/** What `POST /api/directs` answers: the DM, 201 Created when it's new and 200 OK when the group had one. */
+export interface StartedDirect {
+  room: DirectRoom;
+}
+
+/** What `GET /api/rooms/<id>/settings` answers for a room's settings page. DMs have none. */
 export interface RoomSettings {
-  room: Room;
+  room: SharedRoom;
   /** Whether you can change the room, as administrators and its creator can. Others see it read-only. */
   canAdminister: boolean;
   /** Everyone active, by name. */
@@ -256,7 +280,7 @@ export interface PasswordReset {
 /** What `POST /api/first_run` answers: the administrator it signed in, and general, which opens first. */
 export interface NewWorkspace {
   user: Me;
-  room: Room;
+  room: SharedRoom;
 }
 
 /** Signing in with an email address and password (`POST /api/session`). */
@@ -412,8 +436,8 @@ export type WorkspaceServerFrame =
   | { type: "user.updated"; user: DirectoryUser }
   /**
    * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
-   * opened to everyone or made private, and to whoever a change puts in it. A room they have keeps its
-   * mark, and one new to them starts read.
+   * opened to everyone or made private, and to whoever a change puts in it, and to everyone in a DM
+   * when it's started. A room they have keeps its mark, and one new to them starts read.
    */
   | { type: "room.saved"; room: Room }
   /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
@@ -647,6 +671,16 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 
 /** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
+
+/**
+ * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,
+ * or leaving `userIds` out, starts your DM with yourself, as ember-rust's does without `user_ids`.
+ */
+export function parseNewDirect(data: unknown): NewDirect | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const named = data.userIds === undefined ? [] : data.userIds;
+  return userIds(named) ? { userIds: named } : `People must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
 const SETTING_NAMES: Record<keyof AccountSettings, string> = { hideTranslationButtons: "Hide translation buttons" };

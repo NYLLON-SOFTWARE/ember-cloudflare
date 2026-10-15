@@ -1,3 +1,4 @@
+import type { Sidebar } from "@ember/protocol";
 import type { BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
 import { test as app, createRoom, createSession, editorField, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
 
@@ -13,19 +14,19 @@ export interface Rooms {
 }
 
 /**
- * Makes every page in `context` list just `rooms` of the server's rooms, as the list loads and as the
- * workspace socket brings rooms saved since, since every other test's open rooms take everyone in too.
- * The server still answers first, so a session it refuses gets its 401 as usual, a page whose list is
- * current gets its 304, and the welcome card's invitation is the server's, for the general that setup
- * made, which isn't listed.
+ * Makes every page in `context` list just `rooms` of the server's rooms, and any DMs, as the list loads
+ * and as the workspace socket brings rooms saved since, since every other test's open rooms take everyone
+ * in too, while only the test's own people are in its DMs. The server still answers first, so a session
+ * it refuses gets its 401 as usual, a page whose list is current gets its 304, and the welcome card's
+ * invitation is the server's, for the general that setup made, which isn't listed.
  */
 async function showRooms(context: BrowserContext, rooms: Rooms): Promise<void> {
   const ids = new Set(Object.values(rooms).map((room) => room.id));
   await context.route("**/api/sidebar", async (route) => {
     const response = await route.fetch();
     if (!response.ok()) return route.fulfill({ response });
-    const list = (await response.json()) as { rooms: TestRoom[] };
-    await route.fulfill({ response, json: { ...list, rooms: list.rooms.filter((room) => ids.has(room.id)) } });
+    const list = (await response.json()) as Sidebar;
+    await route.fulfill({ response, json: { ...list, rooms: list.rooms.filter((room) => room.kind === "direct" || ids.has(room.id)) } });
   });
   await keepOtherRoomsOut(context, ids);
 }
@@ -81,9 +82,9 @@ export class Member {
     return this.page.getByRole("navigation", { name: "Page" }).getByRole("status");
   }
 
-  /** The room's messages, busy until the room lets its socket in. */
+  /** The room's or DM's messages, busy until the room lets its socket in. */
   timeline(): Locator {
-    return this.page.getByRole("log", { name: /^Messages in / });
+    return this.page.getByRole("log", { name: /^Messages (in|with) / });
   }
 
   /** Waits until the room's history has loaded and its socket is open. */

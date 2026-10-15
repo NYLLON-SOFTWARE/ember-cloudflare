@@ -19,6 +19,7 @@ import {
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
+  parseNewDirect,
   parseNewRoom,
   parsePasswordReset,
   parseProfileChanges,
@@ -263,6 +264,23 @@ describe(feature("rooms.members"), () => {
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {
       expect(parseRoomChanges({ kind: "closed", memberIds }), JSON.stringify(memberIds)?.slice(0, 40)).toBe(`Members must be a list of at most ${MAX_LISTED_USERS} user ids`);
     }
+  });
+});
+
+describe(feature("dms.create"), () => {
+  it("takes the people to start a DM with, or nobody, for a DM with yourself", () => {
+    expect(parseNewDirect({ userIds: ["u1", "u2"] })).toEqual({ userIds: ["u1", "u2"] });
+    expect(parseNewDirect({ userIds: [] })).toEqual({ userIds: [] });
+    expect(parseNewDirect({})).toEqual({ userIds: [] });
+  });
+
+  it("refuses anything but a bounded list of ids", () => {
+    const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
+    for (const body of [null, [], "u1", { userIds: "u1" }, { userIds: [1] }, { userIds: [""] }, { userIds: null }, { userIds: tooMany }]) {
+      const refused = Array.isArray(body) || typeof body !== "object" || body === null ? "Expected a JSON object" : `People must be a list of at most ${MAX_LISTED_USERS} user ids`;
+      expect(parseNewDirect(body), JSON.stringify(body).slice(0, 40)).toBe(refused);
+    }
+    expect(parseNewDirect({ userIds: tooMany.slice(1) })).not.toBeTypeOf("string");
   });
 });
 

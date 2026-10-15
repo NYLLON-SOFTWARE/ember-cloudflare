@@ -5,6 +5,7 @@ import {
   parseAccountChanges,
   parseCustomStyles,
   parseFavoriteOrder,
+  parseNewDirect,
   parseNewRoom,
   parseProfileChanges,
   parseRoleChange,
@@ -21,6 +22,7 @@ import {
   type RoomId,
   type RoomSettings,
   type Sidebar,
+  type StartedDirect,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -314,6 +316,19 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   return created ? json({ room: created }, { status: 201 }) : problem(401, "Not signed in");
 }
 
+/**
+ * Starts a DM with the people it names, or opens the one they have, as New direct message does:
+ * 201 for a new DM and 200 for one they had, where ember-rust redirects to it (rooms/directs.rs).
+ */
+async function startDirect(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const direct = parseNewDirect(await request.json().catch(() => null));
+  if (typeof direct === "string") return problem(422, direct);
+  const started = await workspace(env).startDirect(credentials, direct.userIds);
+  return started ? json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 }) : problem(401, "Not signed in");
+}
+
 /** Who New room's forms list: everyone active, by name. */
 async function newRoomForm(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -346,8 +361,9 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
 }
 
 /**
- * Deletes a room, as Delete on its settings page does, answering 204 where ember-rust redirects home
- * (rooms.rs). As with changing a room, someone who can't change it hears so.
+ * Deletes a room or DM, as Delete on its settings page does, answering 204 where ember-rust redirects
+ * home (rooms.rs). As with changing a room, someone who can't change it hears so, and anyone in a DM
+ * can delete it.
  */
 async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -457,6 +473,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
+  if (pathname === "/api/directs" && request.method === "POST") return startDirect(request, env);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);

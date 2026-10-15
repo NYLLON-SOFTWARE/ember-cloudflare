@@ -19,6 +19,8 @@ export type WorkspacePage =
   | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
   | { page: "new-room"; access: RoomAccess }
   | { page: "room-settings"; access: RoomAccess; roomId: RoomId }
+  /** A DM's settings, at `/rooms/directs/<id>/edit`: its members, and Delete. */
+  | { page: "direct-settings"; roomId: RoomId }
   | { page: "workspace-settings" }
   /** The Custom CSS page, which only administrators may open. */
   | { page: "custom-styles" }
@@ -33,11 +35,8 @@ export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 export const PROFILE_PATH = "/users/me/profile";
 
-/**
- * Pages the app links to before it has them, which go home until they come: New direct message
- * (`dms.picker`) and a direct message's settings (`dms.naming`).
- */
-const PAGES_TO_COME = [/^\/rooms\/directs\/new$/, /^\/rooms\/directs\/[^/]+\/edit$/];
+/** Pages the app links to before it has them, which go home until they come: New direct message (`dms.picker`). */
+const PAGES_TO_COME = [/^\/rooms\/directs\/new$/];
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
 function decoded(segment: string): string | null {
@@ -64,6 +63,9 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const settings = pathname.match(/^\/rooms\/(opens|closeds)\/([^/]+)\/edit$/);
   const settingsRoomId = settings && decoded(settings[2]!);
   if (settingsRoomId) return { page: "room-settings", access: accessOf(settings[1]!), roomId: settingsRoomId };
+  const directSettings = pathname.match(/^\/rooms\/directs\/([^/]+)\/edit$/);
+  const directSettingsRoomId = directSettings && decoded(directSettings[1]!);
+  if (directSettingsRoomId) return { page: "direct-settings", roomId: directSettingsRoomId };
   const ofKind = pathname.match(/^\/rooms\/(opens|closeds|directs)\/([^/]+)$/);
   const ofKindRoomId = ofKind && decoded(ofKind[2]!);
   if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };

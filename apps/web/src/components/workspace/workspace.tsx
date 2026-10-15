@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
+import type { Account, DirectRoom, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -13,6 +13,7 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { CustomStylesPage } from "./custom-styles-page";
+import { DirectSettingsPage } from "./direct-settings-page";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { ProfilePage } from "./profile-page";
@@ -26,7 +27,7 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
  * a room's page and the pages that go on to one, your avatar on your profile, and nothing on a room's
- * forms or the Custom CSS page, whose addresses none of its links have.
+ * forms, a DM's settings or the Custom CSS page, whose addresses none of its links have.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -35,6 +36,7 @@ const RAIL_PAGES = {
   "room-of-kind": "room",
   "new-room": null,
   "room-settings": null,
+  "direct-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": null,
   profile: "profile",
@@ -56,19 +58,28 @@ const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccess
 /** What an alert says about a request that failed: the server's reason, or that Ember couldn't be reached. */
 const reasonFor = (error: unknown) => (error instanceof ApiError ? error.message : "Couldn't reach Ember. Check your connection and try again.");
 
-/** The room an address names that has to be one of someone's rooms, which a direct message's doesn't. */
+/**
+ * The room an address names that has to be one of someone's rooms, which a direct message's address
+ * doesn't, since the room's own address it goes on to checks.
+ */
 function namedRoomId(route: Route): RoomId | null {
   if (route.page === "room-of-kind") return route.kind !== "direct" ? route.roomId : null;
-  return route.page === "room" || route.page === "room-settings" ? route.roomId : null;
+  return route.page === "room" || route.page === "room-settings" || route.page === "direct-settings" ? route.roomId : null;
+}
+
+/** The DM `roomId` names among `rooms`, or null when it isn't one of them. */
+function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
+  const room = rooms.find((r) => r.id === roomId);
+  return room?.kind === "direct" ? room : null;
 }
 
 /**
  * Where an address goes on to once someone's rooms are known, as ember-rust redirects it, or null when
  * it shows a page of its own: home to the last room visited (controllers/welcome.rs), `/rooms` to the
- * newest room (rooms.rs, `index`), and a room's address for its kind to the room's own (rooms/opens.rs,
- * closeds.rs and directs.rs).
+ * newest room (rooms.rs, `index`), a room's address for its kind to the room's own (rooms/opens.rs,
+ * closeds.rs and directs.rs), and a DM's settings home, as `set_room` sends someone, unless it's theirs.
  */
-function redirectOf(route: Route, rooms: Room[]): Redirect | null {
+function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
     case "home": {
       const room = lastRoomVisited(rooms);
@@ -85,6 +96,8 @@ function redirectOf(route: Route, rooms: Room[]): Redirect | null {
     }
     case "room":
       return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+    case "direct-settings":
+      return directIn(rooms, route.roomId) ? null : ROOM_NOT_FOUND;
     default:
       return null;
   }
@@ -191,7 +204,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
-  // own socket finds it gone or the workspace socket, which can hear first, says so.
+  // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
+  // stay too, which go home once their own deletion answers, as the workspace socket can tell of it first.
   const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
   const roomGone = (room: Room) => {
     setGone({ room, route });
@@ -252,10 +266,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   }, [goingOn, redirect]);
 
   const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
-  // The workspace socket's news that a room is gone takes it out of the list, and the room shown stays.
-  // Declared as a function, so that `useSidebar` above can take it.
+  const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
+  // The workspace socket's news that a room is gone takes it out of the list, and the room or the DM's
+  // settings shown stay. Declared as a function, so that `useSidebar` above can take it.
   function shownRoomGone(roomId: RoomId) {
-    if (room?.id === roomId) setGone({ room, route });
+    const shown = room ?? direct;
+    if (shown?.id === roomId) setGone({ room: shown, route });
   }
   // Go Back on the settings pages returns to the last room visited, as ember-rust's
   // `link_back_to_last_room_visited` does, or home when there's none.
@@ -288,6 +304,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const sidebar = (
     <Sidebar
       workspaceName={workspaceName}
+      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       favorites={favorites}
       currentRoomId={currentRoomId}
@@ -334,6 +351,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       case "profile":
         return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
       default:
+        if (direct)
+          return <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />;
         if (room)
           return (
             <RoomView

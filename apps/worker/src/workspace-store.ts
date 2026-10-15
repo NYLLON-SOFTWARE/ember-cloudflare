@@ -2,15 +2,16 @@ import {
   MAX_FAVORITES,
   type Account,
   type CloseCode,
+  type DirectRoom,
   type Favorites,
   type HelpContact,
   type PersonRole,
   type Profile,
   type Role,
-  type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SharedRoom,
   type SidebarRoom,
   type User,
   type UserId,
@@ -187,8 +188,22 @@ function hidesTranslationButtons(settings: string | null): boolean {
   return hide === undefined || isPresent(hide);
 }
 
-interface RoomToChangeRow extends Room {
+interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
+}
+
+/** A room someone is in, as `ROOMS_FOR_USER` reads it: a DM's name and icon are null. */
+interface SidebarRow {
+  id: RoomId;
+  kind: SidebarRoom["kind"];
+  name: string | null;
+  icon: SharedRoom["icon"];
+  unread: number;
+}
+
+/** Someone in a DM, as the statements that read a DM's people return them. */
+interface DirectMemberRow extends User {
+  room_id: RoomId;
 }
 
 /** A row naming someone, as the statements that answer whom they changed return them. */
@@ -197,6 +212,13 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** A DM's people, as the app has them, from the rows naming them. */
+const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
+
+/** A room as someone's sidebar lists it, with the people in it if it's a DM, whom `members` reads. */
+const sidebarRoom = ({ id, kind, name, icon, unread }: SidebarRow, members: DirectMemberRow[] = []): SidebarRoom =>
+  kind === "direct" ? { id, kind, members: membersOf(members), unread: unread === 1 } : { id, kind, name: name ?? "", icon, unread: unread === 1 };
 
 const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
@@ -224,6 +246,42 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
  * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the preview's is its general.
  */
 export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
+
+/**
+ * Who's in each of someone's DMs, them included, a DM at a time, each DM's people by id, as ember-rust
+ * finds them in the order its memberships' index has them (`room.users`, room.rs).
+ */
+export const DIRECT_MEMBERS_FOR_USER = `SELECT members.room_id, users.id, users.name
+  FROM memberships AS mine JOIN rooms ON rooms.id = mine.room_id
+    JOIN memberships AS members ON members.room_id = mine.room_id JOIN users ON users.id = members.user_id
+  WHERE mine.user_id = ? AND rooms.kind = 'direct' ORDER BY members.room_id, members.user_id`;
+
+/**
+ * A DM's key: its people's ids, each once, sorted, as a JSON array, so each group of people has one key
+ * whatever order they're named in, and `json_each` reads it back.
+ */
+const directKey = (memberIds: UserId[]) => JSON.stringify([...new Set(memberIds)].sort());
+
+/**
+ * Adds a DM, ?1, made by ?2 for the people ?3 is the key of, as of ?4, unless those people have one
+ * already, as ember-rust's `find_or_create_direct_for` makes one (room.rs), answering it if it added it.
+ */
+const INSERT_DIRECT = `INSERT INTO rooms (id, kind, creator_id, direct_key, created_at, updated_at) VALUES (?1, 'direct', ?2, ?3, ?4, ?4)
+  ON CONFLICT (direct_key) DO NOTHING RETURNING id`;
+
+/**
+ * Puts the people key ?3 names in DM ?1, as of ?2, if `INSERT_DIRECT` added it, at ember-rust's
+ * `default_involvement` for a DM, everything (room.rs).
+ */
+const GRANT_DIRECT = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
+  SELECT ?1, users.id, 'everything', ?2, ?2 FROM users
+  WHERE users.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM rooms WHERE id = ?1)
+  ON CONFLICT DO NOTHING`;
+
+/** The DM a key names, and who's in it, by id. */
+const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, users.id, users.name
+  FROM rooms JOIN memberships ON memberships.room_id = rooms.id JOIN users ON users.id = memberships.user_id
+  WHERE rooms.direct_key = ? ORDER BY memberships.user_id`;
 
 /**
  * Queues revoking a session's sockets in every room its person is in, the only rooms it can have
@@ -411,13 +469,18 @@ const MENTIONABLE_MEMBERS = `SELECT users.id, users.name, users.bio, users.role,
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
   ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
 
-/**
- * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
- * room's creator can, as ember-rust's `can_administer` says (user.rs).
- */
-export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer
+/** Whether someone in a room can change it: administrators and the room's creator can, as ember-rust's `can_administer` says (user.rs). */
+const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
+
+/** A room someone is in, unless it's a DM, and whether they can change it. */
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${CAN_ADMINISTER}
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
+
+/** A room someone is in, DMs included, by its kind, and whether they can change it. */
+const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND memberships.user_id = ?`;
 
 // Memberships are granted with one statement for everyone, rather than a row at a time, since both
 // backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
@@ -526,12 +589,12 @@ export class WorkspaceStore {
   async createWorkspace(
     account: NewAccount,
     administrator: NewPerson,
-    rooms: Array<Pick<Room, "id" | "name">>,
+    rooms: Array<Pick<SharedRoom, "id" | "name">>,
     sessionId: string,
     tokenDigest: string,
     client: Client,
     now: string,
-  ): Promise<Room> {
+  ): Promise<SharedRoom> {
     const results = await this.db.batch([
       statement(`INSERT INTO accounts (id, name, join_code, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, account.id, account.name, account.joinCode, NEW_ACCOUNT_SETTINGS, now, now),
       statement(
@@ -548,7 +611,7 @@ export class WorkspaceStore {
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(OPEN_ROOM_NAMED, rooms[0]!.name),
     ]);
-    return (results.at(-1) as Room[])[0]!;
+    return (results.at(-1) as SharedRoom[])[0]!;
   }
 
   /**
@@ -714,16 +777,21 @@ export class WorkspaceStore {
     return row?.due_at ?? null;
   }
 
-  /** The rooms someone is in, with their unread marks, the ones they've starred, and the workspace's first room, if there is one yet. */
+  /**
+   * The rooms someone is in, with their unread marks and the people in their DMs, the ones they've
+   * starred, and the workspace's first room, if there is one yet.
+   */
   async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; originalRoomId: RoomId | null }> {
-    const [rows, [original], starred, [user]] = (await this.db.batch([
+    const [rows, [original], starred, [user], members] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
       statement(FAVORITES_FOR_USER, userId),
       statement(FAVORITES_VERSION, userId),
-    ])) as [Array<Room & { unread: number }>, Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>];
+      statement(DIRECT_MEMBERS_FOR_USER, userId),
+    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>, DirectMemberRow[]];
+    const membersByRoom = Map.groupBy(members, (member) => member.room_id);
     return {
-      rooms: rows.map((row) => ({ ...row, unread: row.unread === 1 })),
+      rooms: rows.map((row) => sidebarRoom(row, membersByRoom.get(row.id))),
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
       originalRoomId: original?.id ?? null,
     };
@@ -843,7 +911,7 @@ export class WorkspaceStore {
   }
 
   /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it. */
-  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: Room; canAdminister: boolean } | null> {
+  async roomToChange(roomId: RoomId, userId: UserId): Promise<{ room: SharedRoom; canAdminister: boolean } | null> {
     const [row] = await this.db.all<RoomToChangeRow>(ROOM_TO_CHANGE, roomId, userId);
     return row ? roomToChange(row) : null;
   }
@@ -885,6 +953,12 @@ export class WorkspaceStore {
     return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: userIdsOf(removed!) };
   }
 
+  /** The kind of room `roomId`, DMs included, and whether someone can change it, unless they aren't in it. */
+  async roomToDelete(roomId: RoomId, userId: UserId): Promise<{ kind: SidebarRoom["kind"]; canAdminister: boolean } | null> {
+    const [row] = await this.db.all<{ kind: SidebarRoom["kind"]; can_administer: number }>(ROOM_TO_DELETE, roomId, userId);
+    return row ? { kind: row.kind, canAdminister: row.can_administer === 1 } : null;
+  }
+
   /**
    * Deletes a room and who is in it, as ember-rust's `Room::destroy` does (room.rs), and in the same
    * transaction queues closing every socket in it with `code`, due at `dueAt`, in place of whatever
@@ -910,7 +984,7 @@ export class WorkspaceStore {
    * Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one.
    * Answers who's in it.
    */
-  async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[]> {
+  async createRoom(room: SharedRoom, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[]> {
     const [, members] = (await this.db.batch([
       statement(
         `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -925,6 +999,21 @@ export class WorkspaceStore {
       memberIds ? statement(GRANT_ROOM_TO_USERS, room.id, now, now, JSON.stringify(memberIds)) : statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
     ])) as UserIdRow[][];
     return userIdsOf(members!);
+  }
+
+  /**
+   * The DM whose people are exactly the ones `memberIds` names, who all exist, adding it as `roomId`,
+   * made by `creatorId`, if they have none, in one transaction, as ember-rust's
+   * `find_or_create_direct_for` does (room.rs). Answers it, and whether it added it.
+   */
+  async startDirect(roomId: RoomId, creatorId: UserId, memberIds: UserId[], now: string): Promise<{ room: DirectRoom; started: boolean }> {
+    const key = directKey(memberIds);
+    const [added, , members] = (await this.db.batch([
+      statement(INSERT_DIRECT, roomId, creatorId, key, now),
+      statement(GRANT_DIRECT, roomId, now, key),
+      statement(DIRECT_WITH_KEY, key),
+    ])) as [unknown[], unknown[], DirectMemberRow[]];
+    return { room: { id: members[0]!.room_id, kind: "direct", members: membersOf(members) }, started: added!.length > 0 };
   }
 
   /** Of the rooms `ids` names, the ones that aren't registered yet and were never deleted. The ids go as one JSON value. */

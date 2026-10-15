@@ -64,7 +64,7 @@ describe(feature("auth.sign-up"), () => {
     const cookie = cookieOf(response);
     expect(await (await api("/api/me", { headers: { Cookie: cookie } })).json()).toEqual({ user });
     const rooms = (await roomList(cookie)).rooms;
-    expect(rooms.map((room) => room.name)).toEqual(["general", "random", "Design"]);
+    expect(rooms.map((room) => room.kind !== "direct" && room.name)).toEqual(["general", "random", "Design"]);
     expect(rooms[0]!.id).toBe(administrator.general.id);
     expect(rooms[2]!.id).toBe(design.id);
     expect(rooms.map((room) => room.id)).not.toContain(leads.id);

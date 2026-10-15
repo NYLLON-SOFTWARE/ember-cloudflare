@@ -4,12 +4,15 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import messagesOutlined from "@/components/icons/campfire/messages-outlined.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
+/** Ada's DM with Linus, as Linus reads it. */
+const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }] };
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -17,7 +20,7 @@ afterEach(() => history.replaceState(null, "", "/"));
 function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
   return render(
     <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader room={general} present={[]} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} {...props} />
+      <RoomHeader room={general} name="general" present={[]} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} {...props} />
     </Sheet>,
   );
 }
@@ -37,7 +40,7 @@ describe(feature("realtime.who-is-here"), () => {
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
         <Sheet>
-          <RoomHeader room={general} present={people(2)} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} />
+          <RoomHeader room={general} name="general" present={people(2)} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} />
         </Sheet>
       </PeopleContext>,
     );
@@ -72,8 +75,25 @@ describe(feature("sidebar.favorites"), () => {
   });
 
   it("has none in a DM, which can't be starred", () => {
-    renderHeader({ room: { id: "direct-1", name: "Ada", kind: "direct", icon: null } });
+    renderHeader({ room: adaDirect, name: "Ada" });
     expect(screen.queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("dms.naming"), () => {
+  it("shows a DM's name after Campfire's messages icon, saying to screen readers whom it's with", () => {
+    renderHeader({ room: adaDirect, name: "Ada" });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(/^Direct message with Ada$/);
+    expect(heading.previousElementSibling).toHaveAttribute("src", messagesOutlined);
+    expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("#");
+  });
+
+  it("links to a DM's settings at a DM's address, saying it's a Ping's", () => {
+    renderHeader({ room: adaDirect, name: "Ada" });
+    const settings = screen.getByRole("link", { name: "Settings for this Ping" });
+    expect(settings).toHaveAttribute("title", "Conversation settings");
+    expect(settings).toHaveAttribute("href", "/rooms/directs/direct-1/edit");
   });
 });
 

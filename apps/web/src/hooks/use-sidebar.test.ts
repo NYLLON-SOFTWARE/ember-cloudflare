@@ -1,13 +1,13 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Account, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
-const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null, unread: false };
-const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
+const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
+const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
 const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
@@ -259,8 +259,8 @@ describe(feature("sidebar.live-updates"), () => {
     const { result } = await showSidebar();
     socket().connect();
     await settle();
-    const names = () => result.current.list?.rooms.map((room) => room.name);
-    const named = (room: SidebarRoom, name: string) => ({ id: room.id, name, kind: room.kind, icon: room.icon });
+    const names = () => result.current.list?.rooms.map((room) => (room.kind === "direct" ? null : room.name));
+    const named = (room: SharedRoom, name: string): SharedRoom => ({ id: room.id, name, kind: room.kind, icon: room.icon });
 
     // Ada renames Design, and the socket brings a rename saved in another tab just after, before her answer.
     const renamed = result.current.askForRoom();

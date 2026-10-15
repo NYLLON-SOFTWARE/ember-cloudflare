@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
 import { MEMBERSHIP, ROOMS_FOR_USER } from "../src/workspace-store";
-import { api, connect, createRoom, freshRoom, listedRoom, roomStub, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, connect, createRoom, deactivatedPerson, freshRoom, listedRoom, roomStub, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const bindings = env as unknown as Env;
 
@@ -40,13 +40,6 @@ async function openSocket(roomId: RoomId, session: Session): Promise<"welcome" |
 async function roomObjectExists(roomId: RoomId): Promise<boolean> {
   const id = bindings.CHAT_ROOM.idFromName(roomId);
   return (await listDurableObjectIds(bindings.CHAT_ROOM)).some((existing) => existing.equals(id));
-}
-
-/** Adds someone who has left the workspace, as deactivating them will. */
-async function deactivatedPerson(name: string): Promise<string> {
-  const id = `former-${crypto.randomUUID()}`;
-  await workspaceSql(`INSERT INTO users (id, name, status, created_at, updated_at) VALUES (?, ?, 1, 'now', 'now')`, id, name);
-  return id;
 }
 
 const membersOf = async (roomId: RoomId) =>

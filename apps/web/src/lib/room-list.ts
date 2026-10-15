@@ -1,9 +1,26 @@
-import type { Favorites, Room, RoomId, Sidebar, SidebarRoom } from "@ember/protocol";
+import type { Favorites, Room, RoomId, SharedRoom, Sidebar, SidebarRoom } from "@ember/protocol";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
-// `/rooms` go by. The sidebar lists the rooms they've starred first, in the order they starred them,
-// then the rest by name, as ember-rust's channel_order_controller.js sorts its rows: each name
-// lowercased and compared as `localeCompare` compares it, in the browser's language, then by id.
+// `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms they've
+// starred first, in the order they starred them, then the rest by name, as ember-rust's
+// channel_order_controller.js sorts its rows: each name lowercased and compared as `localeCompare`
+// compares it, in the browser's language, then by id.
+
+/** A row in the sidebar's Rooms: a room shared by name, open or private. */
+export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
+/** A row in the sidebar's DMs. */
+export type DirectSidebarRoom = Exclude<SidebarRoom, SharedSidebarRoom>;
+
+/** `rooms` apart, as the sidebar lists them: the rooms, then the DMs, each in the order given. */
+export function apart(rooms: SidebarRoom[]): { shared: SharedSidebarRoom[]; directs: DirectSidebarRoom[] } {
+  const shared: SharedSidebarRoom[] = [];
+  const directs: DirectSidebarRoom[] = [];
+  for (const room of rooms) {
+    if (room.kind === "direct") directs.push(room);
+    else shared.push(room);
+  }
+  return { shared, directs };
+}
 
 const collator = new Intl.Collator();
 
@@ -13,7 +30,7 @@ const byId = (a: Room, b: Room) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
  * `rooms` in the sidebar's order, the rooms in `favorites` first, each room's place and name worked out
  * once rather than at every comparison.
  */
-export function inSidebarOrder<T extends Room>(rooms: T[], favorites: RoomId[]): T[] {
+export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: RoomId[]): T[] {
   const places = new Map(favorites.map((id, place) => [id, place]));
   return (
     rooms

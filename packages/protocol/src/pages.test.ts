@@ -26,8 +26,16 @@ describe(feature("platform.error-pages"), () => {
     for (const path of ["/rooms/general/", "//rooms/general", "/session/new/", "/first_run", "/join/aB3d-Ef5h-iJ7k"]) expect(isAppPage(path), path).toBe(false);
   });
 
-  it("goes home for now from the pages the app links to before it has them", () => {
-    for (const path of ["/rooms/directs/new", "/rooms/directs/ada-grace/edit"]) expect(workspacePageOf(path), path).toEqual({ page: "home" });
+  it("goes home for now from the page the app links to before it has it", () => {
+    expect(workspacePageOf("/rooms/directs/new")).toEqual({ page: "home" });
+  });
+});
+
+describe(feature("dms.naming"), () => {
+  it("shows a DM's settings at its address", () => {
+    expect(workspacePageOf("/rooms/directs/ada-grace/edit")).toEqual({ page: "direct-settings", roomId: "ada-grace" });
+    expect(workspacePageOf("/rooms/directs/caf%C3%A9/edit")).toEqual({ page: "direct-settings", roomId: "café" });
+    for (const path of ["/rooms/directs/%FF/edit", "/rooms/directs/ada-grace/edit/extra"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });
 
