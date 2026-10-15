@@ -8,7 +8,7 @@ import { BODY, type HtmlParser } from "./markup";
 import { userIdFromSgid } from "./mentions";
 import { AUTO_LINK, scrub, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
-import { getAttr, isHtmlElement, type Element, type Node } from "./tree";
+import { append, createElement, createFragment, createText, getAttr, isHtmlElement, type Element, type Node } from "./tree";
 
 /** A message as it shows: text, the elements it's formatted with, and the people it mentions. */
 export type DisplayNode = DisplayText | DisplayElement | DisplayMention;
@@ -68,4 +68,20 @@ function displayed(node: Node): DisplayNode[] {
   if (!DISPLAYED.tags.has(node.name)) return children;
   const attrs = Object.fromEntries(node.attrs.filter(({ name }) => DISPLAYED.attributes.has(name)).map(({ name, value }) => [name, value]));
   return [{ kind: "element", name: node.name, attrs, children }];
+}
+
+/**
+ * The markup of what a message shows, with each mention as the text `mention` gives for it, as Reply
+ * quotes a message (reply_controller.js).
+ */
+export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMention) => string): string {
+  return toHtml(createFragment(nodes.map((node) => treeOf(node, mention))), { escapeAttributeBrackets: true });
+}
+
+function treeOf(node: DisplayNode, mention: (node: DisplayMention) => string): Node {
+  if (node.kind === "text") return createText(node.value);
+  if (node.kind === "mention") return createText(mention(node));
+  const element = createElement(node.name, Object.entries(node.attrs).map(([name, value]) => ({ name, value })));
+  for (const child of node.children) append(element, treeOf(child, mention));
+  return element;
 }

@@ -1180,25 +1180,26 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Edit comes after the quick reactions and before More reactions, as in ember-rust, but there's no Reply or Copy link yet. With a mouse the bar closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. An open bar stays open when its message scrolls out of view.",
+    notes: "The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it. Still to come: New boost and Add a boost (`boosts.add`), and Download and Share for files (`attachments.upload`).",
   },
   {
     id: "messages.reply",
     title: "Reply with a quote",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Reply replaces whatever is in the composer with the message as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.",
       "Mentions in the quote become the person's name without \"@\", and link previews are dropped; a message that was only a preview is quoted as its address. File messages offer Download and Share instead.",
     ],
     sources: ["reference/app/javascript/controllers/reply_controller.js", "crates/assets/overrides/controllers/composer_controller.js", "crates/views/templates/messages/_actions.html"],
     upstreamTests: ["reference/test/system/composer_test.rb", "parity/kro/workspace.test.mjs"],
+    notes: "A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting link previews (`unfurl.render`) and files (`attachments.upload`).",
   },
   {
     id: "messages.copy-link",
     title: "Copy a link to a message",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Copy link copies `<origin>/rooms/<room>/@<message>` and turns its icon green until it's clicked again; the bar stays open, and a failed copy shows nothing. Every message has it, files included.",
       "Pages carry only the path, so a forged Host header never reaches another person's copy.",
@@ -1210,7 +1211,7 @@ export const features = [
     id: "messages.permalink",
     title: "Link to a message",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/rooms/<room>/@<message>` opens the room around that message (up to 40 before and after), centered and outlined for a second before the outline fades; scrolling down then loads newer messages.",
       "An unknown message opens the newest page, and a room you can't see goes to `/` with the alert. The room stays marked in the sidebar.",
@@ -1218,6 +1219,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/messages.css"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/controllers/messages/tests.rs", "parity/screens.yml"],
+    notes: "`/rooms/<room>/@<message>` opens its room at the newest messages, on a reload or a link from elsewhere too. Opening the room around the message and outlining it, and `/rooms/<room>/messages/<id>`, come with paging forward through history (`messages.history`).",
   },
   {
     id: "messages.emoji-only",

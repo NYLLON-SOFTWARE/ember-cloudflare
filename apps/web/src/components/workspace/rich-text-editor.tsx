@@ -94,6 +94,8 @@ export interface RichTextEditorHandle {
   /** Whether a list it offers, such as the people to mention, is open, which takes Enter for itself. */
   hasOpenPrompt(): boolean;
   focus(): void;
+  /** Writes `markup` in place of what's written, then takes focus with the cursor at the end, as Reply does. */
+  replace(markup: string): void;
 }
 
 interface Props {
@@ -145,6 +147,14 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
+    // ember-rust's composer_controller.js#replaceMessageContent.
+    replace: (markup) => {
+      const lexxy = editor.current;
+      if (!lexxy) return;
+      lexxy.value = markup;
+      lexxy.focus();
+      lexxy.selection.placeCursorAtTheEnd();
+    },
   }));
 
   const changed = useEffectEvent(() => onChange?.());

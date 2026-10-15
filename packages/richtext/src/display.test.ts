@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { bodyFromPlainText, plainText, prepareBody } from "./body";
-import { displayBody, type DisplayNode } from "./display";
+import { displayBody, displayMarkup, type DisplayNode } from "./display";
 import { MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 import { mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
@@ -114,6 +114,37 @@ describe(feature("messages.rich-text"), () => {
       expect(prepareBody(parseHtml, body, () => undefined)?.html, text).toBe(body);
       expect(plainText(parseHtml, body, () => undefined), text).toBe(text);
     }
+  });
+});
+
+describe(feature("messages.reply"), () => {
+  /** `nodes` with each mention as `text`. */
+  const mentionsAs = (nodes: DisplayNode[], text: string): DisplayNode[] =>
+    nodes.map((node) => {
+      if (node.kind === "mention") return { kind: "text", value: text };
+      return node.kind === "element" ? { ...node, children: mentionsAs(node.children, text) } : node;
+    });
+
+  it("writes what a message shows as markup, a mention as the text given for it", () => {
+    const nodes = display(
+      `<p>Hi <action-text-attachment ${MENTION} sgid="0123456789abcdef"></action-text-attachment> &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at\u00a0https://example.com<br>bye</p><hr>`,
+    );
+    expect(displayMarkup(nodes, ({ userId }) => `<${userId}>`)).toBe(
+      '<p>Hi &lt;0123456789abcdef&gt; &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at&nbsp;<a href="https://example.com">https://example.com</a><br>bye</p><hr>',
+    );
+  });
+
+  it("writes every corpus body as it shows", { timeout: 30_000 }, () => {
+    const differences: string[] = [];
+    for (const { name, body } of corpus.cases) {
+      const stored = storedForm(body);
+      if (stored === undefined) continue;
+      const nodes = display(stored);
+      const written = toHtml(parseHtml(displayMarkup(nodes, () => "Ada")));
+      const expected = toHtml(parseHtml(markupOf(mentionsAs(nodes, "Ada"))));
+      if (written !== expected) differences.push(`${name}\n  writes:   ${written}\n  expected: ${expected}`);
+    }
+    expect(differences).toEqual([]);
   });
 });
 

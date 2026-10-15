@@ -2,9 +2,9 @@ import { feature } from "@ember/parity";
 import type { Boost, Message, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { PendingMessage } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
@@ -40,7 +40,7 @@ const boost = (id: string, booster: User, content: string): Boost => ({ id, mess
 function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
   const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
-  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn() };
+  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     setEditing = set;
@@ -56,13 +56,25 @@ const editBox = () => screen.findByRole("textbox", { name: "Edit message" });
 /** The Message options button on the message that says `body`. */
 const optionsOn = (body: string) => within(screen.getByText(body).closest("article")!).getByRole("button", { name: "Message options" });
 
+/** The open bar of a message's actions. */
+const actionBar = () => screen.getByRole("group", { name: "Message actions" });
+
+/** Presses one of the actions on the message that says `body`, opening them from its Message options. */
+async function pressAction(user: UserEvent, name: string, body = "Hello") {
+  await user.click(optionsOn(body));
+  await user.click(within(actionBar()).getByRole("button", { name }));
+}
+
+// jsdom lays nothing out, so every box is put 100px down the window, where the bar can open in view.
+beforeEach(() => {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 200, 40));
+});
 afterEach(() => vi.restoreAllMocks());
 afterEach(() => vi.unstubAllGlobals());
 
-/** Lays components out as they are on a phone, where nothing can hover. */
-const onTouchScreen = () => {
-  vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: none)", media, addEventListener() {}, removeEventListener() {} }));
-  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+/** Answers media queries as a page does where a mouse can hover. */
+const withMouse = () => {
+  vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: hover) and (pointer: fine)", media, addEventListener() {}, removeEventListener() {} }));
 };
 
 describe(feature("messages.create"), () => {
@@ -126,18 +138,21 @@ describe(feature("messages.grouping"), () => {
 });
 
 describe(feature("messages.edit"), () => {
-  it("offers Edit on your own messages, and on everyone's to administrators", () => {
-    show(message(), { me: grace });
-    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  it("offers Edit on your own messages, and on everyone's to administrators", async () => {
+    const { user } = show(message(), { me: grace });
+    await user.click(optionsOn("Hello"));
+    expect(within(actionBar()).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("puts Edit before More reactions, as ember-rust does, and Delete in the editor", () => {
-    show(message({ creator: grace }), { administrator: true });
-    const bar = screen.getByRole("group", { name: "Message actions" });
-    expect(within(bar).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+  it("puts Edit before More reactions, as ember-rust does, and Delete in the editor", async () => {
+    const { user } = show(message({ creator: grace }), { administrator: true });
+    await user.click(optionsOn("Hello"));
+    expect(within(actionBar()).getAllByRole("button").map((b) => b.title)).toEqual([
       "Thumbs up",
       "Clapping",
       "Waving hand",
+      "Reply",
+      "Copy link",
       "Edit",
       "More reactions",
     ]);
@@ -145,7 +160,7 @@ describe(feature("messages.edit"), () => {
 
   it("edits in place of the message, starting from its text, and Ctrl or Cmd+Enter saves", async () => {
     const { actions, editors, user, article } = show(message({ boosts: [boost("b1", grace, "👍")] }));
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     expect(editors.open).toHaveBeenCalledWith("m1");
     const editor = await editBox();
     expect(editor).toHaveValue("Hello");
@@ -162,14 +177,14 @@ describe(feature("messages.edit"), () => {
     expect(editors.close).toHaveBeenCalledWith("m1");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), " there{Meta>}{Enter}{/Meta}");
     expect(actions.edit).toHaveBeenLastCalledWith("m1", "<p>Hello there</p>");
   });
 
   it("starts a new line on Enter, and saves from Save changes too", async () => {
     const { actions, user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), "{Enter}again");
     expect(actions.edit).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -178,19 +193,19 @@ describe(feature("messages.edit"), () => {
 
   it("discards an edit on Escape or Close editor and discard changes, and ignores unchanged or blank edits", async () => {
     const { actions, editors, user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), " more{Escape}");
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(editors.close).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), " more");
     await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
     expect(screen.getByText("Hello")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), "{Control>}{Enter}{/Control}");
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.clear(await editBox());
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
@@ -206,7 +221,7 @@ describe(feature("messages.edit"), () => {
 
   it("keeps the editor and what's written when the edit can't be sent", async () => {
     const { actions, editors, user } = show(message(), { sent: false });
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.clear(await editBox());
     await user.type(await editBox(), "hello{Control>}{Enter}{/Control}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>hello</p>");
@@ -216,7 +231,7 @@ describe(feature("messages.edit"), () => {
 
   it("hands the room its open editor, to focus again with what's written as Up Arrow does, until it closes", async () => {
     const { editors, user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.type(await editBox(), " there");
     expect(editors.attach).toHaveBeenLastCalledWith("m1", expect.anything());
 
@@ -230,7 +245,7 @@ describe(feature("messages.edit"), () => {
   });
 
   it("shows the message again, not its editor, once nothing can be done to it", () => {
-    const props = { message: message(), me: { ...ada, administrator: false }, threaded: false, editors: { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() } };
+    const props = { message: message(), me: { ...ada, administrator: false }, threaded: false, editors: { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() } };
     render(<MessageItem {...props} editing actions={null} />);
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(screen.getByText("Hello")).toBeInTheDocument();
@@ -238,37 +253,39 @@ describe(feature("messages.edit"), () => {
 });
 
 describe(feature("messages.actions"), () => {
-  it("puts the options button before the actions it opens, so a keyboard reaches them", async () => {
-    const { user } = show(message());
-    const options = screen.getByRole("button", { name: "Message options" });
-    const bar = screen.getByRole("group", { name: "Message actions" });
-    expect(options.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    // While editing there's no bar to open.
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
-  });
-
-  it("closes the actions after a reaction and hands focus to Message options", () => {
-    const { actions } = show(message());
+  it("opens the actions from Message options, with three quick reactions, Reply, Copy link and More reactions", async () => {
+    const { user } = show(message(), { me: grace });
     const options = optionsOn("Hello");
-    fireEvent.click(options);
-    expect(options).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
-    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
     expect(options).toHaveAttribute("aria-expanded", "false");
-    expect(options).toHaveFocus();
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+
+    await user.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    expect(options).toHaveAttribute("aria-controls", actionBar().id);
+    expect(within(actionBar()).getAllByRole("button").map((b) => b.title)).toEqual(["Thumbs up", "Clapping", "Waving hand", "Reply", "Copy link", "More reactions"]);
+
+    await user.click(options);
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
   });
 
-  it("closes the actions on a click or focus anywhere else, so only one message has them open", () => {
-    show(message());
+  it("closes the actions after a reaction and hands focus to Message options", async () => {
+    const { actions, user } = show(message());
+    await pressAction(user, "Clapping");
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👏");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("Hello")).toHaveFocus();
+  });
+
+  it("closes the actions on a click anywhere else or as focus leaves them, so only one message has them open", async () => {
+    const { user } = show(message());
     show(message({ id: "m2", clientMessageId: "c2", plainText: "there" }), { threaded: true });
-    fireEvent.click(optionsOn("Hello"));
-    fireEvent.click(screen.getByText("Hello"));
+    await user.click(optionsOn("Hello"));
+    await user.click(screen.getByText("Hello"));
     expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
 
-    fireEvent.click(optionsOn("Hello"));
-    fireEvent.click(optionsOn("there"));
+    await user.click(optionsOn("Hello"));
+    await user.click(optionsOn("there"));
     expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
     expect(optionsOn("there")).toHaveAttribute("aria-expanded", "true");
 
@@ -277,24 +294,155 @@ describe(feature("messages.actions"), () => {
     expect(optionsOn("there")).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("opens a touch screen's actions beside the message from Message options, which closes them again", () => {
-    onTouchScreen();
-    const { actions, article } = show(message());
-    const options = screen.getByRole("button", { name: "Message options" });
-    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+  it("closes the tray on Escape, handing focus to More reactions, then the actions, handing it to Message options", async () => {
+    const { user } = show(message());
+    await pressAction(user, "More reactions");
+    const more = within(actionBar()).getByRole("button", { name: "More reactions" });
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "More reactions" })).toBeVisible();
 
-    fireEvent.click(options);
+    await user.keyboard("{Escape}");
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
+    expect(more).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("Hello")).toHaveFocus();
+  });
+
+  it("keeps actions the pointer opened as focus moves elsewhere, as when the composer takes it once it's ready", () => {
+    withMouse();
+    const { article } = show(message());
+    render(<input aria-label="Composer" />);
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    act(() => screen.getByRole("textbox", { name: "Composer" }).focus());
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes the actions on Escape from elsewhere, leaving focus where it is", () => {
+    withMouse();
+    const { article } = show(message());
+    render(<input aria-label="Composer" />);
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    act(() => composer.focus());
+    // Actions that opened as the pointer crossed the message, while you were writing.
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(composer).toHaveFocus();
+  });
+
+  it("opens with a mouse as it crosses the message, and closes as it leaves, unless Message options kept it open", () => {
+    vi.useFakeTimers();
+    withMouse();
+    const { article } = show(message());
+    const options = optionsOn("Hello");
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
     expect(options).toHaveAttribute("aria-expanded", "true");
-    // They open beside the message, not over its button.
-    expect(article.contains(screen.getByRole("group", { name: "Message actions" }))).toBe(false);
-    fireEvent.click(options);
-    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    fireEvent.pointerLeave(article, { pointerType: "mouse" });
+    // It waits a moment, for the pointer to reach the actions over the message's edge.
+    act(() => vi.advanceTimersByTime(170));
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    fireEvent.pointerEnter(actionBar(), { pointerType: "mouse" });
+    act(() => vi.advanceTimersByTime(200));
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    fireEvent.pointerLeave(actionBar(), { pointerType: "mouse" });
+    act(() => vi.advanceTimersByTime(200));
+    expect(options).toHaveAttribute("aria-expanded", "false");
 
-    // Sending a reaction closes them, as on ember-rust.
+    // Message options keeps actions that hovering opened, rather than closing them.
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
     fireEvent.click(options);
-    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
-    expect(actions.boost).toHaveBeenCalledWith("m1", "👍");
-    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    fireEvent.pointerLeave(article, { pointerType: "mouse" });
+    act(() => vi.advanceTimersByTime(200));
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    vi.useRealTimers();
+  });
+
+  it("opens as the pointer first moves over a message whose editor just shut under it, which it never left", async () => {
+    withMouse();
+    const { article, user } = show(message());
+    await pressAction(user, "Edit");
+    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    const options = optionsOn("Hello");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerMove(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "true");
+
+    // After that, as in ember-rust, only the pointer coming back to the message opens them again.
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.pointerMove(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("opens only from Message options on a touch screen, or when a finger crosses the message", () => {
+    show(message());
+    fireEvent.pointerEnter(screen.getByRole("article"), { pointerType: "mouse" });
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    withMouse();
+    fireEvent.pointerEnter(screen.getByRole("article"), { pointerType: "touch" });
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes as its message leaves the timeline's sight", async () => {
+    const { user } = show(message());
+    await user.click(optionsOn("Hello"));
+    vi.mocked(Element.prototype.getBoundingClientRect).mockReturnValue(new DOMRect(0, -100, 200, 40));
+    fireEvent.scroll(document);
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("has no actions while the message's editor is open", async () => {
+    const { user } = show(message());
+    await pressAction(user, "Edit");
+    expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("messages.reply"), () => {
+  it("writes a reply in the composer, quoting the message and citing its author with a link to it, and closes the actions", async () => {
+    const { editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
+    await pressAction(user, "Reply", "Third time's a charm.");
+    expect(editors.reply).toHaveBeenCalledWith(
+      `<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`,
+    );
+    expect(optionsOn("Third time's a charm.")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("names the author, and those the message mentions, as the people directory lists them now", async () => {
+    const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: "" }] as const;
+    const body = `<p>Thanks <action-text-attachment content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"></action-text-attachment>!</p>`;
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    render(
+      <PeopleContext value={new Map([listed(ada, "Ada King"), listed({ id: "0123456789abcdef", name: "Grace" }, "Grace Hopper")])}>
+        <MessageItem message={message({ body, plainText: "Thanks @Grace!" })} me={{ ...grace, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
+      </PeopleContext>,
+    );
+    await pressAction(userEvent.setup(), "Reply", "Ada King");
+    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King <a /);
+  });
+});
+
+describe(feature("messages.copy-link"), () => {
+  it("copies the message's address and turns Copy link green, keeping the actions open", async () => {
+    const { user } = show(message());
+    await pressAction(user, "Copy link");
+    expect(await navigator.clipboard.readText()).toBe(`${location.origin}/rooms/general/@m1`);
+    const copy = within(actionBar()).getByRole("button", { name: "Copy link" });
+    expect(copy).toHaveClass("text-positive");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("leaves Copy link as it was when the clipboard refuses", async () => {
+    const { user } = show(message());
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    await pressAction(user, "Copy link");
+    expect(within(actionBar()).getByRole("button", { name: "Copy link" })).not.toHaveClass("text-positive");
   });
 });
 
@@ -302,7 +450,7 @@ describe(feature("messages.delete"), () => {
   it("deletes from the editor, after asking, and hands focus back", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { actions, editors, user } = show(message({ creator: grace }), { administrator: true });
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.click(screen.getByRole("button", { name: "Delete message" }));
     expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
     expect(actions.remove).not.toHaveBeenCalled();
@@ -317,7 +465,7 @@ describe(feature("messages.delete"), () => {
   it("keeps focus in the editor when the deletion can't be sent", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { actions, editors, user } = show(message(), { sent: false });
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await pressAction(user, "Edit");
     await user.click(screen.getByRole("button", { name: "Delete message" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).not.toHaveBeenCalled();
@@ -327,25 +475,23 @@ describe(feature("messages.delete"), () => {
 describe(feature("boosts.add"), () => {
   it("offers three quick reactions on every message", async () => {
     const { actions, user } = show(message(), { me: grace });
-    const toolbar = screen.getByRole("group", { name: "Message actions" });
-    expect(within(toolbar).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Thumbs up",
-      "Clapping",
-      "Waving hand",
-      "More reactions",
-    ]);
-    await user.click(within(toolbar).getByRole("button", { name: "Clapping" }));
+    await user.click(optionsOn("Hello"));
+    const quick = within(actionBar()).getByRole("group", { name: "Quick reactions" });
+    expect(within(quick).getAllByRole("button").map((b) => b.textContent)).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand"]);
+    await user.click(within(quick).getByRole("button", { name: "Clapping" }));
     expect(actions.boost).toHaveBeenCalledWith("m1", "👏");
   });
 
   it("keeps the other reactions in a tray", async () => {
     const { actions, user } = show(message(), { me: grace });
-    await user.click(screen.getByRole("button", { name: "More reactions" }));
-    const tray = screen.getByRole("menu");
-    expect(within(tray).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["💪", "❤️", "😂", "🎉", "🔥"]);
-    await user.click(within(tray).getByRole("menuitem", { name: "Fire" }));
+    await pressAction(user, "More reactions");
+    const tray = screen.getByRole("group", { name: "More reactions" });
+    expect(tray).toHaveTextContent(/^More reactions/);
+    expect(within(tray).getAllByRole("button").map((b) => b.title)).toEqual(["Muscle", "Red heart", "Face with tears of joy", "Party popper", "Fire"]);
+    await user.click(within(tray).getByRole("button", { name: "Fire" }));
     expect(actions.boost).toHaveBeenCalledWith("m1", "🔥");
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    expect(optionsOn("Hello")).toHaveFocus();
   });
 
   it("groups reactions by emoji with a count and who reacted", async () => {
@@ -363,7 +509,7 @@ describe(feature("boosts.add"), () => {
   });
 
   it("offers nothing where nothing can be done, as in a room that's gone", () => {
-    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(<MessageItem message={message({ boosts: [boost("b1", grace, "👍")] })} me={{ ...ada, administrator: true }} threaded={false} editing={false} actions={null} editors={editors} />);
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
@@ -401,7 +547,7 @@ describe(feature("users.profile"), () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
     const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
-    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>
         <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />

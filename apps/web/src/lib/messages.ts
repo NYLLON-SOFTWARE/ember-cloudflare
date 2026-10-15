@@ -1,4 +1,5 @@
-import type { Message, User } from "@ember/protocol";
+import type { Message, User, UserId } from "@ember/protocol";
+import { displayMarkup, type DisplayNode } from "@ember/richtext/dom";
 
 /** Follow-ups from the same person within this window render without a repeated header. */
 const THREAD_WINDOW_MS = 5 * 60 * 1000;
@@ -64,4 +65,18 @@ export function boostSummary(message: Message, userId: string, nameOf: (user: Us
     groups.set(boost.content, group);
   }
   return [...groups.values()];
+}
+
+/**
+ * What Reply writes in the composer (reply_controller.js): what the message shows, quoted, with each
+ * mention as the bare name `nameOf` gives, then its author with a link to it, and a line to reply on.
+ */
+export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string): string {
+  const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
+  const quote: DisplayNode[] = [
+    { kind: "element", name: "blockquote", attrs: {}, children: nodes },
+    { kind: "element", name: "cite", attrs: {}, children: [{ kind: "text", value: `${author} ` }, linkToOriginal] },
+    { kind: "element", name: "p", attrs: {}, children: [{ kind: "element", name: "br", attrs: {}, children: [] }] },
+  ];
+  return displayMarkup(quote, ({ userId }) => nameOf(userId));
 }

@@ -12,7 +12,7 @@ const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "
 const TABLE_PARTS = new Set(["table", "thead", "tbody", "tfoot", "tr"]);
 
 /** What a mention shows until the web app draws mentions: ember-rust's mention of someone who's gone. */
-const UNKNOWN_PERSON = "☒";
+export const UNKNOWN_PERSON = "☒";
 
 interface Props {
   /** The text, as `displayBody` says it shows. */

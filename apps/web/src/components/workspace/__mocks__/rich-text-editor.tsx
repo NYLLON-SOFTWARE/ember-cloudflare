@@ -25,6 +25,13 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     isBlank: () => !box.current?.value.trim(),
     hasOpenPrompt: () => false,
     focus: () => box.current?.focus(),
+    replace: (markup) => {
+      const text = box.current!;
+      text.value = plainText(markup, NO_ONE);
+      onChange?.();
+      text.focus();
+      text.setSelectionRange(text.value.length, text.value.length);
+    },
   }));
 
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));

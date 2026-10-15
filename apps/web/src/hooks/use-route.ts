@@ -14,6 +14,8 @@ export type Access = RoomAccess;
 export type Route = WorkspacePage;
 
 export const roomPath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)}`;
+/** A message's permalink, as ember-rust's `room_at_message_path` gives it, which opens its room. */
+export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(roomId)}/@${encodeURIComponent(messageId)}`;
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
 /** A room's settings page, at the address for its kind, as ember-rust's `edit_path` gives it. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;

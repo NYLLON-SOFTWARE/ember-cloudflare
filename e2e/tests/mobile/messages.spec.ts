@@ -11,7 +11,7 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await openRoom(page, room);
 
   // Phones can't hover, so each message has an options button instead. The actions open beside it,
-  // over the timeline rather than inside the message.
+  // over the timeline.
   const message = page.getByRole("article").filter({ hasText: "Tap the options button" });
   const options = message.getByRole("button", { name: "Message options" });
   const actions = page.getByRole("group", { name: "Message actions" });
@@ -20,9 +20,10 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await screenIsFine();
 
   await actions.getByRole("button", { name: "More reactions" }).tap();
-  await expect(page.getByRole("menu")).toBeVisible();
+  const tray = page.getByRole("group", { name: "More reactions" });
+  await expect(tray).toBeVisible();
   await screenIsFine();
-  await page.getByRole("menuitem", { name: "Fire" }).tap();
+  await tray.getByRole("button", { name: "Fire" }).tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: /🔥/ })).toBeVisible();
   // As in ember-rust, a reaction closes the bar, and focus goes back to Message options.
   await expect(actions).toBeHidden();

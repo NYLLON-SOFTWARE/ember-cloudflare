@@ -25,9 +25,9 @@ test.describe(feature("boosts.add"), () => {
     await ada.send(text);
 
     await (await grace.actions(text)).getByRole("button", { name: "More reactions" }).click();
-    const tray = grace.page.getByRole("menu");
-    await expect(tray.getByRole("menuitem")).toHaveText(["💪", "❤️", "😂", "🎉", "🔥"]);
-    await tray.getByRole("menuitem", { name: "Party popper" }).click();
+    const tray = grace.message(text).getByRole("group", { name: "More reactions" });
+    await expect(tray.getByRole("button")).toHaveText(["💪Muscle", "❤️Red heart", "😂Face with tears of joy", "🎉Party popper", "🔥Fire"]);
+    await tray.getByRole("button", { name: "Party popper" }).click();
     await expect(chip(ada, text, "🎉")).toHaveText("🎉1");
   });
 

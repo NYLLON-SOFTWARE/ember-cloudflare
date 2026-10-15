@@ -1,7 +1,8 @@
 import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { dayLabel, mentions, timeline } from "./messages";
+import { displayBody } from "@ember/richtext/dom";
+import { dayLabel, mentions, replyQuote, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -58,5 +59,19 @@ describe(feature("mentions.highlight"), () => {
   it("treats the name as text, not a pattern", () => {
     expect(mentions("@a.b", "a.b")).toBe(true);
     expect(mentions("@axb", "a.b")).toBe(false);
+  });
+});
+
+describe(feature("messages.reply"), () => {
+  const MENTION = 'content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"';
+
+  it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
+    const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`);
+    const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+      "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
+        '<a href="https://example.com">https://example.com</a></p></blockquote>' +
+        '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
+    );
   });
 });

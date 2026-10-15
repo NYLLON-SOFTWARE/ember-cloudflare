@@ -45,10 +45,12 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 
   await ada.say(`Here's the link: https://example.com/${"really-long-path-segment-".repeat(8)}end`);
   const busy = await longName.say("A message from someone whose name takes most of a phone's width, to check that the header wraps rather than overflows.");
-  for (const [emoji] of REACTIONS) await ada.boost(busy.id, emoji);
-  await ada.say(`${"Supercalifragilisticexpialidocious".repeat(4)} — one unbroken word`);
+  const unbroken = await ada.say(`${"Supercalifragilisticexpialidocious".repeat(4)} — one unbroken word`);
   await ada.say("Line one\nLine two\n\nLine four after a blank line");
   await ada.say("🔥🔥🔥");
+  // Reactions under a message followed by someone else's, and under one followed by more of the same
+  // person's, where the next message's Message options rises into them either way.
+  for (const message of [busy, unbroken]) for (const [emoji] of REACTIONS) await ada.boost(message.id, emoji);
 
   await openRoom(page, room);
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();

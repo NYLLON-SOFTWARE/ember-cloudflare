@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 47 ported and 58 partial of 172 features; 62 not started, 5 not applicable.
+**Overall:** 48 ported and 60 partial of 172 features; 59 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 4 | 4 | 2 | 0 | 10 |
-| [Messages](#messages) | 3 | 13 | 3 | 0 | 19 |
+| [Messages](#messages) | 4 | 15 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **47** | **58** | **62** | **5** | **172** |
+| **Total** | **48** | **60** | **59** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1014,9 +1014,9 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Message rows | `messages.layout` | Ember | ✅ Ported | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Times on follow-up messages | `messages.follow-up-times` | Ember | 🟡 Partial | E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Message action bar | `messages.actions` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Reply with a quote | `messages.reply` | Campfire | ⬜ Not started |  |
-| Copy a link to a message | `messages.copy-link` | Campfire | ⬜ Not started |  |
-| Link to a message | `messages.permalink` | Campfire | ⬜ Not started |  |
+| Reply with a quote | `messages.reply` | Campfire | 🟡 Partial | Rich text: [display](packages/richtext/src/display.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Copy a link to a message | `messages.copy-link` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Link to a message | `messages.permalink` | Campfire | 🟡 Partial | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | /play sounds | `messages.sounds` | Campfire | 🟡 Partial | Rich text: [sounds](packages/richtext/src/sounds.test.ts) |
 | Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
@@ -1157,22 +1157,24 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Escape closes More reactions first, returning focus to its button, then the bar, returning focus to Message options. When Add a boost opened them, Escape closes both and returns focus to Add a boost.
 - Without a mouse, Message options opens the bar 6px below it, or above it when there's no room. On phones the button is 44px and the bar stays on screen at 320px wide.
 
-Note: Edit comes after the quick reactions and before More reactions, as in ember-rust, but there's no Reply or Copy link yet. With a mouse the bar closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. An open bar stays open when its message scrolls out of view.
+Note: The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it. Still to come: New boost and Add a boost (`boosts.add`), and Download and Share for files (`attachments.upload`).
 
 Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Reply with a quote** (`messages.reply`) ⬜
+**Reply with a quote** (`messages.reply`) 🟡
 
 - Reply replaces whatever is in the composer with the message as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.
 - Mentions in the quote become the person's name without "@", and link previews are dropped; a message that was only a preview is quoted as its address. File messages offer Download and Share instead.
+
+Note: A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting link previews (`unfurl.render`) and files (`attachments.upload`).
 
 Sources: [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html)
 
 ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Copy a link to a message** (`messages.copy-link`) ⬜
+**Copy a link to a message** (`messages.copy-link`) ✅
 
 - Copy link copies `<origin>/rooms/<room>/@<message>` and turns its icon green until it's clicked again; the bar stays open, and a failed copy shows nothing. Every message has it, files included.
 - Pages carry only the path, so a forged Host header never reaches another person's copy.
@@ -1181,11 +1183,13 @@ Sources: [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`]
 
 ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Link to a message** (`messages.permalink`) ⬜
+**Link to a message** (`messages.permalink`) 🟡
 
 - `/rooms/<room>/@<message>` opens the room around that message (up to 40 before and after), centered and outlined for a second before the outline fades; scrolling down then loads newer messages.
 - An unknown message opens the newest page, and a room you can't see goes to `/` with the alert. The room stays marked in the sidebar.
 - `/rooms/<room>/messages/<id>` shows a single message, or 404 when it isn't in that room.
+
+Note: `/rooms/<room>/@<message>` opens its room at the newest messages, on a reload or a link from elsewhere too. Opening the room around the message and outlining it, and `/rooms/<room>/messages/<id>`, come with paging forward through history (`messages.history`).
 
 Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/messages.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/messages.css)
 
