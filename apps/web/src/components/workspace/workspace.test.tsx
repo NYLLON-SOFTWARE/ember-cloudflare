@@ -667,7 +667,8 @@ describe(feature("sidebar.favorites"), () => {
     await roomHeading();
 
     await user.click(star());
-    expect(screen.getByRole("status")).toHaveTextContent("Couldn’t save your favorite. Please try again.");
+    expect(star().nextElementSibling).toHaveRole("status");
+    expect(star().nextElementSibling).toHaveTextContent("Couldn’t save your favorite. Please try again.");
     expect(star()).toHaveAttribute("aria-pressed", "false");
     expect(sidebarRooms()).toEqual(["general", "random"]);
   });

@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { NewRoom, Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, setFavorite, signOut, workspaceSocketUrl } from "./api";
+import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, setFavorite, setFavoriteOrder, signOut, workspaceSocketUrl } from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -104,6 +104,15 @@ describe(feature("sidebar.favorites"), () => {
     expect(fetch).toHaveBeenLastCalledWith("/api/rooms/r%201/favorite", expect.objectContaining({ method: "PUT", body: JSON.stringify({ favorite: true }) }));
     await setFavorite("r 1", false);
     expect(fetch).toHaveBeenLastCalledWith("/api/rooms/r%201/favorite", expect.objectContaining({ body: JSON.stringify({ favorite: false }) }));
+  });
+});
+
+describe(feature("sidebar.favorite-order"), () => {
+  it("sends the order of someone's stars, answering their stars", async () => {
+    const favorites = { rooms: ["r2", "r1"], version: 3 };
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites }));
+    expect(await setFavoriteOrder(["r2", "r1"])).toEqual(favorites);
+    expect(fetch).toHaveBeenLastCalledWith("/api/sidebar/order", expect.objectContaining({ method: "PUT", body: JSON.stringify({ roomIds: ["r2", "r1"] }) }));
   });
 });
 

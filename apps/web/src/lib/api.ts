@@ -189,6 +189,14 @@ export async function setFavorite(roomId: RoomId, favorite: boolean): Promise<Fa
   return (await request<{ favorites: Favorites }>(`/api/rooms/${encodeURIComponent(roomId)}/favorite`, { method: "PUT", body: JSON.stringify({ favorite }) })).favorites;
 }
 
+/**
+ * Puts this person's starred rooms in the order `roomIds` lists them, answering their stars as they are
+ * then. Fails with a 403 ApiError unless it lists exactly the rooms they've starred.
+ */
+export async function setFavoriteOrder(roomIds: RoomId[]): Promise<Favorites> {
+  return (await request<{ favorites: Favorites }>("/api/sidebar/order", { method: "PUT", body: JSON.stringify({ roomIds }) })).favorites;
+}
+
 /** Deletes a room, with its messages. */
 export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });

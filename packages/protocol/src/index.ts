@@ -422,6 +422,8 @@ export const MAX_ACCOUNT_NAME_LENGTH = 100;
 export const MAX_CUSTOM_STYLES_LENGTH = 100_000;
 /** How many people one request can name: a bound on the request's size, not on a room's. */
 export const MAX_LISTED_USERS = 1_000;
+/** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
+export const MAX_FAVORITES = 4_096;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -577,6 +579,18 @@ const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof 
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
 const SETTING_NAMES: Record<keyof AccountSettings, string> = { hideTranslationButtons: "Hide translation buttons" };
+
+/**
+ * Parses an untrusted order for someone's starred rooms, as ember-rust's `parse_order` reads one
+ * (users/sidebars.rs). Returns why it's refused instead of the rooms.
+ */
+export function parseFavoriteOrder(data: unknown): RoomId[] | string {
+  const roomIds = typeof data === "object" && data !== null ? (data as Record<string, unknown>).roomIds : undefined;
+  if (!Array.isArray(roomIds)) return "roomIds must be an array";
+  if (roomIds.length > MAX_FAVORITES) return "too many rooms";
+  const ids = roomIds.filter((id): id is RoomId => typeof id === "string" && isRoomId(id));
+  return ids.length === roomIds.length && new Set(ids).size === ids.length ? ids : "room IDs must be unique and valid";
+}
 
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
