@@ -98,7 +98,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
 
   // As ember-rust's Ban and Remove ban do: asked first, then the page again with no notice. Once the
   // workspace socket or a load has said they changed while the answer was on its way, the answer may be
-  // older than that, so it's left out, and the directory loads again unless it has what it says.
+  // older than that, so it's left out, and the directory loads again unless it has what it says. A page
+  // that has gone stopped hearing what the directory has, so then the directory loads again.
   const toggleBan = () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
@@ -108,7 +109,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
     (banned ? unbanPerson : banPerson)(person.id)
       .then(
         (changed) => {
-          if (listedNow.current === asked) onPersonChanged(changed);
+          if (mounted.current && listedNow.current === asked) onPersonChanged(changed);
           else if (listedNow.current?.status !== changed.status) void reloadPeople().catch(() => {});
           if (mounted.current) setReloads((reloads) => reloads + 1);
         },

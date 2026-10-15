@@ -454,4 +454,22 @@ describe(feature("accounts.ban"), () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(5));
     expect(onPersonChanged).not.toHaveBeenCalled();
   });
+
+  it("loads the directory again for an answer that comes once the page has gone, which no longer hears what it has", async () => {
+    let answer = (_: DirectoryUser) => {};
+    serveBans(
+      () => grace,
+      () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onPersonChanged, reloadPeople, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
+    await heading();
+    await user.click(banButton()!);
+    // Gone before the answer, as when you open another page, while the directory may since have heard
+    // she was banned and then let back in.
+    cleanup();
+    await act(async () => answer(banned));
+    await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
+    expect(onPersonChanged).not.toHaveBeenCalled();
+  });
 });
