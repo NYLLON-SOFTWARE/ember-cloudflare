@@ -676,6 +676,47 @@ describe(feature("sidebar.live-updates"), () => {
     expect(location.pathname).toBe("/rooms/random");
   });
 
+  it("shows a room said to be gone as it is once the workspace socket brings it back, as when someone is put back in it", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    await workspaceSends({ type: "room.gone", roomId: "random" });
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+
+    await workspaceSends({ type: "room.saved", room: rooms[1]! });
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message #random" })).toBeInTheDocument();
+  });
+
+  it("connects again to a room its own socket found gone once the workspace socket brings it back", async () => {
+    // The room's first socket finds it gone, as when Ada has been taken out of it, and the next lets her in.
+    let roomSockets = 0;
+    class ReturningRoom extends WorkspaceSocket {
+      onclose: ((event: { code: number }) => void) | null = null;
+      constructor(url: string) {
+        super(url);
+        if (!url.includes("/api/rooms/random/socket")) return;
+        const first = ++roomSockets === 1;
+        setTimeout(() => {
+          this.onopen?.();
+          if (first) this.onclose?.({ code: CloseCode.NotFound });
+          else this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false }) });
+        });
+      }
+    }
+    vi.stubGlobal("WebSocket", ReturningRoom);
+    serve({ "GET /api/me": () => Response.json({ user: ada }) });
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted."));
+    expect(sidebarRooms()).toEqual(["general"]);
+
+    await workspaceSends({ type: "room.saved", room: rooms[1]! });
+    expect(await screen.findByRole("textbox", { name: "Message #random" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+    expect(roomSockets).toBe(2);
+  });
+
   it("takes a room that's gone out of the sidebar, leaving the room shown as it is", async () => {
     showWorkspace("/rooms/general");
     await roomHeading();

@@ -135,7 +135,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
+  const { list, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -196,6 +196,15 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     unlistRoom(room.id);
   };
   const goneRoom = gone?.route === route ? gone.room : null;
+  // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
+  // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
+  const [returns, setReturns] = useState(0);
+  const listedAgain = goneRoom !== null && rooms !== null && rooms.some((r) => r.id === goneRoom.id);
+  useLayoutEffect(() => {
+    if (!listedAgain) return;
+    setGone(null);
+    setReturns((returns) => returns + 1);
+  }, [listedAgain]);
 
   // A room the list doesn't have may be one made, or opened to this person, since it came, which
   // ember-rust's server would know: the list is asked for again, once each time an address naming it is
@@ -299,9 +308,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             roomId={route.roomId}
             access={route.access}
             me={me}
-            onSaved={listRoom}
+            askForRoom={askForRoom}
             back={back}
-            onLeft={unlistRoom}
             onMissing={missing}
             onFailed={failed}
           />
@@ -325,7 +333,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         if (room)
           return (
             <RoomView
-              key={room.id}
+              key={`${room.id}/${returns}`}
               room={room}
               invitation={invitation?.roomId === room.id ? invitation : null}
               me={me}

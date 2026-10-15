@@ -62,6 +62,9 @@ export type RoomChange =
   | { type: "marked"; roomId: RoomId; unread: boolean }
   | { type: "starred"; favorites: Favorites };
 
+/** What the server answers a change to a room with: the room as saved, or gone for this person. */
+export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" }>;
+
 /** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
 export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
 

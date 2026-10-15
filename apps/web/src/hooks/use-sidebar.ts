@@ -1,8 +1,8 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
-import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
+import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
 
 /**
  * How long a tab is hidden before showing it loads the sidebar again, as Campfire's
@@ -78,6 +78,9 @@ export function useSidebar(
   onGone: (roomId: RoomId) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
+  // How many of the workspace socket's frames have said what became of a room, and the number of the
+  // last to speak of each room.
+  const roomFrames = useRef({ count: 0, lastOf: new Map<RoomId, number>() });
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
     let copy: SidebarCopy | null = null;
@@ -129,6 +132,7 @@ export function useSidebar(
     // try starts afresh, after a close or a socket that stopped answering alike.
     let toldOf = { you: false, account: false };
     const onConnecting = () => void (toldOf = { you: false, account: false });
+    const heardOf = (roomId: RoomId) => roomFrames.current.lastOf.set(roomId, ++roomFrames.current.count);
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
       switch (frame?.type) {
@@ -143,8 +147,10 @@ export function useSidebar(
           if (!toldOf.account) accountChanged(frame.account);
           return reload();
         case "room.saved":
+          heardOf(frame.room.id);
           return change({ type: "saved", room: frame.room });
         case "room.gone":
+          heardOf(frame.roomId);
           gone(frame.roomId);
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
@@ -189,5 +195,18 @@ export function useSidebar(
     };
   }, [refresh]);
 
-  return { list, change, refresh };
+  /**
+   * Called as a room is saved or deleted: what lists it as the server answers, unless the workspace
+   * socket has said what became of the room since, which the answer could undo, as with a rename saved
+   * in another tab just after. The socket brings this change too, in its turn, if it changed anything.
+   */
+  const askForRoom = useCallback(() => {
+    const asked = roomFrames.current.count;
+    return (answer: RoomAnswer) => {
+      const roomId = answer.type === "saved" ? answer.room.id : answer.roomId;
+      if ((roomFrames.current.lastOf.get(roomId) ?? 0) <= asked) change(answer);
+    };
+  }, []);
+
+  return { list, change, refresh, askForRoom };
 }
