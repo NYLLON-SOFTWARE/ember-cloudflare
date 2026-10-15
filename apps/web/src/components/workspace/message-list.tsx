@@ -191,12 +191,12 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
 
   const onScroll = () => {
     const el = scroller.current!;
-    // A resize scrolls the timeline to keep its end in view, and that scroll can arrive once the timeline has
-    // resized again, before the resize observer has caught up, leaving the reader at the end of the view as it
-    // was. They didn't move, so they're still at the end. Any other scroll is the reader's, even one that comes
-    // as the timeline resizes, as it does while the composer's editor loads.
-    const atEndOfView = !state.hasNewer && el.scrollHeight - el.scrollTop - viewHeight.current <= 1;
-    atEnd.current = nearEnd(el) || atEndOfView;
+    // A resize scrolls the timeline to keep its end in view for a reader at it, and that scroll can arrive once
+    // the timeline has resized again, before the resize observer has caught up, leaving them at the end of the
+    // view as it was. They didn't move, so they're still at the end. Any other scroll is the reader's, even one
+    // that comes as the timeline resizes, as it does while the composer's editor loads.
+    const stillAtEnd = atEnd.current && !state.hasNewer && el.scrollHeight - el.scrollTop - viewHeight.current <= 1;
+    atEnd.current = nearEnd(el) || stillAtEnd;
     if (atEnd.current) setBehind(false);
     place.current = placeIn(el);
   };

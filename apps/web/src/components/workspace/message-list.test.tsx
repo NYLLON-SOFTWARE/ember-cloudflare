@@ -425,6 +425,22 @@ describe(feature("ui.scroll"), () => {
     expect(jump()).toBeInTheDocument();
   });
 
+  it("keeps the place of a reader away from the newest message who scrolls to where the end was before the timeline shrank", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    const { resize } = layOut(log);
+    scrollTo(log, 0);
+    // The timeline is 300px shorter, as when the keyboard opens, and before that's reported, the reader
+    // scrolls to where its end was, which is 300px from it now.
+    setViewHeight(log, 100);
+    scrollTo(log, 400);
+    resize();
+    expect(log.scrollTop).toBe(400);
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }));
+    expect(log.scrollTop).toBe(400);
+    expect(jump()).toBeInTheDocument();
+  });
+
   it("stays at the newest message when the scroll a resize made comes once the timeline has resized again", () => {
     const { rerender } = render(list({ messages: messages(1, 8) }));
     const log = screen.getByRole("log");
