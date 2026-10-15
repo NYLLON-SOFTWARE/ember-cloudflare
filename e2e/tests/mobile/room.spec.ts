@@ -1,5 +1,5 @@
 import { REACTIONS, type Sidebar } from "@ember/protocol";
-import { isolateRoom, openRoom, signInAs } from "../../fixtures";
+import { isolateRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
 import { expect, hasDrawerLayout, REACTION_CHIPS, test } from "./fixtures";
 
@@ -15,6 +15,7 @@ test("an empty room fits the phone", async ({ page, room, screenIsFine }) => {
 
 test("the page for someone in no rooms fits the phone", async ({ page, screenIsFine }) => {
   await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null } satisfies Sidebar }));
+  await keepOtherRoomsOut(page, []);
   await page.goto("/");
   await expect(page).toHaveTitle("No rooms yet");
   await expect(page.getByRole("main").locator("img")).toBeVisible();

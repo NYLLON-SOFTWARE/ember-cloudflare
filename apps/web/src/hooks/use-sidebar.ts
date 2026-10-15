@@ -1,8 +1,8 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
-import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
+import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
 
 /**
  * How long a tab is hidden before showing it loads the sidebar again, as Campfire's
@@ -56,25 +56,31 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
- * while it wasn't connected reached it. Meanwhile the socket marks rooms unread and read, and brings
- * the stars saved in any of this person's tabs. It loads again when the tab is shown after more than a
- * minute hidden too, as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a
- * room's page and this does on every page. `refresh` asks for it again, settling once a list asked for
- * since has come, or failing as that did.
+ * while it wasn't connected reached it. Meanwhile the socket brings rooms as they're made, changed and
+ * deleted, and as this person is put in them and taken out, marks rooms unread and read, and brings the
+ * stars saved in any of their tabs. It loads again when the tab is shown after more than a minute
+ * hidden too, as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's
+ * page and this does on every page. `refresh` asks for it again, settling once a list asked for since
+ * has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
- * it connects and whenever an administrator changes it.
+ * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
+ * gone as it leaves the list.
  */
 export function useSidebar(
   me: Me,
   onSessionChanged: (me: Me | null) => void,
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
+  onGone: (roomId: RoomId) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
+  // How many of the workspace socket's frames have said what became of a room, and the number of the
+  // last to speak of each room.
+  const roomFrames = useRef({ count: 0, lastOf: new Map<RoomId, number>() });
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
     let copy: SidebarCopy | null = null;
@@ -93,6 +99,7 @@ export function useSidebar(
   const accountChanged = useEffectEvent(onAccountChanged);
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
+  const gone = useEffectEvent(onGone);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Who the session signs in as last heard, ahead of `me` until the page takes the change: two changes
   // can come before it takes the first.
@@ -125,6 +132,7 @@ export function useSidebar(
     // try starts afresh, after a close or a socket that stopped answering alike.
     let toldOf = { you: false, account: false };
     const onConnecting = () => void (toldOf = { you: false, account: false });
+    const heardOf = (roomId: RoomId) => roomFrames.current.lastOf.set(roomId, ++roomFrames.current.count);
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
       switch (frame?.type) {
@@ -138,6 +146,13 @@ export function useSidebar(
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
           return reload();
+        case "room.saved":
+          heardOf(frame.room.id);
+          return change({ type: "saved", room: frame.room });
+        case "room.gone":
+          heardOf(frame.roomId);
+          gone(frame.roomId);
+          return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
@@ -180,5 +195,18 @@ export function useSidebar(
     };
   }, [refresh]);
 
-  return { list, change, refresh };
+  /**
+   * Called as a room is saved or deleted: what lists it as the server answers, unless the workspace
+   * socket has said what became of the room since, which the answer could undo, as with a rename saved
+   * in another tab just after. The socket brings this change too, in its turn, if it changed anything.
+   */
+  const askForRoom = useCallback(() => {
+    const asked = roomFrames.current.count;
+    return (answer: RoomAnswer) => {
+      const roomId = answer.type === "saved" ? answer.room.id : answer.roomId;
+      if ((roomFrames.current.lastOf.get(roomId) ?? 0) <= asked) change(answer);
+    };
+  }, []);
+
+  return { list, change, refresh, askForRoom };
 }

@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
-import { cookieHeader, createRoom, openRoom, signInAs } from "../../fixtures";
+import { cookieHeader, createRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
 import { expect, hasDrawerLayout, test } from "./fixtures";
 
@@ -19,6 +19,7 @@ test.describe(feature("sidebar.favorite-order"), () => {
       const list = (await response.json()) as Sidebar;
       await route.fulfill({ response, json: { ...list, rooms: list.rooms.filter((room) => ids.has(room.id)) } });
     });
+    await keepOtherRoomsOut(page, ids);
     await signInAs(page, session);
     await openRoom(page, rooms[0]!);
     if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();

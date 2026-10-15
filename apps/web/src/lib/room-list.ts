@@ -41,8 +41,8 @@ export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | 
 export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId;
 
 /**
- * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last, as the room made
- * most recently, and read.
+ * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last and read, as the
+ * room made most recently, which a room someone has just been put in counts as until the list loads again.
  */
 export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
   return rooms.some((r) => r.id === room.id)
@@ -51,15 +51,19 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
 }
 
 /**
- * A change to someone's rooms, which the server's list shows the next time it's asked: a room saved
- * here, one that's gone for this person, deleted or no longer theirs, a room the workspace socket
- * says has been marked unread or read, or their stars, as a star saved in any of their tabs leaves them.
+ * A change to someone's rooms, which the server's list shows the next time it's asked: a room as it was
+ * saved, here or anywhere else, one that's gone for this person, deleted or no longer theirs, a room the
+ * workspace socket says has been marked unread or read, or their stars, as a star saved in any of their
+ * tabs leaves them.
  */
 export type RoomChange =
   | { type: "saved"; room: Room }
   | { type: "gone"; roomId: RoomId }
   | { type: "marked"; roomId: RoomId; unread: boolean }
   | { type: "starred"; favorites: Favorites };
+
+/** What the server answers a change to a room with: the room as saved, or gone for this person. */
+export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" }>;
 
 /** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
 export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
