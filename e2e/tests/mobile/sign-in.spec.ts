@@ -17,7 +17,7 @@ test("you can sign in with taps", async ({ page }) => {
   await page.getByLabel("Password").tap();
   await page.keyboard.type(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Sign in" }).tap();
-  await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });
 
 test("a refused sign-in's alert fits the phone", async ({ page, screenIsFine }) => {
@@ -35,7 +35,7 @@ test("you can join with just a name, with taps", async ({ page }) => {
   await page.getByLabel("Your name").tap();
   await page.keyboard.type("Pat on a phone");
   await page.getByRole("button", { name: "Join" }).tap();
-  await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });
 
 test("the page keeps zoom and lets the keyboard resize it", async ({ page }) => {

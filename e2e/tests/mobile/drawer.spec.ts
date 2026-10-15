@@ -83,7 +83,7 @@ test("rotating the phone with the drawer open leaves the page usable", async ({ 
     // hide, or it dims the page and takes the next tap.
     await expect(page.getByRole("dialog")).toBeHidden();
     await expect(page.locator("[data-slot=sheet-overlay]")).toBeHidden();
-    const composer = page.getByRole("textbox", { name: `Message #${room.name}` });
+    const composer = page.getByRole("textbox", { name: "Write a message" });
     await composer.tap();
     await expect(composer).toBeFocused();
   }

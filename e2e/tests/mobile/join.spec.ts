@@ -16,5 +16,5 @@ test("you can join with taps", async ({ page, request, session }) => {
   await page.getByLabel("Password").tap();
   await page.keyboard.type("tapped in");
   await page.getByRole("button", { name: "Create account" }).tap();
-  await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });

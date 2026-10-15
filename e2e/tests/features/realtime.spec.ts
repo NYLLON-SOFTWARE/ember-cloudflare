@@ -111,9 +111,9 @@ test.describe(feature("realtime.reconnect"), () => {
 
     await cut();
     await expect(ada.connection()).toHaveText("Reconnecting…", { timeout: 10_000 });
-    await expect(ada.page.getByRole("button", { name: "Send" })).toBeDisabled();
+    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeDisabled();
     await ada.composer().fill("Typed while offline");
-    await expect(ada.page.getByRole("button", { name: "Send" })).toBeDisabled();
+    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeDisabled();
 
     await grace.send("Sent while Ada was away");
     await expect(grace.message("Sent while Ada was away")).not.toHaveAttribute("aria-busy");
@@ -121,8 +121,8 @@ test.describe(feature("realtime.reconnect"), () => {
     restore();
     await expect(ada.connection()).toHaveCount(0, { timeout: 20_000 });
     await expect(ada.message("Sent while Ada was away")).toBeVisible();
-    await expect(ada.composer()).toHaveValue("Typed while offline");
-    await expect(ada.page.getByRole("button", { name: "Send" })).toBeEnabled();
+    await expect(ada.composer()).toHaveText("Typed while offline");
+    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeEnabled();
   });
 
   test("sends a message written during a short drop once the connection is back", async ({ members }) => {

@@ -184,7 +184,7 @@ test.describe(feature("auth.sign-out"), () => {
       // The room closed the other tab's socket, so it found out without being touched.
       await expect(signInHeading(otherTab)).toBeVisible();
 
-      const composer = phone.getByRole("textbox", { name: /^Message #/ });
+      const composer = phone.getByRole("textbox", { name: "Write a message" });
       await composer.fill("Still signed in on the phone");
       await composer.press("Enter");
       await expect(phone.getByRole("article").filter({ hasText: "Still signed in on the phone" })).toBeVisible();

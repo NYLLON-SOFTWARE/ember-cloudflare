@@ -19,6 +19,7 @@ import qrCode from "./campfire/qr-code.svg";
 import refresh from "./campfire/refresh.svg";
 import remove from "./campfire/remove.svg";
 import share from "./campfire/share.svg";
+import textOptions from "./campfire/text-options.svg";
 import trash from "./campfire/trash.svg";
 
 // Campfire's filled icons. ember-rust serves these files unchanged from its reference app
@@ -114,6 +115,10 @@ export function Remove(props: CampfireIconProps) {
 
 export function Share(props: CampfireIconProps) {
   return <CampfireIcon src={share} {...props} />;
+}
+
+export function TextOptions(props: CampfireIconProps) {
+  return <CampfireIcon src={textOptions} {...props} />;
 }
 
 export function Trash(props: CampfireIconProps) {

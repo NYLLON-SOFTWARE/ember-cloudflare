@@ -43,7 +43,7 @@ export class Member {
   }
 
   composer(): Locator {
-    return this.page.getByRole("textbox", { name: /^Message #/ });
+    return this.page.getByRole("textbox", { name: "Write a message" });
   }
 
   async send(text: string): Promise<void> {

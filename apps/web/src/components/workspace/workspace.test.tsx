@@ -390,11 +390,11 @@ describe(feature("rooms.member-only-access"), () => {
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
     expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
-    expect(screen.queryByRole("textbox", { name: "Message #random" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
 
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
     expect(await roomHeading()).toHaveTextContent("general");
-    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
   });
 
   it("leaves the messages of a room that's gone with nothing to do to them", async () => {
@@ -780,6 +780,8 @@ describe(feature("ui.accessibility"), () => {
   it("skips to the main content from the first thing Tab reaches, leaving the address as it is", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
+    // The room's composer takes focus as it opens. From the top of the page, Tab reaches the link first.
+    (await screen.findByRole("textbox", { name: "Write a message" })).blur();
     await user.tab();
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(skip).toHaveFocus();
@@ -807,7 +809,7 @@ describe(feature("ui.accessibility"), () => {
     expect(screen.getByRole("region", { name: "Rooms" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "DMs" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toContainElement(screen.getByRole("log", { name: "Messages in general" }));
-    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
   });
 
   it("gives every button and link a name, icon-only ones included", async () => {

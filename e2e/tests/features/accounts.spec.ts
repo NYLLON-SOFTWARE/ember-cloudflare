@@ -21,7 +21,7 @@ test.describe(feature("accounts.name"), () => {
     await useOwnAddress(page);
     await page.goto("/session/new");
     await signInAsAdministrator(page);
-    await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
     await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Admin" }).click();
 
     const name = page.getByRole("textbox", { name: "Workspace name" });

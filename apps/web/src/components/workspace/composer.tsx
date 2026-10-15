@@ -1,10 +1,9 @@
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import type { User } from "@ember/protocol";
-import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
-import { bodyFromPlainText } from "@ember/richtext/dom";
-import { ArrowUp } from "@/components/icons/campfire";
-import { sendsMessage } from "@/lib/keyboard";
+import { ArrowUp, TextOptions } from "@/components/icons/campfire";
+import { hasTouchKeyboard, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
+import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 
 /**
  * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
@@ -36,7 +35,45 @@ function TypingIndicator({ typists }: { typists: User[] }) {
 /** The composer's place below the messages, which keeps clear of a phone's home bar. */
 const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] narrow:px-4 max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
 
+/**
+ * The buttons under the text: ember-rust's `.mb-composer-toolbar .btn` (zz-ember.css), which darken
+ * on hover as Campfire's do (composer.css, buttons.css). A disconnected room disables them, as its
+ * fieldset does in ember-rust, though only Send looks it.
+ */
+const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center touch:size-11";
+
+/** Where what's written in a room and not yet sent is kept in this browser, as ember-rust keeps it. */
+const draftKey = (roomId: string) => `composer-draft-${roomId}`;
+
+// Storage can be unavailable, as in some private windows, which only means drafts aren't kept.
+function readDraft(roomId: string): string | undefined {
+  try {
+    return localStorage.getItem(draftKey(roomId)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function keepDraft(roomId: string, body: string | null) {
+  try {
+    if (body === null) localStorage.removeItem(draftKey(roomId));
+    else localStorage.setItem(draftKey(roomId), body);
+  } catch {
+    // Not kept, then.
+  }
+}
+
+/** What the composer shows while the editor loads: its placeholder, as Lexxy draws it. */
+function LoadingEditor({ placeholder }: { placeholder: string }) {
+  return (
+    <p aria-hidden="true" className="min-h-10 text-[14px] opacity-66 max-md:min-h-[30px] touch:text-[16px]">
+      {placeholder}
+    </p>
+  );
+}
+
 interface Props {
+  roomId: string;
   roomName: string;
   typing: User[];
   disabled: boolean;
@@ -45,67 +82,111 @@ interface Props {
   onTyping: (active: boolean) => void;
 }
 
-/** ember-rust's two-row composer card: the text on top, actions and a round send button below. */
-export function Composer({ roomName, typing, disabled, onSend, onTyping }: Props) {
-  const [body, setBody] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
+/**
+ * ember-rust's composer (rooms/show/_composer.html, composer_controller.js and zz-ember.css): a card
+ * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
+ * and a round Send button. What's written is kept as a draft until it's sent.
+ */
+export function Composer({ roomId, roomName, typing, disabled, onSend, onTyping }: Props) {
+  const editor = useRef<RichTextEditorHandle>(null);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+  const [draft] = useState(() => readDraft(roomId));
+  // Touch screens bring up their keyboard on focus, so there it waits for a tap.
+  const [focusOnOpen] = useState(() => !hasTouchKeyboard());
+  // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
+  const wasBlank = useRef(!draft);
+  const placeholder = `Message #${roomName}`;
 
+  const changed = () => {
+    const blank = editor.current!.isBlank();
+    if (!blank) onTyping(true);
+    else if (!wasBlank.current) onTyping(false);
+    wasBlank.current = blank;
+    keepDraft(roomId, blank ? null : editor.current!.value());
+  };
+
+  // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends
+  // what's written unless it's blank, closes the toolbar and focuses the editor, on touch screens too.
   const submit = () => {
-    const text = body.trim();
-    if (!text || disabled) return;
-    // Sent as Lexxy sends the text typed into it.
-    onSend(bodyFromPlainText(text));
-    setBody("");
-    input.current?.focus();
+    const written = editor.current;
+    if (!written || disabled) return;
+    if (!written.isBlank()) {
+      onSend(written.value());
+      // Everyone else stops showing you as typing when your message arrives.
+      wasBlank.current = true;
+      written.setValue("");
+      keepDraft(roomId, null);
+    }
+    setToolbarOpen(false);
+    written.focus();
+  };
+
+  const keyDown = (event: KeyboardEvent) => {
+    // Enter picks from an open list, such as the people to mention.
+    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { toolbarOpen })) return;
+    event.preventDefault();
+    event.stopPropagation();
+    submit();
   };
 
   return (
     <footer className={FOOTER}>
       <form
-        className="relative"
+        className="composer relative min-w-0 [contain:inline-size]"
+        data-toolbar={toolbarOpen || undefined}
         onSubmit={(event) => {
           event.preventDefault();
           submit();
         }}
       >
         <TypingIndicator typists={typing} />
-        {/* The text field takes the card's top and side padding, so all of the card above the
-            buttons is one big tap target. */}
-        <div className="flex min-h-[108px] flex-col rounded-xl border bg-surface pb-3 focus-within:border-muted-foreground max-md:min-h-[100px] max-md:pb-2.5">
-          <label htmlFor="composer" className="sr-only">
-            Message #{roomName}
-          </label>
-          <textarea
-            id="composer"
-            ref={input}
-            rows={1}
-            value={body}
-            maxLength={MAX_MESSAGE_LENGTH}
-            placeholder={`Message #${roomName}`}
-            onChange={(event) => {
-              setBody(event.target.value);
-              onTyping(event.target.value.length > 0);
-            }}
-            onKeyDown={(event) => {
-              if (sendsMessage(event)) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-            className="field-sizing-content max-h-[min(32dvh,300px)] min-h-[52px] flex-1 resize-none bg-transparent px-3 pt-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none max-md:min-h-10 max-md:px-2.5 max-md:pt-2.5 touch:text-base"
-          />
-          <div className="mt-1 flex items-center gap-0.5 px-3 max-md:mt-0 max-md:px-2.5">
-            <span className="text-xs text-muted-foreground touch:hidden">Shift + Enter for a new line</span>
+        <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 max-md:min-h-[100px] max-md:p-2.5">
+          {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Suspense fallback={<LoadingEditor placeholder={placeholder} />}>
+              <RichTextEditor
+                ref={editor}
+                label="Write a message"
+                placeholder={placeholder}
+                rows={2}
+                initialValue={draft}
+                autoFocus={focusOnOpen}
+                onChange={changed}
+                onKeyDown={keyDown}
+              />
+            </Suspense>
+          </div>
+          <div className="flex flex-none items-center gap-0.5">
+            <button
+              type="button"
+              disabled={disabled}
+              title="Formatting options"
+              aria-pressed={toolbarOpen}
+              // Keep focus in the editor, so a phone's keyboard stays up, as Send does.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setToolbarOpen((open) => !open);
+                editor.current?.focus();
+              }}
+              className={cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover")}
+            >
+              <TextOptions className="size-[18px] opacity-70" />
+              <span className="sr-only">Rich text</span>
+            </button>
             <button
               type="submit"
-              disabled={disabled || body.trim().length === 0}
-              aria-label="Send"
-              title="Send"
-              // Keep focus in the text field, so a phone's keyboard stays up between messages.
+              disabled={disabled}
+              title="Send message"
+              // Keep focus in the editor, so a phone's keyboard stays up between messages.
               onMouseDown={(event) => event.preventDefault()}
-              className="ml-auto flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-40 touch:size-11"
+              className={cn(
+                BUTTON,
+                "ml-auto rounded-full bg-foreground text-background hover:not-active:brightness-70",
+                "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
+              )}
             >
               <ArrowUp tone="reversed" className="size-[18px]" />
+              <span className="sr-only">Send Message</span>
             </button>
           </div>
         </div>

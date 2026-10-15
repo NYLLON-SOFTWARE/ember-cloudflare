@@ -1,17 +1,17 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { MAX_MESSAGE_LENGTH, QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
-import { bodyFromPlainText, displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { QUICK_REACTION_COUNT, REACTIONS, type Message, type User } from "@ember/protocol";
+import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { Trash } from "@/components/icons/campfire";
 import { Ellipsis, FaceSlightlySmilingPlus, Pencil } from "@/components/icons/lucide";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { sendsMessage } from "@/lib/keyboard";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
+import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageBody } from "./message-body";
 import { UserAvatar } from "./user-avatar";
 
@@ -62,9 +62,9 @@ function UnrenderableMessage() {
 export const MessageItem = memo(function MessageItem({ message, me, threaded, actions }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.plainText);
   const [timeline, setTimeline] = useState<Element | null>(null);
   const article = useRef<HTMLElement>(null);
+  const editor = useRef<RichTextEditorHandle>(null);
   const options = useRef<HTMLButtonElement>(null);
   const actionBar = useRef<HTMLDivElement>(null);
   // Set while the More reactions menu is up: to "chosen" once a reaction is picked from it, and to
@@ -81,11 +81,22 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
   const saveEdit = () => {
-    const text = draft.trim();
-    // Until the editor is Lexxy, it edits the plain text, which it sends as Lexxy would. An edit that
-    // couldn't be sent keeps the editor open, so the draft isn't lost.
-    if (text && text !== message.plainText && !actions?.edit(message.id, bodyFromPlainText(text))) return;
+    const written = editor.current;
+    // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
+    // keeps it open, so what was written isn't lost.
+    if (written && !written.isBlank() && written.value() !== message.body && !actions?.edit(message.id, written.value())) return;
     setEditing(false);
+  };
+
+  // Until ember-rust's keys come with its edit form, Escape cancels and Enter saves, as in the composer.
+  const editKeyDown = (event: KeyboardEvent) => {
+    if (editor.current?.hasOpenPrompt()) return;
+    if (event.key === "Escape") setEditing(false);
+    if (sendsMessage(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      saveEdit();
+    }
   };
 
   // With a mouse, a click or focus anywhere else closes the actions, so only one message has them open,
@@ -215,7 +226,6 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
             className={actionButton}
             onClick={() => {
               setMenuOpen(false);
-              setDraft(message.plainText);
               setEditing(true);
             }}
           >
@@ -268,27 +278,16 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
         {editing && actions ? (
           <form
-            className="rounded-[10px] border bg-surface p-3"
+            className="message-edit rounded-[10px] border bg-surface p-3"
             onSubmit={(event) => {
               event.preventDefault();
               saveEdit();
             }}
           >
-            <Textarea
-              autoFocus
-              aria-label="Edit message"
-              value={draft}
-              maxLength={MAX_MESSAGE_LENGTH}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setEditing(false);
-                if (sendsMessage(event)) {
-                  event.preventDefault();
-                  saveEdit();
-                }
-              }}
-              className="min-h-10 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 touch:min-h-11 touch:text-base dark:bg-transparent"
-            />
+            {/* The composer has loaded the editor by the time a message can be edited. */}
+            <Suspense fallback={<div className="min-h-10 touch:min-h-11" />}>
+              <RichTextEditor ref={editor} label="Edit message" rows={1} initialValue={message.body} autoFocus onKeyDown={editKeyDown} />
+            </Suspense>
             {/* Phones have no Escape key and use Enter for new lines, so editing needs buttons. */}
             <div className="mt-1 flex items-center justify-end gap-1">
               <p className="mr-auto text-xs text-muted-foreground touch:hidden">Escape to cancel, Enter to save</p>

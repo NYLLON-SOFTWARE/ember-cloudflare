@@ -17,7 +17,7 @@ test.describe(feature("messages.create"), () => {
     const grace = await members.signIn("Grace");
 
     await ada.send("Hello, Grace");
-    await expect(ada.composer()).toHaveValue("");
+    await expect(ada.composer()).toHaveText("");
     await expect(grace.message("Hello, Grace")).toContainText("Ada");
     await expect(ada.message("Hello, Grace")).toBeVisible();
   });
@@ -327,13 +327,26 @@ test.describe(feature("messages.edit"), () => {
 
     await (await ada.actions("Helo")).getByRole("button", { name: "Edit" }).click();
     await expect(ada.editor()).toBeFocused();
-    await expect(ada.editor()).toHaveValue("Helo");
+    await expect(ada.editor()).toHaveText("Helo");
     await ada.editor().fill("Hello");
     await ada.editor().press("Enter");
 
     await expect(grace.message("Hello")).toContainText("(edited)");
     await expect(grace.message("Helo")).toHaveCount(0);
     await expect(ada.message("Hello")).toContainText("(edited)");
+  });
+
+  test("edits the formatting along with the text", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("A **bold** claim");
+    await ada.composer().press("Enter");
+    await (await ada.actions("A bold claim")).getByRole("button", { name: "Edit" }).click();
+    await expect(ada.editor().locator("strong")).toHaveText("bold");
+    // The cursor is after the text.
+    await ada.page.keyboard.type(", revised");
+    await ada.editor().press("Enter");
+    await expect(ada.message("A bold claim, revised")).toContainText("(edited)");
+    await expect(ada.message("A bold claim, revised").locator(".message-content strong")).toHaveText("bold");
   });
 
   test("cancels an edit with Escape", async ({ members }) => {

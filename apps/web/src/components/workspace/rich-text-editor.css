@@ -1,0 +1,288 @@
+/*
+ * The editor's styles: Lexxy's own stylesheets, as ember-rust serves them, then Campfire's
+ * actiontext.css with Campfire's colors as Ember's tokens. Lexxy's rules have no specificity, so
+ * Campfire's override them, and none of this is in a layer, so it wins over Tailwind's reset of
+ * headings, lists and the like inside the editor. So rules for the editor's own elements are here
+ * too, rather than in utility classes, which these would beat.
+ */
+@import "@37signals/lexxy/stylesheets/lexxy.css";
+
+/* Lexxy's palette resolved to Ember's, so the editor follows the appearance. */
+.lexxy-content {
+  --lexxy-color-canvas: transparent;
+  --lexxy-color-text: var(--foreground);
+  --lexxy-color-text-subtle: var(--foreground);
+  --lexxy-color-link: var(--link);
+  --lexxy-color-ink: var(--foreground);
+  --lexxy-color-ink-inverted: var(--background);
+  --lexxy-color-ink-medium: var(--foreground);
+  --lexxy-color-ink-lighter: var(--muted-foreground);
+  --lexxy-color-ink-lightest: var(--background);
+  --lexxy-color-selected: var(--hover);
+  --lexxy-color-code-bg: var(--background);
+
+  /* Campfire's message lines stack without extra block margins */
+  --lexxy-content-margin: 0;
+}
+
+/* Campfire's `lexxy-editor.input`: every editor is one of those. */
+lexxy-editor {
+  --lexxy-editor-padding: 0;
+
+  /* One line high when empty. Lexxy derives this from attr(rows lh, 8lh),
+     whose resolution differs between Chrome versions — pin it instead of
+     risking the 8-line fallback */
+  --lexxy-editor-rows: 1lh;
+
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  min-height: 24px;
+
+  .attachment--content {
+    margin: 0;
+    display: inline-flex;
+  }
+}
+
+/* The mentions menu needs a solid surface — the editor's transparent canvas
+   would let messages show through it */
+.lexxy-prompt-menu {
+  --lexxy-color-canvas: var(--background);
+
+  border: 1px solid var(--border);
+}
+
+/* Same for the code block language picker: with a transparent canvas the
+   native dropdown renders white-on-white in dark mode */
+lexxy-editor lexxy-code-language-picker select {
+  background-color: var(--background);
+  color: var(--foreground);
+
+  option {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}
+
+/* The toolbar only shows when rich text mode is toggled on (see composer.css) */
+lexxy-toolbar {
+  /* Wide, airy button spacing like the Trix toolbar */
+  --lexxy-toolbar-gap: 1.3em;
+
+  /* Match the compact size of the Trix toolbar buttons */
+  --lexxy-toolbar-button-size: 1.7em;
+  --lexxy-toolbar-icon-size: 1.125em;
+
+  display: none;
+  border-block-end: 0;
+  min-width: 0;
+  z-index: 3;
+
+  /* Tools Campfire doesn't offer, matching the Trix toolbar: underline,
+     color highlights, tables, dividers and undo/redo (history tools were
+     hidden under Trix as well) */
+  button[name="underline"],
+  button[name="table"],
+  button[name="divider"],
+  button[name="undo"],
+  button[name="redo"],
+  lexxy-highlight-dropdown {
+    display: none !important;
+  }
+
+  /* No group separator pipes, like the Trix toolbar */
+  .lexxy-editor__toolbar-button.lexxy-editor__toolbar-group-end::after {
+    display: none;
+  }
+
+  /* Dropdown panels: a solid surface with a uniform radius. Lexxy derives
+     the panel's radius and gap from --lexxy-toolbar-gap, which Campfire
+     repurposes for button spacing */
+  .lexxy-editor__toolbar-dropdown [data-dropdown-panel] {
+    --lexxy-color-canvas: var(--background);
+    --lexxy-color-ink-lightest: var(--surface);
+    --lexxy-color-selected: var(--hover);
+    --lexxy-color-selected-hover: var(--surface);
+
+    border: 1px solid var(--border);
+    border-radius: 0.5em;
+    gap: 0.25em;
+    padding: 0.25em;
+  }
+
+  .lexxy-editor__toolbar-dropdown > .lexxy-editor__toolbar-button[aria-expanded="true"] {
+    border-radius: var(--lexxy-radius);
+  }
+}
+
+/* Attachment markup contains formatting whitespace that must not turn into
+   line breaks under the editor's white-space: pre-wrap */
+lexxy-editor action-text-attachment {
+  white-space: normal;
+}
+
+action-text-attachment[content-type~="application/vnd.campfire.mention"] {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.lexxy-content {
+  pre {
+    background-color: var(--background) !important;
+    border-radius: 0.5em;
+    border: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monaco, monospace;
+    font-size: 0.8rem !important;
+    margin: 0 !important;
+    padding: 1em !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word;
+  }
+
+  --blockquote-border: 0.5ch;
+  --blockquote-padding: 1.5ch;
+  --blockquote-margin: 1ch;
+
+  blockquote {
+    border: 0 solid var(--muted-foreground) !important;
+    border-inline-start-width: var(--blockquote-border) !important;
+    font-style: normal;
+    margin: 0 var(--blockquote-margin) !important;
+    padding-inline-start: var(--blockquote-padding) !important;
+  }
+
+  cite {
+    display: block;
+    margin-inline-start: calc(var(--blockquote-padding));
+    font-style: normal;
+    font-size: 0.8rem;
+    font-weight: 600;
+
+    &::before {
+      content: "— ";
+      color: var(--muted-foreground);
+    }
+  }
+
+  a {
+    color: var(--link);
+  }
+
+  /* The composer's mention menu is a list inside the editor too, and keeps Lexxy's own spacing */
+  ul:not(.lexxy-prompt-menu),
+  ol {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  li:not(.lexxy-prompt-menu__item) {
+    margin: 0 0 0 2ch !important;
+    padding: 0 !important;
+  }
+
+  h1 {
+    font-size: 1.4rem !important;
+    margin: 0;
+  }
+}
+
+/*
+ * ember-rust's composer (zz-ember.css): 14px text, between 40px and min(32dvh, 300px) tall, then
+ * scrolling. At 900px wide and below it's at least 30px, and there and on touch screens its text is
+ * 16px, as `touch:` sizes fields, so iOS doesn't zoom in. Formatting options shows the toolbar under
+ * the text, wrapping, with its menus opening upward.
+ *
+ * Unlike ember-rust's, the text takes the card's padding around it and all the room above the
+ * buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px.
+ * Its sizes grow by that padding, so the text inside is as tall as ember-rust's.
+ */
+.composer {
+  lexxy-editor {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    font-size: 14px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .lexxy-editor__content {
+    --composer-padding: 12px;
+
+    flex: 1;
+    margin: calc(-1 * var(--composer-padding)) calc(-1 * var(--composer-padding)) 0;
+    max-block-size: calc(min(32dvh, 300px) + var(--composer-padding) + 4px);
+    min-block-size: calc(40px + var(--composer-padding) + 4px);
+    overflow-y: auto;
+    padding: var(--composer-padding) var(--composer-padding) 4px;
+
+    &:focus {
+      outline: none;
+    }
+  }
+
+  &[data-toolbar] {
+    lexxy-toolbar {
+      --lexxy-toolbar-gap: 4px;
+
+      display: flex;
+      flex-wrap: wrap;
+      /* ember-rust's 8px from the text, less the 4px the text keeps under it, and 4px to the buttons */
+      margin-block: 4px;
+    }
+
+    .lexxy-editor__content {
+      order: -1;
+    }
+  }
+
+  /* Campfire's composer.css, which puts 0.4em between the text and the toolbar on wide screens with a mouse */
+  @media (min-width: 100ch) and (any-hover: hover) and (pointer: fine) {
+    &[data-toolbar] lexxy-toolbar {
+      margin-block-start: calc(0.4em - 4px);
+    }
+  }
+
+  lexxy-toolbar [data-dropdown-panel] {
+    inset-block-end: 100%;
+    inset-block-start: auto;
+  }
+
+  @media (width < 56.3125rem) {
+    .lexxy-editor__content {
+      --composer-padding: 10px;
+
+      min-block-size: calc(30px + var(--composer-padding) + 4px);
+    }
+  }
+
+  @media (width < 56.3125rem), (pointer: coarse) {
+    lexxy-editor {
+      font-size: 16px;
+    }
+  }
+}
+
+/* Editing a message, until ember-rust's edit form is ported: the size of the text box it replaced. */
+.message-edit {
+  lexxy-editor {
+    font-size: 14px;
+  }
+
+  .lexxy-editor__content {
+    min-block-size: 40px;
+  }
+
+  @media (width < 56.3125rem), (pointer: coarse) {
+    lexxy-editor {
+      font-size: 16px;
+    }
+
+    .lexxy-editor__content {
+      min-block-size: 44px;
+    }
+  }
+}
