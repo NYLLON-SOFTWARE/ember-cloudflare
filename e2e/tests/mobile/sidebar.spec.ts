@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
 import { cookieHeader, createRoom, openRoom, signInAs } from "../../fixtures";
+import { settle } from "./audits";
 import { expect, hasDrawerLayout, test } from "./fixtures";
 
 test.describe(feature("sidebar.favorite-order"), () => {
@@ -23,6 +24,8 @@ test.describe(feature("sidebar.favorite-order"), () => {
     if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
     const rows = page.getByRole("region", { name: "Rooms" }).getByRole("link");
     await expect(rows).toHaveText(["#general★", "#random★"]);
+    // Where the finger goes down is measured once the drawer has slid in, as a person would wait.
+    await settle(page);
 
     // Playwright's touchscreen only taps, so the finger goes down, moves and lifts through DevTools.
     const cdp = await page.context().newCDPSession(page);

@@ -166,7 +166,9 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     if (!pressed.dragging || !dragged) return;
     clicksIgnoredUntil.current = Date.now() + CLICK_GUARD_MS;
     rowOf(pressed.roomId)?.focus({ preventScroll: true });
-    save(dragged);
+    // A starred room that went meanwhile, deleted or no longer theirs, left the stars without news that
+    // they changed, so the order saved leaves it out too.
+    save(dragged.filter((id) => favorites.rooms.includes(id)));
   }
 
   async function save(next: RoomId[]) {
@@ -188,7 +190,10 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     }
   }
 
-  /** Alt and an arrow move the starred row focused past the one shown above or below it, and save. */
+  /**
+   * Alt and an arrow move the starred row focused past the one shown above or below it, and save, unless
+   * a row is held down, whose drag saves where it's let go.
+   */
   function onKeyDown(event: KeyboardEvent) {
     if (event.key === "Escape" && press.current?.dragging) {
       event.preventDefault();
@@ -198,7 +203,7 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     const up = event.key === "ArrowUp";
     if (!roomId || !movable.includes(roomId) || !event.altKey || (!up && event.key !== "ArrowDown")) return;
     event.preventDefault();
-    if (saved.current) return;
+    if (saved.current || press.current) return;
     const neighbor = movable[movable.indexOf(roomId) + (up ? -1 : 1)];
     if (!neighbor) return;
     focusAfterMove.current = roomId;

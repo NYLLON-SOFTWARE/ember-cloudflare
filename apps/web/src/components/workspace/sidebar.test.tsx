@@ -269,6 +269,20 @@ describe(feature("sidebar.favorite-order"), () => {
       expect(onSelect).toHaveBeenCalledWith("general");
     });
 
+    it("saves where a row is let go without a starred room that went meanwhile, deleted or no longer theirs", async () => {
+      vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: { rooms: ["design", "general"], version: 4 } }));
+      const { rerender } = renderSidebar({ rooms: team, favorites: stars });
+      hold("design");
+      dragTo(0);
+      // The list drops a room that's gone, and its star, with no news that the stars changed.
+      rerender({ rooms: team.filter((room) => room.id !== "random"), favorites: { rooms: ["general", "design"], version: 3 } });
+      expect(row("design")).toHaveClass("cursor-grabbing");
+
+      fireEvent.pointerUp(window);
+      await act(async () => {});
+      expect(sent()).toEqual([["/api/sidebar/order", "PUT", { roomIds: ["design", "general"] }]]);
+    });
+
     it("puts a dragged row back on Escape, saving nothing", () => {
       renderSidebar({ rooms: team, favorites: stars });
       hold("design");
@@ -280,6 +294,22 @@ describe(feature("sidebar.favorite-order"), () => {
       expect(status()).toHaveTextContent("Room move canceled.");
       fireEvent.pointerUp(window);
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("ignores Alt and an arrow while a row is held, saving only where a dragged one is let go", async () => {
+      vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: { rooms: ["design", "general", "random"], version: 4 } }));
+      renderSidebar({ rooms: team, favorites: stars });
+      // Before the hold has lifted the row, and once it's dragged.
+      fireEvent.pointerDown(row("design"), { pointerType: "mouse", button: 0, clientX: 20, clientY: 2 * 36 + 18 });
+      fireEvent.keyDown(row("random"), { key: "ArrowUp", altKey: true });
+      act(() => vi.advanceTimersByTime(400));
+      dragTo(0);
+      fireEvent.keyDown(row("random"), { key: "ArrowUp", altKey: true });
+      expect(listed()).toEqual(["#design", "#general", "#random", "#ops"]);
+
+      fireEvent.pointerUp(window);
+      await act(async () => {});
+      expect(sent()).toEqual([["/api/sidebar/order", "PUT", { roomIds: ["design", "general", "random"] }]]);
     });
 
     it("lets go of a row that moves 8px before the hold ends, a click, an unstarred row, and a lone starred one", () => {
