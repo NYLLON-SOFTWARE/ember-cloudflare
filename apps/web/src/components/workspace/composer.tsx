@@ -160,7 +160,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
       if (!onSend(written.value())) return;
       // Everyone else stops showing you as typing when your message arrives.
       wasBlank.current = true;
-      written.setValue("");
+      written.clear();
       keepDraft(key, null);
     }
     setToolbarOpen(false);

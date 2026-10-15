@@ -11,8 +11,18 @@ declare module "@37signals/lexxy" {
     updateFromJSON(serialized: Record<string, unknown>): this;
   }
 
+  /** The parts of Lexical's RangeSelection that the composer uses: the format of what's typed at it. */
+  interface RangeSelection {
+    setFormat(format: number): void;
+    setStyle(style: string): void;
+  }
+
   /** The Lexical Lexxy is built on, whose nodes an extension's must extend. */
-  export const Lexical: { ElementNode: typeof ElementNode };
+  export const Lexical: {
+    ElementNode: typeof ElementNode;
+    $getSelection(): unknown;
+    $isRangeSelection(selection: unknown): selection is RangeSelection;
+  };
 
   /** What an editor allows and holds beyond Lexxy's own. */
   export class Extension {

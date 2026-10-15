@@ -80,13 +80,15 @@ type LexxyEditor = HTMLElement & {
   /** Its contenteditable, which Lexxy names after it once it's connected. */
   readonly editorContentElement?: HTMLElement;
   readonly selection: { placeCursorAtTheEnd(): void };
+  /** Its Lexical editor. */
+  readonly editor: { update(change: () => void, options: { discrete: boolean }): void };
 };
 
 export interface RichTextEditorHandle {
   /** What's written, as Lexxy's markup. */
   value(): string;
-  /** Replaces what's written with `markup`. */
-  setValue(markup: string): void;
+  /** Empties it, leaving no formatting on for what's typed next. */
+  clear(): void;
   /** Whether nothing but white space is written. */
   isBlank(): boolean;
   /** Whether a list it offers, such as the people to mention, is open, which takes Enter for itself. */
@@ -124,7 +126,22 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
 
   useImperativeHandle(ref, () => ({
     value: () => editor.current?.value ?? "",
-    setValue: (markup) => void (editor.current && (editor.current.value = markup)),
+    clear: () => {
+      const lexxy = editor.current;
+      if (!lexxy) return;
+      lexxy.value = "";
+      // Lexxy keeps the format the cursor had, so in ember-rust a message sent all in bold leaves the next
+      // one bold too, with the toolbar that would show it shut.
+      lexxy.editor.update(
+        () => {
+          const selection = Lexical.$getSelection();
+          if (!Lexical.$isRangeSelection(selection)) return;
+          selection.setFormat(0);
+          selection.setStyle("");
+        },
+        { discrete: true },
+      );
+    },
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
