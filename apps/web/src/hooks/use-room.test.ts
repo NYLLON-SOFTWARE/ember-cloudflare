@@ -292,6 +292,17 @@ describe(feature("realtime.reconnect"), () => {
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2&since=4");
   });
 
+  it("names the change before one the room never announced, so connecting again brings it", () => {
+    joinGeneral();
+    socket().receive({ type: "message.created", message: message("m1"), seq: 1 });
+    // The room saved change 2, though its batch failed, so it told no one.
+    socket().receive({ type: "message.created", message: message("m3"), seq: 3 });
+    socket().receive({ type: "message.deleted", messageId: "m1", seq: 4 });
+    socket().drop();
+    wait(500);
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2&since=1");
+  });
+
   it("names no change until the room has let it in, nor in the next room it opens", () => {
     const { rerender } = renderHook(({ roomId }) => useRoom(roomId, ada, () => {}), { initialProps: { roomId: "general" } });
     socket().open();

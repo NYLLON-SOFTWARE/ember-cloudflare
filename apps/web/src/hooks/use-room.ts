@@ -50,7 +50,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   useEffect(() => {
     let closed = false;
     // The latest change to the room this page has heard of, by its number, which a socket that connects
-    // again names, so the room sends what changed since rather than its newest page.
+    // again names, so the room sends what changed since rather than its newest page. The room numbers its
+    // changes one after another, so a gap is one it never announced, as when D1 saves a batch whose answer
+    // is lost: this stays at the change before it, and connecting again brings what it missed.
     let seen: number | undefined;
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
@@ -85,7 +87,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         return;
       }
       // A room from before rooms numbered their changes opens without a number, which leaves none to name.
-      if (opening || "seq" in frame) seen = frame.seq;
+      if (opening) seen = frame.seq;
+      else if ("seq" in frame && seen !== undefined && frame.seq === seen + 1) seen = frame.seq;
       dispatch({ type: "frame", frame, now: Date.now() });
       if (!opening) return;
       room.connected();
