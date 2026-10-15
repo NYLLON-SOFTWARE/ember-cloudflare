@@ -708,7 +708,8 @@ describe(feature("sidebar.live-updates"), () => {
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted."));
-    expect(sidebarRooms()).toEqual(["general"]);
+    // The page takes the room out of the sidebar in an effect, just after it says so.
+    await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
 
     await workspaceSends({ type: "room.saved", room: rooms[1]! });
     expect(await screen.findByRole("textbox", { name: "Message #random" })).toBeInTheDocument();
