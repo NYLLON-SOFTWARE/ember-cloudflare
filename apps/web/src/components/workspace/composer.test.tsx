@@ -68,6 +68,28 @@ describe(feature("composer.layout"), () => {
     render(<Composer {...room} deferEditor />);
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
+
+  it("leaves focus where it's been put while the editor was held back", async () => {
+    (await showComposer()).view.unmount();
+    const page = (deferEditor: boolean) => (
+      <>
+        <button type="button">Elsewhere</button>
+        <Composer {...room} deferEditor={deferEditor} />
+      </>
+    );
+    const view = render(page(true));
+    screen.getByRole("button", { name: "Elsewhere" }).focus();
+
+    view.rerender(page(false));
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).not.toHaveFocus();
+    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
+  });
+
+  it("takes focus from the last room's composer, which goes as this one opens", async () => {
+    const { view } = await showComposer();
+    view.rerender(<Composer key="r2" {...room} roomId="r2" />);
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
+  });
 });
 
 describe(feature("composer.formatting-toolbar"), () => {

@@ -102,8 +102,11 @@ interface Props {
   rows: number;
   /** What's written in it as it opens, as Lexxy's markup. */
   initialValue?: string;
-  /** Whether it takes focus once it's ready, with the cursor after what's written. */
-  autoFocus?: boolean;
+  /**
+   * Whether it takes focus once it's ready, with the cursor after what's written. A function is asked
+   * then, since it may be ready only after you've moved on.
+   */
+  autoFocus?: boolean | (() => boolean);
   /** Called when what's written changes, other than as it opens. */
   onChange?: () => void;
   /** Called for each key pressed in its text before the editor sees it, which stopping the event's propagation keeps from the editor. */
@@ -130,7 +133,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
   const changed = useEffectEvent(() => onChange?.());
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));
   const ready = useEffectEvent((lexxy: LexxyEditor) => {
-    if (!autoFocus) return;
+    if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
     lexxy.focus();
     lexxy.selection.placeCursorAtTheEnd();
   });

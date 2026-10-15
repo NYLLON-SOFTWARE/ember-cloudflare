@@ -34,7 +34,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     const text = box.current!;
     const listener = (event: KeyboardEvent) => keyPressed(event);
     text.addEventListener("keydown", listener, { capture: true });
-    if (autoFocus) {
+    if (typeof autoFocus === "function" ? autoFocus() : autoFocus) {
       text.focus();
       text.setSelectionRange(text.value.length, text.value.length);
     }

@@ -91,6 +91,12 @@ function useEditorShown(deferred: boolean): boolean {
   return shown;
 }
 
+/** Whether focus is still on `element`, or on nothing, as when what had it went away. */
+function focusStayedOn(element: Element | null): boolean {
+  const focused = document.activeElement;
+  return !focused || focused === element || focused === document.body;
+}
+
 interface Props {
   roomId: string;
   roomName: string;
@@ -118,6 +124,9 @@ export function Composer({ roomId, roomName, typing, disabled, deferEditor = fal
   const [draft] = useState(() => readDraft(roomId));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
+  // Where focus was as the room opened. The editor can be ready a moment later, by when you may have put
+  // focus elsewhere, where it's left.
+  const [focusAtOpen] = useState(() => document.activeElement);
   const editorShown = useEditorShown(deferEditor);
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
@@ -177,7 +186,7 @@ export function Composer({ roomId, roomName, typing, disabled, deferEditor = fal
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
-                  autoFocus={focusOnOpen}
+                  autoFocus={() => focusOnOpen && focusStayedOn(focusAtOpen)}
                   onChange={changed}
                   onKeyDown={keyDown}
                 />
