@@ -132,3 +132,9 @@ test("text cut off for good fails, but not text clamped on purpose", async ({ pa
   expect(overflow).not.toEqual([]);
   for (const problem of overflow) expect(problem).toContain('text in <p> "Cut off after one line');
 });
+
+test("a page wider than the phone fails, though the phone widens the window to fit it", async ({ page, safeArea }) => {
+  await page.setContent(phonePage(`<div style="width: 120vw; height: 20px"></div>`));
+  const { overflow } = await auditScreen(page, safeArea);
+  expect(overflow).toEqual([expect.stringContaining("the page scrolls sideways")]);
+});

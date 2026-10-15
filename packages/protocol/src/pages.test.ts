@@ -5,12 +5,12 @@ import { isAppPage, workspacePageOf } from "./index";
 describe(feature("platform.error-pages"), () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
     const pages = ["/", "/rooms", "/rooms/general", "/rooms/caf%C3%A9", "/rooms/opens/general", "/rooms/directs/ada-grace", "/rooms/opens/new", "/rooms/closeds/new"];
-    for (const path of [...pages, "/rooms/opens/general/edit", "/account/edit", "/session/new"]) expect(isAppPage(path), path).toBe(true);
+    for (const path of [...pages, "/rooms/opens/general/edit", "/account/edit", "/account/custom_styles/edit", "/session/new"]) expect(isAppPage(path), path).toBe(true);
     expect(workspacePageOf("/rooms/caf%C3%A9")).toEqual({ page: "room", roomId: "café" });
   });
 
   it("names nothing at any other path, which answers 404", () => {
-    const paths = ["/nope", "/index.html", "/account", "/users/1", "/rooms/general/extra", "/rooms/opens/general/extra", "/messages/1"];
+    const paths = ["/nope", "/index.html", "/account", "/account/custom_styles", "/users/1", "/rooms/general/extra", "/rooms/opens/general/extra", "/messages/1"];
     for (const path of paths) expect(isAppPage(path), path).toBe(false);
   });
 

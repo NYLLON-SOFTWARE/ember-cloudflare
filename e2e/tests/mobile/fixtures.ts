@@ -46,6 +46,12 @@ export { expect };
  */
 export const REACTION_CHIPS = "[aria-label=Reactions] button";
 
+/**
+ * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones
+ * (zz-ember.css), which WCAG 2.5.8's 24px floor allows.
+ */
+export const SWITCHES = "[role=switch]";
+
 /** True when the page uses the drawer layout, which ember-rust switches to at 900px and below. */
 export function hasDrawerLayout(page: Page): boolean {
   return page.viewportSize()!.width <= 900;

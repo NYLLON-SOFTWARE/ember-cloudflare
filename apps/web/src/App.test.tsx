@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REFUSED } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -15,6 +15,8 @@ const grace = { id: "u2", name: "Grace", administrator: false };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
+/** The workspace as it's set up. */
+const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
 const allTalk = { id: "r1", name: "All Talk", kind: "open", icon: null };
 
@@ -65,10 +67,10 @@ class WorkspaceSocket extends QuietSocket {
     this.onmessage?.({ data: JSON.stringify(frame) });
   }
 
-  welcome(you: typeof ada) {
+  welcome(you: typeof ada, account = EMBER) {
     this.readyState = WorkspaceSocket.OPEN;
     this.onopen?.();
-    this.receive({ type: "welcome", you });
+    this.receive({ type: "welcome", you, account });
   }
 }
 
@@ -77,9 +79,20 @@ class WorkspaceSocket extends QuietSocket {
  * out with or without. Ada, its administrator, signs in as ada@example.com with "correct horse", and
  * Grace joins.
  */
-function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn: boolean; setup?: "pending" | "complete"; guestSignIn?: boolean }) {
+function serve({
+  signedIn,
+  setup = "complete",
+  guestSignIn = true,
+  account: given = EMBER,
+}: {
+  signedIn: boolean;
+  setup?: "pending" | "complete";
+  guestSignIn?: boolean;
+  /** The workspace as it's set up, rather than `EMBER`. */
+  account?: Account;
+}) {
   let rooms = [general];
-  let account = { name: "Ember" };
+  let account = given;
   let me = ada;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
@@ -112,7 +125,8 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
     if (route === "GET /api/me") return Response.json({ user: me });
     if (route === "GET /api/account") return Response.json({ account, joinCode: JOIN_CODE, canAdminister: me.administrator });
     if (route === "PATCH /api/account") {
-      account = JSON.parse(String(init?.body)) as typeof account;
+      const { name = account.name, settings } = JSON.parse(String(init?.body)) as AccountChanges;
+      account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons };
       return Response.json({ account });
     }
     return Response.json({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
@@ -251,6 +265,19 @@ describe(feature("auth.sessions"), () => {
 });
 
 describe(feature("accounts.name"), () => {
+  it("takes a name saved in another tab at once, as the workspace socket says, on every page", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, name: "Analytical Engines" } }));
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+
   it("renames the workspace from its settings, and the rail and sidebar take the new name", async () => {
     history.replaceState(null, "", "/account/edit");
     serve({ signedIn: true });
@@ -265,6 +292,61 @@ describe(feature("accounts.name"), () => {
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
+  });
+});
+
+describe(feature("accounts.custom-css"), () => {
+  const RED = "body { color: red; }";
+  const BLUE = "body { color: blue; }";
+  /** The workspace's CSS, which comes after the app's own. */
+  const customStyles = () => document.head.lastElementChild?.tagName === "STYLE" && document.head.lastElementChild.textContent;
+
+  it("applies the workspace's CSS to every page, sign-in included", async () => {
+    serve({ signedIn: false, account: { ...EMBER, customStyles: RED } });
+    render(<App />);
+    await signInPage();
+    expect(customStyles()).toBe(RED);
+  });
+
+  it("applies CSS saved in another tab at once, as the workspace socket says, where ember-rust's tabs take it on their next load", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true, account: { ...EMBER, customStyles: RED } });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    // Saved while the tab was without its socket.
+    act(() => WorkspaceSocket.all[0]!.welcome(ada, { ...EMBER, customStyles: BLUE }));
+    expect(customStyles()).toBe(BLUE);
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: EMBER }));
+    expect(customStyles()).toBe(false);
+    expect(document.head.querySelectorAll("style")).toHaveLength(0);
+  });
+
+  it("marks the page's body admin while an administrator is signed in, for the CSS to go by", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    const { unmount } = render(<App />);
+    await roomHeading();
+    expect(document.body).toHaveClass("admin");
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome({ ...ada, administrator: false }));
+    await waitFor(() => expect(document.body).not.toHaveClass("admin"));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    await waitFor(() => expect(document.body).toHaveClass("admin"));
+    unmount();
+    expect(document.body).not.toHaveClass("admin");
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("shows translation buttons on sign-in once an administrator shows them", async () => {
+    serve({ signedIn: false, account: { ...EMBER, hideTranslationButtons: false } });
+    render(<App />);
+    await signInPage();
+    // By the email address and the password.
+    expect(screen.getAllByText("Translate")).toHaveLength(2);
   });
 });
 

@@ -47,7 +47,7 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
   return (
     <form ref={ref} onSubmit={save}>
       {canAdminister ? (
-        <Field id="room_name" label="Room name">
+        <Field id="room_name" label="Room name" translation="room_name">
           <Input
             id="room_name"
             required

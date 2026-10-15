@@ -12,6 +12,7 @@ import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { inSidebarOrder, markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
+import { CustomStylesPage } from "./custom-styles-page";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
@@ -23,7 +24,8 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
- * a room's page and the pages that go on to one, and nothing on a room's forms.
+ * a room's page and the pages that go on to one, and nothing on a room's forms or the Custom CSS page,
+ * whose addresses none of its links have.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -33,6 +35,7 @@ const RAIL_PAGES = {
   "new-room": null,
   "room-settings": null,
   "workspace-settings": "workspace",
+  "custom-styles": null,
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** An address the app goes on from, to `path`, with an alert to show there. */
@@ -97,7 +100,7 @@ interface Props {
   workspaceName: string;
   /** This deployment's version, which workspace settings end with. */
   version: string;
-  /** Called with the workspace as its settings last loaded or saved it. */
+  /** Called with the workspace as its settings last loaded or saved it, or the workspace socket last said it is. */
   onAccountChanged: (account: Account) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
@@ -112,7 +115,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory);
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, onAccountChanged);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -281,6 +284,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             onFailed={failed}
           />
         );
+      case "custom-styles":
+        return <CustomStylesPage onAccountChanged={onAccountChanged} onFailed={failed} />;
       default:
         if (room)
           return (

@@ -2,14 +2,16 @@ import { feature } from "@ember/parity";
 import { MAX_ROOM_NAME_LENGTH, type User } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
+import { TRANSLATIONS } from "@/lib/translations";
 import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const grace = { id: "grace", name: "Grace Hopper" };
 
-function renderForm(props: Partial<ComponentProps<typeof RoomForm<User>>> = {}) {
+function renderForm(props: Partial<ComponentProps<typeof RoomForm<User>>> = {}, wrapper?: (props: { children: ReactNode }) => ReactNode) {
   const onSave = vi.fn();
   render(
     <RoomForm
@@ -25,6 +27,7 @@ function renderForm(props: Partial<ComponentProps<typeof RoomForm<User>>> = {}) 
       onSave={onSave}
       {...props}
     />,
+    { wrapper },
   );
   return { onSave, user: userEvent.setup() };
 }
@@ -144,5 +147,13 @@ describe(feature("rooms.settings-page"), () => {
     await user.type(screen.getByRole("searchbox"), "Person{Enter}");
     expect(onSave).not.toHaveBeenCalled();
     expect(within(screen.getByRole("list")).getByRole("searchbox")).toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("has a translation button by the room's name once an administrator shows them", () => {
+    renderForm({}, ({ children }) => <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "" }}>{children}</AccountContext>);
+    expect(screen.getByText("Translate")).toBeInTheDocument();
+    expect(screen.getByText(TRANSLATIONS.room_name[0][1])).toBeInTheDocument();
   });
 });

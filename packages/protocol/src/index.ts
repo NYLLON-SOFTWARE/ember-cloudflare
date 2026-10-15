@@ -6,7 +6,7 @@ import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
-export { isAppPage, KIND_SEGMENTS, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
+export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -132,9 +132,13 @@ export interface RoomSettings {
  */
 export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
-/** The workspace, which first run creates. */
+/** The workspace, which first run creates, as every page shows it. */
 export interface Account {
   name: string;
+  /** Whether the translation buttons by fields are hidden, as they are until an administrator shows them. */
+  hideTranslationButtons: boolean;
+  /** The CSS administrators add to every page, after the app's own. Empty when there's none. */
+  customStyles: string;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -151,9 +155,20 @@ export interface NewJoinCode {
   joinCode: string;
 }
 
-/** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name. */
+/** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, and its settings. */
 export interface AccountChanges {
   name?: string;
+  settings?: AccountSettings;
+}
+
+/** The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]` names it. */
+export interface AccountSettings {
+  hideTranslationButtons?: boolean;
+}
+
+/** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
+export interface CustomStyles {
+  customStyles: string;
 }
 
 /** The roles an administrator can give someone with the crown on workspace settings. Bots stay bots. */
@@ -337,8 +352,8 @@ export type WorkspaceClientFrame = { type: "ping" };
 
 /** What the Workspace sends on a tab's workspace socket. */
 export type WorkspaceServerFrame =
-  /** Sent as the Workspace lets the socket in: who its session signs in. */
-  | { type: "welcome"; you: Me }
+  /** Sent as the Workspace lets the socket in: who its session signs in, and the workspace as it is then. */
+  | { type: "welcome"; you: Me; account: Account }
   /** A room of theirs has a message they haven't seen, which marks it unread. Sent only to the person marked, as their mark changes. */
   | { type: "room.unread"; roomId: RoomId }
   /** They've read a room marked unread, in this tab or another. */
@@ -347,6 +362,8 @@ export type WorkspaceServerFrame =
   | { type: "user.updated"; user: DirectoryUser }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
+  | { type: "account.updated"; account: Account }
   | { type: "error"; message: string }
   | { type: "pong" };
 
@@ -394,6 +411,11 @@ export const MAX_CHECKED_MESSAGES = 50;
 export const MAX_ROOM_NAME_LENGTH = 100;
 /** ember-rust has no limit; this keeps the workspace's name to what the sidebar's heading can show. */
 export const MAX_ACCOUNT_NAME_LENGTH = 100;
+/**
+ * ember-rust has no limit; this keeps custom CSS, which every page load and workspace socket carries,
+ * well within what a row or a socket's message can hold.
+ */
+export const MAX_CUSTOM_STYLES_LENGTH = 100_000;
 /** How many people one request can name: a bound on the request's size, not on a room's. */
 export const MAX_LISTED_USERS = 1_000;
 
@@ -546,16 +568,42 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   return userIds(r.memberIds) ? { ...changes, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
+/** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */
+const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
+
+/** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
+const SETTING_NAMES: Record<keyof AccountSettings, string> = { hideTranslationButtons: "Hide translation buttons" };
+
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
- * ember-rust, the name is saved as typed, even blank.
+ * ember-rust, the name is saved as typed, even blank. Each setting is true or false, and one it doesn't
+ * know is refused, where ember-rust fails (account.rs, `assign`).
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
-  // An array is an object too, but not one that can name a change.
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
-  const { name } = data as Record<string, unknown>;
-  if (name === undefined) return {};
-  return typeof name === "string" && name.length <= MAX_ACCOUNT_NAME_LENGTH ? { name } : `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { name, settings } = data;
+  if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
+  const changes: AccountChanges = name === undefined ? {} : { name };
+  if (settings === undefined) return changes;
+  if (!isJsonObject(settings)) return "Settings must be a JSON object";
+  const changed: AccountSettings = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (!Object.hasOwn(SETTING_NAMES, key)) return `Unknown setting: ${key}`;
+    const setting = key as keyof AccountSettings;
+    if (typeof value !== "boolean") return `${SETTING_NAMES[setting]} must be true or false`;
+    changed[setting] = value;
+  }
+  return { ...changes, settings: changed };
+}
+
+/** Parses untrusted custom CSS, which is saved as typed, as in ember-rust. Returns why it's refused instead. */
+export function parseCustomStyles(data: unknown): Partial<CustomStyles> | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { customStyles } = data;
+  if (customStyles === undefined) return {};
+  return typeof customStyles === "string" && customStyles.length <= MAX_CUSTOM_STYLES_LENGTH
+    ? { customStyles }
+    : `Custom CSS must be at most ${MAX_CUSTOM_STYLES_LENGTH.toLocaleString("en-US")} characters`;
 }
 
 /**

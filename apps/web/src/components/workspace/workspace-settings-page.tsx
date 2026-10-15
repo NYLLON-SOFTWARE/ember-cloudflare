@@ -2,13 +2,15 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, 
 import { MAX_ACCOUNT_NAME_LENGTH, type Account, type DirectoryUser, type Me, type PersonRole, type WorkspaceSettings } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add } from "@/components/icons/campfire";
+import { Add, Art } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Version } from "@/components/version";
+import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
-import { newRoomPath } from "@/hooks/use-route";
+import { CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -39,15 +41,19 @@ interface Props {
 
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
- * the workspace and members see its name, then everyone gets the Rooms section with New room, the join
- * link, which administrators can regenerate, the people, whom administrators can make administrators or
- * members, and "Ember™ version" at the foot.
+ * the workspace, show or hide the translation buttons, and have a link to the Custom CSS page, and
+ * members see its name, then everyone gets the Rooms section with New room, the join link, which
+ * administrators can regenerate, the people, whom administrators can make administrators or members,
+ * and "Ember™ version" at the foot.
  */
 export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  // Where the Hide translation buttons switch was moved to, while that's saved.
+  const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
+  const account = useAccount();
   const people = useContext(PeopleContext);
   // The people as they are now, for answers that come later.
   const peopleNow = useRef(people);
@@ -106,6 +112,23 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
     );
   };
 
+  // As ember-rust's switch does: saved at once, with no notice after.
+  const switchTranslations = (hide: boolean) => {
+    if (hidingTranslations !== null) return;
+    setHidingTranslations(hide);
+    changeAccount({ settings: { hideTranslationButtons: hide } }).then(
+      (account) => {
+        onAccountChanged(account);
+        if (mounted.current) setHidingTranslations(null);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setHidingTranslations(null);
+        onFailed(error);
+      },
+    );
+  };
+
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
   const regenerate = () => {
     setRegenerating(true);
@@ -142,31 +165,60 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
     [onPersonChanged, onFailed, mounted, listPeople],
   );
 
+  // ember-rust's top bar links to Chat bots too, which isn't built yet.
+  const links = settings?.canAdminister && (
+    <PageLink
+      href={CUSTOM_STYLES_PATH}
+      // 44px tall for fingers, which ember-rust's isn't once it shows its text, as on a phone in landscape.
+      className="inline-flex items-center justify-center gap-[0.5em] rounded-lg border border-transparent px-[1.1em] py-[0.5em] font-medium hover:bg-hover touch:min-h-11 max-[500px]:size-11 max-[500px]:p-0"
+    >
+      <Art width={20} height={20} className="h-5 w-[1.3em]" />
+      {/* zz-ember.css leaves only the icon on screen at 500px wide and below. */}
+      <span className="max-[500px]:sr-only">Custom styles</span>
+    </PageLink>
+  );
+
   return (
-    <SettingsPage back={back}>
+    <SettingsPage back={back} links={links}>
       <Panel aria-busy={settings === null} className="flex flex-col gap-x-[1ch] gap-y-4">
         <PageHeading title="Workspace settings">Manage your workspace, invitations, and people.</PageHeading>
         {settings &&
           (settings.canAdminister ? (
-            <form onSubmit={save} className="flex flex-col gap-4">
-              <Field id="account_name" label="Workspace name">
-                {/* Not focused as the page opens, and the cursor goes where it's put, as in ember-rust. */}
-                <Input
-                  id="account_name"
-                  autoComplete="off"
-                  maxLength={MAX_ACCOUNT_NAME_LENGTH}
-                  placeholder="Name this account"
-                  data-ember-preserve-selection
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  // zz-ember.css takes the focus ring off this field alone.
-                  className={cn(FIELD_INPUT, "focus-visible:outline-none")}
+            <>
+              <form onSubmit={save} className="flex flex-col gap-4">
+                <Field id="account_name" label="Workspace name" translation="account_name">
+                  {/* Not focused as the page opens, and the cursor goes where it's put, as in ember-rust. */}
+                  <Input
+                    id="account_name"
+                    autoComplete="off"
+                    maxLength={MAX_ACCOUNT_NAME_LENGTH}
+                    placeholder="Name this account"
+                    data-ember-preserve-selection
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    // zz-ember.css takes the focus ring off this field alone.
+                    className={cn(FIELD_INPUT, "focus-visible:outline-none")}
+                  />
+                </Field>
+                <SubmitButton disabled={saving}>Save changes</SubmitButton>
+              </form>
+              <div id="localization-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4 max-md:px-3">
+                <div className="min-w-0 flex-1 text-start">
+                  <div>Hide translation buttons</div>
+                  <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                    Hide language help throughout the app for everyone.
+                  </p>
+                </div>
+                <Switch
+                  checked={hidingTranslations ?? account.hideTranslationButtons}
+                  onCheckedChange={switchTranslations}
+                  aria-label="Hide translation buttons"
+                  aria-describedby="localization-description"
                 />
-              </Field>
-              <SubmitButton disabled={saving}>Save changes</SubmitButton>
-            </form>
+              </div>
+            </>
           ) : (
-            <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{settings.account.name}</h2>
+            <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
           ))}
         <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
