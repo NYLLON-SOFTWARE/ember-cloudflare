@@ -19,6 +19,8 @@ export type WorkspacePage =
   | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
   | { page: "new-room"; access: RoomAccess }
   | { page: "room-settings"; access: RoomAccess; roomId: RoomId }
+  /** New direct message, at `/rooms/directs/new`, which opens over the last room visited. */
+  | { page: "new-direct" }
   /** A DM's settings, at `/rooms/directs/<id>/edit`: its members, and Delete. */
   | { page: "direct-settings"; roomId: RoomId }
   | { page: "workspace-settings" }
@@ -33,10 +35,8 @@ export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "direct
 const SIGN_IN_PATH = "/session/new";
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
+export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
-
-/** Pages the app links to before it has them, which go home until they come: New direct message (`dms.picker`). */
-const PAGES_TO_COME = [/^\/rooms\/directs\/new$/];
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
 function decoded(segment: string): string | null {
@@ -53,7 +53,8 @@ const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct 
 
 /** The page a signed-in path shows, or null for a path that names none. */
 export function workspacePageOf(pathname: string): WorkspacePage | null {
-  if (pathname === "/" || PAGES_TO_COME.some((page) => page.test(pathname))) return { page: "home" };
+  if (pathname === "/") return { page: "home" };
+  if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };

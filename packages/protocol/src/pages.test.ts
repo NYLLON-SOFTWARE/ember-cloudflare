@@ -25,9 +25,12 @@ describe(feature("platform.error-pages"), () => {
   it("leaves extra slashes, setup's pages and the join link's to the Worker", () => {
     for (const path of ["/rooms/general/", "//rooms/general", "/session/new/", "/first_run", "/join/aB3d-Ef5h-iJ7k"]) expect(isAppPage(path), path).toBe(false);
   });
+});
 
-  it("goes home for now from the page the app links to before it has it", () => {
-    expect(workspacePageOf("/rooms/directs/new")).toEqual({ page: "home" });
+describe(feature("dms.picker"), () => {
+  it("shows New direct message at its address", () => {
+    expect(workspacePageOf("/rooms/directs/new")).toEqual({ page: "new-direct" });
+    for (const path of ["/rooms/directs/new/", "/rooms/directs/new/edit"]) expect(workspacePageOf(path), path).not.toEqual({ page: "new-direct" });
   });
 });
 

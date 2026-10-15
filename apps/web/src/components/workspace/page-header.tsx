@@ -17,7 +17,12 @@ export function PageHeader({ children }: { children?: ReactNode }) {
       aria-label="Page"
       className="flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]"
     >
-      <SheetTrigger aria-label={drawerOpen ? "Close conversations" : "Open conversations"} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
+      {/* Marked as ember-rust's is, for New direct message to give focus back to once the drawer's gone. */}
+      <SheetTrigger
+        data-ember-sidebar-toggle
+        aria-label={drawerOpen ? "Close conversations" : "Open conversations"}
+        className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
+      >
         <Menu className="size-[22px]" />
       </SheetTrigger>
       {children}

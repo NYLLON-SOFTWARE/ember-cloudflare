@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { avatarSvg } from "@ember/protocol";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Rail, type Activity, type RailPage } from "./rail";
@@ -9,7 +9,9 @@ const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
 /** The rail for the page `current` names, as `me` sees it. */
-const railAt = (current: RailPage, activity = activityOff, me = ada) => <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} />;
+const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} onNewDirect={onNewDirect} />
+);
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -29,6 +31,7 @@ describe(feature("ui.rail"), () => {
     ]);
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+    expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/rooms/directs/new");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
   });
@@ -86,10 +89,30 @@ describe(feature("ui.rail"), () => {
 
   it("disables what isn't built yet, and says so", () => {
     render(railAt("home"));
-    for (const label of ["DMs", "Search"]) {
-      expect(screen.getByRole("button", { name: label })).toBeDisabled();
-      expect(screen.getByRole("button", { name: label })).toHaveAttribute("title", `${label} isn't built yet`);
-    }
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Search" })).toHaveAttribute("title", "Search isn't built yet");
+  });
+});
+
+describe(feature("dms.picker"), () => {
+  it("opens New direct message in place from DMs, which a click with a modifier key leaves to the browser", async () => {
+    const onNewDirect = vi.fn();
+    render(railAt("room", activityOff, ada, onNewDirect));
+    const dms = screen.getByRole("link", { name: "DMs" });
+    await userEvent.click(dms);
+    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(dms);
+    expect(location.pathname).toBe("/");
+
+    onNewDirect.mockClear();
+    const opened = fireEvent.click(dms, { ctrlKey: true });
+    expect(opened).toBe(true);
+    expect(onNewDirect).not.toHaveBeenCalled();
+    expect(location.pathname).toBe("/");
+  });
+
+  it("never marks DMs, whose address goes on to the last room visited", () => {
+    render(railAt("room"));
+    expect(screen.getByRole("link", { name: "DMs" })).not.toHaveAttribute("aria-current");
   });
 });
 

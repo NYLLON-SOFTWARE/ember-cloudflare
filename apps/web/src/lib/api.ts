@@ -5,10 +5,12 @@ import {
   type Bootstrap,
   type ChangedPerson,
   type CustomStyles,
+  type DirectRoom,
   type Directory,
   type DirectoryUser,
   type Favorites,
   type Me,
+  type NewDirect,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
@@ -26,6 +28,7 @@ import {
   type SharedRoom,
   type Sidebar,
   type SignUp,
+  type StartedDirect,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -186,6 +189,11 @@ export async function fetchNewRoomForm(): Promise<NewRoomForm> {
 /** Creates a room, answering it. */
 export async function createRoom(room: NewRoom): Promise<SharedRoom> {
   return (await request<{ room: SharedRoom }>("/api/rooms", { method: "POST", body: JSON.stringify(room) })).room;
+}
+
+/** Opens the DM between this person and the people `userIds` names, starting it if the group has none, and answers it. */
+export async function startDirect(userIds: UserId[]): Promise<DirectRoom> {
+  return (await request<StartedDirect>("/api/directs", { method: "POST", body: JSON.stringify({ userIds } satisfies NewDirect) })).room;
 }
 
 /** A room's settings. Fails with a 404 ApiError for a room this person isn't in, or a DM. */

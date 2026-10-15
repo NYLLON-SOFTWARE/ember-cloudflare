@@ -3,7 +3,7 @@ import type { APIRequestContext } from "@playwright/test";
 import { cookieHeader } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
-/** Starts a DM between `member` and `others` through the API, as New direct message will, and returns its id. */
+/** Starts a DM between `member` and `others` through the API, as New direct message does, and returns its id. */
 async function startDirect(request: APIRequestContext, member: Member, others: Member[]): Promise<string> {
   const userIds = others.map(({ session }) => session.user.id);
   const response = await request.post("/api/directs", { data: { userIds }, headers: { Cookie: cookieHeader(member.session) } });
@@ -18,6 +18,21 @@ function directRow(member: Member, others: Member[]) {
 }
 
 const settingsLink = (member: Member) => member.page.getByRole("link", { name: "Settings for this Ping" });
+
+/** New direct message, while it's open. */
+const newDirect = (member: Member) => member.page.getByRole("dialog", { name: "New direct message" });
+
+/** The rail's DMs, which opens New direct message. */
+const dmsLink = (member: Member) => member.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "DMs" });
+
+/** Picks `others` in New direct message, finding each by their name, which no one else has. */
+async function pick(member: Member, others: Member[]): Promise<void> {
+  const search = newDirect(member).getByRole("combobox", { name: "Search people" });
+  for (const other of others) {
+    await search.fill(other.name);
+    await newDirect(member).getByRole("option", { name: other.name, exact: true }).click();
+  }
+}
 
 test.describe(feature("dms.create"), () => {
   test("lists a DM in its members' sidebars as it starts, and they talk there", async ({ members, request }) => {
@@ -128,5 +143,86 @@ test.describe(feature("dms.delete"), () => {
     answer();
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
+  });
+});
+
+test.describe(feature("dms.picker"), () => {
+  test("starts a DM with the people picked from the rail's DMs, and goes there for its composer to take focus", async ({ members }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"));
+    const linus = await members.signIn(unique("Linus"));
+    await dmsLink(ada).click();
+    await expect(newDirect(ada)).toBeVisible();
+    await expect(newDirect(ada).getByRole("combobox", { name: "Search people" })).toBeFocused();
+    await pick(ada, [grace, linus]);
+    await expect(newDirect(ada).getByRole("group", { name: "Selected people" }).getByRole("button")).toHaveText([`${grace.name} ×`, `${linus.name} ×`]);
+    await newDirect(ada).getByRole("button", { name: "Start conversation" }).click();
+
+    await expect(newDirect(ada)).toBeHidden();
+    await expect(directRow(ada, [grace, linus])).toHaveAttribute("aria-current", "page");
+    await ada.connected();
+    await expect(ada.composer()).toBeFocused();
+    await ada.send("Hello, both");
+    await directRow(grace, [ada, linus]).click();
+    await grace.connected();
+    await expect(grace.message("Hello, both")).toBeVisible();
+  });
+
+  test("opens the DM a group already has, from the sidebar's New direct message, whose composer takes focus though the DM's shown", async ({ members, request }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"));
+    const roomId = await startDirect(request, grace, [ada]);
+    await expect(directRow(ada, [grace])).toBeVisible();
+    const startWithGrace = async () => {
+      await ada.page.getByRole("region", { name: "DMs" }).getByRole("link", { name: "New direct message" }).click();
+      await pick(ada, [grace]);
+      await newDirect(ada).getByRole("button", { name: "Start conversation" }).click();
+      await expect(newDirect(ada)).toBeHidden();
+    };
+    await startWithGrace();
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
+    await expect(directRow(ada, [grace])).toHaveCount(1);
+    await ada.connected();
+    await expect(ada.composer()).toBeFocused();
+
+    // Started again from the DM, which stays as it is, its composer takes focus for typing at once.
+    await startWithGrace();
+    await expect(ada.composer()).toBeFocused();
+    await ada.page.keyboard.type("Typed at once");
+    await expect(ada.composer()).toHaveText("Typed at once");
+  });
+
+  test("opens in a new tab, over the last room visited, from DMs clicked with a modifier key", async ({ members, rooms }) => {
+    const ada = await members.signIn(unique("Ada"));
+    await expect(dmsLink(ada)).toHaveAttribute("href", "/rooms/directs/new");
+    const [tab] = await Promise.all([ada.page.context().waitForEvent("page"), dmsLink(ada).click({ modifiers: ["ControlOrMeta"] })]);
+    await expect(tab.getByRole("dialog", { name: "New direct message" })).toBeVisible();
+    await expect(tab).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await tab.keyboard.press("Escape");
+    await expect(tab.getByRole("dialog")).toBeHidden();
+    await expect(tab.getByRole("heading", { level: 1 })).toHaveText(rooms.general.name);
+    // The tab it was clicked in stays as it was.
+    await expect(newDirect(ada)).toBeHidden();
+  });
+
+  test("asks about a form's unsaved changes before starting a DM, and Keep editing goes back to the people picked", async ({ members }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"));
+    await ada.page.goto("/rooms/opens/new");
+    await ada.page.getByRole("textbox", { name: "Room name" }).fill(unique("Design"));
+    await dmsLink(ada).click();
+    await pick(ada, [grace]);
+    const start = newDirect(ada).getByRole("button", { name: "Start conversation" });
+    await start.click();
+    const unsaved = ada.page.getByRole("dialog", { name: "Unsaved Changes" });
+    await unsaved.getByRole("button", { name: "Keep editing" }).click();
+    await expect(unsaved).toBeHidden();
+    await expect(newDirect(ada).getByRole("button", { name: `Remove ${grace.name}` })).toBeVisible();
+    await expect(ada.page).toHaveURL(/\/rooms\/opens\/new$/);
+
+    await start.click();
+    await unsaved.getByRole("button", { name: "Discard" }).click();
+    await expect(directRow(ada, [grace])).toHaveAttribute("aria-current", "page");
+    await ada.connected();
   });
 });
