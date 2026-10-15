@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
+import { ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
@@ -54,6 +55,34 @@ test.describe(feature("composer.layout"), () => {
   test("is focused as the room opens", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(ada.composer()).toBeFocused();
+  });
+
+  test("loads the editor once the room's messages are in, so its code doesn't hold them up", async ({ members }) => {
+    let answeredAt = Number.POSITIVE_INFINITY;
+    let editorRequestedAt = Number.NEGATIVE_INFINITY;
+    const ada = await members.signIn("Ada", {
+      beforeOpen: async (page) => {
+        page.on("request", (request) => {
+          if (/\/assets\/rich-text-editor-[\w-]+\.js$/.test(request.url())) editorRequestedAt = Date.now();
+        });
+        await page.routeWebSocket(ROOM_SOCKET, (ws) => {
+          const room = ws.connectToServer();
+          let frames = Promise.resolve();
+          room.onMessage((frame) => {
+            frames = frames.then(async () => {
+              // The room's first answer, its welcome, comes a second late, long enough for an editor that didn't wait to load first.
+              if (answeredAt === Number.POSITIVE_INFINITY) {
+                await new Promise((resolve) => setTimeout(resolve, 1_000));
+                answeredAt = Date.now();
+              }
+              ws.send(frame);
+            });
+          });
+        });
+      },
+    });
+    await expect(ada.composer()).toBeVisible();
+    expect(editorRequestedAt).toBeGreaterThanOrEqual(answeredAt);
   });
 
   test("grows with the text up to a third of the window", async ({ members }) => {

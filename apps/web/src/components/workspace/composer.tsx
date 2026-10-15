@@ -1,9 +1,9 @@
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import type { User } from "@ember/protocol";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
 import { hasTouchKeyboard, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { RichTextEditor, type RichTextEditorHandle } from "./editor";
+import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
 
 /**
  * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
@@ -72,11 +72,36 @@ function LoadingEditor({ placeholder }: { placeholder: string }) {
   );
 }
 
+/**
+ * Whether the editor shows: at once if its code has loaded, or else once `deferred` is over and the
+ * browser has painted what came with it, which loading the code would hold up.
+ */
+function useEditorShown(deferred: boolean): boolean {
+  const [shown, setShown] = useState(() => !deferred || editorLoaded());
+  useEffect(() => {
+    if (deferred || shown) return;
+    // A timeout set in the next frame runs once that frame is painted.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => (timeout = setTimeout(() => setShown(true))));
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+    };
+  }, [deferred, shown]);
+  return shown;
+}
+
 interface Props {
   roomId: string;
   roomName: string;
   typing: User[];
   disabled: boolean;
+  /**
+   * Holds back the editor's code while the room's first messages are on their way, and until they're
+   * painted, since loading it then would hold them up. Once it's loaded, as for a room opened before,
+   * the editor shows anyway.
+   */
+  deferEditor?: boolean;
   /** Sends a message, its body markup. */
   onSend: (body: string) => void;
   onTyping: (active: boolean) => void;
@@ -87,12 +112,13 @@ interface Props {
  * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
  * and a round Send button. What's written is kept as a draft until it's sent.
  */
-export function Composer({ roomId, roomName, typing, disabled, onSend, onTyping }: Props) {
+export function Composer({ roomId, roomName, typing, disabled, deferEditor = false, onSend, onTyping }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
   const [draft] = useState(() => readDraft(roomId));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
+  const editorShown = useEditorShown(deferEditor);
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   const placeholder = `Message #${roomName}`;
@@ -144,16 +170,20 @@ export function Composer({ roomId, roomName, typing, disabled, onSend, onTyping 
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
             <Suspense fallback={<LoadingEditor placeholder={placeholder} />}>
-              <RichTextEditor
-                ref={editor}
-                label="Write a message"
-                placeholder={placeholder}
-                rows={2}
-                initialValue={draft}
-                autoFocus={focusOnOpen}
-                onChange={changed}
-                onKeyDown={keyDown}
-              />
+              {editorShown ? (
+                <RichTextEditor
+                  ref={editor}
+                  label="Write a message"
+                  placeholder={placeholder}
+                  rows={2}
+                  initialValue={draft}
+                  autoFocus={focusOnOpen}
+                  onChange={changed}
+                  onKeyDown={keyDown}
+                />
+              ) : (
+                <LoadingEditor placeholder={placeholder} />
+              )}
             </Suspense>
           </div>
           <div className="flex flex-none items-center gap-0.5">

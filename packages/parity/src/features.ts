@@ -2186,7 +2186,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_composer.html", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide.",
+    notes: "There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder.",
   },
   {
     id: "composer.draft",

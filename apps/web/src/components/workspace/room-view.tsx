@@ -48,7 +48,20 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
           </div>
         )}
         <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={gone ? null : messageActions} onLoadOlder={loadOlder} />
-        {gone ? <RoomDeleted /> : <Composer roomId={room.id} roomName={room.name} typing={typingUsers} disabled={state.offline} onSend={postMessage} onTyping={typing} />}
+        {gone ? (
+          <RoomDeleted />
+        ) : (
+          <Composer
+            roomId={room.id}
+            roomName={room.name}
+            typing={typingUsers}
+            disabled={state.offline}
+            // Only while the room's first messages are on their way, not once it's been out of reach a while.
+            deferEditor={state.status === "connecting" && !state.offline}
+            onSend={postMessage}
+            onTyping={typing}
+          />
+        )}
       </MainContent>
     </>
   );

@@ -32,6 +32,21 @@ class QuietSocket {
   close() {}
 }
 
+/** Sockets that every room lets Ada into, with nothing said yet, so its composer loads its editor. */
+class OpenRoomSocket extends QuietSocket {
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  constructor(url: string) {
+    super();
+    if (!url.includes("/api/rooms/")) return;
+    setTimeout(() => {
+      this.readyState = QuietSocket.OPEN;
+      this.onopen?.();
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false }) });
+    });
+  }
+}
+
 /**
  * Sockets that `roomId`'s room closes as soon as they open, as it does for a room that's gone for this
  * person, after welcoming them with `messages` if there are any, as a room that goes while it's open does.
@@ -392,6 +407,7 @@ describe(feature("rooms.member-only-access"), () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
 
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
     expect(await roomHeading()).toHaveTextContent("general");
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
@@ -778,6 +794,7 @@ describe(feature("ui.mobile-drawer"), () => {
 
 describe(feature("ui.accessibility"), () => {
   it("skips to the main content from the first thing Tab reaches, leaving the address as it is", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     // The room's composer takes focus as it opens. From the top of the page, Tab reaches the link first.
@@ -803,6 +820,7 @@ describe(feature("ui.accessibility"), () => {
   });
 
   it("names the rail, the rooms, the DMs, the messages and the composer", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();

@@ -4,8 +4,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Composer, RoomDeleted } from "./composer";
+import { editorLoaded } from "./editor";
 
-// The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph.
+// The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
+// and every test starts before its code has loaded.
+vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
 async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1" } = {}) {
   const onSend = vi.fn();
@@ -25,6 +28,7 @@ const formattingOptions = () => screen.getByRole("button", { name: "Rich text" }
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.mocked(editorLoaded).mockReturnValue(false);
 });
 
 describe(feature("composer.layout"), () => {
@@ -44,6 +48,25 @@ describe(feature("composer.layout"), () => {
     touchScreen();
     const { input } = await showComposer();
     expect(input).not.toHaveFocus();
+  });
+
+  const room = { roomId: "r1", roomName: "general", typing: [], disabled: false, onSend: () => {}, onTyping: () => {} };
+
+  it("holds the editor back while the room's first messages are on their way, which loading it would delay", async () => {
+    // React has the editor's code from an earlier composer, so it would show at once if it weren't held back.
+    (await showComposer()).view.unmount();
+    const view = render(<Composer {...room} deferEditor />);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText("Message #general")).toBeInTheDocument();
+
+    view.rerender(<Composer {...room} deferEditor={false} />);
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
+  });
+
+  it("shows the editor at once when it has loaded for a room before", async () => {
+    vi.mocked(editorLoaded).mockReturnValue(true);
+    render(<Composer {...room} deferEditor />);
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 });
 
