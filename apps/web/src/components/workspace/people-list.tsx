@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
 import { Cancel, Crown } from "@/components/icons/campfire";
 import type { People } from "@/hooks/use-directory";
-import { byName } from "@/lib/room-list";
+import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { ListRow, ListSeparator } from "./list-row";
 import { UserAvatar } from "./user-avatar";

@@ -1,29 +1,27 @@
-import type { Room, RoomId, Sidebar, SidebarRoom } from "@ember/protocol";
+import type { Favorites, Room, RoomId, Sidebar, SidebarRoom } from "@ember/protocol";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
-// `/rooms` go by. The sidebar lists them by name, as ember-rust's does (membership.rs), compared as
-// SQLite's NOCASE compares it, folding only ASCII letters, then by id. Workspace settings list people
-// the same way, as ember-rust's `LOWER(name)` does (presenters/accounts.rs).
+// `/rooms` go by. The sidebar lists the rooms they've starred first, in the order they starred them,
+// then the rest by name, as ember-rust's channel_order_controller.js sorts its rows: each name
+// lowercased and compared as `localeCompare` compares it, in the browser's language, then by id.
 
-const folded = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+const collator = new Intl.Collator();
 
-const codePoints = (text: string) => Array.from(text, (character) => character.codePointAt(0)!);
+const byId = (a: Room, b: Room) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
- * Compares by code point, as SQLite compares UTF-8. JavaScript's `<` compares UTF-16 units instead,
- * which puts an emoji, a pair of surrogates, before characters such as "Ａ" that come before it.
+ * `rooms` in the sidebar's order, the rooms in `favorites` first, each room's place and name worked out
+ * once rather than at every comparison.
  */
-function compare(x: number[], y: number[]): number {
-  for (let i = 0; i < x.length && i < y.length; i++) if (x[i] !== y[i]) return x[i]! - y[i]!;
-  return x.length - y.length;
-}
-
-/** Rooms or people in the sidebar's order, by name, each name and id read once rather than at every comparison. */
-export function byName<T extends { id: string; name: string }>(named: T[]): T[] {
-  return named
-    .map((item) => ({ item, name: codePoints(folded(item.name)), id: codePoints(item.id) }))
-    .sort((a, b) => compare(a.name, b.name) || compare(a.id, b.id))
-    .map(({ item }) => item);
+export function inSidebarOrder<T extends Room>(rooms: T[], favorites: RoomId[]): T[] {
+  const places = new Map(favorites.map((id, place) => [id, place]));
+  return (
+    rooms
+      .map((room) => ({ room, place: places.get(room.id) ?? Infinity, name: room.name.toLowerCase() }))
+      // Two rooms that aren't starred are Infinity - Infinity apart, which is NaN, so they go by name.
+      .sort((a, b) => a.place - b.place || collator.compare(a.name, b.name) || byId(a.room, b.room))
+      .map(({ room }) => room)
+  );
 }
 
 /**
@@ -44,10 +42,14 @@ export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
 
 /**
  * A change to someone's rooms, which the server's list shows the next time it's asked: a room saved
- * here, one that's gone for this person, deleted or no longer theirs, or a room the workspace socket
- * says has been marked unread or read.
+ * here, one that's gone for this person, deleted or no longer theirs, a room the workspace socket
+ * says has been marked unread or read, or their stars, as a star saved in any of their tabs leaves them.
  */
-export type RoomChange = { type: "saved"; room: Room } | { type: "gone"; roomId: RoomId } | { type: "marked"; roomId: RoomId; unread: boolean };
+export type RoomChange =
+  | { type: "saved"; room: Room }
+  | { type: "gone"; roomId: RoomId }
+  | { type: "marked"; roomId: RoomId; unread: boolean }
+  | { type: "starred"; favorites: Favorites };
 
 /** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
 export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
@@ -78,6 +80,10 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
     case "join code":
       return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
+    // Stars come from a star's answer, the socket and the list itself, in whatever order they arrive,
+    // so the newest stands.
+    case "starred":
+      return change.favorites.version > list.favorites.version ? { ...list, favorites: change.favorites } : list;
   }
 }
 
@@ -89,7 +95,7 @@ export function roomListReducer(state: RoomListState, action: RoomListAction): R
       return { list: (state.pending ?? []).reduce(changed, action.list), pending: null };
     // When the first list fails to arrive, there are no rooms to show, rather than a list loading for good.
     case "unanswered":
-      return { list: state.list ?? { rooms: [], invitation: null }, pending: null };
+      return { list: state.list ?? { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null }, pending: null };
     default:
       return { list: state.list && changed(state.list, action), pending: state.pending && [...state.pending, action] };
   }

@@ -1,4 +1,4 @@
-import type { SidebarRoom } from "@ember/protocol";
+import type { RoomId, SidebarRoom } from "@ember/protocol";
 import { MessagesAdd } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { roomPath } from "@/hooks/use-route";
@@ -9,6 +9,8 @@ interface Props {
   /** The workspace's name, which heads the list, as ember-rust's users/sidebars/show.html has it. */
   workspaceName: string;
   rooms: SidebarRoom[];
+  /** The rooms starred, whose rows end with a star. */
+  starred: ReadonlySet<RoomId>;
   currentRoomId: string | null;
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
@@ -17,12 +19,13 @@ interface Props {
 
 /**
  * The conversation list: rooms, then DMs, under the workspace name. A room marked unread is bold with
- * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css).
+ * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css), and
+ * a starred room's row ends with a star, as channel_order_controller.js marks it (`.mb-room-favorite-marker`).
  * With Activity on, only those rows show, as shell.js's `filterRooms` leaves them, and with none it
  * says everything's read. The DMs' placeholder stands where ember-rust's suggestions would, which the
  * filter hides too, so "No conversations found.", for a sidebar with no rows at all, never shows yet.
  */
-export function Sidebar({ workspaceName, rooms, currentRoomId, unreadOnly, onSelect }: Props) {
+export function Sidebar({ workspaceName, rooms, starred, currentRoomId, unreadOnly, onSelect }: Props) {
   const shown = unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms;
   return (
     <div className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
@@ -54,6 +57,11 @@ export function Sidebar({ workspaceName, rooms, currentRoomId, unreadOnly, onSel
               <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
               <span className="truncate">{room.name}</span>
               {unread && <span aria-hidden="true" className="ml-auto size-[7px] shrink-0 rounded-full bg-foreground" />}
+              {starred.has(room.id) && (
+                <span role="img" aria-label="Favorite" className={cn("shrink-0 text-[14px] text-muted-foreground", !unread && "ml-auto")}>
+                  ★
+                </span>
+              )}
             </a>
           );
         })}

@@ -81,12 +81,23 @@ export interface SidebarRoom extends Room {
 }
 
 /**
- * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, and the
- * invitation, when they're in its room. It comes with an ETag, and a request whose If-None-Match
- * names it gets 304 Not Modified instead.
+ * The rooms someone has starred, which their sidebar lists first, in the order they starred them, as
+ * ember-rust's `favorite_channels` keeps them (account.rs). `version` counts the changes to them, so
+ * of two lists, the newer is the one with the larger version, whichever arrives last.
+ */
+export interface Favorites {
+  rooms: RoomId[];
+  version: number;
+}
+
+/**
+ * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
+ * they've starred, and the invitation, when they're in its room. It comes with an ETag, and a request
+ * whose If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
+  favorites: Favorites;
   invitation: Invitation | null;
 }
 
@@ -334,6 +345,8 @@ export type WorkspaceServerFrame =
   | { type: "room.read"; roomId: RoomId }
   /** Someone changed, as the people directory now lists them: an administrator gave them another role. Sent to everyone. */
   | { type: "user.updated"; user: DirectoryUser }
+  /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
+  | { type: "favorites.changed"; favorites: Favorites }
   | { type: "error"; message: string }
   | { type: "pong" };
 

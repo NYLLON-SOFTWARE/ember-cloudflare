@@ -76,7 +76,9 @@ export async function createRoom(request: APIRequestContext, session: Session, n
  */
 export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
   const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
-  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], invitation } satisfies Sidebar }));
+  await page.route("**/api/sidebar", (route) =>
+    route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation } satisfies Sidebar }),
+  );
 }
 
 /**

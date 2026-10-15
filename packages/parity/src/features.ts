@@ -872,7 +872,7 @@ export const features = [
     id: "sidebar.room-order",
     title: "Room order",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.",
       "A room added or renamed while the page is open sorts into place at once.",
@@ -880,7 +880,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/presenters/accounts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order. A room you create or rename sorts into place in your own sidebar at once.",
+    notes: "Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. There's no shared order yet (`sidebar.shared-order`). A room you create or rename sorts into place in your own sidebar at once.",
   },
   {
     id: "sidebar.dm-order",
@@ -949,7 +949,7 @@ export const features = [
     id: "sidebar.favorites",
     title: "Star rooms",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The header's star (\"Favorite room\", `aria-pressed`, titled \"Add to favorites\" or \"Remove from favorites\"; not on DMs) stars a room for you alone. It's disabled while saving and changes only once the save succeeds.",
       "A starred room moves to the top of your sidebar with a ★ (\"Favorite\" to screen readers). A new star goes after your other stars, and starring a starred room keeps its place.",
@@ -961,6 +961,8 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/favorites.rs", "crates/assets/overrides/controllers/room_favorite_controller.js", "crates/views/templates/rooms/show/_nav.html", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
+    notes:
+      "`PUT /api/rooms/<id>/favorite` takes `{\"favorite\": true}` or `false` as JSON, rather than a form's `\"true\"`, and answers `{\"favorites\": {\"rooms\": [...], \"version\": n}}`; there's no form without JavaScript. Each star is a row of its own (`favorites`, workspace migration 0013) rather than a list in the account's settings, and `version` counts each person's changes, so every tab of theirs, which hears `favorites.changed` on its workspace socket, keeps the newest of the answer, the socket's news and the sidebar it loads, in whatever order they come: their other tabs re-sort at once rather than at their next reload. A star refused with 403 drops nothing. Room ids are Ember's own, so an id that isn't one answers 400 \"invalid room ID\". A session that has expired goes to sign in. While it saves, the star is dimmed and ignores presses through `aria-disabled` rather than `disabled`, so it keeps the keyboard's focus, and on phones it's 44px square, where ember-rust's is 32px by 36px. Where a long name has pushed the star to the end of the top bar, the note saying a save failed moves left to stay inside the bar, where ember-rust's runs off the screen.",
   },
   {
     id: "sidebar.favorite-order",
@@ -2271,7 +2273,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#`, the name and Conversation settings (\"Settings for this room\" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
+    notes: "The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings (\"Settings for this room\" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
   },
   {
     id: "ui.mobile-drawer",

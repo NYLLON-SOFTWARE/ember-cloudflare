@@ -1,9 +1,10 @@
-import type { Room, User } from "@ember/protocol";
+import type { Favorites, Me, Room, User } from "@ember/protocol";
 import { MenuDotsHorizontal } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { roomSettingsPath } from "@/hooks/use-route";
 import type { ConnectionStatus } from "@/lib/room-state";
+import { FavoriteButton } from "./favorite-button";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { UserAvatar } from "./user-avatar";
 
@@ -15,15 +16,21 @@ interface Props {
   status: ConnectionStatus;
   /** Whether the room has been without a connection long enough to say so. */
   offline: boolean;
+  /** Whether this person has starred the room. */
+  favorite: boolean;
+  /** Called with this person's stars once its star saves them. */
+  onStarred: (favorites: Favorites) => void;
+  onSessionChanged: (me: Me | null) => void;
 }
 
-/** ember-rust's room header (rooms/show/_nav.html): the room's name, who's here, and its settings. */
-export function RoomHeader({ room, present, status, offline }: Props) {
+/** ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, and its settings. */
+export function RoomHeader({ room, present, status, offline, favorite, onStarred, onSessionChanged }: Props) {
   return (
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         <h1 className="truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{room.name}</h1>
+        {room.kind !== "direct" && <FavoriteButton roomId={room.id} favorite={favorite} onSaved={onStarred} onSessionChanged={onSessionChanged} />}
         {/* ember-rust only disables the composer once it's offline; this says why. */}
         {offline && (
           <span role="status" className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">

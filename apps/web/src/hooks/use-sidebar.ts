@@ -56,10 +56,11 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
- * while it wasn't connected reached it. Meanwhile the socket marks rooms unread and read. It loads
- * again when the tab is shown after more than a minute hidden too, as `refresh-room:visible` reloads
- * it (helpers/users.rs), which ember-rust does on a room's page and this does on every page. `refresh`
- * asks for it again, settling once a list asked for since has come, or failing as that did.
+ * while it wasn't connected reached it. Meanwhile the socket marks rooms unread and read, and brings
+ * the stars saved in any of this person's tabs. It loads again when the tab is shown after more than a
+ * minute hidden too, as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a
+ * room's page and this does on every page. `refresh` asks for it again, settling once a list asked for
+ * since has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
@@ -133,6 +134,8 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
         case "user.updated":
           if (!isSomeoneElse(frame.user)) toldOfChange = true;
           return changed(frame.user);
+        case "favorites.changed":
+          return change({ type: "starred", favorites: frame.favorites });
       }
     };
 
