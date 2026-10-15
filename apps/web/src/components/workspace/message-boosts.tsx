@@ -1,8 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { Boost as BoostIcon, Minus } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
+import { RoomConnection } from "@/hooks/use-room";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
@@ -23,6 +24,8 @@ interface Props {
   actions: MessageActions | null;
   /** Whether the Custom reaction form shows, in place of Add a boost. */
   customizing: boolean;
+  /** The Custom reaction form's field, while it shows. */
+  customField?: Ref<HTMLInputElement>;
   /** Opens the message's bar with More reactions showing, from its Add a boost. */
   onAddBoost: (button: HTMLButtonElement) => void;
   /** Closes the Custom reaction form. */
@@ -37,7 +40,7 @@ interface Props {
  * Custom reaction form that New boost opens in its place. Add a boost shows once the message has a
  * reaction, as messages.css shows it.
  */
-export function MessageBoosts({ message, me, threaded, actions, customizing, onAddBoost, onCloseCustom, returnFocus }: Props) {
+export function MessageBoosts({ message, me, threaded, actions, customizing, customField, onAddBoost, onCloseCustom, returnFocus }: Props) {
   const hint = useId();
   const deletable = (boost: Boost) => actions !== null && boost.booster.id === me.id;
 
@@ -81,7 +84,7 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, onA
         </span>
       )}
       {customizing ? (
-        <CustomReaction me={me} onAdd={add} onCancel={cancel} />
+        <CustomReaction me={me} fieldRef={customField} onAdd={add} onCancel={cancel} />
       ) : (
         actions &&
         message.boosts.length > 0 && (
@@ -108,10 +111,11 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, onA
 function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDelete: (() => boolean) | null }) {
   const nameOf = useNameOf();
   const [expanded, setExpanded] = useState(false);
-  // The reaction comes back if the room's copy of it is replaced before it goes, as it is after a
-  // reconnect that lost the deletion.
-  const [deleted, setDeleted] = useState<Boost | null>(null);
-  const deleting = deleted === boost;
+  // The connection the deletion went on. The reaction comes back if the page reconnects before it goes,
+  // since the deletion may have been lost with the connection it went on.
+  const connection = useContext(RoomConnection);
+  const [deletedOn, setDeletedOn] = useState<number | null>(null);
+  const deleting = deletedOn === connection;
   const remove = useRef<HTMLButtonElement>(null);
   const content = cn("min-w-0 leading-normal", isAllEmoji(boost.content) ? "text-base" : "text-[0.8rem]");
 
@@ -152,7 +156,7 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
           type="button"
           className="relative ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.55rem] touch:size-11 hover:not-active:brightness-70"
           onClick={() => {
-            if (onDelete()) setDeleted(boost);
+            if (onDelete()) setDeletedOn(connection);
           }}
         >
           <Minus tone="white" className="h-5 w-[1.3em]" />
@@ -168,7 +172,7 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
  * "Custom reaction", a field for up to 16 characters that can't start with a space, and Cancel and Add
  * reaction. Escape cancels. It scrolls itself into view, as its scroll-into-view controller does.
  */
-function CustomReaction({ me, onAdd, onCancel }: { me: Me; onAdd: (content: string) => void; onCancel: () => void }) {
+function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: Ref<HTMLInputElement>; onAdd: (content: string) => void; onCancel: () => void }) {
   const form = useRef<HTMLFormElement>(null);
   const field = useId();
   const hint = useId();
@@ -202,6 +206,7 @@ function CustomReaction({ me, onAdd, onCancel }: { me: Me; onAdd: (content: stri
           </label>
         </div>
         <input
+          ref={fieldRef}
           id={field}
           name="content"
           type="text"

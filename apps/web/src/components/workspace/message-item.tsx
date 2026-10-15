@@ -92,6 +92,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // The editor shows only while the message can still be changed.
   const editing = editorOpen && actions !== null && !pending;
   const [customizing, setCustomizing] = useState(false);
+  const customField = useRef<HTMLInputElement>(null);
   // The Custom reaction form goes as the editor opens, as ember-rust's editor replaces the whole message.
   if (customizing && (editing || !actions)) setCustomizing(false);
   const mine = message.creator.id === me.id;
@@ -170,6 +171,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
               threaded={threaded}
               actions={actions}
               customizing={customizing}
+              customField={customField}
               onAddBoost={(button) => menu.current?.openReactions(button)}
               onCloseCustom={() => setCustomizing(false)}
               returnFocus={() => menu.current?.focus()}
@@ -188,7 +190,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           onReact={(emoji) => actions.boost(message.id, emoji)}
           onReply={editors.reply}
           onEdit={() => editors.open(message.id)}
-          onNewBoost={() => setCustomizing(true)}
+          // The form opens with its field focused, or, open already, keeps what's written in it and focuses it.
+          onNewBoost={() => (customizing ? customField.current?.focus() : setCustomizing(true))}
         />
       )}
     </article>

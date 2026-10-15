@@ -6,6 +6,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
+import { RoomConnection } from "@/hooks/use-room";
 import type { PendingMessage } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
 
@@ -36,23 +37,32 @@ const boost = (id: string, booster: User, content: string): Boost => ({ id, mess
 /**
  * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
  * administrator if `administrator`. `sent` is what a reaction, edit or deletion reports: false when there's
- * no connection. `update` hands it a new copy of the message, as the room does when the message changes.
+ * no connection. `update` hands it a new copy of the message, as the room does when the message changes,
+ * and `reconnect` lets the page into the room again.
  */
 function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
+  let setConnections: (update: (connections: number) => number) => void = () => {};
   const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     const [shown, setShown] = useState(m);
+    const [connections, setConnected] = useState(1);
     setEditing = set;
     setMessage = setShown;
-    return <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />;
+    setConnections = setConnected;
+    return (
+      <RoomConnection value={connections}>
+        <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
+      </RoomConnection>
+    );
   }
   const { container } = render(<Room />);
   const update = (next: Message | PendingMessage) => act(() => setMessage(next));
-  return { actions, editors, update, user: userEvent.setup(), article: within(container).getByRole("article") };
+  const reconnect = () => act(() => setConnections((connections) => connections + 1));
+  return { actions, editors, update, reconnect, user: userEvent.setup(), article: within(container).getByRole("article") };
 }
 
 /** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
@@ -624,6 +634,15 @@ describe(feature("boosts.custom"), () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("textbox", { name: "Custom reaction" })).not.toBeInTheDocument();
   });
+
+  it("focuses the form open already, keeping what's written, when New boost is chosen again", async () => {
+    const { user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), "Wow");
+    await newBoost(user);
+    expect(customField()).toHaveValue("Wow");
+    expect(customField()).toHaveFocus();
+  });
 });
 
 describe(feature("boosts.remove"), () => {
@@ -655,9 +674,9 @@ describe(feature("boosts.remove"), () => {
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
-  it("keeps your reaction when its deletion can't be sent, or brings it back when the room's copy of it is replaced", async () => {
+  it("keeps your reaction when its deletion can't be sent, or brings it back when the page reconnects before it goes", async () => {
     const mine = boost("b1", ada, "👍");
-    const { actions, update, user } = show(message({ boosts: [mine] }), { sent: false });
+    const { actions, update, reconnect, user } = show(message({ boosts: [mine] }), { sent: false });
     await user.click(reactions().getByRole("button", { name: "👍" }));
     const remove = reactions().getByRole("button", { name: "Delete this boost" });
     await user.click(remove);
@@ -669,8 +688,13 @@ describe(feature("boosts.remove"), () => {
     actions.unboost.mockReturnValue(true);
     await user.click(remove);
     expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
-    update(message({ boosts: [{ ...mine }] }));
+    // Someone editing the message doesn't bring it back, while the room may still delete it.
+    update(message({ plainText: "Hello, edited", boosts: [{ ...mine }] }));
+    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
+    // A reconnect that doesn't delete it does, even when the room's copy of the message is the same object.
+    reconnect();
     expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
+    expect(reactions().getByRole("button", { name: "Delete this boost" })).toBeInTheDocument();
   });
 });
 
