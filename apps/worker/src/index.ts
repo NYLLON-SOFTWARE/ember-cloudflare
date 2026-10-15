@@ -4,9 +4,11 @@ import {
   isRoomId,
   parseAccountChanges,
   parseNewRoom,
+  parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
   type Bootstrap,
+  type ChangedPerson,
   type Directory,
   type Favorites,
   type NewJoinCode,
@@ -14,6 +16,7 @@ import {
   type RoomId,
   type RoomSettings,
   type Sidebar,
+  type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import {
@@ -31,7 +34,8 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
-import { avatarTokenOf, directoryOf, showAvatar } from "./avatars";
+import { directoryOf } from "./avatar-tokens";
+import { avatarTokenOf, showAvatar } from "./avatars";
 import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed } from "./error-pages";
@@ -163,6 +167,27 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return typeof changes === "string" ? problem(422, changes) : json({ account });
+}
+
+/**
+ * Makes someone an administrator or a member, as the crown on workspace settings does, answering them
+ * as the people directory then lists them. As in ember-rust, someone who isn't an administrator hears
+ * so first, then anyone who isn't active isn't found, before what was sent is checked
+ * (accounts/users.rs). Unlike there, nobody can change their own role or a bot's.
+ */
+async function changeRole(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseRoleChange(await request.json().catch(() => null));
+  // A change that doesn't parse changes nothing, but who's asking and whom it's for are still checked first.
+  const person = await workspace(env).changeRole(credentials, userId, change?.role ?? null);
+  if (!person) return problem(401, "Not signed in");
+  if (person === "forbidden") return problem(403, "Only administrators can change people's roles");
+  if (person === "not found") return problem(404, "Not found");
+  if (!change) return problem(400, "Expected a role");
+  if (person === "own role") return problem(403, "Administrators can't change their own role");
+  if (person === "bot") return problem(403, "Bots' roles can't be changed");
+  return json({ user: person } satisfies ChangedPerson);
 }
 
 /**
@@ -318,6 +343,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
+  // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
+  const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
+  if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);

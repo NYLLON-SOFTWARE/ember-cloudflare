@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`). Chat bots, Custom styles, the logo, the translation setting and the people list under the invite link aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Chat bots, Custom styles, the logo and the translation setting aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -328,7 +328,7 @@ export const features = [
     id: "accounts.people",
     title: "People list",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.",
       "Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.",
@@ -337,12 +337,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/users/_user.html", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/ember/src/controllers/accounts/users.rs"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/users_controller_test.rb"],
+    notes: "Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls. Avatars don't link to people's pages until those are built (`users.avatar-links`), and your own row gets My settings with your profile (`users.profile`).",
   },
   {
     id: "accounts.roles",
     title: "Make or revoke administrators",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators toggle a crown on each active person who isn't a bot (\"Role: Administrator\" or \"Role: Member\" to screen readers), filled for administrators; it saves at once with no notice.",
       "An administrator's own crown is disabled: dimmed, and clicks do nothing.",
@@ -350,6 +351,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/users.rs", "crates/views/templates/accounts/users/_user.html", "reference/app/models/user/role.rb"],
     upstreamTests: ["reference/test/controllers/accounts/users_controller_test.rb", "reference/test/models/user/role_test.rb"],
+    notes: "`PATCH /api/account/users/<id>` with `{ \"role\" }`, where anything but exactly \"administrator\" means member and a body without a role gets 400. Unlike ember-rust, the server also refuses an administrator's own role and a bot's, so there's always an administrator and a bot stays a bot, and a change reaches the person's open pages at once: the workspace socket tells everyone `user.updated`, so their rail's Admin link and what workspace settings let them do follow without navigating. The crown's checkbox can be reached and pressed from the keyboard, where ember-rust's is hidden.",
   },
   {
     id: "accounts.remove-person",

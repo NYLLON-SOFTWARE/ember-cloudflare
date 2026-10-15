@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
@@ -35,12 +35,17 @@ class FakeSocket {
     this.readyState = FakeSocket.CLOSED;
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`. */
-  connect(you = ada) {
+  /** Opens, as the Workspace lets the socket in, before it says anything. */
+  open() {
     act(() => {
       this.readyState = FakeSocket.OPEN;
       this.onopen?.();
     });
+  }
+
+  /** Opens, and lets the socket in with a welcome for `you`. */
+  connect(you = ada) {
+    this.open();
     this.receive({ type: "welcome", you });
   }
 
@@ -196,9 +201,9 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
 
-  it("says each time it loads again by itself, for the people directory to load again too", async () => {
-    const onReload = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, onReload));
+  it("says each time it loads again by itself, for the people directory to load again too, failing or not", async () => {
+    const onReload = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
     await settle();
     expect(onReload).toHaveBeenCalledOnce();
     socket().connect();
@@ -244,6 +249,94 @@ describe(feature("sidebar.unread"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  /** Someone as the directory lists them. */
+  const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
+
+  /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
+  async function connected() {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().connect();
+    await settle();
+    return { onSessionChanged, update };
+  }
+
+  it("changes whoever the workspace socket says has changed in the people directory", async () => {
+    const { onSessionChanged, update } = await connected();
+    const promoted = listed(grace, "administrator");
+    socket().receive({ type: "user.updated", user: promoted });
+    expect(update).toHaveBeenCalledWith(promoted);
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says when the person signed in has been made an administrator, or a member again", async () => {
+    const { onSessionChanged, update } = await connected();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    expect(update).toHaveBeenCalledWith(listed(ada, "administrator"));
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The hook still has Ada as a member, as the page would if this came before it took the change.
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+
+    // Then nothing more for word that she's as she was last heard.
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes a change heard before the welcome over the welcome, which may be older, until it connects again", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    expect(onSessionChanged).toHaveBeenCalledTimes(1);
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The page still has Ada as a member, but she's an administrator as far as this hook has heard.
+    socket().drop();
+    await wait(60_000);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("takes the next connection's welcome again after one that stopped answering", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    const silent = socket();
+
+    // Two heartbeats without a word drop the socket without its closing, and the next one connects.
+    await wait(60_000);
+    expect(socket()).not.toBe(silent);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("says when the welcome finds the person signed in has changed since the page loaded", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect({ ...ada, administrator: true });
+    expect(onSessionChanged).toHaveBeenCalledWith({ ...ada, administrator: true });
+    expect(socket().closedWith).toBeUndefined();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+  });
+
+  it("says nothing when the welcome finds them as they were", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    expect(onSessionChanged).not.toHaveBeenCalled();
   });
 });
 

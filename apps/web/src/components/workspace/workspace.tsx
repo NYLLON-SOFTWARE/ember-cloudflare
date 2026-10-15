@@ -109,9 +109,10 @@ interface Props {
 }
 
 export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
-  // The people directory loads again whenever the sidebar does by itself.
-  const { people, reload: reloadPeople } = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, reloadPeople);
+  // The people directory loads again whenever the sidebar does by itself, and follows whoever the
+  // workspace socket says has changed.
+  const directory = useDirectory();
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -269,7 +270,16 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         );
       case "workspace-settings":
         return (
-          <WorkspaceSettingsPage back={back} version={version} onAccountChanged={onAccountChanged} onJoinCodeChanged={joinCodeChanged} onFailed={failed} />
+          <WorkspaceSettingsPage
+            me={me}
+            back={back}
+            version={version}
+            onAccountChanged={onAccountChanged}
+            onJoinCodeChanged={joinCodeChanged}
+            reloadPeople={directory.reload}
+            onPersonChanged={directory.update}
+            onFailed={failed}
+          />
         );
       default:
         if (room)
@@ -363,5 +373,5 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       </DrawerOpen>
     </Sheet>
   );
-  return <PeopleContext value={people}>{layout}</PeopleContext>;
+  return <PeopleContext value={directory.people}>{layout}</PeopleContext>;
 }
