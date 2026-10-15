@@ -198,7 +198,7 @@ test.describe(feature("messages.permalink"), () => {
   test("goes to a message in the room as its permalink is followed there, and again each time", async ({ members, participant, baseURL }) => {
     const ada = await members.signIn("Ada", { beforeOpen: recordOutlines });
     await (await participant("Grace")).say(`Remember this? ${baseURL}${permalink(3)}`);
-    const link = ada.message("Remember this?").getByRole("link");
+    const link = ada.message("Remember this?").getByRole("link", { name: `${baseURL}${permalink(3)}` });
 
     await link.click();
     await expect(ada.page).toHaveURL(permalink(3));
@@ -208,7 +208,7 @@ test.describe(feature("messages.permalink"), () => {
     // From there, the room's own link goes back to its newest messages.
     await roomLink(ada).click();
     await expect(ada.message("Remember this?")).toBeInViewport();
-    await ada.message("Remember this?").getByRole("link").click();
+    await link.click();
     await expect(ada.message(body(3))).toBeInViewport();
     expect((await outlines(ada)).map((o) => (o as { messageId: string }).messageId)).toEqual([posted[2]!.id, posted[2]!.id]);
   });
