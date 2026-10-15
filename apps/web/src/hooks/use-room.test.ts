@@ -782,6 +782,18 @@ describe(feature("messages.permalink"), () => {
     socket().receive({ type: "history.around", messages: [message("m0"), message("m1")], hasMore: false, hasNewer: true, around: "m0" });
     expect(result.current.state).toMatchObject({ focus: { messageId: "m0" }, hasNewer: true, loadingPage: false });
   });
+
+  it("goes to a message it holds while the room is away, and says it can't go to one it doesn't", () => {
+    const { result } = joinGeneral({ messages: [message("m1")] });
+    socket().drop();
+    let went: boolean | undefined;
+    act(() => void (went = result.current.jump("m1")));
+    expect(went).toBe(true);
+    expect(result.current.state.focus).toEqual({ messageId: "m1" });
+    act(() => void (went = result.current.jump("m0")));
+    expect(went).toBe(false);
+    expect(result.current.state.loadingPage).toBe(false);
+  });
 });
 
 describe(feature("ui.scroll"), () => {
@@ -811,6 +823,20 @@ describe(feature("ui.scroll"), () => {
     socket().open();
     socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 0 });
     expect(sentInOrder()).toEqual(["history.around", "message.create"]);
+  });
+
+  it("asks for the newest page first for what was written while a permalink's older page was on its way", () => {
+    const { result } = renderHook(() => useRoom("general", ada, () => {}, "m1"));
+    act(() => result.current.postMessage("Written while connecting"));
+    const written = result.current.state.messages[0]!;
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [message("m1")], present: [ada], hasMore: false, hasNewer: true, around: "m1", seq: 0 });
+    expect(socket().sent.map((f) => f.type)).toEqual(["history.around", "message.create"]);
+
+    // So the room's copy comes to a timeline that holds the newest, rather than waiting beyond the older page.
+    socket().receive({ type: "history.around", messages: [message("m2")], hasMore: true, hasNewer: false, around: null });
+    socket().receive({ type: "message.created", message: message("m3", { clientMessageId: written.clientMessageId, body: "Written while connecting" }), seq: 1 });
+    expect(result.current.state.messages.map((m) => m.body)).toEqual(["m2", "Written while connecting"]);
   });
 });
 

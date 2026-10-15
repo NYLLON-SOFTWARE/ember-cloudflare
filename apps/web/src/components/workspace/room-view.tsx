@@ -58,15 +58,15 @@ export function RoomView({ room, messageId, invitation, me, favorite, gone, onSt
 
   // The room opens at the message its address names. Following its permalink, or one to another message
   // in it, or the room's own link, goes there, or to the newest, as Turbo renders ember-rust's page
-  // afresh, even when it's the page shown.
+  // afresh, even when it's the page shown. One followed while the room is away goes there once the room
+  // lets the page in again.
   const visit = useVisit();
   const visited = useRef({ messageId, visit });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
   useEffect(() => {
     if (visited.current.messageId === messageId && visited.current.visit === visit) return;
-    visited.current = { messageId, visit };
-    goTo(messageId ?? null);
-  }, [messageId, visit]);
+    if (goTo(messageId ?? null)) visited.current = { messageId, visit };
+  }, [messageId, visit, state.connections]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);

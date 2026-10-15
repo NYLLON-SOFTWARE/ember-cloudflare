@@ -10,6 +10,7 @@ import {
   type ClientFrame,
   type Me,
   type Message,
+  type ServerFrame,
   type User,
 } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
@@ -63,11 +64,14 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   });
 
   // Sends the messages written while the room was away, in the order they were written, at the end of a
-  // timeline that holds the newest page, which one reading older history asks for first.
-  const sendQueued = useEffectEvent((room: ReconnectingSocket) => {
+  // timeline that holds the newest page, which one reading older history asks for first. The frame that
+  // let the page in isn't in `state` yet, and a welcome brings a timeline of its own, such as the older
+  // page a permalink opens.
+  const sendQueued = useEffectEvent((room: ReconnectingSocket, opening: Extract<ServerFrame, { type: "welcome" | "resumed" }>) => {
     const queued = state.messages.filter(isQueued);
     if (queued.length === 0) return;
-    if (state.hasNewer && room.send({ type: "history.around" })) dispatch({ type: "loading-page" });
+    const hasNewer = opening.type === "welcome" ? opening.hasNewer : state.hasNewer;
+    if (hasNewer && room.send({ type: "history.around" })) dispatch({ type: "loading-page" });
     for (const { clientMessageId, body } of queued) room.send({ type: "message.create", clientMessageId, body });
     dispatch({ type: "sent", clientMessageIds: queued.map((m) => m.clientMessageId) });
   });
@@ -122,7 +126,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       room.connected();
       tellVisibility(visibility.visible);
       checkUnconfirmed(room, frame.messages);
-      sendQueued(room);
+      sendQueued(room, frame);
     };
 
     const onClose = (code: number, opened: boolean) => {
@@ -238,12 +242,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   /**
    * Goes to a message, as its permalink does, or to the newest when `messageId` is null, as Jump to newest
    * message does: in the timeline, when it holds them, or else on the page the room sends around them.
+   * Answers whether it went, which it can't while the room is away and the timeline doesn't hold them.
    */
   const jump = useCallback(
     (messageId: string | null) => {
       const holds = messageId === null ? !state.hasNewer : state.messages.some((m) => !isPending(m) && m.id === messageId);
       if (holds && !state.loadingPage) dispatch({ type: "focus", messageId });
       else if (send({ type: "history.around", messageId: messageId ?? undefined })) dispatch({ type: "loading-page" });
+      else return false;
+      return true;
     },
     [send, state.messages, state.hasNewer, state.loadingPage],
   );
