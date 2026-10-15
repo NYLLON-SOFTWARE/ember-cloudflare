@@ -1,18 +1,21 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import type { Me, Message, User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { useNameOf } from "@/hooks/use-directory";
-import { boostSummary, mentions, timeLabel } from "@/lib/messages";
+import { mentions, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { MessageActionsMenu } from "./message-actions-menu";
+import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
+import { MessageBoosts } from "./message-boosts";
 import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UserAvatar } from "./user-avatar";
 
 export interface MessageActions {
-  boost: (messageId: string, content: string) => void;
-  unboost: (boostId: string) => void;
+  /** Returns whether the reaction was sent. */
+  boost: (messageId: string, content: string) => boolean;
+  /** Returns whether the deletion was sent. */
+  unboost: (boostId: string) => boolean;
   /** Returns whether the edit was sent. */
   edit: (messageId: string, body: string) => boolean;
   /** Returns whether the deletion was sent. */
@@ -80,42 +83,17 @@ function Name({ user }: { user: User }) {
   return useNameOf()(user);
 }
 
-/** The reaction chips under a message, each naming who reacted with it, which toggle yours. */
-function Reactions({ message, me, threaded, actions }: Pick<Props, "message" | "me" | "threaded" | "actions">) {
-  const nameOf = useNameOf();
-  return (
-    <ul
-      aria-label="Reactions"
-      // Where Message options is 44px, the next message's rises 11px into this one, reaching 38px in from
-      // its edge, so the chips stop short of it. A grouped message's body already keeps 32px of that clear.
-      className={cn("mt-1 flex flex-wrap gap-1", threaded ? "touch:pr-1.5" : "touch:pr-[38px]")}
-    >
-      {boostSummary(message, me.id, nameOf).map((group) => (
-        <li key={group.content}>
-          <button
-            type="button"
-            title={group.names.join(", ")}
-            aria-pressed={group.mine !== null}
-            disabled={!actions}
-            onClick={() => (group.mine ? actions?.unboost(group.mine) : actions?.boost(message.id, group.content))}
-            className="flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-xs enabled:hover:bg-hover aria-pressed:border-foreground/40 aria-pressed:bg-hover"
-          >
-            <span>{group.content}</span>
-            <span className="text-message-muted">{group.count}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
 export const MessageItem = memo(function MessageItem({ message, me, threaded, editing: editorOpen, actions, editors }: Props) {
   const article = useRef<HTMLElement>(null);
+  const menu = useRef<MessageActionsHandle>(null);
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
   // The editor shows only while the message can still be changed.
   const editing = editorOpen && actions !== null && !pending;
+  const [customizing, setCustomizing] = useState(false);
+  // The Custom reaction form goes as the editor opens, as ember-rust's editor replaces the whole message.
+  if (customizing && (editing || !actions)) setCustomizing(false);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
   const mentioned = !mine && mentions(message.plainText, me.name);
@@ -185,12 +163,24 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
 
           {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
 
-          {message.boosts.length > 0 && <Reactions message={message} me={me} threaded={threaded} actions={actions} />}
+          {(message.boosts.length > 0 || customizing) && (
+            <MessageBoosts
+              message={message}
+              me={me}
+              threaded={threaded}
+              actions={actions}
+              customizing={customizing}
+              onAddBoost={(button) => menu.current?.openReactions(button)}
+              onCloseCustom={() => setCustomizing(false)}
+              returnFocus={() => menu.current?.focus()}
+            />
+          )}
         </div>
       )}
 
       {actions && !pending && !editing && (
         <MessageActionsMenu
+          ref={menu}
           message={message}
           nodes={shown}
           row={article}
@@ -198,6 +188,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           onReact={(emoji) => actions.boost(message.id, emoji)}
           onReply={editors.reply}
           onEdit={() => editors.open(message.id)}
+          onNewBoost={() => setCustomizing(true)}
         />
       )}
     </article>

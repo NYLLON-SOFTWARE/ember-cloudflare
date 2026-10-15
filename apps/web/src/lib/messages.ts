@@ -1,4 +1,4 @@
-import type { Message, User, UserId } from "@ember/protocol";
+import type { Message, UserId } from "@ember/protocol";
 import { displayMarkup, type DisplayNode } from "@ember/richtext/dom";
 
 /** Follow-ups from the same person within this window render without a repeated header. */
@@ -52,19 +52,6 @@ export function timeline(messages: Message[], now = new Date()): TimelineItem[] 
 export function mentions(body: string, name: string): boolean {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`@${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, "iu").test(body);
-}
-
-/** Groups a message's boosts by emoji, for the reaction chips under it, naming the boosters with `nameOf`. */
-export function boostSummary(message: Message, userId: string, nameOf: (user: User) => string = (user) => user.name) {
-  const groups = new Map<string, { content: string; count: number; mine: string | null; names: string[] }>();
-  for (const boost of message.boosts) {
-    const group = groups.get(boost.content) ?? { content: boost.content, count: 0, mine: null, names: [] };
-    group.count += 1;
-    group.names.push(nameOf(boost.booster));
-    if (boost.booster.id === userId) group.mine = boost.id;
-    groups.set(boost.content, group);
-  }
-  return [...groups.values()];
 }
 
 /**

@@ -231,8 +231,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         return false;
       },
       remove: (messageId: string) => sendOrWarn({ type: "message.delete", messageId }),
-      boost: (messageId: string, content: string) => void sendOrWarn({ type: "boost.create", messageId, content }),
-      unboost: (boostId: string) => void sendOrWarn({ type: "boost.delete", boostId }),
+      boost: (messageId: string, content: string) => sendOrWarn({ type: "boost.create", messageId, content }),
+      unboost: (boostId: string) => sendOrWarn({ type: "boost.delete", boostId }),
     };
   }, [send, warn]);
 

@@ -1,7 +1,7 @@
 import { REACTIONS, type Sidebar } from "@ember/protocol";
 import { isolateRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
-import { expect, hasDrawerLayout, REACTION_CHIPS, test } from "./fixtures";
+import { expect, hasDrawerLayout, REACTION_PILLS, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -56,7 +56,7 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();
   // Four faces, then a count for everyone else.
   await expect(page.getByText("+3")).toBeVisible();
-  await screenIsFine({ denseTargets: [REACTION_CHIPS] });
+  await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
 test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
