@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { Account } from "@ember/protocol";
 import { isolateRoom, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
-import { auditScreen } from "./audits";
+import { auditScreen, settle } from "./audits";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
@@ -59,6 +59,21 @@ test("the Custom CSS page fits the phone, its field too big for iOS to zoom in o
   await page.goto("/account/custom_styles/edit");
   await signInAsAdministrator(page);
   await expect(page.getByRole("textbox", { name: "Custom CSS" })).toBeEnabled();
+  await screenIsFine();
+});
+
+test("your profile, opened from the rail, fits the phone with Log out in the top bar and a translation button by each field", async ({ page, room, session, screenIsFine }) => {
+  await showTranslationButtons(page);
+  await signInAs(page, session);
+  await openRoom(page, room);
+  if (hasDrawerLayout(page)) {
+    await page.getByRole("button", { name: "Open conversations" }).tap();
+    await settle(page);
+  }
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).tap();
+  await expect(page.getByLabel("Name", { exact: true })).toBeEnabled();
+  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Log out" })).toBeVisible();
+  await expect(page.getByRole("main").locator("summary", { hasText: "Translate" })).toHaveCount(4);
   await screenIsFine();
 });
 

@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
 import type { Browser, Page } from "@playwright/test";
-import { ADMINISTRATOR, invitation, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
+import { ADMINISTRATOR, invitation, logOut, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
@@ -29,7 +29,7 @@ test.describe(feature("auth.sign-in"), () => {
     await signInAsAdministrator(page);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
     expect(await page.evaluate(() => document.cookie)).not.toContain("session_token");
   });
 
@@ -78,15 +78,14 @@ test.describe(feature("auth.sign-up"), () => {
     // Home, which is their oldest room, since this browser has shown them none yet.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
 
-    await page.getByRole("button", { name: "Your profile" }).click();
-    await page.getByRole("menuitem", { name: "Log out" }).click();
+    await logOut(page);
     await expect(signInHeading(page)).toBeVisible();
     await page.getByLabel("Email address").fill(emailAddress);
     await page.getByLabel("Password").fill("compiler");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
   });
 
   test("sends an email address that has an account to sign in with it filled in", async ({ page, request, session }) => {
@@ -135,7 +134,7 @@ test.describe(feature("auth.guest-sign-in"), () => {
     await page.getByLabel("Your name").fill("  Ada Lovelace  ");
     await page.getByRole("button", { name: "Join" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
-    await expect(page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Ada Lovelace");
+    await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Ada Lovelace");
     // The session's cookie is out of the page's reach, and nothing else holds it.
     expect(await page.evaluate(() => document.cookie)).not.toContain("session_token");
     expect(await page.evaluate(() => localStorage.getItem("ember:session"))).toBeNull();
@@ -147,7 +146,7 @@ test.describe(feature("auth.sessions"), () => {
     const ada = await members.signIn("Ada");
     await ada.page.reload();
     await ada.connected();
-    await expect(ada.page.getByRole("button", { name: "Your profile" })).toHaveAttribute("title", "Ada");
+    await expect(ada.page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Ada");
   });
 
   test("goes back to sign-in when the session cookie is no good", async ({ page, baseURL }) => {
@@ -158,11 +157,11 @@ test.describe(feature("auth.sessions"), () => {
 });
 
 test.describe(feature("auth.sign-out"), () => {
-  test("signs out from the profile menu and stays signed out", async ({ members }) => {
+  test("logs out from your profile, which the rail's avatar opens, and stays signed out", async ({ members }) => {
     const ada = await members.signIn("Ada");
-    await ada.page.getByRole("button", { name: "Your profile" }).click();
-    await expect(ada.page.getByRole("menu")).toContainText("Ada");
-    await ada.page.getByRole("menuitem", { name: "Log out" }).click();
+    await ada.page.getByRole("link", { name: "Your profile" }).click();
+    await expect(ada.page.getByRole("heading", { level: 1, name: "Your profile" })).toBeVisible();
+    await ada.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Log out" }).click();
     await expect(signInHeading(ada.page)).toBeVisible();
     await expect(ada.page).toHaveURL(/\/session\/new$/);
 
@@ -178,8 +177,7 @@ test.describe(feature("auth.sign-out"), () => {
       await otherTab.goto(`/rooms/${rooms.general.id}`);
       await expect(otherTab.getByRole("log", { name: "Messages in general" })).toBeVisible();
 
-      await laptop.getByRole("button", { name: "Your profile" }).click();
-      await laptop.getByRole("menuitem", { name: "Log out" }).click();
+      await logOut(laptop);
       await expect(signInHeading(laptop)).toBeVisible();
       // The room closed the other tab's socket, so it found out without being touched.
       await expect(signInHeading(otherTab)).toBeVisible();
@@ -208,8 +206,7 @@ test.describe(feature("platform.live-socket"), () => {
       await settings.goto("/account/edit");
       await welcomed;
 
-      await laptop.getByRole("button", { name: "Your profile" }).click();
-      await laptop.getByRole("menuitem", { name: "Log out" }).click();
+      await logOut(laptop);
       await expect(signInHeading(laptop)).toBeVisible();
       await expect(signInHeading(settings)).toBeVisible();
     } finally {

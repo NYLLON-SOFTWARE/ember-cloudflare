@@ -15,6 +15,7 @@ import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hoo
 import { CustomStylesPage } from "./custom-styles-page";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
+import { ProfilePage } from "./profile-page";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView } from "./room-view";
@@ -24,8 +25,8 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
- * a room's page and the pages that go on to one, and nothing on a room's forms or the Custom CSS page,
- * whose addresses none of its links have.
+ * a room's page and the pages that go on to one, your avatar on your profile, and nothing on a room's
+ * forms or the Custom CSS page, whose addresses none of its links have.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -36,6 +37,7 @@ const RAIL_PAGES = {
   "room-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": null,
+  profile: "profile",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** An address the app goes on from, to `path`, with an alert to show there. */
@@ -267,7 +269,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => setUnreadOnly((on) => !on),
   };
-  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onSignOut={onSignOut} />;
+  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} />;
   const sidebar = (
     <Sidebar
       workspaceName={workspaceName}
@@ -315,6 +317,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         );
       case "custom-styles":
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
+      case "profile":
+        return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
       default:
         if (room)
           return (

@@ -96,7 +96,7 @@ test("long room names are truncated, not overflowing", async ({ page, room, scre
   await screenIsFine();
 });
 
-test("the rail's menus fit the phone", async ({ page, room, screenIsFine }) => {
+test("the rail's appearance menu fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   const rail = page.getByRole("navigation", { name: "Workspace" });
   if (hasDrawerLayout(page)) {
@@ -116,8 +116,4 @@ test("the rail's menus fit the phone", async ({ page, room, screenIsFine }) => {
   await screenIsFine();
   await menu.getByText("Dark", { exact: true }).tap();
   await expect(page.locator("html")).toHaveClass(/dark/);
-
-  await rail.getByRole("button", { name: "Your profile" }).tap();
-  await expect(page.getByRole("menuitem", { name: "Log out" })).toBeVisible();
-  await screenIsFine();
 });

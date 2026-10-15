@@ -21,7 +21,9 @@ export type WorkspacePage =
   | { page: "room-settings"; access: RoomAccess; roomId: RoomId }
   | { page: "workspace-settings" }
   /** The Custom CSS page, which only administrators may open. */
-  | { page: "custom-styles" };
+  | { page: "custom-styles" }
+  /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
+  | { page: "profile" };
 
 /** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -29,13 +31,13 @@ export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "direct
 const SIGN_IN_PATH = "/session/new";
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
+export const PROFILE_PATH = "/users/me/profile";
 
 /**
- * Pages the app links to before it has them, which go home until they come: the installed app's My
- * profile shortcut (`users.profile`), New direct message (`dms.picker`) and a direct message's
- * settings (`dms.naming`).
+ * Pages the app links to before it has them, which go home until they come: New direct message
+ * (`dms.picker`) and a direct message's settings (`dms.naming`).
  */
-const PAGES_TO_COME = [/^\/users\/me\/profile$/, /^\/rooms\/directs\/new$/, /^\/rooms\/directs\/[^/]+\/edit$/];
+const PAGES_TO_COME = [/^\/rooms\/directs\/new$/, /^\/rooms\/directs\/[^/]+\/edit$/];
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
 function decoded(segment: string): string | null {
@@ -55,6 +57,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === "/" || PAGES_TO_COME.some((page) => page.test(pathname))) return { page: "home" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
+  if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (pathname === "/rooms") return { page: "newest-room" };
   const newRoom = pathname.match(/^\/rooms\/(opens|closeds)\/new$/);
   if (newRoom) return { page: "new-room", access: accessOf(newRoom[1]!) };

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
+import { PeopleContext } from "@/hooks/use-directory";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
@@ -29,6 +30,18 @@ describe(feature("realtime.who-is-here"), () => {
     // Their initials, drawn as the Worker draws them while the directory doesn't list them.
     expect(faces.map((face) => atob(face.getAttribute("src")!.split(",")[1]!))).toEqual(people(4).map((person) => avatarSvg(person.id, person.name)));
     expect(screen.getByText("+2")).toBeInTheDocument();
+  });
+
+  it("names them as the people directory lists them now, which follows a rename since the room heard them", () => {
+    const renamed = { id: "u1", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u1/avatar" } as const;
+    render(
+      <PeopleContext value={new Map([[renamed.id, renamed]])}>
+        <Sheet>
+          <RoomHeader room={general} present={people(2)} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} />
+        </Sheet>
+      </PeopleContext>,
+    );
+    expect(screen.getByTitle("Person 0, Grace Hopper")).toBeInTheDocument();
   });
 
   it("shows no overflow count for four or fewer", () => {

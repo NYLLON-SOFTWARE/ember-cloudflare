@@ -2,6 +2,7 @@ import type { Favorites, Me, Room, User } from "@ember/protocol";
 import { MenuDotsHorizontal } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
+import { useNameOf } from "@/hooks/use-directory";
 import { roomSettingsPath } from "@/hooks/use-route";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { FavoriteButton } from "./favorite-button";
@@ -25,6 +26,7 @@ interface Props {
 
 /** ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, and its settings. */
 export function RoomHeader({ room, present, status, offline, favorite, onStarred, onSessionChanged }: Props) {
+  const nameOf = useNameOf();
   return (
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
@@ -39,7 +41,7 @@ export function RoomHeader({ room, present, status, offline, favorite, onStarred
         )}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-1.5" title={present.map((u) => u.name).join(", ")}>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5" title={present.map(nameOf).join(", ")}>
         <span className="sr-only">{present.length} here now</span>
         <div className="flex -space-x-1.5" aria-hidden="true">
           {present.slice(0, MAX_FACES).map((user) => (

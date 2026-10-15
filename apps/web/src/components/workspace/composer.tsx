@@ -3,6 +3,7 @@ import type { User } from "@ember/protocol";
 import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { ArrowUp } from "@/components/icons/campfire";
+import { useNameOf } from "@/hooks/use-directory";
 import { sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 
@@ -14,10 +15,8 @@ import { cn } from "@/lib/utils";
  * where ember-rust's wrap down over the message box.
  */
 function TypingIndicator({ typists }: { typists: User[] }) {
-  const names = typists
-    .map((u) => u.name)
-    .sort()
-    .join(", ");
+  const nameOf = useNameOf();
+  const names = typists.map(nameOf).sort().join(", ");
   return (
     <div
       className={cn(

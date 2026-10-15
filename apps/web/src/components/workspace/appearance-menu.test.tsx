@@ -10,7 +10,10 @@ function renderOnRail() {
     <>
       <a href="/account/edit">Workspace</a>
       <AppearanceMenu />
-      <button type="button">Your profile</button>
+      {/* Shown in place, as the app's links are. */}
+      <a href="/users/me/profile" onClick={(event) => event.preventDefault()}>
+        Your profile
+      </a>
     </>,
   );
   return screen.getByRole("button", { name: /^Appearance: / });
@@ -93,7 +96,7 @@ describe(feature("ui.appearance"), () => {
     await user.click(button);
     await user.tab();
     expect(dialog()).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your profile" })).toHaveFocus();
+    expect(screen.getByRole("link", { name: "Your profile" })).toHaveFocus();
 
     await user.click(button);
     await user.tab({ shift: true });
@@ -105,7 +108,7 @@ describe(feature("ui.appearance"), () => {
     const user = userEvent.setup();
     const button = renderOnRail();
     await user.click(button);
-    await user.click(screen.getByRole("button", { name: "Your profile" }));
+    await user.click(screen.getByRole("link", { name: "Your profile" }));
     expect(dialog()).not.toBeInTheDocument();
   });
 });

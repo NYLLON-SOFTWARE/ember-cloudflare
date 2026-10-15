@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { sendsMessage } from "@/lib/keyboard";
 import { boostSummary, mentions, timeLabel } from "@/lib/messages";
@@ -55,6 +56,38 @@ function UnrenderableMessage() {
         Failed to load message content
       </p>
     </article>
+  );
+}
+
+// The names below are the people directory's, which follow a rename, read where they're shown, so a
+// change to the directory doesn't render every message again.
+
+/** Someone's name as the people directory lists them now. */
+function Name({ user }: { user: User }) {
+  return useNameOf()(user);
+}
+
+/** The reaction chips under a message, each naming who reacted with it, which toggle yours. */
+function Reactions({ message, me, actions }: Pick<Props, "message" | "me" | "actions">) {
+  const nameOf = useNameOf();
+  return (
+    <ul className="mt-1 flex flex-wrap gap-1" aria-label="Reactions">
+      {boostSummary(message, me.id, nameOf).map((group) => (
+        <li key={group.content}>
+          <button
+            type="button"
+            title={group.names.join(", ")}
+            aria-pressed={group.mine !== null}
+            disabled={!actions}
+            onClick={() => (group.mine ? actions?.unboost(group.mine) : actions?.boost(message.id, group.content))}
+            className="flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-xs enabled:hover:bg-hover aria-pressed:border-foreground/40 aria-pressed:bg-hover"
+          >
+            <span>{group.content}</span>
+            <span className="text-message-muted">{group.count}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -260,7 +293,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
       >
         {!threaded && (
           <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
-            <strong className="font-bold text-message-ink">{message.creator.name}</strong>
+            <strong className="font-bold text-message-ink">
+              <Name user={message.creator} />
+            </strong>
             {time}
             {edited}
           </div>
@@ -307,25 +342,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
 
         {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
 
-        {message.boosts.length > 0 && (
-          <ul className="mt-1 flex flex-wrap gap-1" aria-label="Reactions">
-            {boostSummary(message, me.id).map((group) => (
-              <li key={group.content}>
-                <button
-                  type="button"
-                  title={group.names.join(", ")}
-                  aria-pressed={group.mine !== null}
-                  disabled={!actions}
-                  onClick={() => (group.mine ? actions?.unboost(group.mine) : actions?.boost(message.id, group.content))}
-                  className="flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-xs enabled:hover:bg-hover aria-pressed:border-foreground/40 aria-pressed:bg-hover"
-                >
-                  <span>{group.content}</span>
-                  <span className="text-message-muted">{group.count}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        {message.boosts.length > 0 && <Reactions message={message} me={me} actions={actions} />}
       </div>
 
       {actions &&

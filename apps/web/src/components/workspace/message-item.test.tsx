@@ -4,6 +4,7 @@ import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PeopleContext } from "@/hooks/use-directory";
 import type { PendingMessage } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
 
@@ -329,5 +330,22 @@ describe(feature("mentions.highlight"), () => {
     ["your name without an @", grace, "Ada said so"],
   ])("leaves %s alone", (_, creator, plainText) => {
     expect(highlighted(show(message({ creator, plainText })).article)).toBe(false);
+  });
+});
+
+describe(feature("users.profile"), () => {
+  it("names the author and whoever reacted as the people directory lists them now, so a rename shows on messages sent before it", () => {
+    const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
+    const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    render(
+      <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>
+        <MessageItem message={m} me={ada} threaded={false} actions={actions} />
+      </PeopleContext>,
+    );
+    expect(screen.getByText("Ada King")).toBeInTheDocument();
+    expect(screen.queryByText("Ada")).not.toBeInTheDocument();
+    // Someone the directory doesn't list keeps the name the boost was given.
+    expect(within(screen.getByRole("list", { name: "Reactions" })).getByRole("button", { name: /👍/ })).toHaveAttribute("title", "Grace Hopper, Linus");
   });
 });

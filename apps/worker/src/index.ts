@@ -6,6 +6,7 @@ import {
   parseCustomStyles,
   parseFavoriteOrder,
   parseNewRoom,
+  parseProfileChanges,
   parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
@@ -16,6 +17,7 @@ import {
   type Favorites,
   type NewJoinCode,
   type NewRoomForm,
+  type ProfileAnswer,
   type RoomId,
   type RoomSettings,
   type Sidebar,
@@ -220,6 +222,32 @@ async function changeRole(request: Request, env: Env, userId: UserId): Promise<R
   return json({ user: person } satisfies ChangedPerson);
 }
 
+/** Your profile, for its page (profiles.rs, `show`), which no cache should keep, since it holds your email address. */
+async function profile(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const profile = credentials && (await workspace(env).profile(credentials));
+  return profile ? json({ profile } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+}
+
+/**
+ * Saves your profile, as its form does (profiles.rs, `update`), answering it as it is then. Who's
+ * asking is checked before a new password is hashed, and a blank one keeps the password they have, as
+ * ember-rust's `password=` ignores it. An email address someone else has is refused, where ember-rust
+ * fails with 500.
+ */
+async function changeProfile(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials || !(await workspace(env).authenticate(credentials))) return problem(401, "Not signed in");
+  const changes = parseProfileChanges(await request.json().catch(() => null));
+  if (typeof changes === "string") return problem(422, changes);
+  const { password, ...rest } = changes;
+  const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
+  const profile = await workspace(env).changeProfile(credentials, rest, passwordDigest);
+  if (!profile) return problem(401, "Not signed in");
+  if (profile === "email address taken") return problem(422, "That email address has an account already");
+  return json({ profile } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
+}
+
 /**
  * Signs this browser out. Its session's sockets close in every room its person is in, so its other
  * tabs go to sign in at once; ember-rust tells all the person's connections to reconnect instead,
@@ -400,6 +428,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return setFavoriteOrder(request, env);
+  if (pathname === "/api/users/me/profile" && request.method === "GET") return profile(request, env);
+  if (pathname === "/api/users/me/profile" && request.method === "PATCH") return changeProfile(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);

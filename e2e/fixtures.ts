@@ -53,6 +53,12 @@ export async function signInAsAdministrator(page: Page, password = ADMINISTRATOR
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+/** Logs out as ember-rust does: from your profile, which the rail's avatar links to. */
+export async function logOut(page: Page): Promise<void> {
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
+  await page.getByRole("button", { name: "Log out" }).click();
+}
+
 /** The `Cookie` header that carries a session, for clients other than the test's browsers. */
 export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.value}`;
 

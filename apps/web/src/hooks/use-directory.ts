@@ -1,5 +1,5 @@
-import { createContext, useState } from "react";
-import type { DirectoryUser, UserId } from "@ember/protocol";
+import { createContext, useCallback, useContext, useState } from "react";
+import type { DirectoryUser, User, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
 import { oneAtATime } from "./use-sidebar";
 
@@ -8,6 +8,15 @@ export type People = ReadonlyMap<UserId, DirectoryUser>;
 
 /** The people directory, for avatars to find their images in. Empty until it loads. */
 export const PeopleContext = createContext<People>(new Map());
+
+/**
+ * Someone's name as the people directory lists them now, which follows a rename since their name was
+ * copied into a message, a boost or a room's frame, or the copy's until the directory lists them.
+ */
+export function useNameOf(): (user: User) => string {
+  const people = useContext(PeopleContext);
+  return useCallback((user: User) => people.get(user.id)?.name ?? user.name, [people]);
+}
 
 /** `people` with each of `changed` as they are now. */
 function withChanges(people: People, changed: DirectoryUser[]): People {

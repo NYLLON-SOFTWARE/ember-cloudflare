@@ -5,7 +5,7 @@ import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type Room
 // small typed router over the History API rather than a library. A page with changes to lose can
 // hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
-export { CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { CUSTOM_STYLES_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -56,6 +56,15 @@ const notify = () => listeners.forEach((listener) => listener());
 function positionOf(state: unknown): number | null {
   const position = (state as { position?: unknown } | null)?.position;
   return typeof position === "number" ? position : null;
+}
+
+/**
+ * The path of the page the app opened a history entry from, as a browser keeps the page a link was
+ * followed from as the referrer, or null for an entry the app didn't open, such as the first one.
+ */
+function openedFrom(state: unknown): string | null {
+  const from = (state as { from?: unknown } | null)?.from;
+  return typeof from === "string" ? from : null;
 }
 
 // Each entry the app adds to this tab's history is numbered one past the entry it follows, so the
@@ -122,8 +131,9 @@ export function navigate(path: string, { replace = false } = {}): void {
     return;
   }
   const go = () => {
-    if (replace) history.replaceState({ position }, "", path);
-    else history.pushState({ position: ++position }, "", path);
+    // A page that takes another's place was opened from where that one was, as a redirect keeps the referrer.
+    if (replace) history.replaceState({ position, from: openedFrom(history.state) }, "", path);
+    else history.pushState({ position: ++position, from: shownPath() }, "", path);
     gone = navigation;
     if (navigation === asked) {
       followUp?.();
@@ -155,6 +165,16 @@ export function roomIdFromPath(pathname: string): string | null {
  * server, which serves the app at every path.
  */
 export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ?? { page: "home" };
+
+/**
+ * Where Go Back goes on a page that returns to the one it was opened from, as ember-rust's `link_back`
+ * goes to the referrer: that page, or home when it's this one or the app didn't open it.
+ */
+export function useBackPath(): string {
+  const from = useSyncExternalStore(subscribe, () => openedFrom(history.state));
+  const here = useSyncExternalStore(subscribe, shownPath);
+  return from !== null && from !== here ? from : "/";
+}
 
 /** The page the address shows, re-rendering when it changes. */
 export function useRoute(): Route {

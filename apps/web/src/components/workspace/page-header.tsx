@@ -27,3 +27,7 @@ export function PageHeader({ children }: { children?: ReactNode }) {
 
 /** A `.btn` in the top bar holding only an icon: a 36px square, 44px for fingers, that a pointer highlights. */
 export const HEADER_BUTTON = "grid size-9 shrink-0 place-items-center rounded-lg hover:bg-hover touch:size-11";
+
+/** A `.btn` in the top bar holding an icon and its text, 44px tall for fingers, which ember-rust's isn't. */
+export const HEADER_TEXT_BUTTON =
+  "inline-flex items-center justify-center gap-[0.5em] rounded-lg border border-transparent px-[1.1em] py-[0.5em] font-medium hover:bg-hover touch:min-h-11";
