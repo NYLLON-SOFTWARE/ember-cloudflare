@@ -33,15 +33,20 @@ function showPage(person: Person | string, { me = ada, people = new Map(), start
   const userId = typeof person === "string" ? person : person.id;
   const [onMissing, onFailed] = [vi.fn(), vi.fn()];
   const onStartDirect = vi.fn<(person: User) => Promise<boolean>>(started);
-  const view = (people: People) => (
-    <PeopleContext value={people}>
+  let shown = { me, people };
+  const view = () => (
+    <PeopleContext value={shown.people}>
       <Sheet>
-        <PersonPage userId={userId} me={me} onStartDirect={onStartDirect} onMissing={onMissing} onFailed={onFailed} />
+        <PersonPage userId={userId} me={shown.me} onStartDirect={onStartDirect} onMissing={onMissing} onFailed={onFailed} />
       </Sheet>
     </PeopleContext>
   );
-  const { rerender } = render(view(people));
-  return { onStartDirect, onMissing, onFailed, list: (people: People) => rerender(view(people)), user: userEvent.setup() };
+  const { rerender } = render(view());
+  const show = (changes: Partial<typeof shown>) => {
+    shown = { ...shown, ...changes };
+    rerender(view());
+  };
+  return { onStartDirect, onMissing, onFailed, list: (people: People) => show({ people }), become: (me: Me) => show({ me }), user: userEvent.setup() };
 }
 
 const heading = () => screen.findByRole("heading", { level: 1 });
@@ -100,6 +105,24 @@ describe(feature("users.show"), () => {
     await heading();
     expect(mailLink()).toHaveAttribute("href", "mailto:grace@example.com");
     expect(mailLink()).toHaveTextContent("grace@example.com");
+  });
+
+  it("loads them again once you become an administrator or stop being one, for their email address", async () => {
+    let administrator = false;
+    serve(() => Response.json({ person: administrator ? { ...grace, emailAddress: "grace@example.com" } : grace }));
+    const { become } = showPage(grace);
+    await heading();
+    become({ ...ada, name: "Ada King" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    administrator = true;
+    become({ ...ada, administrator: true });
+    await waitFor(() => expect(mailLink()).toHaveAttribute("href", "mailto:grace@example.com"));
+
+    administrator = false;
+    become(ada);
+    await waitFor(() => expect(mailLink()).toBeNull());
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it("shows no link for someone with no email address", async () => {

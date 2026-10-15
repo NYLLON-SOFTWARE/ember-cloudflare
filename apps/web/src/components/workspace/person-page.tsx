@@ -50,6 +50,7 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
   const mounted = useMounted();
   useTitle(person?.name ?? null);
 
+  // Again once you become an administrator or stop being one, which decides whether it's told their email address.
   useEffect(() => {
     let stopped = false;
     fetchPerson(userId).then(
@@ -61,7 +62,7 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
       },
     );
     return () => void (stopped = true);
-  }, [userId, onMissing, onFailed]);
+  }, [userId, me.administrator, onMissing, onFailed]);
 
   // As the sidebar's suggestions do, once the page's guard lets it, which a second click doesn't start again.
   const startDirect = () => {
