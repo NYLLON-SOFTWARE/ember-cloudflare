@@ -47,6 +47,7 @@ import {
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
+import type { BanProblem } from "./bans";
 import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -242,6 +243,38 @@ async function removePerson(request: Request, env: Env, userId: UserId): Promise
   if (person === "forbidden") return problem(403, "Only administrators can remove people");
   if (person === "not found") return problem(404, "Not found");
   if (person === "yourself") return problem(403, "Administrators can't remove themselves");
+  return json({ user: person } satisfies ChangedPerson);
+}
+
+/** What a ban that can't block an IP address someone signed in from answers, which ember-rust's 422 page leaves unsaid. */
+const BAN_PROBLEMS: Record<BanProblem, string> = {
+  invalid: "They signed in from an IP address that isn't valid, which a ban can't block",
+  internal: "They signed in from a private or internal IP address, which a ban can't block",
+};
+
+/**
+ * Bans someone, as Ban on their page does, answering them as the people directory then lists them. As
+ * in ember-rust, someone who isn't an administrator hears so first, then an id nobody has isn't found,
+ * whatever their status (users/bans.rs). Unlike there, nobody can ban themselves.
+ */
+async function banPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const person = credentials && (await workspace(env).banPerson(credentials, userId));
+  if (!person) return problem(401, "Not signed in");
+  if (person === "forbidden") return problem(403, "Only administrators can ban people");
+  if (person === "not found") return problem(404, "Not found");
+  if (person === "yourself") return problem(403, "Administrators can't ban themselves");
+  if (typeof person === "string") return problem(422, BAN_PROBLEMS[person]);
+  return json({ user: person } satisfies ChangedPerson);
+}
+
+/** Lifts someone's ban, as Remove ban on their page does, answering them as `banPerson` does. */
+async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const person = credentials && (await workspace(env).unbanPerson(credentials, userId));
+  if (!person) return problem(401, "Not signed in");
+  if (person === "forbidden") return problem(403, "Only administrators can lift bans");
+  if (person === "not found") return problem(404, "Not found");
   return json({ user: person } satisfies ChangedPerson);
 }
 
@@ -538,6 +571,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return changeProfile(request, env);
   const someone = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (someone && request.method === "GET") return showPerson(request, env, segmentText(someone[1]!));
+  const ban = pathname.match(/^\/api\/users\/([^/]+)\/ban$/);
+  if (ban && request.method === "POST") return banPerson(request, env, segmentText(ban[1]!));
+  if (ban && request.method === "DELETE") return unbanPerson(request, env, segmentText(ban[1]!));
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);

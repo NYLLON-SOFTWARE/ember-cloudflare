@@ -175,6 +175,21 @@ export async function removePerson(userId: UserId): Promise<DirectoryUser> {
   return (await request<ChangedPerson>(`/api/account/users/${encodeURIComponent(userId)}`, { method: "DELETE" })).user;
 }
 
+/**
+ * Bans someone, blocking the IP addresses they've signed in from, ending their sessions and deleting
+ * their messages, and answers them as the people directory then lists them. Fails with a 403 ApiError
+ * for anyone but an administrator, and for themselves, a 404 when nobody has id `userId`, and a 422 when
+ * they've signed in from an address a ban can't block.
+ */
+export async function banPerson(userId: UserId): Promise<DirectoryUser> {
+  return (await request<ChangedPerson>(`/api/users/${encodeURIComponent(userId)}/ban`, { method: "POST" })).user;
+}
+
+/** Lifts someone's ban, making them active, and answers them as `banPerson` does. */
+export async function unbanPerson(userId: UserId): Promise<DirectoryUser> {
+  return (await request<ChangedPerson>(`/api/users/${encodeURIComponent(userId)}/ban`, { method: "DELETE" })).user;
+}
+
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
 export interface SidebarCopy {
   sidebar: Sidebar;

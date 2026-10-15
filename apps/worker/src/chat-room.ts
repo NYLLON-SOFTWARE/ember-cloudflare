@@ -212,6 +212,23 @@ export class ChatRoom extends DurableObject<Env> {
     while (this.delivering) await this.delivering;
   }
 
+  /**
+   * Deletes up to `limit` of `userId`'s messages here, with their boosts, telling everyone in the room
+   * of each, as ember-rust's `RemoveBannedContentJob` does once someone is banned (jobs.rs), and
+   * answers whether any of theirs are left.
+   */
+  async removeMessagesBy(roomId: RoomId, userId: UserId, limit: number): Promise<boolean> {
+    return this.serially(async () => {
+      const store = this.storeFor(roomId);
+      const ids = await store.messageIdsBy(userId, limit + 1);
+      const removed = ids.slice(0, limit);
+      if (removed.length === 0) return false;
+      const seq = await store.delete(removed);
+      removed.forEach((messageId, index) => this.broadcast({ type: "message.deleted", messageId, seq: seq + index }));
+      return ids.length > limit;
+    });
+  }
+
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
   async authors(roomId: RoomId): Promise<User[]> {
     return this.serially(() => this.storeFor(roomId).authors());
@@ -283,7 +300,7 @@ export class ChatRoom extends DurableObject<Env> {
       case "message.delete": {
         const message = await store.find(frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only delete your own messages");
-        const seq = await store.delete(message.id);
+        const seq = await store.delete([message.id]);
         return this.broadcast({ type: "message.deleted", messageId: message.id, seq });
       }
       case "boost.create": {

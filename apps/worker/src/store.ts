@@ -39,6 +39,9 @@ interface BoostRow {
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
   WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
 
+/** Up to a number of someone's messages, in no particular order, read through the same index as the above. */
+export const MESSAGES_BY = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? LIMIT ?`;
+
 const toBoost = (row: BoostRow): Boost => ({
   id: row.id,
   messageId: row.message_id,
@@ -251,16 +254,27 @@ export class MessageStore {
     return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
 
+  /** The ids of up to `limit` of `creatorId`'s messages here. */
+  async messageIdsBy(creatorId: UserId, limit: number): Promise<string[]> {
+    return (await this.db.all<{ id: string }>(MESSAGES_BY, this.roomId, creatorId, limit)).map((row) => row.id);
+  }
+
   /**
-   * Its boosts go in the same statement, through ON DELETE CASCADE, so a failure keeps both. Its id
-   * stays with the deletion's number, and the deletions that fall out of the latest `CHANGES_KEPT` go.
+   * Deletes the messages `ids` names, each a change of its own, numbered in the order they're named,
+   * and answers the first's number. Their boosts go in the same statement, through ON DELETE CASCADE,
+   * so a failure keeps both. Their ids stay with their deletions' numbers, and the deletions that fall
+   * out of the latest `CHANGES_KEPT` go. The ids go as one JSON value, which a page of them can fill.
    */
-  async delete(id: string): Promise<number> {
-    return this.change((seq) => [
-      statement(`DELETE FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id),
-      statement(`INSERT INTO message_deletions (room_id, seq, message_id) VALUES (?, ?, ?)`, this.roomId, seq, id),
-      statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq - CHANGES_KEPT),
-    ]);
+  async delete(ids: string[]): Promise<number> {
+    const listed = JSON.stringify(ids);
+    return this.change(
+      (seq) => [
+        statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
+        statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, listed),
+        statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + ids.length - 1 - CHANGES_KEPT),
+      ],
+      ids.length,
+    );
   }
 
   /**
@@ -299,10 +313,10 @@ export class MessageStore {
   }
 
   /**
-   * Makes a change to the room's messages, numbered the next after its latest, with the statements
-   * `making` gives for that number, in one batch, and answers the number.
+   * Makes `count` changes to the room's messages, numbered from the next after its latest, with the
+   * statements `making` gives for the first number, in one batch, and answers that number.
    */
-  private async change(making: (seq: number) => Statement[]): Promise<number> {
+  private async change(making: (seq: number) => Statement[], count = 1): Promise<number> {
     const seq = (await this.latestChange()) + 1;
     try {
       await this.db.batch(making(seq));
@@ -310,7 +324,8 @@ export class MessageStore {
       this.seq = null;
       throw error;
     }
-    return (this.seq = seq);
+    this.seq = seq + count - 1;
+    return seq;
   }
 
   /** Gives message `messageId` the number of a change to its reactions. */

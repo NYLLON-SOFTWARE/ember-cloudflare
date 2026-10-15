@@ -29,7 +29,7 @@ test("your own page fits the phone with the pencil to your profile in the top ba
   await screenIsFine();
 });
 
-test("an administrator's view of someone's page fits the phone, down to their sign-in link", async ({ page, request, screenIsFine }) => {
+test("an administrator's view of someone's page fits the phone, down to their sign-in link and Ban", async ({ page, request, screenIsFine }) => {
   const person = await createSession(request, LONG_NAME);
   await useOwnAddress(page);
   await page.goto("/session/new");
@@ -40,5 +40,9 @@ test("an administrator's view of someone's page fits the phone, down to their si
   const link = page.getByRole("textbox", { name: "Share to get them back into their account" });
   await link.scrollIntoViewIfNeeded();
   await expect(link).toBeInViewport();
+  await screenIsFine();
+  const ban = page.getByRole("button", { name: `Ban ${LONG_NAME}` });
+  await ban.scrollIntoViewIfNeeded();
+  await expect(ban).toBeInViewport();
   await screenIsFine();
 });

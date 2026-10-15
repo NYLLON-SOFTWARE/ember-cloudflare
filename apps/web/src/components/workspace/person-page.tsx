@@ -1,12 +1,12 @@
-import { useContext, useEffect, useState } from "react";
-import type { Me, Person, PersonAnswer, User, UserId } from "@ember/protocol";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { DirectoryUser, Me, Person, PersonAnswer, User, UserId } from "@ember/protocol";
 import { Cancel, Messages, Pencil } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { fetchPerson, isSignedOut } from "@/lib/api";
+import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
@@ -14,11 +14,19 @@ import { Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { UserAvatar } from "./user-avatar";
 
+/** What ember-rust's Ban and Remove ban ask first (users/_ban_button.html). */
+export const CONFIRM_BAN = "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.";
+export const CONFIRM_UNBAN = "Are you sure you want to remove the ban on this user?";
+
 interface Props {
   userId: UserId;
   me: Me;
   /** Starts a DM with someone, or opens the one you have, and goes there, settling with whether it did. */
   onStartDirect: (person: User) => Promise<boolean>;
+  /** Changes someone in the people directory, as banning them or lifting their ban answers they are now. */
+  onPersonChanged: (person: DirectoryUser) => void;
+  /** Loads the people directory again, settling once it has or failed. */
+  reloadPeople: () => Promise<void>;
   /** Nobody has the id, which Campfire's 404 page says. */
   onMissing: () => void;
   /** Says why loading failed, as the workspace's alerts do. */
@@ -39,21 +47,29 @@ const DIRECT_BUTTON =
  * administrators, and active people a button that starts a DM with them, or opens the one you have.
  * Removed people show their name and that they're no longer on this account, and bots only their
  * avatar, then the DM button while they're active. Administrators get a new sign-in link for anyone
- * active who isn't a bot, themselves included. The people directory keeps what it lists of them
- * current. There's no ban button until that's built.
+ * active who isn't a bot, themselves included, and Ban for anyone else active or Remove ban for anyone
+ * banned. The people directory keeps what it lists of them current.
  */
-export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: Props) {
+export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadPeople, onMissing, onFailed }: Props) {
   const [fetched, setFetched] = useState<PersonAnswer | null>(null);
   // As the people directory lists them now, kept current by the workspace socket, with what only the page is told.
   const listed = useContext(PeopleContext).get(userId);
+  // As it lists them now, for answers that come later.
+  const listedNow = useRef(listed);
+  useLayoutEffect(() => {
+    listedNow.current = listed;
+  }, [listed]);
   const person = fetched && { ...fetched.person, ...listed };
   const [starting, setStarting] = useState(false);
+  const [banning, setBanning] = useState(false);
+  // How many times a ban or its lifting has loaded the page again, as ember-rust's redirect does.
+  const [reloads, setReloads] = useState(0);
   const back = useBackPath();
   const mounted = useMounted();
   useTitle(person?.name ?? null);
 
   // Again once you become an administrator or stop being one, which decides whether it's told their
-  // email address and given a sign-in link for them.
+  // email address and given a sign-in link for them, and after a ban or its lifting.
   useEffect(() => {
     let stopped = false;
     fetchPerson(userId).then(
@@ -65,7 +81,7 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
       },
     );
     return () => void (stopped = true);
-  }, [userId, me.administrator, onMissing, onFailed]);
+  }, [userId, me.administrator, reloads, onMissing, onFailed]);
 
   // As the sidebar's suggestions do, once the page's guard lets it, which a second click doesn't start again.
   const startDirect = () => {
@@ -78,6 +94,29 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
         if (mounted.current) setStarting(false);
       }
     });
+  };
+
+  // As ember-rust's Ban and Remove ban do: asked first, then the page again with no notice. Once the
+  // workspace socket or a load has said they changed while the answer was on its way, the answer may be
+  // older than that, so it's left out, and the directory loads again unless it has what it says.
+  const toggleBan = () => {
+    if (!person || banning) return;
+    const banned = person.status === "banned";
+    if (!confirm(banned ? CONFIRM_UNBAN : CONFIRM_BAN)) return;
+    const asked = listedNow.current;
+    setBanning(true);
+    (banned ? unbanPerson : banPerson)(person.id)
+      .then(
+        (changed) => {
+          if (listedNow.current === asked) onPersonChanged(changed);
+          else if (listedNow.current?.status !== changed.status) void reloadPeople().catch(() => {});
+          if (mounted.current) setReloads((reloads) => reloads + 1);
+        },
+        (error: unknown) => {
+          if (mounted.current || isSignedOut(error)) onFailed(error);
+        },
+      )
+      .finally(() => mounted.current && setBanning(false));
   };
 
   const mine = userId === me.id;
@@ -151,12 +190,36 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
                     )}
                   </>
                 )}
+                {me.administrator && !mine && (
+                  <div className="mt-4">
+                    <BanButton person={person} busy={banning} onClick={toggleBan} />
+                  </div>
+                )}
               </>
             )}
           </div>
         )}
       </Panel>
     </SettingsPage>
+  );
+}
+
+/**
+ * ember-rust's ban button (users/_ban_button.html), the full width of the panel: Ban with a cancel mark
+ * for someone active, or a red Remove ban, Campfire's `.btn--negative`, for someone banned.
+ */
+function BanButton({ person, busy, onClick }: { person: Person; busy: boolean; onClick: () => void }) {
+  const banned = person.status === "banned";
+  return (
+    <button
+      type="button"
+      aria-disabled={busy || undefined}
+      onClick={onClick}
+      className={cn(DIRECT_BUTTON, banned ? "border-transparent bg-negative-button text-white hover:not-active:brightness-70" : "bg-background")}
+    >
+      <Cancel tone={banned ? "white" : "black"} className="w-[1.3em]" />
+      <span>{banned ? "Remove ban" : `Ban ${person.name}`}</span>
+    </button>
   );
 }
 

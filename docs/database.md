@@ -6,28 +6,29 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts, recent revocations and deletions, and the changes the Workspace has yet
-to hear of live in that room's Durable Object SQLite storage, and the account, people, their
-sessions, rooms, memberships and the outbox of revocations in the Workspace object's. With `d1`, all
-of them live in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the
-queries in `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
+each room's messages, boosts, recent revocations and deletions, and the changes the Workspace has
+yet to hear of live in that room's Durable Object SQLite storage, and the account, people, their
+sessions and bans, rooms, memberships and the outbox of revocations and purges in the Workspace
+object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
+`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
+`apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
 room's change log and its recent deletions, and `workspace` for the workspace-wide tables (the
-account, people, sessions, rooms, memberships, pending revocations and the rooms deleted). On DO
-SQLite, an object applies only its own scope's files, so a room's storage never holds workspace
-tables. Wrangler applies every file to D1, where all the tables share one database and each room's
-rows carry its `room_id`.
+account, people, sessions, bans, rooms, memberships, pending revocations and purges, and the rooms
+deleted). On DO SQLite, an object applies only its own scope's files, so a room's storage never
+holds workspace tables. Wrangler applies every file to D1, where all the tables share one database
+and each room's rows carry its `room_id`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events` and `message_deletions`, and
-the Workspace keeps `accounts`, `users`, `sessions`, `rooms`, `memberships`, `pending_revocations`
-and `deleted_rooms`. A room's id also names its Durable Object, and the Worker asks the Workspace
-whether someone is a member before it wakes the room for their socket. First run creates the account
-and its administrator, who signs in with an email address and password, found through the unique
-index on `users.email_address`, as do the people who join with the join link; where it's allowed,
-anyone can sign in with just a display name instead. Presence and typing live in each room object's
-memory.
+the Workspace keeps `accounts`, `users`, `sessions`, `bans`, `rooms`, `memberships`,
+`pending_revocations`, `pending_purges` and `deleted_rooms`. A room's id also names its Durable
+Object, and the Worker asks the Workspace whether someone is a member before it wakes the room for
+their socket. First run creates the account and its administrator, who signs in with an email
+address and password, found through the unique index on `users.email_address`, as do the people who
+join with the join link; where it's allowed, anyone can sign in with just a display name instead.
+Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -173,6 +174,22 @@ search index. On top of that schema it adds indexes and query changes for speed.
   Workspace let through at or before one of them, which was checked just before the change and slow
   to arrive, and any socket let through over a minute before it arrives, which a revocation the room
   has since forgotten could cover.
+- **Bans are ember-rust's `bans`.** Banning someone records each address on their sessions in a
+  `bans` row (workspace migration 0018), with ember-rust's indexes: by address, which blocking a
+  banned address's requests will read (`accounts.ban-enforcement`), and by person, which lifting the
+  ban deletes. They're written in the batch that ends the person's sessions, marks them banned and
+  queues closing their sockets and deleting their messages, the addresses going to the `INSERT` as
+  one JSON value, so it binds the same few values however many sessions there were.
+- **A ban deletes messages through the outbox, a page at a time.** ember-rust's
+  `RemoveBannedContentJob` (`crates/ember/src/jobs.rs`) finds a banned person's messages through
+  `index_messages_on_creator_id` and deletes them one by one. Ours are spread over rooms, so the
+  batch that bans someone writes a `pending_purges` row for every room they could have written in:
+  every shared room, since they may have left one, and each DM of theirs. The Workspace's alarm asks
+  each room to delete 100 of their messages at a time, each deletion a change of its own that tabs
+  catch up on, and asks again at once while the room has more, so a big room never holds the room's
+  object for long. It delivers revocations first, and 40 rows a run in all, and puts off a room it
+  can't reach as it does a revocation, but never gives up, which would leave the messages up.
+  Deleting a room drops its purges, since its messages all go anyway.
 - **Granting rooms is one statement.** ember-rust reads the ids of everyone a room takes in (or of
   every open room a new person joins) and inserts them 1,000 rows at a time. Our bound-value limit
   would cut that to a few dozen rows a statement, and on D1 the read is a round trip of its own, so
@@ -251,12 +268,16 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `rooms.applied_seq`, so events sent again, as when the room's answer is lost, change nothing; the
   log's `AUTOINCREMENT` keeps a number from coming back once its event is deleted. Reads go through
   the log too, so a read can't overtake the message before it.
-- **Messages are indexed by `(room_id, client_message_id)`.** ember-rust posts each message over
-  HTTP and knows one wasn't stored when its request fails. Ours go over the room's WebSocket, which
-  can close after the room stored a message but before its confirmation arrived, so after a
-  reconnect the client asks the room which of its unconfirmed messages it has (`message.check`).
-  The index keeps that lookup at about 0.05 ms however big the room gets, where reading every
-  message took 12 ms at 100,000 messages. It costs each stored message about 60 bytes and 4 µs.
+- **Messages are indexed by `(room_id, creator_id, client_message_id)`.** ember-rust posts each
+  message over HTTP and knows one wasn't stored when its request fails. Ours go over the room's
+  WebSocket, which can close after the room stored a message but before its confirmation arrived, so
+  after a reconnect the client asks the room which of its unconfirmed messages it has
+  (`message.check`). The index keeps that lookup at about 0.05 ms however big the room gets, where
+  reading every message took 12 ms at 100,000 messages. Banning someone finds their messages through
+  it too, as ember-rust's `index_messages_on_creator_id` does: a page of one person's messages in a
+  100,000-message room takes 0.06 ms, where room migration 0002's `(room_id, client_message_id)`
+  would read the whole room's, 7.8 ms. Room migration 0019 put it in that index's place, so a new
+  message writes one index, as before: about 80 bytes of it, 20 more than before, in the same 4 µs.
 
 ## Writing SQL here
 

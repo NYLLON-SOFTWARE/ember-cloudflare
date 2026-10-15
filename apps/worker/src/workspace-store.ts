@@ -35,6 +35,7 @@ export interface Client {
 /** ember-rust's user statuses (crates/db/src/models/user.rs). Only active people can sign in. */
 const ACTIVE = 0;
 const DEACTIVATED = 1;
+const BANNED = 2;
 /** ember-rust's role for the people who run the workspace (user.rs). */
 const ADMINISTRATOR = 1;
 /** ember-rust's roles and statuses (user.rs), each at the number it stores. */
@@ -129,6 +130,13 @@ export interface AppliedEvents {
 export interface PendingRevocation extends Revocation {
   id: number;
   roomId: RoomId;
+}
+
+/** A room the outbox has yet to ask to delete a banned person's messages. */
+export interface PendingPurge {
+  id: number;
+  roomId: RoomId;
+  userId: UserId;
 }
 
 interface SessionRow {
@@ -353,6 +361,16 @@ const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
+/**
+ * Queues deleting someone's messages in every room they can have written in, answering a row for
+ * each: every room but the DMs they aren't in, whose people never change.
+ */
+const QUEUE_PURGES = `INSERT INTO pending_purges (room_id, user_id, due_at)
+  SELECT id, ?1, ?2 FROM rooms WHERE kind <> 'direct' OR id IN (SELECT room_id FROM memberships WHERE user_id = ?1) RETURNING id`;
+
+/** Purges due by a time, those due longest first, up to a number of them. */
+export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId FROM pending_purges WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
+
 /** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
@@ -507,6 +525,15 @@ const LEAVE_SHARED_ROOMS = `DELETE FROM memberships WHERE user_id = ?
  * stays none.
  */
 const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = replace(email_address, '@', ?), updated_at = ? WHERE id = ?`;
+
+/** Someone as the directory lists them, whatever their status, as ember-rust finds whom to ban (`find_user`, users.rs). */
+const PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ?`;
+
+/**
+ * The IP addresses recorded on someone's sessions, each once, without none or blanks, as ember-rust
+ * reads them to ban (`create_bans_from_sessions`, user.rs).
+ */
+const SESSION_IP_ADDRESSES = `SELECT DISTINCT ip_address FROM sessions WHERE user_id = ? AND trim(ip_address) <> ''`;
 
 /** Someone as the directory lists them, with their email address, whatever their status. */
 const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
@@ -839,6 +866,67 @@ export class WorkspaceStore {
     return queued!.length > 0;
   }
 
+  /**
+   * Bans someone, as ember-rust's `User#ban` does (user.rs), in one transaction: queues closing each of
+   * their sessions' sockets with `code` in every room they're in, due at `dueAt`, blocks each of
+   * `ipAddresses`, ends their sessions, marks them banned, recording when, unless they were already,
+   * and queues deleting their messages in every room they can have written in, due then too. Their
+   * memberships, role and avatar stay. Answers whether it queued anything.
+   */
+  async banPerson(userId: UserId, ipAddresses: string[], code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [revocations, , , , purges] = (await this.db.batch([
+      // Before their sessions go, which it finds their sockets by.
+      statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
+      statement(`INSERT INTO bans (user_id, ip_address, created_at, updated_at) SELECT ?, value, ?, ? FROM json_each(?)`, userId, now, now, JSON.stringify(ipAddresses)),
+      statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`UPDATE users SET status = ${BANNED}, updated_at = ? WHERE id = ? AND status <> ${BANNED}`, now, userId),
+      statement(QUEUE_PURGES, userId, dueAt),
+    ])) as unknown[][];
+    return revocations!.length > 0 || purges!.length > 0;
+  }
+
+  /**
+   * Lifts someone's ban, as ember-rust's `User#unban` does (user.rs): unblocks their IP addresses and
+   * makes them active, recording when, unless they were already, whatever their status was.
+   */
+  async unbanPerson(userId: UserId, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM bans WHERE user_id = ?`, userId),
+      statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status <> ${ACTIVE}`, now, userId),
+    ]);
+  }
+
+  /** The IP addresses recorded on someone's sessions, which banning them blocks. */
+  async sessionIpAddresses(userId: UserId): Promise<string[]> {
+    return (await this.db.all<{ ip_address: string }>(SESSION_IP_ADDRESSES, userId)).map((row) => row.ip_address);
+  }
+
+  /** Up to `limit` of the purges due by `now`, those due longest first. */
+  async duePurges(now: number, limit: number): Promise<PendingPurge[]> {
+    return this.db.all<PendingPurge>(DUE_PURGES, now, limit);
+  }
+
+  /**
+   * Forgets the purges `finished` names, makes the ones `unfinished` names due again at `now`, and puts
+   * off the ones `failed` names, each for twice as long as the time before, up to the longest wait. It
+   * never gives one up, which would leave a banned person's messages up.
+   */
+  async settlePurges(finished: number[], unfinished: number[], failed: number[], now: number): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM pending_purges WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(finished)),
+      statement(`UPDATE pending_purges SET attempts = 0, due_at = ? WHERE id IN (SELECT value FROM json_each(?))`, now, JSON.stringify(unfinished)),
+      // As a revocation's wait, which has stopped doubling by its last try.
+      statement(
+        `UPDATE pending_purges SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
+        now,
+        LONGEST_RETRY_MS,
+        FIRST_RETRY_MS,
+        DELIVERY_ATTEMPTS,
+        JSON.stringify(failed),
+      ),
+    ]);
+  }
+
   /** Up to `limit` of the revocations due by `now`, those due longest first. */
   async dueRevocations(now: number, limit: number): Promise<PendingRevocation[]> {
     return this.db.all<PendingRevocation>(DUE_REVOCATIONS, now, limit);
@@ -872,10 +960,13 @@ export class WorkspaceStore {
     return abandoned;
   }
 
-  /** When the next revocation is due, if any is waiting. */
-  async nextRevocationDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ due_at: number | null }>(`SELECT min(due_at) AS due_at FROM pending_revocations`);
-    return row?.due_at ?? null;
+  /** When the outbox's next revocation or purge is due, if any is waiting. */
+  async nextDeliveryDue(): Promise<number | null> {
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null }>(
+      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (SELECT min(due_at) FROM pending_purges) AS purge`,
+    );
+    const due = [row?.revocation, row?.purge].filter((time) => typeof time === "number");
+    return due.length > 0 ? Math.min(...due) : null;
   }
 
   /**
@@ -992,6 +1083,12 @@ export class WorkspaceStore {
     return (await this.db.all<DirectoryRow>(DIRECTORY)).map(directoryEntry);
   }
 
+  /** Someone as the people directory lists them, whatever their status, or null if nobody has id `userId`. */
+  async person(userId: UserId): Promise<DirectoryEntry | null> {
+    const [row] = await this.db.all<DirectoryRow>(PERSON, userId);
+    return row ? directoryEntry(row) : null;
+  }
+
   /** Someone active, as the people directory lists them, or null unless `userId` is someone active. */
   async activePerson(userId: UserId): Promise<DirectoryEntry | null> {
     const [row] = await this.db.all<DirectoryRow>(ACTIVE_PERSON, userId);
@@ -1084,6 +1181,8 @@ export class WorkspaceStore {
       statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
       statement(`DELETE FROM pending_revocations WHERE room_id = ? AND tag <> ?`, roomId, EVERYONE),
       statement(`DELETE FROM memberships WHERE room_id = ? RETURNING user_id`, roomId),
+      // Its messages all go, a banned person's with them.
+      statement(`DELETE FROM pending_purges WHERE room_id = ?`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
     ])) as UserIdRow[][];

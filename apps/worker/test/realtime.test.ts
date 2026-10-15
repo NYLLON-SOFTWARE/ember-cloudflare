@@ -150,7 +150,7 @@ describe(feature("realtime.reconnect"), () => {
     const plan = await roomSql(room, `EXPLAIN QUERY PLAN ${STORED_CLIENT_MESSAGE_IDS}`, room, ada.me.id, '["c1"]');
     // Without it, a check reads every message in the room.
     expect(plan.map((row) => (row as { detail: string }).detail).join("; ")).toContain(
-      "index_messages_on_room_id_and_client_message_id (room_id=? AND client_message_id=?)",
+      "index_messages_on_room_id_and_creator_id_and_client_message_id (room_id=? AND creator_id=? AND client_message_id=?)",
     );
   });
 
