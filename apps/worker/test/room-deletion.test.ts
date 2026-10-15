@@ -24,6 +24,7 @@ import {
   workspaceStub,
   type Access,
   type Session,
+  type Socket,
 } from "./support";
 
 const bindings = env as unknown as Env;
@@ -41,8 +42,15 @@ const listed = async (session: Session) => ((await (await api("/api/sidebar", { 
 /** Waits for the Workspace to deliver every revocation it queued, which the rooms have finished with by then. */
 const delivered = () => vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
 
-const countIn = async (roomId: RoomId, table: "messages" | "boosts") =>
+const countIn = async (roomId: RoomId, table: "messages" | "boosts" | "message_deletions") =>
   ((await roomSql(roomId, `SELECT count(*) AS n FROM ${table} WHERE room_id = ?`, roomId)) as Array<{ n: number }>)[0]!.n;
+
+/** Posts a message as `client` and deletes it. */
+async function deletePosted(client: Socket, body: string): Promise<void> {
+  const message = await post(client, body);
+  client.send({ type: "message.delete", messageId: message.id });
+  await client.next("message.deleted");
+}
 
 /** What becomes of a new socket into a room as `session`'s person: let in, or the code it's closed with at once. */
 async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | number> {
@@ -102,16 +110,17 @@ describe(feature("rooms.delete"), () => {
     await delivered();
   });
 
-  it("deletes the room's messages and their reactions, and no other room's", async () => {
+  it("deletes the room's messages, their reactions and the deletions it kept for reconnecting tabs, and no other room's", async () => {
     const ada = await signIn("Ada");
     const [room, annex] = [await createRoom("Design", { as: ada }), await createRoom("Annex", { as: ada })];
     const inRoom = await connect(room.id, ada);
     const message = await post(inRoom, "Gone soon");
     inRoom.send({ type: "boost.create", messageId: message.id, content: "👍" });
     await inRoom.next("boost.created");
-    await post(inRoom, "Me too");
+    await deletePosted(inRoom, "Me too");
     const inAnnex = await connect(annex.id, ada);
     await post(inAnnex, "Staying");
+    await deletePosted(inAnnex, "Not staying");
     const closed = closeOf(inRoom.ws);
 
     expect((await remove(room.id, ada)).status).toBe(204);
@@ -119,7 +128,9 @@ describe(feature("rooms.delete"), () => {
     await delivered();
     expect(await countIn(room.id, "messages")).toBe(0);
     expect(await countIn(room.id, "boosts")).toBe(0);
+    expect(await countIn(room.id, "message_deletions")).toBe(0);
     expect(await countIn(annex.id, "messages")).toBe(1);
+    expect(await countIn(annex.id, "message_deletions")).toBe(1);
     await settle(inAnnex);
   });
 

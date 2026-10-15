@@ -48,6 +48,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   useEffect(() => {
     let closed = false;
+    // The latest change to the room this page has heard of, by its number, which a socket that connects
+    // again names, so the room sends what changed since rather than its newest page.
+    let seen: number | undefined;
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
     // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
@@ -71,7 +74,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     const onMessage = (data: string) => {
       const frame = parseServerFrame(data);
       if (!frame) return;
-      if (frame.type === "welcome" && isSomeoneElse(frame.you)) {
+      const opening = frame.type === "welcome" || frame.type === "resumed";
+      if (opening && isSomeoneElse(frame.you)) {
         // Another tab signed this browser out and in as someone else, and the cookie went with it. Leave
         // the room rather than show them this person's, or send as them, and hand over to whoever the
         // server says is signed in, which the room only partly knows: by then it may be this person again.
@@ -79,11 +83,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         unlessSessionChanged(() => room.retry());
         return;
       }
+      // A room from before rooms numbered their changes opens without a number, which leaves none to name.
+      if (opening || "seq" in frame) seen = frame.seq;
       dispatch({ type: "frame", frame, now: Date.now() });
-      if (frame.type !== "welcome") return;
+      if (!opening) return;
       room.connected();
       tellVisibility(visibility.visible);
-      checkUnconfirmed(room, frame.messages);
+      // What `resumed` doesn't confirm, the room never stored, which the reducer shows; a welcome's page
+      // may leave some out.
+      if (frame.type === "welcome") checkUnconfirmed(room, frame.messages);
       sendQueued(room);
     };
 
@@ -113,7 +121,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
     dispatch({ type: "reset" });
     const room = reconnectingSocket({
-      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible) }),
+      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen }),
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
       onOffline: (offline) => dispatch({ type: "offline", offline }),

@@ -140,13 +140,32 @@ export const freshRoom = async (label: string): Promise<RoomId> => (await create
 
 export type Client = Awaited<ReturnType<typeof connect>>;
 
+/** A room socket opened by `connect` or `reconnect`. */
+export type Socket = Awaited<ReturnType<typeof openSocket>>;
+
 /**
- * Opens a room socket as `name` (or in an existing session) and queues every frame it receives. Its
- * address names the room protocol's revision, as the app's do, and says whether its tab is shown only
- * when `params` does. An `outdated` tab's names nothing, as the app's did before rich text.
+ * Opens a room socket as `name` (or in an existing session), queues every frame it receives, and
+ * waits for its welcome. Its address names the room protocol's revision, as the app's do, and says
+ * whether its tab is shown only when `params` does. An `outdated` tab's names nothing, as the app's
+ * did before rich text.
  */
 export async function connect(room: string, as: string | Session, params?: RoomSocketParams | "outdated") {
-  const session = typeof as === "string" ? await signIn(as) : as;
+  const socket = await openSocket(room, typeof as === "string" ? await signIn(as) : as, params);
+  const welcome = await socket.next("welcome");
+  return { ...socket, welcome, me: welcome.you };
+}
+
+/**
+ * Opens a room socket in `session`, as a tab that has seen the room's change `since` connects again,
+ * and waits for what the room opens it with: `resumed`, or a welcome.
+ */
+export async function reconnect(room: string, session: Session, since: number) {
+  const socket = await openSocket(room, session, { visible: true, since });
+  return { ...socket, opening: await socket.next("welcome", "resumed") };
+}
+
+/** Opens a room socket in `session` and queues every frame it receives. */
+async function openSocket(room: string, session: Session, params?: RoomSocketParams | "outdated") {
   const query = params === "outdated" ? "" : params ? roomSocketQuery(params) : `?protocol=${ROOM_PROTOCOL}`;
   const response = await api(`/api/rooms/${room}/socket${query}`, upgrade(session.cookie));
   const ws = response.webSocket;
@@ -164,10 +183,10 @@ export async function connect(room: string, as: string | Session, params?: RoomS
     waiters.splice(0).forEach((wake) => wake());
   });
 
-  /** The next unread frame of `type`, waiting for it if need be. */
-  async function next<T extends ServerFrame["type"]>(type: T): Promise<Extract<ServerFrame, { type: T }>> {
+  /** The next unread frame of one of `types`, waiting for it if need be. */
+  async function next<T extends ServerFrame["type"]>(...types: T[]): Promise<Extract<ServerFrame, { type: T }>> {
     for (;;) {
-      const index = frames.findIndex((f) => f.type === type);
+      const index = frames.findIndex((f) => (types as string[]).includes(f.type));
       if (index >= 0) return frames.splice(index, 1)[0] as Extract<ServerFrame, { type: T }>;
       await new Promise<void>((resolve) => waiters.push(resolve));
     }
@@ -176,12 +195,9 @@ export async function connect(room: string, as: string | Session, params?: RoomS
   /** Unread frames of `type` that have already arrived. */
   const pending = (type: ServerFrame["type"]) => frames.filter((f) => f.type === type);
 
-  const welcome = await next("welcome");
   return {
     ws,
     session,
-    welcome,
-    me: welcome.you,
     next,
     pending,
     log,
@@ -194,7 +210,7 @@ export async function connect(room: string, as: string | Session, params?: RoomS
 }
 
 /** Posts a message and waits for the room to confirm it. */
-export async function post(client: Client, body: string, clientMessageId = crypto.randomUUID()) {
+export async function post(client: Socket, body: string, clientMessageId = crypto.randomUUID()) {
   client.send({ type: "message.create", clientMessageId, body });
   for (;;) {
     const { message } = await client.next("message.created");
@@ -207,7 +223,7 @@ export async function post(client: Client, body: string, clientMessageId = crypt
  * client in turn has a reply to a ping, everything sent before has been handled and delivered.
  * (A ping with extra fields reaches the room; the bare `{"type":"ping"}` is answered by the runtime.)
  */
-export async function settle(...clients: Client[]): Promise<void> {
+export async function settle(...clients: Socket[]): Promise<void> {
   for (const client of clients) {
     client.send({ type: "ping", nonce: crypto.randomUUID() });
     await client.next("pong");

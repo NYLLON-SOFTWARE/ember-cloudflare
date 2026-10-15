@@ -73,6 +73,27 @@ const confirms = (stored: Message, m: Message | PendingMessage) =>
 export const unconfirmed = (messages: RoomState["messages"], snapshot: Message[]) =>
   messages.filter((m): m is PendingMessage => isPending(m) && !snapshot.some((stored) => confirms(stored, m)));
 
+const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * `messages` caught up with what changed while the page was away, as `resumed` says. Deleted messages
+ * go, changed ones are replaced, and new ones take their places by id, except those older than every
+ * message loaded, which history brings as they are once it's paged to. Every message stored since is
+ * among them, so a message sent before the connection dropped that none confirms never reached the
+ * room, and shows as not sent; those written while it was away go once it's back.
+ */
+function caughtUp(messages: RoomState["messages"], { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
+  const deleted = new Set(deletedIds);
+  const updates = new Map(changed.map((m) => [m.id, m]));
+  const stored = messages.filter((m) => !isPending(m));
+  const oldest = stored[0]?.id;
+  const kept = stored.flatMap((m) => (deleted.has(m.id) ? [] : [updates.get(m.id) ?? m]));
+  const loaded = new Set(stored.map((m) => m.id));
+  const added = changed.filter((m) => !loaded.has(m.id) && (oldest === undefined || m.id > oldest));
+  const pending = unconfirmed(messages, changed).map((m) => (m.queued || m.failed ? m : { ...m, failed: true }));
+  return [...[...kept, ...added].sort(byId), ...pending];
+}
+
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
 
@@ -145,6 +166,17 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         paged: state.paged ?? (frame.hasMore || frame.messages.length > WELCOME_CARD_MESSAGES),
       };
     }
+    case "resumed":
+      // The pages already loaded stay, older ones included, where a welcome would replace them.
+      return {
+        ...state,
+        status: "open",
+        messages: caughtUp(state.messages, frame),
+        present: frame.present,
+        // A history request on the old socket will never be answered.
+        loadingOlder: false,
+        typing: {},
+      };
     case "message.created": {
       const { message } = frame;
       // A confirmed message goes where the room put it, at the end, not where its optimistic copy sat:

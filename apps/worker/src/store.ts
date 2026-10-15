@@ -1,9 +1,11 @@
 import type { Boost, Message, RoomId, User, UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
-import { statement, type Db } from "./db";
+import { statement, type Db, type Statement } from "./db";
 import { logEvent } from "./room-log";
 
-// Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts).
+// Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
+// with the number of its latest change, and the deletions a tab that connects again may yet need to
+// hear of (migrations/0015_numbered_changes.sql).
 
 interface MessageRow {
   id: string;
@@ -60,7 +62,41 @@ const SELECT_MESSAGES = `SELECT messages.*, (
 export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id DESC LIMIT ?`;
 export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
 
+/**
+ * How many changes behind a tab that connects again can be and still catch up, which is as long as the
+ * room keeps a deleted message's id. One further behind gets the newest page, as a new tab does.
+ */
+export const CHANGES_KEPT = 100;
+
+/** The room's latest change, or 0 before its first: the latest a message carries, or a deletion's after it. */
+export const LATEST_CHANGE = `SELECT MAX(
+    COALESCE((SELECT MAX(change_seq) FROM messages WHERE room_id = ?), 0),
+    COALESCE((SELECT MAX(seq) FROM message_deletions WHERE room_id = ?), 0)
+  ) AS seq`;
+/**
+ * The messages changed after a change, as they are now, in the order of their latest changes, which
+ * their index holds, so the room reads only those, however many it has.
+ */
+export const MESSAGES_CHANGED_SINCE = `${SELECT_MESSAGES} WHERE room_id = ? AND change_seq > ? ORDER BY change_seq`;
+/** The messages deleted after a change. */
+export const MESSAGES_DELETED_SINCE = `SELECT message_id FROM message_deletions WHERE room_id = ? AND seq > ? ORDER BY seq`;
+
+/** What changed in a room after a change a tab has seen, and the latest change. */
+export interface Changes {
+  /** The messages changed since, as they are now, oldest first. */
+  messages: Message[];
+  /** The ids of the messages deleted since, including any made since. */
+  deletedIds: string[];
+  seq: number;
+}
+
 export class MessageStore {
+  /**
+   * The room's latest change, read once and then counted here, since the room is the only writer of
+   * its messages; null until read, and again after a batch fails, which D1 may have saved all the same.
+   */
+  private seq: number | null = null;
+
   constructor(
     private readonly db: Db,
     readonly roomId: RoomId,
@@ -72,8 +108,30 @@ export class MessageStore {
       before === undefined
         ? await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1)
         : await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1);
-    const hasMore = rows.length > limit;
-    return { messages: rows.slice(0, limit).reverse().map((row) => this.toMessage(row)), hasMore };
+    return this.toPage(rows, limit);
+  }
+
+  /**
+   * The newest `limit` messages, as `page` reads them, and the room's latest change, for a welcome. The
+   * room is the only writer of its messages and changes them one event at a time, so the two agree.
+   */
+  async newest(limit: number): Promise<{ messages: Message[]; hasMore: boolean; seq: number }> {
+    const [page, seq] = await Promise.all([this.page(limit), this.latestChange()]);
+    return { ...page, seq };
+  }
+
+  /**
+   * What changed after the room's change `since`, for a tab that has seen it, or null if the room can't
+   * say: `since` is later than its latest change, or more than `CHANGES_KEPT` behind it.
+   */
+  async changesSince(since: number): Promise<Changes | null> {
+    const seq = await this.latestChange();
+    if (since > seq || seq - since > CHANGES_KEPT) return null;
+    const [rows, deleted] = await Promise.all([
+      this.db.all<MessageRow>(MESSAGES_CHANGED_SINCE, this.roomId, since),
+      this.db.all<{ message_id: string }>(MESSAGES_DELETED_SINCE, this.roomId, since),
+    ]);
+    return { messages: rows.map((row) => this.toMessage(row)).sort(byId), deletedIds: deleted.map((row) => row.message_id), seq };
   }
 
   async find(id: string): Promise<Message | null> {
@@ -81,12 +139,15 @@ export class MessageStore {
     return row ? this.toMessage(row) : null;
   }
 
-  /** Stores a new message, logging it in the same transaction for the Workspace to mark the room unread by. */
-  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string): Promise<Message> {
-    await this.db.batch([
+  /**
+   * Stores a new message, logging it in the same transaction for the Workspace to mark the room unread
+   * by, and answers it with the change's number.
+   */
+  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+    const seq = await this.change((seq) => [
       statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         this.roomId,
         clientMessageId,
@@ -97,21 +158,25 @@ export class MessageStore {
         JSON.stringify(body.mentions),
         now,
         now,
+        seq,
       ),
       logEvent(this.roomId, "message", creator.id, now),
     ]);
     return {
-      id,
-      clientMessageId,
-      roomId: this.roomId,
-      creator,
-      body: body.html,
-      plainText: body.plainText,
-      mentions: body.mentions,
-      createdAt: now,
-      updatedAt: now,
-      editedAt: null,
-      boosts: [],
+      message: {
+        id,
+        clientMessageId,
+        roomId: this.roomId,
+        creator,
+        body: body.html,
+        plainText: body.plainText,
+        mentions: body.mentions,
+        createdAt: now,
+        updatedAt: now,
+        editedAt: null,
+        boosts: [],
+      },
+      seq,
     };
   }
 
@@ -136,43 +201,63 @@ export class MessageStore {
     );
   }
 
-  /** Replaces a message's text, which marks it edited, and answers the message as it is now. */
-  async updateBody(message: Message, body: PreparedBody, now: string): Promise<Message> {
-    await this.db.run(
-      `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ? WHERE room_id = ? AND id = ?`,
-      body.html,
-      body.plainText,
-      JSON.stringify(body.mentions),
-      now,
-      now,
-      this.roomId,
-      message.id,
-    );
-    return { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now };
+  /**
+   * Replaces a message's text, which marks it edited, and answers the message as it is now with the
+   * change's number, as the methods below that change a message answer theirs.
+   */
+  async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+    const seq = await this.change((seq) => [
+      statement(
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        body.html,
+        body.plainText,
+        JSON.stringify(body.mentions),
+        now,
+        now,
+        seq,
+        this.roomId,
+        message.id,
+      ),
+    ]);
+    return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
 
-  /** Its boosts go in the same statement, through ON DELETE CASCADE, so a failure keeps both. */
-  async delete(id: string): Promise<void> {
-    await this.db.run(`DELETE FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id);
+  /**
+   * Its boosts go in the same statement, through ON DELETE CASCADE, so a failure keeps both. Its id
+   * stays with the deletion's number, and the deletions that fall out of the latest `CHANGES_KEPT` go.
+   */
+  async delete(id: string): Promise<number> {
+    return this.change((seq) => [
+      statement(`DELETE FROM messages WHERE room_id = ? AND id = ?`, this.roomId, id),
+      statement(`INSERT INTO message_deletions (room_id, seq, message_id) VALUES (?, ?, ?)`, this.roomId, seq, id),
+      statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq - CHANGES_KEPT),
+    ]);
   }
 
-  /** Deletes every message here, and through ON DELETE CASCADE their boosts, as deleting the room does. */
+  /**
+   * Deletes every message here, and through ON DELETE CASCADE their boosts, as deleting the room does,
+   * and the deletions it kept, since no tab can connect to it again.
+   */
   async deleteAllMessages(): Promise<void> {
-    await this.db.run(`DELETE FROM messages WHERE room_id = ?`, this.roomId);
+    await this.db.batch([statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId), statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId)]);
+    this.seq = null;
   }
 
-  async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<Boost> {
-    await this.db.run(
-      `INSERT INTO boosts (id, room_id, message_id, booster_id, booster_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      this.roomId,
-      messageId,
-      booster.id,
-      booster.name,
-      content,
-      now,
-    );
-    return { id, messageId, booster, content, createdAt: now };
+  async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<{ boost: Boost; seq: number }> {
+    const seq = await this.change((seq) => [
+      statement(
+        `INSERT INTO boosts (id, room_id, message_id, booster_id, booster_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        this.roomId,
+        messageId,
+        booster.id,
+        booster.name,
+        content,
+        now,
+      ),
+      this.numbered(messageId, seq),
+    ]);
+    return { boost: { id, messageId, booster, content, createdAt: now }, seq };
   }
 
   async findBoost(id: string): Promise<Boost | null> {
@@ -180,8 +265,38 @@ export class MessageStore {
     return row ? toBoost(row) : null;
   }
 
-  async removeBoost(id: string): Promise<void> {
-    await this.db.run(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, id);
+  async removeBoost(boost: Boost): Promise<number> {
+    return this.change((seq) => [statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id), this.numbered(boost.messageId, seq)]);
+  }
+
+  /**
+   * Makes a change to the room's messages, numbered the next after its latest, with the statements
+   * `making` gives for that number, in one batch, and answers the number.
+   */
+  private async change(making: (seq: number) => Statement[]): Promise<number> {
+    const seq = (await this.latestChange()) + 1;
+    try {
+      await this.db.batch(making(seq));
+    } catch (error) {
+      this.seq = null;
+      throw error;
+    }
+    return (this.seq = seq);
+  }
+
+  /** Gives message `messageId` the number of a change to its reactions. */
+  private numbered(messageId: string, seq: number): Statement {
+    return statement(`UPDATE messages SET change_seq = ? WHERE room_id = ? AND id = ?`, seq, this.roomId, messageId);
+  }
+
+  private async latestChange(): Promise<number> {
+    this.seq ??= (await this.db.all<{ seq: number }>(LATEST_CHANGE, this.roomId, this.roomId))[0]!.seq;
+    return this.seq;
+  }
+
+  /** Rows read newest first, one more than `limit` if there are more, as a page oldest first. */
+  private toPage(rows: MessageRow[], limit: number): { messages: Message[]; hasMore: boolean } {
+    return { messages: rows.slice(0, limit).reverse().map((row) => this.toMessage(row)), hasMore: rows.length > limit };
   }
 
   private toMessage(row: MessageRow): Message {

@@ -231,7 +231,7 @@ describe(feature("messages.delete"), () => {
     await ada.next("boost.created");
 
     ada.send({ type: "message.delete", messageId: doomed.id });
-    expect(await grace.next("message.deleted")).toEqual({ type: "message.deleted", messageId: doomed.id });
+    expect(await grace.next("message.deleted")).toEqual({ type: "message.deleted", messageId: doomed.id, seq: 4 });
     await ada.next("message.deleted");
 
     const later = await connect(room, "Linus");
