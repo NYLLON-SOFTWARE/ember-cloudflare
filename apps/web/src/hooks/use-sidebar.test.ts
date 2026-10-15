@@ -273,10 +273,13 @@ describe(feature("accounts.roles"), () => {
     expect(update).toHaveBeenCalledWith(listed(ada, "administrator"));
     expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
 
-    // The hook still has Ada as a member, as the page would until it took the change.
-    onSessionChanged.mockClear();
+    // The hook still has Ada as a member, as the page would if this came before it took the change.
     socket().receive({ type: "user.updated", user: listed(ada, "member") });
-    expect(onSessionChanged).not.toHaveBeenCalled();
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+
+    // Then nothing more for word that she's as she was last heard.
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).toHaveBeenCalledTimes(2);
   });
 
   it("says when the welcome finds the person signed in has changed since the page loaded", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useReducer, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { CloseCode, parseServerFrame, type DirectoryUser, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
@@ -86,9 +86,17 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // Who the session signs in as last heard, ahead of `me` until the page takes the change: two changes
+  // can come before it takes the first.
+  const heard = useRef(me);
+  useLayoutEffect(() => {
+    heard.current = me;
+  }, [me]);
   // Who the session signs in, as the socket says each time it connects and whenever they change.
   const signsIn = useEffectEvent((you: Me) => {
-    if (!isSame(you, me)) sessionChanged(you);
+    if (isSame(you, heard.current)) return;
+    heard.current = you;
+    sessionChanged(you);
   });
   const changed = useEffectEvent((user: DirectoryUser) => {
     directory.update(user);
