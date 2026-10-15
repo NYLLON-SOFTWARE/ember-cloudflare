@@ -226,6 +226,17 @@ export interface ChangedPerson {
   user: DirectoryUser;
 }
 
+/** Someone as their page shows them: as the people directory lists them, and to administrators with their email address. */
+export interface Person extends DirectoryUser {
+  /** Their email address, or null when they have none, which only administrators are told. */
+  emailAddress?: string | null;
+}
+
+/** What `GET /api/users/<id>` answers: anyone, whatever their status. */
+export interface PersonAnswer {
+  person: Person;
+}
+
 /** You, as your profile shows you. */
 export interface Profile {
   name: string;

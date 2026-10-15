@@ -16,6 +16,8 @@ import {
   type NewRoomForm,
   type NewWorkspace,
   type PasswordSignIn,
+  type Person,
+  type PersonAnswer,
   type PersonRole,
   type Profile,
   type ProfileAnswer,
@@ -103,6 +105,14 @@ export async function signOut(): Promise<void> {
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
 export async function fetchMe(): Promise<Me> {
   return (await request<{ user: Me }>("/api/me")).user;
+}
+
+/**
+ * Someone, whatever their status, for their page, with their email address if you're an administrator.
+ * Fails with a 404 ApiError when nobody has id `userId`.
+ */
+export async function fetchPerson(userId: UserId): Promise<Person> {
+  return (await request<PersonAnswer>(`/api/users/${encodeURIComponent(userId)}`)).person;
 }
 
 /** Your profile: your name, email address and bio, for the profile page. */

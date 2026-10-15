@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
+import { loadPage } from "@/lib/page";
 import { Workspace } from "./workspace";
+
+vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const rooms: SharedRoom[] = [
@@ -796,6 +799,33 @@ describe(feature("users.profile"), () => {
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe(feature("users.show"), () => {
+  const grace: DirectoryUser = { ...withGrace.members[1]!, bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
+
+  it("shows someone's page at their address, marking nothing on the rail, and starts a DM with them from it", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/users/u2": () => Response.json({ person: grace }),
+      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/users/u2");
+    expect(await screen.findByRole("heading", { level: 1, name: "Grace" })).toBeInTheDocument();
+    expect(railCurrent()).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Ping Grace" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/d1");
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
+  });
+
+  it("loads the page again when nobody has the id, for the Worker to answer Campfire's 404 page", async () => {
+    vi.mocked(loadPage).mockClear();
+    serve({ "GET /api/users/nobody": () => Response.json({ error: "Not found" }, { status: 404 }) });
+    showWorkspace("/users/nobody");
+    await waitFor(() => expect(loadPage).toHaveBeenCalledExactlyOnceWith("/users/nobody"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

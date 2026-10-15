@@ -1,4 +1,4 @@
-import type { DirectoryUser, UserId } from "@ember/protocol";
+import type { UserId } from "@ember/protocol";
 import { toBase64url } from "./encoding";
 import type { DirectoryEntry } from "./workspace-store";
 
@@ -42,7 +42,7 @@ const versionOf = (updatedAt: string) => updatedAt.slice(0, 19).replace(/\D/g, "
 let listed = { secret: "", tokens: new Map<UserId, string>() };
 
 /** The people directory's entries, each with its avatar's address: `user_avatar_path(user.avatar_token, v: ...)`. */
-export async function directoryOf(entries: DirectoryEntry[], secret: string): Promise<DirectoryUser[]> {
+export async function directoryOf<Entry extends DirectoryEntry>(entries: Entry[], secret: string): Promise<Array<Omit<Entry, "updatedAt"> & { avatarUrl: string }>> {
   if (listed.secret !== secret) listed = { secret, tokens: new Map() };
   const { tokens } = listed;
   const tokenOf = await avatarTokens(secret);
