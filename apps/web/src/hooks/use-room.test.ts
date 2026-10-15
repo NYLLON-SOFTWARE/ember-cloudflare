@@ -305,7 +305,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=2");
   });
 
-  it("catches up on what changed while it was away, keeping what's loaded, and shows a message the room never got as not sent", () => {
+  it("catches up on what changed while it was away, keeping what's loaded, and asks about a message it doesn't confirm", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
     act(() => result.current.postMessage("Lost on the way"));
     socket().drop();
@@ -317,11 +317,42 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state).toMatchObject({ status: "open", hasMore: true, present: [ada, grace] });
     const [kept, added, lost, written] = result.current.state.messages;
     expect([kept!.id, added!.id]).toEqual(["m2", "m3"]);
-    expect(lost).toMatchObject({ body: "Lost on the way", pending: true, failed: true });
+    expect(lost).toMatchObject({ body: "Lost on the way", pending: true });
+    expect(lost).not.toHaveProperty("failed");
     expect(written).toMatchObject({ body: "Written while away", pending: true });
     expect(written).not.toHaveProperty("failed");
-    // Every message the room stored since is in what it sent, so there's nothing to ask about.
-    expect(socket().sent).toEqual([{ type: "message.create", clientMessageId: written!.clientMessageId, body: "Written while away" }]);
+    expect(socket().sent).toEqual([
+      { type: "message.check", clientMessageIds: [lost!.clientMessageId] },
+      { type: "message.create", clientMessageId: written!.clientMessageId, body: "Written while away" },
+    ]);
+
+    socket().receive({ type: "message.checked", stored: [], missing: [lost!.clientMessageId] });
+    expect(result.current.state.messages[2]).toMatchObject({ body: "Lost on the way", failed: true });
+  });
+
+  it("asks again about a message a welcome didn't confirm when the next connection resumes before the room answers", () => {
+    const { result } = joinGeneral();
+    act(() => result.current.postMessage("Stored, but the answer was lost"));
+    const clientMessageId = socket().sentOfType("message.create")[0]!.clientMessageId as string;
+    // The room stored it, and so many more since that a welcome's page leaves it out.
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [message("m60")], present: [ada], hasMore: true, seq: 120 });
+    expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: [clientMessageId] }]);
+
+    // Nothing has changed since the welcome when the room's answer is lost with the connection.
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 120 });
+    expect(result.current.state.messages[1]).toMatchObject({ clientMessageId, pending: true });
+    expect(result.current.state.messages[1]).not.toHaveProperty("failed");
+    expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: [clientMessageId] }]);
+
+    socket().receive({ type: "message.checked", stored: [clientMessageId], missing: [] });
+    expect(result.current.state.messages.map((m) => m.id)).toEqual(["m60"]);
+    expect(result.current.state.notice).toBe("Your message was sent. Scroll up to see it.");
   });
 
   it("says so when an edit or reaction can't be sent, and the edit reports it", () => {

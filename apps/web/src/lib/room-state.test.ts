@@ -132,7 +132,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(state.messages.map((m) => m.id)).toEqual(["m3", "m4", "m5"]);
   });
 
-  it("swaps in the room's copies of messages sent before the drop, in their places, and shows the rest as not sent", () => {
+  it("swaps in the room's copies of messages sent before the drop, in their places, keeping the rest as sending until the room says", () => {
     let state = loaded("m1");
     for (const id of ["c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c4", clientMessageId: "c4" }), pending: true, queued: true } });
@@ -143,7 +143,8 @@ describe(feature("realtime.reconnect"), () => {
       ["m1", "stored"],
       ["m2", "stored"],
       ["m3", "stored"],
-      ["c3", "not sent"],
+      // The room is asked about it, since a welcome before may have left it out of its page.
+      ["c3", "sending"],
       // Written while it was away, so it goes now.
       ["c4", "sending"],
     ]);

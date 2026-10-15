@@ -28,9 +28,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   // ember-rust posts each message over HTTP, and shows it as failed only when that request fails
   // (composer_controller.js). A socket can lose the answer instead: it can close after the room stored a
-  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page.
-  // So ask the room about the sent messages the welcome doesn't confirm, which the reducer keeps as
-  // sending until it answers. Those written while it was away never went, so they aren't asked about.
+  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page,
+  // which a later `resumed` doesn't go back past. So ask the room about the sent messages a reconnect
+  // doesn't confirm, which the reducer keeps as sending until it answers. Those written while it was away
+  // never went, so they aren't asked about.
   const checkUnconfirmed = useEffectEvent((room: ReconnectingSocket, snapshot: Message[]) => {
     const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued ? [] : [m.clientMessageId]));
     for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
@@ -89,9 +90,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (!opening) return;
       room.connected();
       tellVisibility(visibility.visible);
-      // What `resumed` doesn't confirm, the room never stored, which the reducer shows; a welcome's page
-      // may leave some out.
-      if (frame.type === "welcome") checkUnconfirmed(room, frame.messages);
+      checkUnconfirmed(room, frame.messages);
       sendQueued(room);
     };
 

@@ -78,9 +78,9 @@ const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 /**
  * `messages` caught up with what changed while the page was away, as `resumed` says. Deleted messages
  * go, changed ones are replaced, and new ones take their places by id, except those older than every
- * message loaded, which history brings as they are once it's paged to. Every message stored since is
- * among them, so a message sent before the connection dropped that none confirms never reached the
- * room, and shows as not sent; those written while it was away go once it's back.
+ * message loaded, which history brings as they are once it's paged to. The messages sent before the
+ * connection dropped that none confirms stay as sending while useRoom asks the room about them, as after
+ * a welcome: one may be older than the page a welcome before brought, which nothing since names.
  */
 function caughtUp(messages: RoomState["messages"], { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
   const deleted = new Set(deletedIds);
@@ -90,8 +90,7 @@ function caughtUp(messages: RoomState["messages"], { messages: changed, deletedI
   const kept = stored.flatMap((m) => (deleted.has(m.id) ? [] : [updates.get(m.id) ?? m]));
   const loaded = new Set(stored.map((m) => m.id));
   const added = changed.filter((m) => !loaded.has(m.id) && (oldest === undefined || m.id > oldest));
-  const pending = unconfirmed(messages, changed).map((m) => (m.queued || m.failed ? m : { ...m, failed: true }));
-  return [...[...kept, ...added].sort(byId), ...pending];
+  return [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)];
 }
 
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
