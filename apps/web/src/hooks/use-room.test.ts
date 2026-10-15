@@ -661,6 +661,45 @@ describe(feature("messages.optimistic"), () => {
   });
 });
 
+describe(feature("messages.sounds"), () => {
+  /** Where what's played comes from. */
+  const played = (play: { mock: { contexts: unknown[] } }) => play.mock.contexts.map((audio) => new URL((audio as HTMLAudioElement).src).pathname);
+
+  it("plays a sound as it arrives at the end of a timeline that holds the newest messages, the sender's own too", () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+    const { result } = joinGeneral();
+    socket().receive({ type: "message.created", message: message("m1", { creator: grace, plainText: "/play bell" }), seq: 1 });
+    expect(played(play)).toEqual(["/sounds/bell.mp3"]);
+
+    act(() => result.current.postMessage("<p>/play tada</p>"));
+    expect(played(play)).toHaveLength(1);
+    const pending = result.current.state.messages.at(-1)!;
+    socket().receive({ type: "message.created", message: message("m2", { clientMessageId: pending.clientMessageId, plainText: "/play tada" }), seq: 2 });
+    expect(played(play)).toEqual(["/sounds/bell.mp3", "/sounds/tada.mp3"]);
+  });
+
+  it("plays nothing for other messages, nor for a sound the room's pages or a reconnect bring, or one it has already", () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+    joinGeneral({ messages: [message("m1", { plainText: "/play bell" })], hasMore: true });
+    socket().receive({ type: "message.created", message: message("m2", { plainText: "/play tada now" }), seq: 1 });
+    socket().receive({ type: "message.created", message: message("m3", { plainText: "/play nonexistent_sound_name" }), seq: 2 });
+    socket().receive({ type: "history", before: "m1", messages: [message("m0", { plainText: "/play yay" })], hasMore: false });
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "resumed", you: ada, messages: [message("m4", { plainText: "/play rimshot" })], deletedIds: [], present: [ada], seq: 3 });
+    socket().receive({ type: "message.created", message: message("m4", { plainText: "/play rimshot" }), seq: 4 });
+    expect(played(play)).toEqual([]);
+  });
+
+  it("plays nothing while the timeline doesn't hold the newest messages", () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+    joinGeneral({ messages: [message("m1")], hasNewer: true });
+    socket().receive({ type: "message.created", message: message("m2", { plainText: "/play bell" }), seq: 1 });
+    expect(played(play)).toEqual([]);
+  });
+});
+
 describe(feature("realtime.typing"), () => {
   it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();

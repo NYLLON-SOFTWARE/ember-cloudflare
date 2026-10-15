@@ -136,6 +136,58 @@ describe(feature("messages.emoji-only"), () => {
   });
 });
 
+describe(feature("messages.sounds"), () => {
+  /** Where what's played comes from. */
+  const played = (play: { mock: { contexts: unknown[] } }) => play.mock.contexts.map((audio) => new URL((audio as HTMLAudioElement).src).pathname);
+
+  it("shows a message that plays a sound as a 🔊 that plays it again, then the sound's words", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+    const { article, user } = show(message({ plainText: "/play crickets" }));
+    expect(article).toHaveTextContent(/^Ada.*🔊hears crickets chirping$/);
+    await user.click(within(article).getByRole("button", { name: "Play crickets" }));
+    expect(played(play)).toEqual(["/sounds/crickets.mp3"]);
+  });
+
+  it("shows a sound's picture, where it has one, at its size", () => {
+    const { article } = show(message({ plainText: "/play clowntown" }), { threaded: true });
+    within(article).getByRole("button", { name: "Play clowntown" });
+    const picture = article.querySelector("img")!;
+    expect(picture).toHaveAttribute("src", "/sounds/images/clowntown.webp");
+    expect(picture).toHaveAttribute("width", "210");
+    expect(picture).toHaveAttribute("height", "150");
+    // The button names the sound, which the picture needn't again.
+    expect(picture).toHaveAttribute("alt", "");
+  });
+
+  it("shows anything else as text: a sound it doesn't know, or more after the name", () => {
+    expect(show(message({ plainText: "/play nonexistent_sound_name" })).article.querySelector(".message-content")).toHaveTextContent("/play nonexistent_sound_name");
+    cleanup();
+    expect(show(message({ plainText: "/play tada now" })).article.querySelector(".message-content")).toHaveTextContent("/play tada now");
+    expect(screen.queryByRole("button", { name: /^Play / })).not.toBeInTheDocument();
+  });
+
+  it("marks an edited sound, including one grouped under the message before it", () => {
+    const { article } = show(message({ plainText: "/play bell", editedAt: "2026-10-12T10:01:00.000Z" }), { threaded: true });
+    expect(article).toHaveTextContent(/🔊🔔 \(edited\)/);
+  });
+
+  it("quotes the command in a reply, where ember-rust's Reply writes nothing for a sound", async () => {
+    const { editors, user } = show(message({ plainText: "/play crickets" }), { me: grace });
+    await pressAction(user, "Reply", "hears crickets chirping");
+    expect(editors.reply).toHaveBeenCalledWith(expect.stringMatching(/^<blockquote><p>\/play crickets<\/p><\/blockquote><cite>Ada /));
+  });
+
+  it("says a sound is playing while it's on its way, as anything starting with /play and its name does", () => {
+    const { article } = show({ ...message({ plainText: "/play tada now" }), pending: true });
+    expect(within(article).getByText("Playing tada…")).toBeInTheDocument();
+    expect(article).not.toHaveTextContent("/play");
+    cleanup();
+
+    const unknown = show({ ...message({ plainText: "/play nonexistent_sound_name" }), pending: true });
+    expect(unknown.article.querySelector(".message-content")).toHaveTextContent("/play nonexistent_sound_name");
+  });
+});
+
 describe(feature("messages.optimistic"), () => {
   it("shows an unconfirmed message as busy, without actions", () => {
     const { article } = show({ ...message(), pending: true });

@@ -1242,15 +1242,16 @@ export const features = [
     id: "messages.sounds",
     title: "/play sounds",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A message of exactly `/play <name>`, naming one of 56 sounds, shows a 🔊 button with the sound's picture or caption (bell shows 🔔); anything else is ordinary text.",
       "The sound plays as the message arrives for everyone whose timeline reaches the newest message, the sender included, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.",
       "While it's sending, any text that starts with `/play <name>` shows \"Playing <name>…\", even `/play tada now`, which is then saved as ordinary text.",
     ],
-    sources: ["reference/app/models/sound.rb", "crates/db/src/models/message.rs", "crates/views/src/messages/presentation.rs", "crates/assets/overrides/models/client_message.js", "crates/assets/overrides/controllers/messages_controller.js"],
+    sources: ["reference/app/models/sound.rb", "crates/db/src/models/message.rs", "crates/views/src/messages/presentation.rs", "crates/assets/overrides/models/client_message.js", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/javascript/controllers/sound_controller.js"],
     upstreamTests: ["crates/db/src/tests/message_test.rs"],
-    notes: "`packages/richtext` lists the 56 sounds and finds the one a message plays, and the one a message that's sending shows as playing, but nothing plays them or shows the 🔊 button yet.",
+    notes:
+      "The clips and pictures are Campfire's, which the build downloads from once-campfire at the commit ember-rust pins and checks against `apps/web/plugins/campfire-sounds.json`, rather than keeping them in this repository. The 🔊 is named \"Play <name>\" for screen readers and takes taps 24px across on touch screens, and a picture too wide for its message shrinks keeping its shape, where ember-rust's is squeezed. A browser that won't play a sound before the page has been used refuses quietly. Reply quotes `/play <name>`, where ember-rust's writes nothing for a sound.",
   },
   {
     id: "messages.plain-text",

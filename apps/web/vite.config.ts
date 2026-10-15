@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
+import { campfireSounds } from "./plugins/campfire-sounds.ts";
 
 /**
  * Serves each icon a room can have as an SVG of its own at /lucide/icons/<name>.svg, which `RoomIcon`
@@ -34,7 +35,7 @@ function roomIcons(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), roomIcons()],
+  plugins: [react(), tailwindcss(), roomIcons(), campfireSounds()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

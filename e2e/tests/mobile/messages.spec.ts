@@ -1,5 +1,5 @@
-import { editorField, openRoom, signInAs } from "../../fixtures";
-import { expect, REACTION_PILLS, test } from "./fixtures";
+import { editorField, openRoom, recordSounds, signInAs, soundsPlayed } from "../../fixtures";
+import { expect, REACTION_PILLS, SOUND_BUTTONS, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -105,6 +105,19 @@ test("tapping anywhere else closes the actions, so only one message has them ope
   await first.getByText("The first message").tap();
   await expect(last.getByRole("button", { name: "Message options" })).toHaveAttribute("aria-expanded", "false");
   await expect(actions).toHaveCount(0);
+});
+
+test("sounds and their pictures fit the phone, and 🔊 plays one again with a tap", async ({ page, room, participant, screenIsFine }) => {
+  const ada = await participant("Ada");
+  // drama's picture is 300px wide, more than a phone has beside a follow-up's time.
+  for (const text of ["/play crickets", "/play drama", "/play rumble", "/play bell"]) await ada.say(text);
+  await recordSounds(page);
+  await openRoom(page, room);
+  await expect(page.getByRole("button", { name: "Play bell" })).toBeVisible();
+  await screenIsFine({ denseTargets: [SOUND_BUTTONS] });
+
+  await page.getByRole("button", { name: "Play crickets" }).tap();
+  await expect.poll(() => soundsPlayed(page)).toEqual(["/sounds/crickets.mp3"]);
 });
 
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {

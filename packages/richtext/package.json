@@ -6,7 +6,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./dom": "./src/dom.ts"
+    "./dom": "./src/dom.ts",
+    "./sounds": "./src/sounds.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

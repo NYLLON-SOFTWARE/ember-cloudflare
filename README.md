@@ -46,6 +46,12 @@ pnpm test           # unit tests and the parity check; worker tests run in worke
 pnpm build
 ```
 
+The first build downloads Campfire's `/play` sounds and their pictures (6.8 MB) from
+[once-campfire](https://github.com/basecamp/once-campfire) at the commit ember-rust pins, checks each against
+`apps/web/plugins/campfire-sounds.json`, and keeps them in `apps/web/node_modules/.cache/campfire-sounds` for the
+next; `pnpm dev` downloads them when one is first played. The app serves them at `/sounds/`, with Campfire's MIT
+license beside them.
+
 ## Browser tests
 
 `e2e/` drives the production build in Chromium, against `wrangler dev` on :8788 with its own

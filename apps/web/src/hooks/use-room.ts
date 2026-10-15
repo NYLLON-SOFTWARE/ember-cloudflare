@@ -13,10 +13,11 @@ import {
   type ServerFrame,
   type User,
 } from "@ember/protocol";
-import { writtenBody } from "@ember/richtext/dom";
+import { soundIn, writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { playSound } from "@/lib/sounds";
 import { settledVisibility } from "@/lib/visibility";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
@@ -76,6 +77,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     dispatch({ type: "sent", clientMessageIds: queued.map((m) => m.clientMessageId) });
   });
 
+  // ember-rust plays a `/play` message's sound as it arrives at the end of a timeline that holds the newest
+  // messages, the sender's own too (messages_controller.js, `#playSoundForLastMessage`), but not as a page
+  // of history or a reconnect brings it.
+  const playArrival = useEffectEvent((frame: ServerFrame) => {
+    if (frame.type !== "message.created" || state.hasNewer || state.messages.some((m) => m.id === frame.message.id)) return;
+    const sound = soundIn(frame.message.plainText);
+    if (sound) playSound(sound);
+  });
+
   useEffect(() => {
     let closed = false;
     // The latest change to the room this page has heard of, by its number, which a socket that connects
@@ -121,6 +131,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (opening) seen = frame.seq;
       else if ("seq" in frame && seen !== undefined && frame.seq === seen + 1) seen = frame.seq;
       if (opening) openingAround = undefined;
+      playArrival(frame);
       dispatch({ type: "frame", frame, now: Date.now() });
       if (!opening) return;
       room.connected();

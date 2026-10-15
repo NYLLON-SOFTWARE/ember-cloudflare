@@ -48,6 +48,12 @@ export { expect };
 export const REACTION_PILLS = "[aria-label=Reactions] :is(button, a)";
 
 /**
+ * A sound's 🔊 starts its message's text, as ember-rust's does, so it gets WCAG 2.5.8's 24px floor too:
+ * at 44px, one sound's would reach over the next one's.
+ */
+export const SOUND_BUTTONS = "article button[aria-label^='Play ']";
+
+/**
  * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones
  * (zz-ember.css), which WCAG 2.5.8's 24px floor allows.
  */

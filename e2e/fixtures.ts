@@ -159,6 +159,25 @@ export function editorField(scope: Page | Locator, name: string): Locator {
 }
 
 /**
+ * Keeps the address of each sound `page` plays from now on, which `soundsPlayed` reads, still playing it,
+ * or trying to: a browser can refuse until the page has been used.
+ */
+export async function recordSounds(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const played: string[] = [];
+    Object.assign(window, { soundsPlayed: played });
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      played.push(new URL(this.src).pathname);
+      return play.call(this);
+    };
+  });
+}
+
+/** Where the sounds `page` has played since `recordSounds` come from, oldest first. */
+export const soundsPlayed = (page: Page) => page.evaluate(() => (window as unknown as { soundsPlayed: string[] }).soundsPlayed);
+
+/**
  * Another person in a room, connected over a real WebSocket from the test runner. Use it to
  * seed messages and presence without driving a second browser.
  */

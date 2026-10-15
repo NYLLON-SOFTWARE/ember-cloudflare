@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { ServerFrame } from "@ember/protocol";
 import type { Locator, Page } from "@playwright/test";
-import { administratorOn, editorField, ROOM_SOCKET } from "../../fixtures";
+import { administratorOn, editorField, recordSounds, ROOM_SOCKET, soundsPlayed } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
@@ -196,6 +196,56 @@ test.describe(feature("messages.emoji-only"), () => {
     const content = (text: RegExp) => ada.page.locator(".message-content").filter({ hasText: text });
     await expect(content(/^😄🤘$/)).toHaveCSS("font-size", "33.6px");
     await expect(content(/^Haha! 😄🤘$/)).toHaveCSS("font-size", "15px");
+  });
+});
+
+test.describe(feature("messages.sounds"), () => {
+  test("plays a sound as it arrives for everyone in the room, the sender too, and 🔊 plays it again", async ({ members }) => {
+    const ada = await members.signIn("Ada", { beforeOpen: recordSounds });
+    const grace = await members.signIn("Grace", { beforeOpen: recordSounds });
+    await ada.send("/play tada");
+    for (const member of [ada, grace]) {
+      await expect(member.message("plays a fanfare 🎏").getByRole("button", { name: "Play tada" })).toBeVisible();
+      await expect.poll(() => soundsPlayed(member.page)).toEqual(["/sounds/tada.mp3"]);
+    }
+    await grace.page.getByRole("button", { name: "Play tada" }).click();
+    await expect.poll(() => soundsPlayed(grace.page)).toEqual(["/sounds/tada.mp3", "/sounds/tada.mp3"]);
+
+    // Campfire's clip, served beside the app.
+    const clip = await ada.page.request.get("/sounds/tada.mp3");
+    expect(clip.status()).toBe(200);
+    expect(clip.headers()["content-type"]).toBe("audio/mpeg");
+  });
+
+  test("shows a sound's picture, playing nothing for the sounds already in the room", async ({ members, participant }) => {
+    await (await participant("Grace")).say("/play yay");
+    const ada = await members.signIn("Ada", { beforeOpen: recordSounds });
+    const picture = ada.page.getByRole("article").filter({ has: ada.page.getByRole("button", { name: "Play yay" }) }).locator("img[src='/sounds/images/yay.webp']");
+    await expect(picture).toBeVisible();
+    await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(103);
+    expect(await soundsPlayed(ada.page)).toEqual([]);
+  });
+
+  test("says a sound is playing while it's on its way, then shows it", async ({ members }) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const ada = await members.signIn("Ada", {
+      // Hold the room's confirmation back until the test has looked at the unconfirmed message.
+      beforeOpen: (page) =>
+        page.routeWebSocket(ROOM_SOCKET, (ws) => {
+          const server = ws.connectToServer();
+          server.onMessage(async (frame) => {
+            if (String(frame).includes('"message.created"')) await held;
+            ws.send(frame);
+          });
+        }),
+    });
+    await ada.send("/play rimshot");
+    await expect(ada.message("Playing rimshot…")).toHaveAttribute("aria-busy", "true");
+
+    release();
+    await expect(ada.message("plays a rimshot").getByRole("button", { name: "Play rimshot" })).toBeVisible();
+    await expect(ada.page.getByText("Playing rimshot…")).toHaveCount(0);
   });
 });
 

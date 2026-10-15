@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { HISTORY_PAGE_SIZE, type Message } from "@ember/protocol";
 import type { Page } from "@playwright/test";
+import { recordSounds, soundsPlayed } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 // Every test here starts in a room with more history than fits on one page.
@@ -225,5 +226,16 @@ test.describe(feature("messages.permalink"), () => {
     await link.click();
     await expect(ada.message(body(3))).toBeInViewport();
     expect((await outlines(ada)).map((o) => (o as { messageId: string }).messageId)).toEqual([posted[2]!.id, posted[2]!.id]);
+  });
+});
+
+test.describe(feature("messages.sounds"), () => {
+  test("plays nothing for a sound that comes while the timeline holds older history", async ({ members, participant }) => {
+    const ada = await members.signIn("Ada", { path: permalink(1), beforeOpen: recordSounds });
+    await expect(ada.message(body(1))).toBeVisible();
+    await (await participant("Grace")).say("/play bell");
+    await ada.page.getByRole("button", { name: "Jump to newest message" }).click();
+    await expect(ada.page.getByRole("button", { name: "Play bell" })).toBeVisible();
+    expect(await soundsPlayed(ada.page)).toEqual([]);
   });
 });

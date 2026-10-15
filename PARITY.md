@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 68 ported and 51 partial of 172 features; 48 not started, 5 not applicable.
+**Overall:** 69 ported and 50 partial of 172 features; 48 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
-| [Messages](#messages) | 8 | 11 | 0 | 0 | 19 |
+| [Messages](#messages) | 9 | 10 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **68** | **51** | **48** | **5** | **172** |
+| **Total** | **69** | **50** | **48** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1032,7 +1032,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Copy a link to a message | `messages.copy-link` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Link to a message | `messages.permalink` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [use-route](apps/web/src/hooks/use-route.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | Emoji-only messages | `messages.emoji-only` | Campfire | 🟡 Partial | Rich text: [emoji](packages/richtext/src/emoji.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| /play sounds | `messages.sounds` | Campfire | 🟡 Partial | Rich text: [sounds](packages/richtext/src/sounds.test.ts) |
+| /play sounds | `messages.sounds` | Campfire | ✅ Ported | Rich text: [sounds](packages/richtext/src/sounds.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [sounds](apps/web/src/lib/sounds.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | Plain-text version of a message | `messages.plain-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
 | Links in message text | `messages.autolink` | Campfire | ✅ Ported | Rich text: [autolink](packages/richtext/src/autolink.test.ts), [display](packages/richtext/src/display.test.ts), [hardening](packages/richtext/src/hardening.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Messages that can't be shown | `messages.unrenderable` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx) |
@@ -1214,15 +1214,15 @@ Sources: [`reference/lib/rails_ext/string.rb`](https://github.com/basecamp/once-
 
 ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message_test.rb) · [`reference/test/system/sending_messages_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/sending_messages_test.rb)
 
-**/play sounds** (`messages.sounds`) 🟡
+**/play sounds** (`messages.sounds`) ✅
 
 - A message of exactly `/play <name>`, naming one of 56 sounds, shows a 🔊 button with the sound's picture or caption (bell shows 🔔); anything else is ordinary text.
 - The sound plays as the message arrives for everyone whose timeline reaches the newest message, the sender included, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.
 - While it's sending, any text that starts with `/play <name>` shows "Playing &lt;name&gt;…", even `/play tada now`, which is then saved as ordinary text.
 
-Note: `packages/richtext` lists the 56 sounds and finds the one a message plays, and the one a message that's sending shows as playing, but nothing plays them or shows the 🔊 button yet.
+Note: The clips and pictures are Campfire's, which the build downloads from once-campfire at the commit ember-rust pins and checks against `apps/web/plugins/campfire-sounds.json`, rather than keeping them in this repository. The 🔊 is named "Play &lt;name&gt;" for screen readers and takes taps 24px across on touch screens, and a picture too wide for its message shrinks keeping its shape, where ember-rust's is squeezed. A browser that won't play a sound before the page has been used refuses quietly. Reply quotes `/play <name>`, where ember-rust's writes nothing for a sound.
 
-Sources: [`reference/app/models/sound.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/sound.rb) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
+Sources: [`reference/app/models/sound.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/sound.rb) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/assets/overrides/models/client_message.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/client_message.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/javascript/controllers/sound_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sound_controller.js)
 
 ember-rust tests: [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs)
 

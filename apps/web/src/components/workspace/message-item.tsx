@@ -1,11 +1,12 @@
-import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Me, Message, User } from "@ember/protocol";
-import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
+import { displayBody, isAllEmoji, pendingSound, soundIn, type DisplayNode, type Sound } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
 import { messagePath } from "@/hooks/use-route";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
+import { playSound, soundImageUrl } from "@/lib/sounds";
 import { cn } from "@/lib/utils";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
@@ -77,6 +78,30 @@ function UnrenderableMessage() {
   );
 }
 
+/**
+ * ember-rust's `sound_presentation` (crates/views/src/messages/presentation.rs) in place of a message that
+ * plays a sound: Campfire's `.btn.btn--plain` 🔊 (buttons.css), which plays it again, then the sound's words,
+ * or its picture on a line of its own. Unlike ember-rust's, the button is named for the sound, which the
+ * picture's alt text needn't repeat, and on touch screens it takes taps 24px across, WCAG 2.5.8's floor for
+ * controls in running text: at 44px, one sound's would reach over the next one's.
+ */
+function MessageSound({ sound, trailing, className }: { sound: Sound; trailing?: ReactNode; className?: string }) {
+  return (
+    <div dir="auto" className={cn("leading-[22px] text-message-ink", className)}>
+      <button
+        type="button"
+        aria-label={`Play ${sound.name}`}
+        onClick={() => playSound(sound)}
+        className="relative inline-flex cursor-pointer touch-manipulation items-center justify-center rounded-[9px] border border-transparent font-medium text-foreground touch:after:absolute touch:after:inset-[calc(50%-12px)]"
+      >
+        🔊
+      </button>
+      {"image" in sound ? <img src={soundImageUrl(sound.image)} width={sound.image.width} height={sound.image.height} alt="" /> : sound.text}
+      {trailing !== undefined && <> {trailing}</>}
+    </div>
+  );
+}
+
 // The names below are the people directory's, which follow a rename, read where they're shown, so a
 // change to the directory doesn't render every message again.
 
@@ -112,6 +137,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   const mentioned = message.mentions.some((person) => person.id === me.id);
   const shown = useMemo(() => shownBody(message.body), [message.body]);
   const allEmoji = isAllEmoji(message.plainText);
+  const sound = pending ? undefined : soundIn(message.plainText);
+  // What client_message.js shows while a message that starts with `/play <name>` is on its way, whatever follows.
+  const playing = pending ? pendingSound(message.plainText) : undefined;
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
@@ -187,13 +215,19 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
 
           {/* A grouped message has no header, so its mark follows the text. Where Message options is 44px, the
               text stops 32px short of the row's end, clear of it. */}
-          <MessageBody
-            nodes={shown}
-            mentions={message.mentions}
-            emoji={allEmoji}
-            trailing={(threaded && edited) || undefined}
-            className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
-          />
+          {playing !== undefined ? (
+            <span className={cn("text-message-ink", threaded && "col-start-1 row-start-1 min-w-0")}>Playing {playing}…</span>
+          ) : sound ? (
+            <MessageSound sound={sound} trailing={(threaded && edited) || undefined} className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"} />
+          ) : (
+            <MessageBody
+              nodes={shown}
+              mentions={message.mentions}
+              emoji={allEmoji}
+              trailing={(threaded && edited) || undefined}
+              className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
+            />
+          )}
 
           {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
 

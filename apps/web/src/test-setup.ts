@@ -29,6 +29,8 @@ globalThis.IntersectionObserver ??= class {
   }
 } as unknown as typeof IntersectionObserver;
 Element.prototype.scrollIntoView ??= () => {};
+// jsdom can't play sounds, and only says so, where a browser plays them or refuses with a rejected promise.
+HTMLMediaElement.prototype.play = () => Promise.resolve();
 
 // jsdom's dialogs can't open or close, so these do what browsers do, short of the top layer and
 // moving focus.
