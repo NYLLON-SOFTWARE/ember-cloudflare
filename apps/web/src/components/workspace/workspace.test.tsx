@@ -43,6 +43,21 @@ class QuietSocket {
   close() {}
 }
 
+/** Sockets that every room lets Ada into, with nothing said yet, so its composer loads its editor. */
+class OpenRoomSocket extends QuietSocket {
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  constructor(url: string) {
+    super();
+    if (!url.includes("/api/rooms/")) return;
+    setTimeout(() => {
+      this.readyState = QuietSocket.OPEN;
+      this.onopen?.();
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false }) });
+    });
+  }
+}
+
 /**
  * Sockets that `roomId`'s room closes as soon as they open, as it does for a room that's gone for this
  * person, after welcoming them with `messages` if there are any, as a room that goes while it's open does.
@@ -401,11 +416,12 @@ describe(feature("rooms.member-only-access"), () => {
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
     expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
-    expect(screen.queryByRole("textbox", { name: "Message #random" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
 
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
     expect(await roomHeading()).toHaveTextContent("general");
-    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
   });
 
   it("leaves the messages of a room that's gone with nothing to do to them", async () => {
@@ -685,7 +701,7 @@ describe(feature("sidebar.live-updates"), () => {
     await workspaceSends({ type: "room.saved", room: { ...rooms[0]!, name: "plans" } });
     expect(sidebarRooms()).toEqual(["Design", "plans", "random"]);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("plans");
-    expect(screen.getByRole("textbox", { name: "Message #plans" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #plans");
   });
 
   it("keeps the room shown on screen, saying it was deleted, when the workspace socket says it's gone before the room's own does", async () => {
@@ -695,7 +711,7 @@ describe(feature("sidebar.live-updates"), () => {
     expect(sidebarRooms()).toEqual(["general"]);
     expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
-    expect(screen.queryByRole("textbox", { name: "Message #random" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/random");
   });
 
@@ -708,7 +724,7 @@ describe(feature("sidebar.live-updates"), () => {
     await workspaceSends({ type: "room.saved", room: rooms[1]! });
     expect(sidebarRooms()).toEqual(["general", "random"]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message #random" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #random");
   });
 
   it("connects again to a room its own socket found gone once the workspace socket brings it back", async () => {
@@ -735,7 +751,7 @@ describe(feature("sidebar.live-updates"), () => {
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
 
     await workspaceSends({ type: "room.saved", room: rooms[1]! });
-    expect(await screen.findByRole("textbox", { name: "Message #random" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #random");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(sidebarRooms()).toEqual(["general", "random"]);
     expect(roomSockets).toBe(2);
@@ -747,7 +763,7 @@ describe(feature("sidebar.live-updates"), () => {
     await workspaceSends({ type: "room.gone", roomId: "random" });
     expect(sidebarRooms()).toEqual(["general"]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
   });
 });
 
@@ -948,8 +964,11 @@ describe(feature("ui.mobile-drawer"), () => {
 
 describe(feature("ui.accessibility"), () => {
   it("skips to the main content from the first thing Tab reaches, leaving the address as it is", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
+    // The room's composer takes focus as it opens. From the top of the page, Tab reaches the link first.
+    (await screen.findByRole("textbox", { name: "Write a message" })).blur();
     await user.tab();
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(skip).toHaveFocus();
@@ -971,13 +990,14 @@ describe(feature("ui.accessibility"), () => {
   });
 
   it("names the rail, the rooms, the DMs, the messages and the composer", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Rooms" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "DMs" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toContainElement(screen.getByRole("log", { name: "Messages in general" }));
-    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
   });
 
   it("gives every button and link a name, icon-only ones included", async () => {

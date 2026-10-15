@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 44 ported and 58 partial of 172 features; 65 not started, 5 not applicable.
+**Overall:** 45 ported and 59 partial of 172 features; 63 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -32,10 +32,10 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 3 | 3 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
-| [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
+| [Composer](#composer) | 1 | 3 | 1 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **44** | **58** | **65** | **5** | **172** |
+| **Total** | **45** | **59** | **63** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -1003,8 +1003,8 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Rich text: [plain-paragraph](packages/richtext/src/plain-paragraph.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [display](packages/richtext/src/display.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [highlight](apps/web/src/lib/highlight.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Send a message | `messages.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Rich text: [plain-paragraph](packages/richtext/src/plain-paragraph.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| Rich text, safely | `messages.rich-text` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [display](packages/richtext/src/display.test.ts), [dom](packages/richtext/src/dom.test.ts), [hardening](packages/richtext/src/hardening.test.ts), [parse](packages/richtext/src/parse.test.ts), [sanitize](packages/richtext/src/sanitize.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [highlight](apps/web/src/lib/highlight.test.ts)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | See your message before it's saved | `messages.optimistic` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Edit a message | `messages.edit` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Delete a message | `messages.delete` | Campfire | 🟡 Partial | Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
@@ -1033,7 +1033,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Sending to a room you're no longer in shows "This room was deleted." and saves nothing.
 - Times show in the viewer's locale and time zone, with the date and time on hover.
 
-Note: Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty ("Your message is empty."), one whose plain text is over 10,000 characters, or one it couldn't show ("That message couldn't be saved."), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload ("Ember has been updated. Reload the page to keep chatting."), and its messages and edits are refused until it does. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.
+Note: Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty ("Your message is empty."), one whose plain text is over 10,000 characters, or one it couldn't show ("That message couldn't be saved."), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload ("Ember has been updated. Reload the page to keep chatting."), and its messages and edits are refused until it does. The composer doesn't send a message the room would refuse as too long, where ember-rust has no limit: it says "Messages can be up to 10,000 characters." and keeps it to be cut down.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/message.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message.rb)
 
@@ -1047,7 +1047,7 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
 - While a message is sending, its pending copy shows the formatting as typed.
 
-Note: What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. The composer is still a plain-text box, so nothing writes formatting yet.
+Note: What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.
 
 Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
@@ -1074,7 +1074,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Saving without changes leaves the message as it was, its update time included.
 - Up Arrow pressed anywhere on the page, while the composer is blank and the newest messages are loaded, edits your latest loaded message.
 
-Note: Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing. The editor edits a message's plain text and sends it as typed text, so saving a formatted message drops its formatting, though nothing can write formatting yet. An edit is refused as a new message is. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.
+Note: Only authors can edit, since there are no administrators yet. The editor is Lexxy, as in ember-rust, but until its edit form is ported it has Cancel and Save buttons, Enter saves on a computer (Shift+Enter starts a new line), and its formatting toolbar never shows. Up Arrow does nothing. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/composer.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/composer.css)
 
@@ -2090,8 +2090,8 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 |---|---|---|---|---|
 | Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Keep drafts | `composer.draft` | Campfire | ⬜ Not started |  |
-| Formatting toolbar | `composer.formatting-toolbar` | Campfire | ⬜ Not started |  |
+| Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Formatting toolbar | `composer.formatting-toolbar` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Pasting into the composer | `composer.paste` | Campfire | ⬜ Not started |  |
 
 <details>
@@ -2104,7 +2104,7 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 - With the mention list open, Enter picks a mention instead of sending.
 - Blank messages aren't sent, though one holding only a mention is. After sending, the toolbar closes and the composer keeps focus, on touch screens too.
 
-Note: There's no formatting toolbar or mention list. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too.
+Note: There's no mention list yet. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too. An address left unfinished in Link, or Link opened out of sight by Cmd or Ctrl+K, doesn't stop Send, where in ember-rust it keeps the message from reaching the server.
 
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
 
@@ -2116,25 +2116,29 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 - The buttons are titled "Attach files", "Formatting options" and "Send message", and screen readers call them "Attach a file", "Rich text" and "Send Message".
 - The text box is named "Write a message", with the placeholder "Message #general" ("Message Ada" in a DM). It grows up to min(32dvh, 300px) and is focused on load, except on touch devices.
 
-Note: The text box is named after its placeholder, the button is called "Send", a "Shift + Enter for a new line" hint (hidden on touch screens) sits where Attach files and Formatting options would be, and nothing is focused on load.
+Note: There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.
 
 Sources: [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Keep drafts** (`composer.draft`) ⬜
+**Keep drafts** (`composer.draft`) ✅
 
 - Whatever you've typed in a room, formatting and mentions included, is kept in this browser (`composer-draft-<room id>`) and restored, cursor at the end, when you come back.
 - Sending, or emptying the box, clears it.
 
+Note: Drafts are kept for each person apart (`composer-draft-<user id>-<room id>`), where ember-rust keeps one a room, so whoever signs in on the same browser next doesn't see them.
+
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`reference/app/javascript/controllers/composer_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/composer_controller.js)
 
-**Formatting toolbar** (`composer.formatting-toolbar`) ⬜
+**Formatting toolbar** (`composer.formatting-toolbar`) 🟡
 
 - Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit go under "Show more toolbar buttons", and its menus open upward.
 - Link, or Cmd or Ctrl+K, asks for an address ("Enter a URL…") with Link and Unlink buttons.
 - There's no underline, highlight color, table, divider, undo, redo or upload button, though Cmd or Ctrl+U still underlines.
 - Markdown works as you type: `#` headings, `>` quotes, `-`, `*`, `+` and `1.` lists, three backticks for a code block, `---` for a divider, backticks for code, `**bold**`, `*italic*`, `~~strike~~`, `==highlight==` and `[text](url)`.
+
+Note: This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is. Each tool has yet to be checked against ember-rust's.
 
 Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`reference/app/javascript/initializers/rich_text.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/rich_text.js) · [`reference/app/assets/stylesheets/actiontext.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/actiontext.css) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 

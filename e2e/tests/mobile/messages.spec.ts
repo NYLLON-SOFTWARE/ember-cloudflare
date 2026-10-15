@@ -73,10 +73,10 @@ test("tapping anywhere else closes the actions, so only one message has them ope
 
 test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
-  const composer = page.getByRole("textbox", { name: `Message #${room.name}` });
+  const composer = page.getByRole("textbox", { name: "Write a message" });
   await composer.tap();
   await page.keyboard.type("A message to edit");
-  await page.getByRole("button", { name: "Send" }).tap();
+  await page.getByRole("button", { name: "Send Message" }).tap();
 
   const message = page.getByRole("article").filter({ hasText: "A message to edit" });
   await expect(message).not.toHaveAttribute("aria-busy");

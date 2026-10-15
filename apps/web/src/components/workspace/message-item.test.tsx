@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_MESSAGE_LENGTH, type Boost, type Message, type User } from "@ember/protocol";
+import type { Boost, Message, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -38,6 +38,9 @@ function show(m: Message | PendingMessage, { me = ada, threaded = false, sent = 
   const { container } = render(<MessageItem message={m} me={me} threaded={threaded} actions={actions} />);
   return { actions, user: userEvent.setup(), article: within(container).getByRole("article") };
 }
+
+/** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
+const editBox = () => screen.findByRole("textbox", { name: "Edit message" });
 
 /** The Message options button on the message that says `body`. */
 const optionsOn = (body: string) => within(screen.getByText(body).closest("article")!).getByRole("button", { name: "Message options" });
@@ -118,39 +121,38 @@ describe(feature("messages.edit"), () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  it("edits in place: Enter saves the trimmed text", async () => {
+  it("edits in place, starting from the message, and Enter saves", async () => {
     const { actions, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = screen.getByRole("textbox");
+    const editor = await editBox();
     expect(editor).toHaveValue("Hello");
     expect(editor).toHaveFocus();
     await user.clear(editor);
-    await user.type(editor, "  Hello again {Enter}");
+    await user.type(editor, "Hello again{Enter}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello again</p>");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("edits a message's plain text and sends it as typed, line breaks and all, never as markup", async () => {
-    const { actions, user } = show(message({ body: "<p>Hello <strong>all</strong></p>", plainText: "Hello all" }));
+  it("starts a new line on Shift+Enter, and saves from the Save button too", async () => {
+    const { actions, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = screen.getByRole("textbox");
-    expect(editor).toHaveValue("Hello all");
-    await user.clear(editor);
-    await user.type(editor, "<b>1</b> < 2 &{Shift>}{Enter}{/Shift}3{Enter}");
-    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>&lt;b&gt;1&lt;/b&gt; &lt; 2 &amp;<br>3</p>");
+    await user.type(await editBox(), "{Shift>}{Enter}{/Shift}again");
+    expect(actions.edit).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello<br>again</p>");
   });
 
   it("cancels an edit on Escape and ignores unchanged or blank edits", async () => {
     const { actions, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.type(screen.getByRole("textbox"), " more{Escape}");
+    await user.type(await editBox(), " more{Escape}");
     expect(screen.getByText("Hello")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.type(screen.getByRole("textbox"), "{Enter}");
+    await user.type(await editBox(), "{Enter}");
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.clear(screen.getByRole("textbox"));
-    await user.type(screen.getByRole("textbox"), "{Enter}");
+    await user.clear(await editBox());
+    await user.type(await editBox(), "{Enter}");
     expect(actions.edit).not.toHaveBeenCalled();
   });
 
@@ -161,16 +163,10 @@ describe(feature("messages.edit"), () => {
     expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
   });
 
-  it("caps edits at the length the server accepts", async () => {
-    const { user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("textbox")).toHaveAttribute("maxlength", String(MAX_MESSAGE_LENGTH));
-  });
-
   it("doesn't save on the Enter that confirms an input method's word", async () => {
     const { actions, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = screen.getByRole("textbox");
+    const editor = await editBox();
     fireEvent.change(editor, { target: { value: "こんにちは" } });
     fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
     expect(actions.edit).not.toHaveBeenCalled();
@@ -179,13 +175,13 @@ describe(feature("messages.edit"), () => {
     expect(editor).not.toBeInTheDocument();
   });
 
-  it("keeps the editor and its draft when the edit can't be sent", async () => {
+  it("keeps the editor and what's written when the edit can't be sent", async () => {
     const { actions, user } = show(message(), { sent: false });
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.clear(screen.getByRole("textbox"));
-    await user.type(screen.getByRole("textbox"), "hello{Enter}");
+    await user.clear(await editBox());
+    await user.type(await editBox(), "hello{Enter}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>hello</p>");
-    expect(screen.getByRole("textbox")).toHaveValue("hello");
+    expect(await editBox()).toHaveValue("hello");
   });
 });
 

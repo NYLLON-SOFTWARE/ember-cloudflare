@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
+  isMessageTooLong,
   isPasswordTooLong,
   isPasswordTooShort,
   isRoomIcon,
@@ -12,6 +13,7 @@ import {
   MAX_CUSTOM_STYLES_LENGTH,
   MAX_LISTED_USERS,
   MAX_MESSAGE_HTML_LENGTH,
+  MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseAccountChanges,
@@ -57,6 +59,13 @@ describe(feature("messages.create"), () => {
     expect(parse({ type: "message.create", clientMessageId: "c1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
     expect(parse({ type: "message.update", messageId: "m1", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) })).toBeNull();
     expect(parse({ type: "message.create", clientMessageId: "c".repeat(65), body: "hi" })).toBeNull();
+  });
+
+  it(`counts a message's plain text in UTF-16 units, as the room does, up to ${MAX_MESSAGE_LENGTH}`, () => {
+    expect(isMessageTooLong("x".repeat(MAX_MESSAGE_LENGTH))).toBe(false);
+    expect(isMessageTooLong("x".repeat(MAX_MESSAGE_LENGTH + 1))).toBe(true);
+    expect(isMessageTooLong("🔥".repeat(MAX_MESSAGE_LENGTH / 2))).toBe(false);
+    expect(isMessageTooLong("🔥".repeat(MAX_MESSAGE_LENGTH / 2 + 1))).toBe(true);
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {

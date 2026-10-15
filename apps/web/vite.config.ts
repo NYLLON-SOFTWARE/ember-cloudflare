@@ -35,7 +35,13 @@ function roomIcons(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), roomIcons()],
-  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+      // Lexxy's package exports only its scripts, so its stylesheets are reached by their path.
+      "@37signals/lexxy/stylesheets": path.resolve(import.meta.dirname, "node_modules/@37signals/lexxy/dist/stylesheets"),
+    },
+  },
   build: {
     // The polyfill would be a chunk of its own once there are two pages, and one more request for the
     // app's. Browsers without modulepreload still load everything; they just don't fetch it early.

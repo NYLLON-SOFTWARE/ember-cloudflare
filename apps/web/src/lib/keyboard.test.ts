@@ -1,4 +1,3 @@
-import type { KeyboardEvent } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendsMessage } from "./keyboard";
 
@@ -6,8 +5,7 @@ function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
 }
 
-const press = (key: string, modifiers: Partial<Pick<KeyboardEvent, "shiftKey" | "metaKey" | "ctrlKey">> = {}, isComposing = false) =>
-  ({ key, shiftKey: false, metaKey: false, ctrlKey: false, ...modifiers, nativeEvent: { isComposing } }) as unknown as KeyboardEvent;
+const press = (key: string, init: KeyboardEventInit = {}) => new KeyboardEvent("keydown", { key, ...init });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -25,6 +23,12 @@ describe("sendsMessage", () => {
     expect(sendsMessage(press("Enter"))).toBe(false);
   });
 
+  it("starts a new paragraph on Enter while the formatting toolbar is open", () => {
+    pointer(false);
+    expect(sendsMessage(press("Enter"), { toolbarOpen: true })).toBe(false);
+    expect(sendsMessage(press("Enter", { ctrlKey: true }), { toolbarOpen: true })).toBe(true);
+  });
+
   it("sends on Cmd+Enter or Ctrl+Enter everywhere", () => {
     pointer(true);
     expect(sendsMessage(press("Enter", { metaKey: true }))).toBe(true);
@@ -33,7 +37,8 @@ describe("sendsMessage", () => {
 
   it("leaves Enter to an input method that is still composing", () => {
     pointer(false);
-    expect(sendsMessage(press("Enter", {}, true))).toBe(false);
+    expect(sendsMessage(press("Enter", { isComposing: true }))).toBe(false);
+    expect(sendsMessage(press("Enter", { isComposing: true, metaKey: true }))).toBe(false);
   });
 
   it("ignores other keys", () => {
