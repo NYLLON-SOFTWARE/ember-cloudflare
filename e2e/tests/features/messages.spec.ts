@@ -208,90 +208,218 @@ test.describe(feature("messages.follow-up-times"), () => {
 });
 
 test.describe(feature("messages.actions"), () => {
-  test("shows a message's bar while it's hovered, one message at a time", async ({ members, participant }) => {
-    await (await participant("Grace")).say("Grace's message");
-    const ada = await members.signIn("Ada");
-    await ada.send("Ada's message");
-    await expect(ada.message("Ada's message")).not.toHaveAttribute("aria-busy");
-    const bar = (text: string) => ada.message(text).getByRole("group", { name: "Message actions" });
-    await expect(bar("Grace's message")).toBeHidden();
+  const bar = (message: Locator) => message.getByRole("group", { name: "Message actions" });
 
-    await ada.message("Grace's message").hover();
-    await expect(bar("Grace's message").getByRole("button")).toHaveCount(4);
-    for (const [i, name] of ["Thumbs up", "Clapping", "Waving hand", "More reactions"].entries()) {
-      await expect(bar("Grace's message").getByRole("button").nth(i)).toHaveAccessibleName(name);
+  // After ember-rust's "compact message actions appear on hover, stay reachable, and dismiss without
+  // shifting messages" (parity/kro/workspace.test.mjs).
+  test("opens over the top edge of the message the pointer crosses, without moving anything, one at a time", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
+    await ada.send("Hover over this message.");
+    await ada.send("And then this message.");
+    const first = ada.message("Hover over this message.");
+    const second = ada.message("And then this message.");
+    await expect(second).not.toHaveAttribute("aria-busy");
+    const elsewhere = ada.page.getByRole("heading", { level: 1 });
+    await elsewhere.hover();
+    const text = first.locator(".message-content");
+    const before = await box(text);
+
+    await first.hover();
+    await expect(bar(first)).toBeVisible();
+    expect(await box(text)).toEqual(before);
+    const bounds = await box(bar(first));
+    const row = await box(first);
+    const pane = await box(ada.timeline());
+    expect(bounds).toMatchObject({ width: 266, height: 42 });
+    expect(pane.x + pane.width - bounds.x - bounds.width).toBe(16);
+    expect(row.y - bounds.y).toBe(17);
+    // Message options is the bar's last button, and the bar overlaps the row rather than floating above it.
+    const options = await box(first.getByRole("button", { name: "Message options" }));
+    expect(options.x >= bounds.x && options.x + options.width <= bounds.x + bounds.width).toBe(true);
+    expect(options.y >= bounds.y && options.y + options.height <= bounds.y + bounds.height).toBe(true);
+    expect(bounds.y < row.y + row.height && bounds.y + bounds.height >= row.y + 12).toBe(true);
+
+    // The pointer can cross to the bar, and back to its message.
+    await ada.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { steps: 8 });
+    await ada.page.waitForTimeout(250);
+    await expect(bar(first)).toBeVisible();
+    await first.hover();
+    await ada.page.waitForTimeout(250);
+    await expect(bar(first)).toBeVisible();
+
+    await second.hover();
+    await expect(bar(second)).toBeVisible();
+    await expect(bar(first)).toBeHidden();
+    const secondRow = await box(second);
+    const secondBounds = await box(bar(second));
+    const barMiddle = secondBounds.y + secondBounds.height / 2;
+    expect(barMiddle >= secondRow.y + 3 && barMiddle <= secondRow.y + 5).toBe(true);
+    // However slowly the pointer goes, the bar doesn't count on the moment it waits after the pointer leaves.
+    const start = { x: (await box(second.locator(".message-content"))).x + 40, y: secondRow.y + Math.min(12, secondRow.height / 2) };
+    const end = { x: secondBounds.x + 20, y: barMiddle };
+    for (let step = 1; step <= 8; step++) {
+      await ada.page.mouse.move(start.x + ((end.x - start.x) * step) / 8, start.y + ((end.y - start.y) * step) / 8);
+      await ada.page.waitForTimeout(100);
+      expect(await bar(second).isVisible()).toBe(true);
     }
-
-    await ada.message("Ada's message").hover();
-    await expect(bar("Grace's message")).toBeHidden();
-    await expect(bar("Ada's message")).toBeVisible();
-    await expect(bar("Ada's message").getByRole("button", { name: "Edit" })).toBeVisible();
-
-    await ada.composer().hover();
-    await expect(bar("Ada's message")).toBeHidden();
+    await expect(ada.page.getByRole("group", { name: "Message actions" })).toHaveCount(1);
+    await elsewhere.hover();
+    await expect(bar(second)).toBeHidden();
   });
 
-  test("lets the keyboard reach the bar through Message options", async ({ members, participant }) => {
+  test("opens from Message options by keyboard, staying open without the pointer, until Escape", async ({ members, participant }) => {
     await (await participant("Grace")).say("Reach me by keyboard");
     const ada = await members.signIn("Ada");
     const message = ada.message("Reach me by keyboard");
-    const bar = message.getByRole("group", { name: "Message actions" });
+    const options = message.getByRole("button", { name: "Message options" });
 
     await ada.composer().focus();
     await ada.page.keyboard.press("Shift+Tab");
-    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
-    await expect(bar).toBeVisible();
+    await expect(options).toBeFocused();
+    // Focus shows Message options, not the bar, as in ember-rust.
+    await expect(options).toHaveCSS("opacity", "1");
+    await expect(bar(message)).toBeHidden();
+    await ada.page.keyboard.press("Enter");
+    await expect(bar(message)).toBeVisible();
+    await expect(options).toHaveAttribute("aria-expanded", "true");
+    await ada.page.getByRole("heading", { level: 1 }).hover();
+    await ada.page.waitForTimeout(250);
+    await expect(bar(message)).toBeVisible();
+    await ada.page.keyboard.press("Escape");
+    await expect(bar(message)).toBeHidden();
+    await expect(options).toBeFocused();
+
+    await ada.page.keyboard.press("Enter");
     await ada.page.keyboard.press("Tab");
-    await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeFocused();
+    await expect(bar(message).getByRole("button", { name: "Thumbs up" })).toBeFocused();
     await ada.page.keyboard.press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
-    // As in ember-rust, sending a reaction hands focus back to Message options.
+    // As in ember-rust, sending a reaction closes the bar and hands focus back to Message options.
+    await expect(bar(message)).toBeHidden();
+    await expect(options).toBeFocused();
+  });
+
+  // After ember-rust's "compact message actions preserve reactions, reply, copying, and keyboard focus".
+  test("keeps the bar on its row as the tray of more reactions opens, and Escape closes the tray, then the bar", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
+    await ada.send("A compact set of message actions.");
+    const message = ada.message("A compact set of message actions.");
+    await expect(message).not.toHaveAttribute("aria-busy");
+    const actions = await ada.actions("A compact set of message actions.");
+    const quick = actions.getByRole("group", { name: "Quick reactions" });
+    const more = actions.getByRole("button", { name: "More reactions" });
+    const tray = message.getByRole("group", { name: "More reactions" });
+    await expect(quick.getByRole("button")).toHaveCount(3);
+    await expect(more.locator("svg")).toHaveCount(1);
+    await expect(tray).toBeHidden();
+    const bounds = await box(actions);
+    expect(bounds.width < 300 && bounds.height < 52).toBe(true);
+    const quickBefore = await box(quick);
+
+    await more.click();
+    await expect(tray).toBeVisible();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    await expect(tray).toContainText("More reactions");
+    expect(Math.abs((await box(quick)).y - quickBefore.y)).toBeLessThan(1);
+    expect((await box(tray)).y).toBeGreaterThan(quickBefore.y);
+    await ada.page.keyboard.press("Tab");
+    await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
+    await ada.page.keyboard.press("Escape");
+    await expect(tray).toBeHidden();
+    await expect(more).toBeFocused();
+    await ada.page.keyboard.press("Escape");
+    await expect(actions).toBeHidden();
     await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
-  });
 
-  test("closes a bar opened from Message options on a click elsewhere, so only one is open", async ({ members, participant }) => {
-    const grace = await participant("Grace");
-    await grace.say("First");
-    await grace.say("Second");
-    const ada = await members.signIn("Ada");
-    const options = (text: string) => ada.message(text).getByRole("button", { name: "Message options" });
-    const bar = (text: string) => ada.message(text).getByRole("group", { name: "Message actions" });
+    // A reaction from the tray closes it too, with the pointer away, which would open it again.
+    await ada.page.getByRole("heading", { level: 1 }).hover();
+    await ada.page.keyboard.press("Enter");
+    await expect(actions).toBeVisible();
+    await more.press("Enter");
+    await tray.getByRole("button", { name: "Fire" }).press("Enter");
+    await expect(message.getByRole("list", { name: "Reactions" })).toContainText("🔥");
+    await expect(actions).toBeHidden();
+    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
 
-    await ada.message("First").hover();
-    await options("First").click();
-    // Opened from its button, the bar stays when the pointer leaves, until a click anywhere else.
-    await ada.composer().hover();
-    await expect(bar("First")).toBeVisible();
+    // A click anywhere else closes it.
+    await ada.page.keyboard.press("Enter");
+    await expect(actions).toBeVisible();
     await ada.page.getByRole("heading", { level: 1 }).click();
-    await expect(bar("First")).toBeHidden();
-    await expect(options("First")).toHaveAttribute("aria-expanded", "false");
-
-    await ada.message("First").hover();
-    await options("First").click();
-    await ada.message("Second").hover();
-    await options("Second").click();
-    await expect(options("First")).toHaveAttribute("aria-expanded", "false");
-    await expect(bar("First")).toBeHidden();
-    await expect(bar("Second")).toBeVisible();
+    await expect(actions).toBeHidden();
   });
 
-  test("opens the bar from a 44px Message options button on touch screens, on screen at 320px", async ({ members, participant }) => {
-    await (await participant("Grace")).say("Tap for options");
-    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 640 } } });
+  test("opens the tray above a bar near the composer, keeping the bar where it was", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    for (let i = 1; i <= 8; i++) await grace.say(`Earlier message ${i}`);
+    await grace.say("Near the composer");
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 500 } } });
+    const message = ada.message("Near the composer");
+    const actions = await ada.actions("Near the composer");
+    const quick = await box(actions.getByRole("group", { name: "Quick reactions" }));
+    await actions.getByRole("button", { name: "More reactions" }).click();
+    const tray = await box(message.getByRole("group", { name: "More reactions" }));
+    expect(Math.abs((await box(actions.getByRole("group", { name: "Quick reactions" }))).y - quick.y)).toBeLessThan(1);
+    expect(tray.y).toBeLessThan(quick.y);
+    expect(tray.y).toBeGreaterThanOrEqual((await box(ada.timeline())).y);
+  });
+
+  // After ember-rust's "compact message actions fit mobile edges, attachments, and dark mode".
+  test("opens the bar beside a 44px Message options button on touch screens, inside the timeline at 390 and 320 wide", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    for (let i = 1; i <= 12; i++) await grace.say(`Earlier message ${i}`);
+    await grace.say("Tap for options");
+    const ada = await members.signIn("Ada", { context: { ...phone, colorScheme: "dark" } });
     const message = ada.message("Tap for options");
     const options = message.getByRole("button", { name: "Message options" });
-    // Found on the page rather than in the message, so it doesn't matter where the bar is drawn.
-    const bar = ada.page.getByRole("group", { name: "Message actions" });
-    expect(await box(options)).toMatchObject({ width: 44, height: 44 });
-    await expect(options).toHaveAttribute("aria-expanded", "false");
-    await expect(bar).toBeHidden();
+    for (const width of [390, 320]) {
+      await ada.page.setViewportSize({ width, height: width === 320 ? 620 : 844 });
+      await ada.timeline().evaluate((log) => (log.scrollTop = log.scrollHeight));
+      expect(await box(options)).toMatchObject({ width: 44, height: 44 });
+      await options.tap();
+      await expect(options).toHaveAttribute("aria-expanded", "true");
+      await bar(message).getByRole("button", { name: "More reactions" }).tap();
+      await expect(message.getByRole("group", { name: "More reactions" })).toBeVisible();
+      const bounds = await box(bar(message));
+      const timeline = await box(ada.timeline());
+      const trigger = await box(options);
+      expect(bounds.x).toBeGreaterThanOrEqual(7);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 7);
+      expect(bounds.y).toBeGreaterThanOrEqual(timeline.y);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(timeline.y + timeline.height);
+      // It goes below Message options, or above when there's no room below, as here at the timeline's end.
+      expect(trigger.y + trigger.height + bounds.height + 6).toBeGreaterThan(timeline.y + timeline.height - 8);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(trigger.y - 6);
+      await ada.page.getByRole("heading", { level: 1 }).tap();
+      await expect(bar(message)).toBeHidden();
+    }
+  });
 
+  test("opens the bar below Message options on touch screens where there's room", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Room below me");
+    const ada = await members.signIn("Ada", { context: phone });
+    const options = ada.message("Room below me").getByRole("button", { name: "Message options" });
     await options.tap();
-    await expect(bar).toBeVisible();
-    await expect(options).toHaveAttribute("aria-expanded", "true");
-    const { x, width } = await box(bar);
-    expect(x).toBeGreaterThanOrEqual(0);
-    expect(x + width).toBeLessThanOrEqual(320);
+    const trigger = await box(options);
+    const bounds = await box(bar(ada.message("Room below me")));
+    expect(bounds.y).toBe(trigger.y + trigger.height + 6);
+    expect(bounds.x + bounds.width).toBe(Math.min(trigger.x + trigger.width, 390 - 8));
+  });
+
+  test("opens the bar to the left of Message options on a phone held sideways, with room neither below nor above", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Held sideways");
+    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 874, height: 352 } } });
+    const message = ada.message("Held sideways");
+    const options = message.getByRole("button", { name: "Message options" });
+    await options.tap();
+    await bar(message).getByRole("button", { name: "More reactions" }).tap();
+    await expect(message.getByRole("group", { name: "More reactions" })).toBeVisible();
+    const trigger = await box(options);
+    const bounds = await box(bar(message));
+    const timeline = await box(ada.timeline());
+    expect(bounds.height).toBeGreaterThan(Math.max(timeline.y + timeline.height - 8 - (trigger.y + trigger.height + 6), trigger.y - 6 - (timeline.y + 8)));
+    expect(Math.abs(bounds.x + bounds.width - (trigger.x - 6))).toBeLessThan(1);
+    expect(bounds.y).toBeGreaterThanOrEqual(timeline.y + 8);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(timeline.y + timeline.height - 8);
   });
 
   test("closes the bar on touch screens with a second tap, a tap elsewhere or a reaction", async ({ members, participant }) => {
@@ -299,23 +427,83 @@ test.describe(feature("messages.actions"), () => {
     const ada = await members.signIn("Ada", { context: phone });
     const message = ada.message("Tap me twice");
     const options = message.getByRole("button", { name: "Message options" });
-    const bar = ada.page.getByRole("group", { name: "Message actions" });
 
     await options.tap();
-    await expect(bar).toBeVisible();
+    await expect(bar(message)).toBeVisible();
     await options.tap();
-    await expect(bar).toBeHidden();
+    await expect(bar(message)).toBeHidden();
     await expect(options).toHaveAttribute("aria-expanded", "false");
 
     await options.tap();
-    await expect(bar).toBeVisible();
+    await expect(bar(message)).toBeVisible();
     await ada.page.getByRole("heading", { level: 1 }).tap();
-    await expect(bar).toBeHidden();
+    await expect(bar(message)).toBeHidden();
 
     await options.tap();
-    await bar.getByRole("button", { name: "Thumbs up" }).tap();
+    await bar(message).getByRole("button", { name: "Thumbs up" }).tap();
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
-    await expect(bar).toBeHidden();
+    await expect(bar(message)).toBeHidden();
+  });
+});
+
+test.describe(feature("messages.reply"), () => {
+  test("quotes the message in the composer in place of what's written there, citing its author with a link to it", async ({ members, participant, rooms }) => {
+    await (await participant("Grace")).say("Third time's a charm.");
+    const ada = await members.signIn("Ada");
+    await ada.composer().fill("Something else");
+    await (await ada.actions("Third time's a charm.")).getByRole("button", { name: "Reply" }).click();
+    const composer = ada.composer();
+    await expect(composer).toBeFocused();
+    await expect(composer.locator("blockquote")).toHaveText("Third time's a charm.");
+    await expect(composer.locator("cite")).toHaveText("Grace #");
+    await expect(composer).not.toContainText("Something else");
+    await expect(ada.message("Third time's a charm.").getByRole("group", { name: "Message actions" })).toBeHidden();
+
+    // The cursor waits on the line after the quote.
+    await ada.page.keyboard.type("Fourth time, then.");
+    await ada.page.keyboard.press("Enter");
+    const reply = ada.message("Fourth time, then.");
+    await expect(reply.locator("blockquote")).toHaveText("Third time's a charm.");
+    await expect(reply.locator("cite")).toHaveText("Grace #");
+    await expect(reply.locator("p").last()).toHaveText("Fourth time, then.");
+
+    // Its link is the quoted message's permalink, which opens its room.
+    const link = reply.locator("cite").getByRole("link", { name: "#" });
+    await expect(link).toHaveAttribute("href", new RegExp(`/rooms/${rooms.general.id}/@[^/]+$`));
+    await link.click();
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}/@[^/]+$`));
+    await expect(ada.message("Third time's a charm.").first()).toBeVisible();
+  });
+});
+
+test.describe(feature("messages.copy-link"), () => {
+  test("copies the message's address, keeping the bar open and turning Copy link green", async ({ members, participant, rooms, baseURL }) => {
+    await (await participant("Grace")).say("Link to me");
+    const ada = await members.signIn("Ada");
+    await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    const actions = await ada.actions("Link to me");
+    const copy = actions.getByRole("button", { name: "Copy link" });
+    const color = await copy.evaluate((button) => getComputedStyle(button).color);
+    await copy.click();
+    await expect(copy).not.toHaveCSS("color", color);
+    const link = await ada.page.evaluate(() => navigator.clipboard.readText());
+    expect(link).toMatch(new RegExp(`^${baseURL}/rooms/${rooms.general.id}/@[^/]+$`));
+    await expect(actions).toBeVisible();
+  });
+});
+
+test.describe(feature("messages.permalink"), () => {
+  test("opens a message's room at its permalink", async ({ members, participant, rooms }) => {
+    await (await participant("Grace")).say("Find me later");
+    const ada = await members.signIn("Ada");
+    await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await (await ada.actions("Find me later")).getByRole("button", { name: "Copy link" }).click();
+    const path = new URL(await ada.page.evaluate(() => navigator.clipboard.readText())).pathname;
+
+    const grace = await members.signIn("Grace", { path });
+    await expect(grace.message("Find me later")).toBeVisible();
+    await expect(grace.page.getByRole("heading", { level: 1 })).toContainText(rooms.general.name);
+    expect(new URL(grace.page.url()).pathname).toBe(path);
   });
 });
 
@@ -415,7 +603,10 @@ test.describe(feature("messages.edit"), () => {
     await ada.composer().press("ArrowUp");
     await expect(ada.editor()).toHaveCount(0);
 
-    await ada.composer().fill("");
+    // Selected and deleted as you would, as `fill("")` can delete before Lexical hears of the selection.
+    await ada.composer().press("ControlOrMeta+a");
+    await ada.composer().press("Delete");
+    await expect(ada.composer()).toHaveText("");
     await ada.composer().press("ArrowUp");
     const editor = editorField(ada.message("My newest"), "Edit message");
     await expect(editor).toBeFocused();

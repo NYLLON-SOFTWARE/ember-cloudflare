@@ -1,10 +1,11 @@
 import { feature } from "@ember/parity";
 import type { User } from "@ember/protocol";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
-import { Composer, RoomDeleted } from "./composer";
+import { createRef } from "react";
+import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
@@ -214,6 +215,26 @@ describe(feature("composer.draft"), () => {
     localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
     expect(input).toHaveValue("");
+  });
+});
+
+describe(feature("messages.reply"), () => {
+  it("writes a reply in place of what's written, with the cursor at its end, keeping it as the draft", async () => {
+    const composer = createRef<ComposerHandle>();
+    const onTyping = vi.fn();
+    render(<Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} onSend={() => true} onTyping={onTyping} />);
+    const input = await screen.findByRole("textbox", { name: "Write a message" });
+    await userEvent.setup().type(input, "Unsent");
+    act(() => (input as HTMLTextAreaElement).blur());
+
+    // The stand-in holds a quote as Action Text's plain text, in quotation marks.
+    act(() => composer.current!.replace("<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada</cite><p><br></p>"));
+    const written = "“Third time's a charm.”\n\nAda";
+    expect(input).toHaveValue(written);
+    expect(input).toHaveFocus();
+    expect((input as HTMLTextAreaElement).selectionStart).toBe(written.length);
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>“Third time's a charm.”<br><br>Ada</p>");
+    expect(onTyping).toHaveBeenLastCalledWith(true);
   });
 });
 

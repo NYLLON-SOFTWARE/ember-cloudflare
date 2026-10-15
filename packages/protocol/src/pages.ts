@@ -13,7 +13,7 @@ export type WorkspacePage =
   | { page: "home" }
   /** `/rooms`: the room made most recently. */
   | { page: "newest-room" }
-  /** A room, at `/rooms/<id>`. */
+  /** A room, at `/rooms/<id>`, or at one of its messages' permalinks, `/rooms/<id>/@<message id>`. */
   | { page: "room"; roomId: RoomId }
   /** A room at the address for a kind of room, such as `/rooms/opens/<id>`, which goes on to the room's own. */
   | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
@@ -69,7 +69,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
   // ember-rust matches /rooms/new, one of Rails' unused resource actions, before /rooms/<id>, and
   // answers 404 for it.
-  const room = pathname.match(/^\/rooms\/([^/]+)$/);
+  const room = pathname.match(/^\/rooms\/([^/]+)(?:\/@[^/]+)?$/);
   const roomId = room && room[1] !== "new" && decoded(room[1]!);
   return roomId ? { page: "room", roomId } : null;
 }

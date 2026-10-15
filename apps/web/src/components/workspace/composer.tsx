@@ -132,6 +132,8 @@ interface Props {
 
 export interface ComposerHandle {
   focus(): void;
+  /** Writes `markup` in place of what's written, as Reply does, taking focus. */
+  replace(markup: string): void;
 }
 
 /**
@@ -157,7 +159,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
   const wasBlank = useRef(!draft);
   const placeholder = `Message #${roomName}`;
 
-  useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
+  useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus(), replace: (markup) => editor.current?.replace(markup) }), []);
 
   // ember-rust's Up Arrow (rooms/show.html, messages_controller.js#editMyLastMessage): with nothing written,
   // it edits your newest message. ember-rust takes it from anywhere on the page, other fields included,

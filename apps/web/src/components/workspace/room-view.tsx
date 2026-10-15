@@ -71,6 +71,7 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
         if (editor) open.set(messageId, editor);
         else open.delete(messageId);
       },
+      reply: (quote) => composer.current?.replace(quote),
     };
   }, []);
 

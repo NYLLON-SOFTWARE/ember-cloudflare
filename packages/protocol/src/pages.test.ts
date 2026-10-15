@@ -31,6 +31,13 @@ describe(feature("platform.error-pages"), () => {
   });
 });
 
+describe(feature("messages.permalink"), () => {
+  it("opens a message's room at its permalink", () => {
+    expect(workspacePageOf("/rooms/caf%C3%A9/@m-1")).toEqual({ page: "room", roomId: "café" });
+    for (const path of ["/rooms/general/@", "/rooms/general/@m-1/extra", "/rooms/new/@m-1"]) expect(isAppPage(path), path).toBe(false);
+  });
+});
+
 describe(feature("users.profile"), () => {
   it("shows your profile at anyone's profile address, as ember-rust ignores whose it names", () => {
     for (const path of ["/users/me/profile", "/users/01J9Z3/profile"]) expect(workspacePageOf(path), path).toEqual({ page: "profile" });
