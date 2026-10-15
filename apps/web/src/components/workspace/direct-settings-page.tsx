@@ -9,7 +9,7 @@ import { membersShown, roomName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
 import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 /** What Delete Ping asks first, as ember-rust's DM settings do, in the browser's own dialog as Turbo asks it. */
 export const CONFIRM_DELETE_DIRECT = "Are you sure you want to delete this ping and all messages in it? This can’t be undone.";
@@ -83,7 +83,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
 function MemberCard({ member, name }: { member: User; name: string }) {
   return (
     <div className="flex aspect-square w-full flex-col place-content-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[1ch] py-4">
-      <UserAvatar user={member} lazy className="mx-auto size-[10ch]" />
+      <AvatarLink user={member} lazy className="mx-auto size-[10ch]" />
       <strong className="wrap-anywhere">{name}</strong>
     </div>
   );

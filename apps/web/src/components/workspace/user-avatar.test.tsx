@@ -1,9 +1,10 @@
 import { feature } from "@ember/parity";
 import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
-import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
-import { DRAWINGS_KEPT, UserAvatar } from "./user-avatar";
+import { AvatarLink, DRAWINGS_KEPT, UserAvatar, userTitle } from "./user-avatar";
 
 const ada: DirectoryUser = { id: "u1", name: "Ada Lovelace", bio: null, role: "member", status: "active", avatarUrl: "/users/u1.abc/avatar?v=20261014120000" };
 
@@ -66,5 +67,50 @@ describe(feature("users.avatars"), () => {
     show([someone(1)]);
     expect(drawing).toHaveBeenCalledTimes(DRAWINGS_KEPT + 2);
     drawing.mockRestore();
+  });
+});
+
+describe(feature("users.avatar-links"), () => {
+  afterEach(() => history.replaceState(null, "", "/"));
+
+  it("links to the person's page, titled with their name and bio as the directory lists them, around the image screen readers skip", () => {
+    const { image } = picture(<AvatarLink user={{ id: ada.id, name: "Ada" }} />, new Map([[ada.id, { ...ada, bio: "Wrote the first program" }]]));
+    const link = screen.getByRole("link", { name: "Ada Lovelace – Wrote the first program" });
+    expect(link).toHaveAttribute("href", "/users/u1");
+    expect(link).toHaveAttribute("title", "Ada Lovelace – Wrote the first program");
+    expect(link).toContainElement(image);
+    expect(image).toHaveAttribute("src", ada.avatarUrl);
+    expect(image).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("is titled with the name the user has where the directory doesn't list them", () => {
+    picture(<AvatarLink user={{ id: "u2", name: "Grace Hopper" }} />);
+    expect(screen.getByRole("link", { name: "Grace Hopper" })).toHaveAttribute("href", "/users/u2");
+  });
+
+  it("is named by its image's label where it has one, as a boost's is", () => {
+    picture(<AvatarLink user={ada} label="Ada Lovelace boosted 👍" reach="dense" />);
+    expect(screen.getByRole("link", { name: "Ada Lovelace boosted 👍" })).toHaveAttribute("title", "Ada Lovelace");
+  });
+
+  it("escapes the id in its address", () => {
+    picture(<AvatarLink user={{ id: "a/b?c", name: "Odd" }} />);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/users/a%2Fb%3Fc");
+  });
+
+  it("goes to the person's page in place, as Turbo follows ember-rust's", async () => {
+    picture(<AvatarLink user={ada} />);
+    const length = history.length;
+    await userEvent.click(screen.getByRole("link"));
+    expect(location.pathname).toBe("/users/u1");
+    expect(history.length).toBe(length + 1);
+  });
+
+  it("titles someone with their name, then their bio after a dash where it isn't blank, as `User#title` does", () => {
+    expect(userTitle({ name: "Ada", bio: "Wrote the first program" })).toBe("Ada – Wrote the first program");
+    expect(userTitle({ name: "Ada", bio: " Poet " })).toBe("Ada –  Poet ");
+    expect(userTitle({ name: "Ada", bio: "  " })).toBe("Ada");
+    expect(userTitle({ name: "Ada", bio: null })).toBe("Ada");
+    expect(userTitle({ name: "Ada" })).toBe("Ada");
   });
 });

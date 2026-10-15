@@ -1,6 +1,8 @@
 import { useContext, useState } from "react";
 import { avatarSvg, type User } from "@ember/protocol";
+import { PageLink } from "@/components/page-link";
 import { PeopleContext, type People } from "@/hooks/use-directory";
+import { personPath } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
 /** How many drawings are kept: more people than a page shows at once, so a tab left open doesn't keep everyone it has shown. */
@@ -58,5 +60,50 @@ export function UserAvatar({ user, className, square = false, lazy = false, labe
       className={cn("inline-block size-9 shrink-0 select-none bg-cover", square ? "rounded-[6px]" : "rounded-full", className)}
       style={{ backgroundImage: `url("${placeholder}")` }}
     />
+  );
+}
+
+/** `User#title` (user.rs): someone's name, then their bio after a dash where they've written one. */
+export const userTitle = ({ name, bio }: { name: string; bio?: string | null }) => (bio?.trim() ? `${name} – ${bio}` : name);
+
+/**
+ * How far around an avatar link takes taps on touch screens, centered on it. It's drawn with insets,
+ * not a transform, so the phone audits can measure it.
+ */
+const TOUCH_REACH = {
+  /** 44px across, as Ember sizes controls for fingers. */
+  finger: "touch:after:absolute touch:after:inset-[calc(50%-22px)]",
+  /** 24px, WCAG 2.5.8's floor, where it sits among small targets, as in a reaction. */
+  dense: "touch:after:absolute touch:after:inset-[calc(50%-12px)]",
+  /** No further than itself, in a line of text, where more would cover the words around it. */
+  none: "",
+};
+
+interface LinkProps extends Props {
+  /** How far around it takes taps on touch screens. */
+  reach?: keyof typeof TOUCH_REACH;
+}
+
+/**
+ * ember-rust's `avatar_tag` (helpers/users.rs): someone's avatar as a link to their page, titled with
+ * their name and bio as the people directory lists them now. It's Campfire's `.btn.avatar` (buttons.css):
+ * no border or padding, the avatar's corners, white behind the image, which fills it, and darker under a
+ * mouse.
+ */
+export function AvatarLink({ user, className, square = false, lazy, label, reach = "finger" }: LinkProps) {
+  const listed = useContext(PeopleContext).get(user.id);
+  return (
+    <PageLink
+      href={personPath(user.id)}
+      title={userTitle(listed ?? user)}
+      className={cn(
+        "relative grid shrink-0 bg-background hover:not-active:brightness-70",
+        square ? "rounded-[6px]" : "rounded-full",
+        TOUCH_REACH[reach],
+        className,
+      )}
+    >
+      <UserAvatar user={user} square={square} lazy={lazy} label={label} className="size-full" />
+    </PageLink>
   );
 }

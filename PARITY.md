@@ -13,19 +13,19 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 58 ported and 58 partial of 172 features; 51 not started, 5 not applicable.
+**Overall:** 60 ported and 57 partial of 172 features; 50 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 6 | 4 | 4 | 0 | 14 |
-| [People and profiles](#people-and-profiles) | 1 | 2 | 2 | 0 | 5 |
+| [Workspace administration](#workspace-administration) | 7 | 3 | 4 | 0 | 14 |
+| [People and profiles](#people-and-profiles) | 1 | 3 | 1 | 0 | 5 |
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
 | [Messages](#messages) | 4 | 15 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
-| [Mentions](#mentions) | 0 | 3 | 0 | 0 | 3 |
+| [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **58** | **58** | **51** | **5** | **172** |
+| **Total** | **60** | **57** | **50** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -226,7 +226,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Join link | `accounts.join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [accounts](e2e/tests/features/accounts.spec.ts), [rooms](e2e/tests/features/rooms.spec.ts) |
 | Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [join-link](e2e/tests/workspace-settings/join-link.spec.ts) |
 | QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| People list | `accounts.people` | Campfire | 🟡 Partial | Web: [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [people](apps/web/src/lib/people.test.ts) |
+| People list | `accounts.people` | Campfire | ✅ Ported | Web: [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [people](apps/web/src/lib/people.test.ts) |
 | Make or revoke administrators | `accounts.roles` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [roles](apps/worker/test/roles.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts)<br>E2E: [people](e2e/tests/workspace-settings/people.spec.ts) |
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
 | Ban and unban people | `accounts.ban` | Campfire | ⬜ Not started |  |
@@ -346,14 +346,14 @@ Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-S
 
 ember-rust tests: [`reference/test/controllers/qr_code_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/qr_code_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs)
 
-**People list** (`accounts.people`) 🟡
+**People list** (`accounts.people`) ✅
 
 - Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.
 - Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.
 - Each row shows the person's avatar, linking to their page with the title "&lt;name&gt; – &lt;bio&gt;", and their name.
 - Your own row links to your profile ("My settings").
 
-Note: Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls. Avatars don't link to people's pages until those are built (`users.avatar-links`), and your own row gets My settings with your profile (`users.profile`).
+Note: Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls, which taps on their avatars go through.
 
 Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs)
 
@@ -433,7 +433,7 @@ ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWA
 | Upload an avatar | `users.avatar-upload` | Ember | ⬜ Not started |  |
 | Someone's profile page | `users.show` | Campfire | 🟡 Partial | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [people](apps/worker/test/people.test.ts)<br>Web: [person-page](apps/web/src/components/workspace/person-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [people](e2e/tests/features/people.spec.ts) |
 | Initials avatars | `users.avatars` | Campfire | ✅ Ported | Protocol: [avatars](packages/protocol/src/avatars.test.ts)<br>Worker: [avatars](apps/worker/test/avatars.test.ts)<br>Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [user-avatar](apps/web/src/components/workspace/user-avatar.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Avatars open people's pages | `users.avatar-links` | Campfire | ⬜ Not started |  |
+| Avatars open people's pages | `users.avatar-links` | Campfire | 🟡 Partial | Web: [direct-settings-page](apps/web/src/components/workspace/direct-settings-page.test.tsx), [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [user-avatar](apps/web/src/components/workspace/user-avatar.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [people](e2e/tests/features/people.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -495,14 +495,14 @@ Sources: [`crates/views/templates/users/avatars/show.svg`](https://github.com/NY
 
 ember-rust tests: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`reference/test/controllers/users/avatars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/avatars_controller_test.rb)
 
-**Avatars open people's pages** (`users.avatar-links`) ⬜
+**Avatars open people's pages** (`users.avatar-links`) 🟡
 
 - Avatars on messages, boosts, mentions, mention suggestions, the people and bot lists, room member lists and the DM editor link to the person's page, `/users/<id>`, outside any frame.
 - The link's title is "&lt;name&gt; – &lt;bio&gt;", or just the name when the bio is blank.
 - The 48×48 image is hidden from screen readers, except on a boost, where it reads "&lt;name&gt; boosted &lt;content&gt;"; the people, bot and member lists and the DM editor load it lazily.
 - Avatars in the sidebar's DM rows and on profile pages aren't links.
 
-Note: Avatars are images hidden from screen readers, and room member lists load theirs lazily (`users.avatars`), but none links anywhere yet: people's pages (`users.show`) come first.
+Note: Each opens the page in place, as Turbo follows ember-rust's links, through the unsaved-changes guard (`rooms.unsaved-changes`), and is titled from the people directory, so a new name or bio shows at once. The avatars the @ lists and those of mentions in the composer and the message editor aren't links, unlike ember-rust's: a click there picks the person or the mention rather than leaving what's being written, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational. On touch screens, where ember-rust's take taps only as far as they're drawn, an avatar beside a message or in a list takes them 44px across, centered on it, and one in someone else's reaction 24px across, WCAG 2.5.8's floor. A tap on your own reaction's avatar there shows Delete this boost, as one anywhere on the pill does, since a pill has no room for two targets a fingertip can find. The bot list's avatars come with it (`bots.list`).
 
 Sources: [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/views/templates/messages/_message.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_message.html) · [`crates/views/templates/messages/boosts/_boost.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/boosts/_boost.html) · [`reference/app/helpers/users/avatars_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/users/avatars_helper.rb)
 
@@ -635,7 +635,7 @@ ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github
 - They also get a second panel with Delete, showing the trash icon and the room's name and labelled "Delete &lt;name&gt;".
 - Everyone else gets a read-only page: the name as a heading and the people listed, with no icon picker, switches, check marks, Save, unsaved-changes guard or Delete.
 
-Note: The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get "Room name", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`), and avatars don't link to profiles yet.
+Note: The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get "Room name", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`).
 
 Sources: [`crates/views/templates/rooms/layouts/_edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_edit.html) · [`crates/views/templates/rooms/layouts/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/layouts/_form.html) · [`crates/views/templates/rooms/opens/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/opens/_form.html) · [`crates/views/templates/rooms/closeds/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/closeds/_form.html) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs)
 
@@ -807,7 +807,7 @@ ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`
 - Its settings button ("Settings for this Ping" to screen readers) opens a page titled "Edit settings for &lt;name&gt;", with a card for each member but you (just you in a DM with yourself) and a button labelled "Delete Ping" whose text is "Ping".
 - Members can't be added or removed, and DMs have no star or icon.
 
-Note: The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. Until people's pages exist (`users.show`), the settings page's avatars aren't links to them. That page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says "This is the very beginning of your direct messages." under the others' names rather than welcoming you to a room, and its messages are named "Messages with &lt;name&gt;" to screen readers.
+Note: The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. The settings page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says "This is the very beginning of your direct messages." under the others' names rather than welcoming you to a room, and its messages are named "Messages with &lt;name&gt;" to screen readers.
 
 Sources: [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct.html) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/edit.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html)
 
@@ -1288,7 +1288,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 - The bar's quick reactions are 👍 Thumbs up, 👏 Clapping and 👋 Waving hand; More reactions adds 💪 Muscle, ❤️ Red heart, 😂 Face with tears of joy, 🎉 Party popper, 🔥 Fire and New boost. Reacting closes the bar.
 - Once a message has reactions, an Add a boost link after them opens its bar with More reactions showing.
 
-Note: Unlike ember-rust, each person adds a reaction once: the room ignores one they've added already, so a second tap doesn't stack another. Add a boost is a button, since it opens the bar rather than going anywhere. Avatars don't link to people's pages until those are built (`users.avatar-links`).
+Note: Unlike ember-rust, each person adds a reaction once: the room ignores one they've added already, so a second tap doesn't stack another. Add a boost is a button, since it opens the bar rather than going anywhere.
 
 Sources: [`crates/ember/src/controllers/messages/boosts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/boosts.rs) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/views/src/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages.rs) · [`reference/app/controllers/messages/boosts_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts_controller.rb)
 
@@ -1327,7 +1327,7 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 |---|---|---|---|---|
 | @-mention people | `mentions.autocomplete` | Campfire | 🟡 Partial | Rich text: [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [mentions](apps/worker/test/mentions.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 | Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
-| How mentions look | `mentions.render` | Campfire | 🟡 Partial | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
+| How mentions look | `mentions.render` | Campfire | ✅ Ported | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1338,7 +1338,7 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 - Up and Down move through the list; Enter, Tab, Space and comma pick; Escape closes it. Picking inserts a mention shown as the person's avatar and name.
 - The people search answers HTML or JSON (`name`, `value`, `avatar_url`, `sgid`) ordered by name, 20 a page; a room you're not in is 404. Names are matched with SQL `LIKE`, so case is ignored only for ASCII letters and `%` and `_` act as wildcards.
 
-Note: The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick "@ka" lists everyone until the next key. The avatars aren't links (`users.avatar-links`).
+Note: The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick "@ka" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.
 
 Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js)
 
@@ -1355,12 +1355,12 @@ Sources: [`reference/app/models/message/mentionee.rb`](https://github.com/baseca
 
 ember-rust tests: [`reference/test/models/message_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
-**How mentions look** (`mentions.render`) 🟡
+**How mentions look** (`mentions.render`) ✅
 
 - A mention shows the person's avatar, linked to their profile and titled "Name – bio", then their current name, every time they're mentioned. Renaming someone updates every mention of them.
 - A mention of someone who was deleted shows ☒, and editing that message drops it; a mention of someone who has left the room still shows.
 
-Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Each message carries the people it mentions as the room knew them when it was last written, so a page can draw someone its people directory doesn't list; it draws everyone else from the directory as they are now, and ☒ for anyone neither knows. The message editor opens with each mention drawn as Lexxy draws one, dropping mentions of no one, as ember-rust's `editable_value` does. The avatar isn't a link to their page or titled with their bio yet (`users.avatar-links`).
+Note: `packages/richtext` finds whom each body of ember-rust's corpus mentions as Rails did, but for two Trix attachment figures, and stores a mention as `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="<user id>">`, which shows the person as they are when it's rendered. The sgid is the user's plain id: it isn't signed, as any member can list everyone's, and it isn't a `gid://` URL, which Lexxy's sanitizer drops. A mention of someone who doesn't exist is stored as ☒; the room looks people up whatever their status, as ember-rust does. The mentions kept with a body are those its stored form shows, so they include mentions inside content attachments, which Rails doesn't count. Each message carries the people it mentions as the room knew them when it was last written, so a page can draw someone its people directory doesn't list; it draws everyone else from the directory as they are now, and ☒ for anyone neither knows. The message editor opens with each mention drawn as Lexxy draws one, dropping mentions of no one, as ember-rust's `editable_value` does. In the composer and the message editor a mention's avatar isn't a link, unlike ember-rust's, which leaves what's being written for the person's page: a click there picks the mention, as one on the name does (`users.avatar-links`).
 
 Sources: [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/views/templates/users/_mention.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_mention.html) · [`crates/richtext/src/lib.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/lib.rs)
 

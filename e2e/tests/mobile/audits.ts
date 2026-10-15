@@ -209,14 +209,51 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   };
   const middle = (box: Box): Point => [(box.left + box.right) / 2, (box.top + box.bottom) / 2];
   const isWithin = ([x, y]: Point, box: Box) => box.left <= x && x < box.right && box.top <= y && y < box.bottom;
+  /** Whether `part`, what's painted of `box`, leaves some of it out. */
+  const isCut = (box: Box, part: Box) =>
+    part.left > box.left + TOLERANCE || part.right < box.right - TOLERANCE || part.top > box.top + TOLERANCE || part.bottom < box.bottom - TOLERANCE;
+  /** The smallest box around `boxes`. */
+  const boundsOf = (boxes: Box[]): Box => ({
+    left: Math.min(...boxes.map((box) => box.left)),
+    top: Math.min(...boxes.map((box) => box.top)),
+    right: Math.max(...boxes.map((box) => box.right)),
+    bottom: Math.max(...boxes.map((box) => box.bottom)),
+  });
+
+  /**
+   * The boxes of a control's ::before and ::after placed absolutely, which take its taps where they
+   * spread past it, as a reaction pill's button spreads its ::after over the whole pill.
+   */
+  const spreadHitAreas = (element: Element): Box[] =>
+    ["::before", "::after"].flatMap((pseudo) => {
+      const style = getComputedStyle(element, pseudo);
+      if (style.content === "none" || style.position !== "absolute") return [];
+      const holder = getComputedStyle(element).position === "static" ? (element as HTMLElement).offsetParent : element;
+      if (!holder) return [];
+      const outer = holder.getBoundingClientRect();
+      const [left, top] = [outer.left + holder.clientLeft, outer.top + holder.clientTop];
+      const inset = (side: "top" | "right" | "bottom" | "left") => parseFloat(style[side]);
+      return [{ left: left + inset("left"), top: top + inset("top"), right: left + holder.clientWidth - inset("right"), bottom: top + holder.clientHeight - inset("bottom") }];
+    });
+
+  /**
+   * Whether `element` is set in a line of text: inline itself, as a link in a sentence is, or in an
+   * inline box that holds words too, as a mention's avatar sits by the person's name.
+   */
+  const isInRunningText = (element: Element): boolean => {
+    if (getComputedStyle(element).display === "inline") return true;
+    const box = element.parentElement;
+    if (!box || !getComputedStyle(box).display.startsWith("inline")) return false;
+    return [...box.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim() !== "");
+  };
 
   // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
   // make sure every point lands on the control or a label for it. That catches small controls,
   // controls crowded together and controls partly covered or cut off, and credits hit areas enlarged
-  // with padding or pseudo-elements. Controls partly scrolled out of view are probed against their
-  // boxes instead, since the audits don't scroll, a control under something floating over its list
-  // passes if it's big enough under the cover and the list can scroll it clear, and controls that
-  // can't take a tap right now (behind an open menu or dialog) are skipped.
+  // with padding or pseudo-elements. Controls partly scrolled out of view, or whose hit areas are, are
+  // probed against their boxes instead, since the audits don't scroll, a control under something
+  // floating over its list passes if it's big enough under the cover and the list can scroll it clear,
+  // and controls that can't take a tap right now (behind an open menu or dialog) are skipped.
   const touchTargets: string[] = [];
   const dense = denseTargets.join(",");
   // A modal <dialog> makes everything outside it inert, without marking it, and a Radix one marks
@@ -225,19 +262,23 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const isBehindModal = (element: Element) => !!element.closest("[inert], [data-aria-hidden=true]") || (modal !== null && !modal.contains(element));
   for (const element of elements(INTERACTIVE)) {
     if (isDisabled(element) || element.closest("[aria-hidden=true]") || isBehindModal(element) || getComputedStyle(element).pointerEvents === "none") continue;
-    // WCAG 2.5.8 exempts links inside running text, which are sized by the text around them.
-    if (getComputedStyle(element).display === "inline") continue;
+    // WCAG 2.5.8 exempts targets in running text, which are sized by the text around them.
+    if (isInRunningText(element)) continue;
     const rect = element.getBoundingClientRect();
     const clipping = clippers(element, false);
     const shown = paintedPart(rect, clipping);
     if (!shown) continue;
     const size = dense && element.matches(dense) ? DENSE_TARGET : TARGET;
     const labels = "labels" in element ? [...((element as HTMLInputElement).labels ?? [])] : [];
-    const partlyShown = shown.left > rect.left + TOLERANCE || shown.right < rect.right - TOLERANCE || shown.top > rect.top + TOLERANCE || shown.bottom < rect.bottom - TOLERANCE;
-    if (partlyShown && !cutOff(element, rect, clipping)) {
+    const partlyShown = isCut(rect, shown);
+    // What takes the control's taps: its box, and its hit area where that spreads past it, which can be
+    // partly scrolled out of view while all of the control shows, as an avatar's can by the screen's edge.
+    const hitAreas = [rect, ...spreadHitAreas(element)];
+    const reach = boundsOf(hitAreas);
+    if (isCut(reach, paintedPart(reach, clipping)!) && !cutOff(element, reach, clipping)) {
       // Scrolling can bring the rest into view, but the audits don't scroll and can't probe what's
-      // scrolled away, so probe the boxes of the control and its labels, which take taps too.
-      const boxes = [rect, ...labels.flatMap((label) => [...label.getClientRects()])];
+      // scrolled away, so probe the boxes of the control, its labels and what spreads its hit area.
+      const boxes = [...hitAreas, ...labels.flatMap((label) => [...label.getClientRects()])];
       if (!fingertip(middle(rect), size).every((point) => boxes.some((box) => isWithin(point, box)))) {
         touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)} and partly scrolled out of view; a ${size}px fingertip on it can land beside it`);
       }

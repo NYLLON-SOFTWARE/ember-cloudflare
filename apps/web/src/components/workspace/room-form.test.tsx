@@ -157,3 +157,16 @@ describe(feature("accounts.translation-buttons"), () => {
     expect(screen.getByText(TRANSLATIONS.room_name[0][1])).toBeInTheDocument();
   });
 });
+
+describe(feature("users.avatar-links"), () => {
+  it("links each person's avatar to their page, titled with their name, loading as it's scrolled to", () => {
+    renderForm();
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => [link.getAttribute("href"), link.getAttribute("title")])).toEqual([
+      ["/users/u0", "Person 0"],
+      ["/users/u1", "Person 1"],
+      ["/users/u2", "Person 2"],
+    ]);
+    expect(links[0]!.querySelector("img")).toHaveAttribute("loading", "lazy");
+  });
+});

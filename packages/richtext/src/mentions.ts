@@ -31,8 +31,9 @@ export interface MentionCard extends MentionUser {
 }
 
 /**
- * Campfire's users/_mention.html: a mention as the editor shows it, the content of its attachment. The
- * avatar isn't a link, as none is until people's pages are built (`users.avatar-links`).
+ * Campfire's users/_mention.html: a mention as the editor shows it, the content of its attachment. Unlike
+ * ember-rust's, its avatar doesn't link to the person's page, which would leave what's being written: a
+ * click on it picks the mention, to move or delete it, as a click on the name does.
  */
 export function mentionContent({ id, name, avatarUrl }: MentionCard): string {
   return `<span class="mention" sgid="${htmlEscape(mentionSgid(id))}">${avatarTag(avatarUrl)} ${htmlEscape(name)}</span>`;
@@ -40,7 +41,9 @@ export function mentionContent({ id, name, avatarUrl }: MentionCard): string {
 
 /**
  * autocompletable/users/_prompt_item.html: someone as Lexxy's mentions prompt offers them, by their
- * avatar and name, and the mention picking them writes.
+ * avatar and name, and the mention picking them writes. Unlike ember-rust's, the avatar isn't a link: a
+ * click anywhere on someone listed picks them, and screen readers can't reach a link in a list's option,
+ * whose content ARIA makes presentational.
  */
 export function mentionPromptItem(person: MentionCard): string {
   const name = htmlEscape(person.name);

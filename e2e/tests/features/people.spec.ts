@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap, ProfileChanges } from "@ember/protocol";
-import type { APIRequestContext, Page } from "@playwright/test";
-import { ADMINISTRATOR, cookieHeader, signInAsAdministrator, useOwnAddress, type Session } from "../../fixtures";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { ADMINISTRATOR, cookieHeader, createSession, signInAsAdministrator, useOwnAddress, type Session } from "../../fixtures";
 import { expect, test, unique } from "./fixtures";
 
 /** Changes `session`'s person's profile through the API, as their profile page does. */
@@ -63,5 +63,67 @@ test.describe(feature("users.show"), () => {
     const response = await page.goto("/users/nobody");
     expect(response!.status()).toBe(404);
     await expect(page).toHaveTitle("We can’t find that (404)");
+  });
+});
+
+test.describe(feature("users.avatar-links"), () => {
+  test("a message's avatar, its reactions' and its mentions' open each person's page, titled with their name and bio", async ({ members, participant, request }) => {
+    const tag = crypto.randomUUID().slice(0, 8);
+    const grace = await participant(`Grace ${tag}`);
+    const linus = await participant(`Linus ${tag}`);
+    await changeProfile(request, grace.session, { bio: "Wrote the first compiler" });
+    const asked = await grace.say("Ask me anything");
+    await linus.boost(asked.id, "👍");
+    const ada = await members.signIn(unique("Ada"));
+    const { page } = ada;
+    const graceTitle = `Grace ${tag} – Wrote the first compiler`;
+
+    // The people @ lists, and the mention written, aren't links, so a click there picks them.
+    await ada.composer().pressSequentially("Thanks @");
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await ada.composer().pressSequentially(tag);
+    await expect(page.getByRole("listbox").getByRole("option")).toHaveText([`Grace ${tag}`, `Linus ${tag}`]);
+    await expect(page.getByRole("listbox").getByRole("link")).toHaveCount(0);
+    await ada.composer().press("Tab");
+    await expect(ada.composer().getByText(`Grace ${tag}`, { exact: true })).toBeVisible();
+    await expect(ada.composer().getByRole("link")).toHaveCount(0);
+    await ada.composer().press("Enter");
+
+    const question = ada.message("Ask me anything");
+    await question.getByRole("link", { name: graceTitle }).click();
+    await expect(page).toHaveURL(new RegExp(`/users/${grace.session.user.id}$`));
+    await expect(heading(page)).toHaveText(`Grace ${tag}`);
+
+    await page.goBack();
+    await ada.connected();
+    const boost = question.getByRole("list", { name: "Reactions" }).getByRole("link", { name: `Linus ${tag} boosted 👍` });
+    await expect(boost).toHaveAttribute("title", `Linus ${tag}`);
+    await boost.click();
+    await expect(heading(page)).toHaveText(`Linus ${tag}`);
+
+    await page.goBack();
+    await ada.connected();
+    await ada.message("Thanks").getByRole("paragraph").getByRole("link", { name: graceTitle }).click();
+    await expect(heading(page)).toHaveText(`Grace ${tag}`);
+  });
+
+  test("the people list, a room's people and a DM's settings link avatars to people's pages too", async ({ members, request, rooms }) => {
+    const grace = await createSession(request, unique("Grace"));
+    const ada = await members.signIn(unique("Ada"));
+    const { page } = ada;
+    const toGrace = (scope: Locator) => scope.getByRole("link", { name: grace.user.name, exact: true });
+
+    await page.goto("/account/edit");
+    await expect(toGrace(page.getByRole("main"))).toHaveAttribute("href", `/users/${grace.user.id}`);
+
+    await page.goto(`/rooms/opens/${rooms.general.id}/edit`);
+    await expect(toGrace(page.getByRole("main"))).toHaveAttribute("href", `/users/${grace.user.id}`);
+
+    const response = await request.post("/api/directs", { data: { userIds: [grace.user.id] }, headers: { Cookie: cookieHeader(ada.session) } });
+    expect(response.status(), await response.text()).toBe(201);
+    const { room } = (await response.json()) as { room: { id: string } };
+    await page.goto(`/rooms/directs/${room.id}/edit`);
+    await toGrace(page.getByRole("main")).click();
+    await expect(heading(page)).toHaveText(grace.user.name);
   });
 });

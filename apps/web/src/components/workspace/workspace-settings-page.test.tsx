@@ -407,10 +407,19 @@ describe(feature("accounts.people"), () => {
     showPage();
     const row = await rowOf("Mallory");
     const [avatar, mark] = row.querySelectorAll("img");
-    expect(avatar).toHaveClass("opacity-50");
+    expect(avatar!.closest("a")).toHaveClass("[&>img]:opacity-50");
     expect(mark).toHaveAttribute("src", cancel);
+    expect(mark).toHaveClass("pointer-events-none");
     expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
-    expect((await rowOf("linus Torvalds")).querySelector("img")).not.toHaveClass("opacity-50");
+    expect((await rowOf("linus Torvalds")).querySelector("a")).not.toHaveClass("[&>img]:opacity-50");
+  });
+
+  it("gives your own row My settings, which opens your profile, and nobody else's", async () => {
+    const { user } = showPage(asLinus);
+    const mine = within(await rowOf("linus Torvalds")).getByRole("link", { name: "My settings" });
+    expect(within(await rowOf("Grace Hopper")).queryByRole("link", { name: "My settings" })).not.toBeInTheDocument();
+    await user.click(mine);
+    expect(location.pathname).toBe("/users/me/profile");
   });
 
   it("shows each person's avatar from the people directory, loaded as it's scrolled to", async () => {
@@ -470,6 +479,9 @@ describe(feature("accounts.roles"), () => {
   it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it", async () => {
     const { onPersonChanged, user } = showPage();
     (await crownOf("Grace Hopper")).focus();
+    // Past linus's avatar, which links to his page.
+    await user.tab();
+    expect(within(await rowOf("linus Torvalds")).getByRole("link")).toHaveFocus();
     await user.tab();
     expect(await crownOf("linus Torvalds")).toHaveFocus();
     await user.keyboard(" ");
@@ -539,5 +551,17 @@ describe(feature("accounts.roles"), () => {
     expect(await nameField()).toBeInTheDocument();
     expect(await crownOf("linus Torvalds")).toBeDisabled();
     expect(await readList()).toContain("Mallory");
+  });
+});
+
+describe(feature("users.avatar-links"), () => {
+  it("links each person's avatar to their page, titled with their name and bio, a banned person's too, and goes there in place", async () => {
+    const { user } = showPage(asAda, [ada, { ...grace, bio: "Wrote the first compiler" }, mallory]);
+    const link = within(await rowOf("Grace Hopper")).getByRole("link");
+    expect(link).toHaveAttribute("href", "/users/u2");
+    expect(link).toHaveAttribute("title", "Grace Hopper – Wrote the first compiler");
+    expect(within(await rowOf("Mallory")).getByRole("link", { name: "Mallory" })).toHaveAttribute("href", "/users/u4");
+    await user.click(link);
+    expect(location.pathname).toBe("/users/u2");
   });
 });

@@ -110,4 +110,10 @@ test("the people @ lists show above the text, fit the phone, each big enough to 
   await expect(page.getByRole("listbox")).toBeHidden();
   await expect(composer.getByText(`Cy ${tag}`, { exact: true })).toBeVisible();
   await expect(composer).toBeFocused();
+
+  // Sent, the mention's avatar links to Cy's page, as small as the line it sits in, as a link in a sentence is.
+  await page.getByRole("button", { name: "Send Message" }).tap();
+  const mention = page.getByRole("article").getByRole("link", { name: `Cy ${tag}` });
+  await expect(mention).toBeVisible();
+  await screenIsFine();
 });

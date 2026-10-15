@@ -735,6 +735,34 @@ describe(feature("mentions.render"), () => {
   });
 });
 
+describe(feature("users.avatar-links"), () => {
+  afterEach(() => history.replaceState(null, "", "/"));
+
+  it("links the author's avatar to their page, titled with their name, and goes there in place", async () => {
+    const { article, user } = show(message());
+    const link = within(article).getByRole("link", { name: "Ada" });
+    expect(link).toHaveAttribute("href", "/users/u1");
+    expect(link.querySelector("img")).toHaveAttribute("aria-hidden", "true");
+    await user.click(link);
+    expect(location.pathname).toBe("/users/u1");
+  });
+
+  it("links each reaction's avatar to whoever added it, named by their reaction, yours as well as others'", async () => {
+    const { user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉")] }));
+    const theirs = reactions().getByRole("link", { name: "Grace boosted 👍" });
+    expect(theirs).toHaveAttribute("href", "/users/u2");
+    expect(theirs).toHaveAttribute("title", "Grace");
+    await user.click(reactions().getByRole("link", { name: "Ada boosted 🎉" }));
+    expect(location.pathname).toBe("/users/u1");
+    expect(reactions().getByRole("button", { name: "🎉" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("has no avatar on a message grouped under the one before", () => {
+    const { article } = show(message(), { threaded: true });
+    expect(within(article).queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("users.profile"), () => {
   it("names the author and whoever reacted as the people directory lists them now, so a rename shows on messages sent before it", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
