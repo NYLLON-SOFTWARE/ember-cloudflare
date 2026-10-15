@@ -1,8 +1,8 @@
 import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { displayBody } from "@ember/richtext/dom";
-import { dayLabel, replyQuote, timeline } from "./messages";
+import { dateLabel, dateTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -19,25 +19,56 @@ const at = (iso: string, creatorId = "u1"): Message => ({
 });
 
 describe(feature("messages.grouping"), () => {
-  it("threads quick follow-ups from the same person and separates days", () => {
-    const items = timeline(
-      [
-        at("2026-10-11T12:00:00"),
-        at("2026-10-12T09:00:00"),
-        at("2026-10-12T09:02:00"),
-        at("2026-10-12T09:03:00", "u2"),
-        at("2026-10-12T09:30:00", "u2"),
-      ],
-      new Date("2026-10-12T18:00:00"),
-    );
-    expect(items.map((i) => i.daySeparator)).toEqual(["Yesterday", "Today", null, null, null]);
-    expect(items.map((i) => i.threaded)).toEqual([false, false, true, false, false]);
+  it("threads a person's messages up to five minutes apart, either way, and no further", () => {
+    const items = timeline([
+      at("2026-10-12T09:00:00"),
+      at("2026-10-12T09:05:00"),
+      at("2026-10-12T09:10:01"),
+      // Before the one above it, as a page can hold a message whose clock ran behind.
+      at("2026-10-12T09:07:00"),
+      at("2026-10-12T09:07:30", "u2"),
+      at("2026-10-12T09:08:00", "u2"),
+    ]);
+    expect(items.map((i) => i.threaded)).toEqual([false, true, false, true, false, true]);
+  });
+
+  it("keeps a follow-up just after midnight threaded, under its day's separator", () => {
+    const items = timeline([at("2026-10-12T23:58:00"), at("2026-10-13T00:01:00")]);
+    expect(items.map((i) => [i.firstOfDay, i.threaded])).toEqual([
+      [true, false],
+      [true, true],
+    ]);
   });
 });
 
 describe(feature("messages.day-separators"), () => {
-  it("names older days", () => {
-    expect(dayLabel(new Date("2026-10-01T12:00:00"), new Date("2026-10-12T12:00:00"))).toMatch(/October/);
+  it("starts a day at the first message and wherever the date changes in the reader's time zone", () => {
+    const items = timeline([at("2026-10-11T23:59:59"), at("2026-10-12T00:00:00", "u2"), at("2026-10-12T18:00:00"), at("2026-10-14T08:00:00")]);
+    expect(items.map((i) => i.firstOfDay)).toEqual([true, true, false, true]);
+  });
+
+  it("dates days and tells them apart in the zone the app opened in, even once the device's zone changes", async () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "UTC";
+    vi.resetModules();
+    const opened = await import("./messages");
+    try {
+      // In Los Angeles, the first would be January 1st's.
+      process.env.TZ = "America/Los_Angeles";
+      const items = opened.timeline([at("2026-01-02T05:00:00Z"), at("2026-01-02T09:00:00Z", "u2")]);
+      expect(items.map((i) => i.firstOfDay)).toEqual([true, false]);
+      expect(opened.dateLabel(new Date(items[0]!.message.createdAt))).toBe("January 2, 2026");
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
+  });
+
+  it("writes the date out, with the date and time on hover, as local_time_controller.js does", () => {
+    const date = new Date("2026-10-12T15:04:00");
+    expect(dateLabel(date)).toBe("October 12, 2026");
+    expect(dateTimeLabel(date)).toBe("10/12/26, 3:04 PM");
+    expect(timeLabel(date)).toBe("3:04 PM");
   });
 });
 

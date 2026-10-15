@@ -1123,7 +1123,7 @@ export const features = [
     id: "messages.grouping",
     title: "Group messages by author",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A message shows without its author's avatar and name when the message above it is theirs and no more than 5 minutes apart (exactly 5 minutes still groups).",
       "Days don't break a group: a follow-up just after midnight gets the day separator but still no avatar or name.",
@@ -1131,13 +1131,12 @@ export const features = [
     ],
     sources: ["reference/app/javascript/models/message_formatter.js", "crates/assets/overrides/controllers/messages_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Messages exactly 5 minutes apart don't group, and the first message of a day always shows its author's avatar and name.",
   },
   {
     id: "messages.day-separators",
     title: "Day separators",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The first message of each day in the viewer's time zone, and the first one loaded, gets a separator with the date written out (\"October 12, 2026\").",
       "Hovering the date shows the short date and time of the day's first message (\"10/12/26, 3:04 PM\").",
@@ -1145,7 +1144,6 @@ export const features = [
     ],
     sources: ["reference/app/javascript/models/message_formatter.js", "reference/app/javascript/controllers/local_time_controller.js", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Separators read \"Today\", \"Yesterday\", or the weekday and date, and show nothing on hover.",
   },
   {
     id: "messages.layout",
@@ -1164,14 +1162,13 @@ export const features = [
     id: "messages.follow-up-times",
     title: "Times on follow-up messages",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A follow-up shows its time only on hover or focus, just after its text and without moving it; the first message of a group always shows its time.",
       "Each time links to its message (`/rooms/<room>/@<message>`).",
     ],
     sources: ["crates/assets/overrides/zz-ember.css", "crates/views/templates/messages/_message.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Follow-up times appear in the avatar column, and times aren't links.",
   },
   {
     id: "messages.actions",

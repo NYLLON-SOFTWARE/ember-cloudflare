@@ -21,11 +21,17 @@ const mention = (scope: Locator, name: string) => scope.getByText(name, { exact:
 /**
  * Types @ and then `filter` into `field`, waiting for the list between them, as someone does who reads it
  * first. The list follows what's typed while it loads too ("lists the people for what's typed while…").
+ * Lexxy searches whenever typing pauses and draws each answer as it comes, picking its first. An answer
+ * for less of `filter` can list the same people first, as on a busy machine, so this waits for the
+ * answer for all of it.
  */
 async function typeMention(field: Locator, filter: string): Promise<void> {
+  const page = field.page();
   await field.pressSequentially("@");
-  await expect(field.page().getByRole("listbox")).toBeVisible();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  const answered = page.waitForResponse((response) => new URL(response.url()).searchParams.get("filter") === filter);
   await field.pressSequentially(filter);
+  await answered;
 }
 
 /** Writes `before` in the composer, then mentions whoever the @ prompt lists first for `filter` once it lists just `people`. */

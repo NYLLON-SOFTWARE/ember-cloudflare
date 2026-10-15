@@ -262,8 +262,9 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const isBehindModal = (element: Element) => !!element.closest("[inert], [data-aria-hidden=true]") || (modal !== null && !modal.contains(element));
   for (const element of elements(INTERACTIVE)) {
     if (isDisabled(element) || element.closest("[aria-hidden=true]") || isBehindModal(element) || getComputedStyle(element).pointerEvents === "none") continue;
-    // WCAG 2.5.8 exempts targets in running text, which are sized by the text around them.
-    if (isInRunningText(element)) continue;
+    // WCAG 2.5.8 exempts targets in running text, which are sized by the text around them, as a message's
+    // time is, which links to the message from the line of its heading, as ember-rust's does.
+    if (isInRunningText(element) || element.matches("article h3 > a:has(> time)")) continue;
     const rect = element.getBoundingClientRect();
     const clipping = clippers(element, false);
     const shown = paintedPart(rect, clipping);

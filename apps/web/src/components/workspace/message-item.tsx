@@ -1,15 +1,17 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { Me, Message, User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
-import { useNameOf } from "@/hooks/use-directory";
-import { timeLabel } from "@/lib/messages";
+import { PageLink } from "@/components/page-link";
+import { PeopleContext } from "@/hooks/use-directory";
+import { messagePath } from "@/hooks/use-route";
+import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { MessageEditor, type MessageEditorHandle } from "./message-editor";
-import { AvatarLink } from "./user-avatar";
+import { AvatarLink, userTitle } from "./user-avatar";
 
 export interface MessageActions {
   /** Returns whether the reaction was sent. */
@@ -78,9 +80,17 @@ function UnrenderableMessage() {
 // The names below are the people directory's, which follow a rename, read where they're shown, so a
 // change to the directory doesn't render every message again.
 
-/** Someone's name as the people directory lists them now. */
-function Name({ user }: { user: User }) {
-  return useNameOf()(user);
+/**
+ * The author's name as the people directory lists them now, which runs to an ellipsis rather than wrap,
+ * and shows their bio on hover, as ember-rust's `.message__author` does (messages.css, _message.html).
+ */
+function Author({ user }: { user: User }) {
+  const listed = useContext(PeopleContext).get(user.id) ?? user;
+  return (
+    <strong title={userTitle(listed)} className="truncate font-bold text-message-ink">
+      {listed.name}
+    </strong>
+  );
 }
 
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
@@ -105,10 +115,24 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
+  // ember-rust's `.message__permalink` (_message.html): the time, linking to the message, though not while the
+  // message is on its way to the room (_template.html). A follow-up's shows only on hover or focus, after its
+  // text, without moving it (zz-ember.css, `.message--threaded`).
+  const timeClass = cn(
+    "text-xs leading-[18px] whitespace-nowrap text-message-muted",
+    threaded && "col-start-2 row-start-1 mt-[3px] justify-self-start opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100",
+  );
   const time = (
-    <time dateTime={message.createdAt} title={created.toLocaleString()} className="text-xs leading-[18px] text-message-muted">
+    <time dateTime={message.createdAt} title={dateTimeLabel(created)}>
       {timeLabel(created)}
     </time>
+  );
+  const permalink = pending ? (
+    <span className={timeClass}>{time}</span>
+  ) : (
+    <PageLink href={messagePath(message.roomId, message.id)} className={timeClass}>
+      {time}
+    </PageLink>
   );
 
   if (shown === null) return <UnrenderableMessage />;
@@ -122,17 +146,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
         // Where Message options is 44px, each message is at least as tall as it, as in ember-rust, so
         // the buttons of short messages in a row don't overlap.
         "touch:min-h-11",
-        // The editor starts 4px above where the avatar does, as ember-rust's does.
-        threaded || editing ? "pt-0" : "pt-2",
         pending && "opacity-60",
       )}
     >
-      {/* The editor replaces the time beside a grouped message too, as it replaces the header. */}
-      {threaded ? (
-        !editing && <span className="pt-[7px] text-right text-[10px] opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100">{time}</span>
-      ) : (
-        <AvatarLink user={message.creator} square className={cn("size-9 max-md:size-[30px]", editing ? "mt-2" : "mt-0")} />
-      )}
+      {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
+      {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 
       {editing ? (
         <MessageEditor
@@ -143,31 +161,41 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           onClose={() => editors.close(message.id)}
         />
       ) : (
-        // ember-rust's `.message__body-content`, which a permalink outlines.
+        // ember-rust's `.message__body-content`, which a permalink outlines. A follow-up's time takes a column
+        // of its own after the text, which the text gives up its room to only as it runs long.
         <div
           data-body-content
           className={cn(
-            "min-w-0",
+            "col-start-2 min-w-0",
             allEmoji ? "py-0" : "py-1",
-            threaded && "touch:pr-8",
+            threaded && "grid grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] items-start gap-x-2.5 touch:pr-8",
             // zz-ember.css's `.message--mentioned`, which wiggles as it shows, as Campfire's messages.css has it.
             mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
           )}
         >
-          {!threaded && (
-            <div className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
-              <strong className="font-bold text-message-ink">
-                <Name user={message.creator} />
-              </strong>
-              {time}
+          {/* ember-rust's `.message__heading`, a 15px h3, whose letters are spaced as headings' are. A follow-up's
+              holds only its time, which it leaves to the text's grid, as ember-rust's `display: contents` does. */}
+          {threaded ? (
+            <h3 className="contents text-[15px]">{permalink}</h3>
+          ) : (
+            <h3 className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
+              <Author user={message.creator} />
+              {permalink}
               {edited}
-            </div>
+            </h3>
           )}
 
-          {/* A grouped message has no header, so its mark follows the text. */}
-          <MessageBody nodes={shown} mentions={message.mentions} emoji={allEmoji} trailing={(threaded && edited) || undefined} />
+          {/* A grouped message has no header, so its mark follows the text. Where Message options is 44px, the
+              text stops 32px short of the row's end, clear of it. */}
+          <MessageBody
+            nodes={shown}
+            mentions={message.mentions}
+            emoji={allEmoji}
+            trailing={(threaded && edited) || undefined}
+            className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
+          />
 
-          {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
+          {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
 
           {(message.boosts.length > 0 || customizing) && (
             <MessageBoosts
