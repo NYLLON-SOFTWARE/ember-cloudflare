@@ -105,16 +105,17 @@ function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; call
     socketSays(person);
   };
   // As the app's, which the page's loading waits on, it stays the same.
-  const [accountChanged] = useState(() => (account: Account) => {
+  const [askForAccount] = useState(() => () => (account: Account) => {
     callbacks.onAccountChanged(account);
     setAccount(account);
   });
+  const { onAccountChanged: _, ...handlers } = callbacks;
   return (
     <AccountContext value={account}>
       <PeopleContext value={people}>
         <FlashProvider workspace>
           <Sheet>
-            <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...callbacks} onAccountChanged={accountChanged} onPersonChanged={personChanged} />
+            <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...handlers} askForAccount={askForAccount} onPersonChanged={personChanged} />
           </Sheet>
         </FlashProvider>
       </PeopleContext>

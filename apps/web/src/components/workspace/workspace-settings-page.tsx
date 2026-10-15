@@ -27,8 +27,11 @@ interface Props {
   back: string;
   /** This deployment's version, which the page ends with. */
   version: string;
-  /** Called with the workspace as the page loads or saves it, for the rail and sidebar to show. */
-  onAccountChanged: (account: Account) => void;
+  /**
+   * Called as the page asks for the workspace, by loading or saving it. What it returns is called with
+   * the workspace the server answers, for the rail and sidebar to show.
+   */
+  askForAccount: () => (account: Account) => void;
   /** Called with the join link's code as the page loads or regenerates it, for the welcome card to show. */
   onJoinCodeChanged: (joinCode: string) => void;
   /** Loads the people directory again, which the page lists people from, settling once it has or failed. */
@@ -46,7 +49,7 @@ interface Props {
  * administrators can regenerate, the people, whom administrators can make administrators or members,
  * and "Ember™ version" at the foot.
  */
-export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
+export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -77,12 +80,13 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
   const administrator = me.administrator;
   useEffect(() => {
     let stopped = false;
+    const answered = askForAccount();
     fetchWorkspaceSettings().then(
       (settings) => {
         if (stopped) return;
         setSettings(settings);
         setName(settings.account.name);
-        onAccountChanged(settings.account);
+        answered(settings.account);
         onJoinCodeChanged(settings.joinCode);
       },
       (error: unknown) => {
@@ -91,14 +95,15 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
       },
     );
     return () => void (stopped = true);
-  }, [administrator, onAccountChanged, onJoinCodeChanged, onFailed]);
+  }, [administrator, askForAccount, onJoinCodeChanged, onFailed]);
 
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
+    const answered = askForAccount();
     changeAccount({ name }).then(
       (account) => {
-        onAccountChanged(account);
+        answered(account);
         if (!mounted.current) return;
         setSaving(false);
         setSettings((settings) => settings && { ...settings, account });
@@ -116,9 +121,10 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
   const switchTranslations = (hide: boolean) => {
     if (hidingTranslations !== null) return;
     setHidingTranslations(hide);
+    const answered = askForAccount();
     changeAccount({ settings: { hideTranslationButtons: hide } }).then(
       (account) => {
-        onAccountChanged(account);
+        answered(account);
         if (mounted.current) setHidingTranslations(null);
       },
       (error: unknown) => {

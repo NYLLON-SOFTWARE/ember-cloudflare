@@ -100,7 +100,10 @@ interface Props {
   workspaceName: string;
   /** This deployment's version, which workspace settings end with. */
   version: string;
-  /** Called with the workspace as its settings last loaded or saved it, or the workspace socket last said it is. */
+  /**
+   * Called with the workspace as the workspace socket last said it is, or as its settings last loaded or
+   * saved it, when the socket has said nothing since they were asked for.
+   */
   onAccountChanged: (account: Account) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
@@ -112,10 +115,26 @@ interface Props {
 }
 
 export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
+  // How many times the workspace socket has said what the account is. A page's answer from the server
+  // shows only if no more has been said since it was asked for, since it may have been read before.
+  const accountsHeard = useRef(0);
+  const accountHeard = useCallback(
+    (account: Account) => {
+      accountsHeard.current++;
+      onAccountChanged(account);
+    },
+    [onAccountChanged],
+  );
+  const askForAccount = useCallback(() => {
+    const heard = accountsHeard.current;
+    return (account: Account) => {
+      if (accountsHeard.current === heard) onAccountChanged(account);
+    };
+  }, [onAccountChanged]);
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, onAccountChanged);
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, accountHeard);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -277,7 +296,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             me={me}
             back={back}
             version={version}
-            onAccountChanged={onAccountChanged}
+            askForAccount={askForAccount}
             onJoinCodeChanged={joinCodeChanged}
             reloadPeople={directory.reload}
             onPersonChanged={directory.update}
@@ -285,7 +304,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           />
         );
       case "custom-styles":
-        return <CustomStylesPage onAccountChanged={onAccountChanged} onFailed={failed} />;
+        return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       default:
         if (room)
           return (

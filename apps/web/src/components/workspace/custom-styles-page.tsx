@@ -10,8 +10,11 @@ import { ApiError, changeCustomStyles, fetchCustomStyles, isSignedOut } from "@/
 import { Panel, SettingsPage } from "./settings-page";
 
 interface Props {
-  /** Called with the workspace as saving the CSS leaves it, for every page to apply. */
-  onAccountChanged: (account: Account) => void;
+  /**
+   * Called as the page saves the CSS. What it returns is called with the workspace as saving leaves it,
+   * for every page to apply.
+   */
+  askForAccount: () => (account: Account) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -22,7 +25,7 @@ interface Props {
  * ⌘ + Enter saves too. Anyone else is sent to workspace settings with an alert, where ember-rust's
  * answers an empty 403 page.
  */
-export function CustomStylesPage({ onAccountChanged, onFailed }: Props) {
+export function CustomStylesPage({ askForAccount, onFailed }: Props) {
   const [customStyles, setCustomStyles] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const flash = useFlash();
@@ -47,9 +50,10 @@ export function CustomStylesPage({ onAccountChanged, onFailed }: Props) {
     event?.preventDefault();
     if (customStyles === null || saving) return;
     setSaving(true);
+    const answered = askForAccount();
     changeCustomStyles(customStyles).then(
       (account) => {
-        onAccountChanged(account);
+        answered(account);
         if (!mounted.current) return;
         setSaving(false);
         flash("notice", "✓");

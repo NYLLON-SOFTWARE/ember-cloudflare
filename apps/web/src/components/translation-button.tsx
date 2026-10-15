@@ -30,12 +30,7 @@ function Translations({ translations }: { translations: TranslationKey }) {
 
   const toggled = () => {
     setOpen(details.current!.open);
-    // On a narrow screen the menu keeps to the room on its right, which popup_controller.js measures as it
-    // opens. It measures the window, which a phone widens to fit a menu already too wide for the screen,
-    // so this measures the page, which stays the screen's width.
-    if (details.current!.open) {
-      menu.current!.style.setProperty("--max-width", `${document.documentElement.clientWidth - menu.current!.getBoundingClientRect().left}px`);
-    }
+    if (details.current!.open) keepToTheScreen(details.current!, menu.current!);
   };
 
   return (
@@ -65,4 +60,39 @@ function Translations({ translations }: { translations: TranslationKey }) {
       </div>
     </details>
   );
+}
+
+/**
+ * On a narrow screen the menu keeps to the room on its right, which popup_controller.js measures as it
+ * opens. It measures the window, which a phone widens to fit a menu already too wide for the screen, and
+ * which can be wider than what's seen of the part of the page the globe is in, such as the messages,
+ * which cut off what overflows them past the notch. So this measures what's seen around the globe. A
+ * list that doesn't fit there opens leftward where there's more room, as beside a globe at the screen's
+ * edge, which Campfire's would leave cut off.
+ */
+function keepToTheScreen(globe: HTMLElement, menu: HTMLElement) {
+  // Back where it opens by itself, as wide as the list is with room enough: at most 40ch.
+  menu.style.removeProperty("--max-width");
+  menu.style.removeProperty("right");
+  const wanted = menu.getBoundingClientRect().width;
+  const margin = parseFloat(getComputedStyle(menu).marginLeft);
+  const { left, right } = globe.getBoundingClientRect();
+  const seen = seenAround(globe);
+  const onRight = seen.right - left - margin;
+  const onLeft = right - seen.left - margin;
+  const leftward = wanted + margin > onRight && onLeft > onRight;
+  if (leftward) menu.style.setProperty("right", "0");
+  menu.style.setProperty("--max-width", `${leftward ? onLeft : onRight}px`);
+}
+
+/** The left and right edges of what's seen around `element`: the page's, or nearer ones that cut off what overflows them. */
+function seenAround(element: HTMLElement): { left: number; right: number } {
+  let [left, right] = [0, document.documentElement.clientWidth];
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (getComputedStyle(ancestor).overflowX === "visible") continue;
+    // Its padding box, where it cuts off what overflows it.
+    const start = ancestor.getBoundingClientRect().left + ancestor.clientLeft;
+    [left, right] = [Math.max(left, start), Math.min(right, start + ancestor.clientWidth)];
+  }
+  return { left, right };
 }

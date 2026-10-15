@@ -34,18 +34,18 @@ function serve({ loaded = () => Response.json({ customStyles: CSS } satisfies Cu
 }
 
 function showPage(account = styled) {
-  const [onAccountChanged, onFailed] = [vi.fn(), vi.fn()];
+  const [answered, onFailed] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", "/account/custom_styles/edit");
   render(
     <AccountContext value={account}>
       <FlashProvider workspace>
         <Sheet>
-          <CustomStylesPage onAccountChanged={onAccountChanged} onFailed={onFailed} />
+          <CustomStylesPage askForAccount={() => answered} onFailed={onFailed} />
         </Sheet>
       </FlashProvider>
     </AccountContext>,
   );
-  return { onAccountChanged, onFailed, user: userEvent.setup() };
+  return { answered, onFailed, user: userEvent.setup() };
 }
 
 const field = () => screen.getByRole("textbox", { name: "Custom CSS" });
@@ -101,7 +101,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 
   it("saves the CSS with the check, saying ✓, for every page to apply at once", async () => {
-    const { onAccountChanged, user } = showPage();
+    const { answered, user } = showPage();
     const css = await loadedField();
     await user.clear(css);
     await user.type(css, "body {{ color: red; }");
@@ -110,21 +110,21 @@ describe(feature("accounts.custom-css"), () => {
     // The flash's check alone, read as "Changes saved".
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
     expect(saved()).toEqual(["body { color: red; }"]);
-    expect(onAccountChanged).toHaveBeenCalledWith({ ...styled, customStyles: "body { color: red; }" });
+    expect(answered).toHaveBeenCalledWith({ ...styled, customStyles: "body { color: red; }" });
     expect(css).toHaveValue("body { color: red; }");
   });
 
   it("saves with Ctrl+Enter or ⌘+Enter, where Enter alone starts a new line", async () => {
-    const { onAccountChanged, user } = showPage();
+    const { answered, user } = showPage();
     const css = await loadedField();
     await user.type(css, "{Enter}");
     expect(css).toHaveValue(`${CSS}\n`);
     expect(saved()).toEqual([]);
 
     await user.keyboard("{Control>}{Enter}{/Control}");
-    await waitFor(() => expect(onAccountChanged).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(answered).toHaveBeenCalledTimes(1));
     await user.keyboard("{Meta>}{Enter}{/Meta}");
-    await waitFor(() => expect(onAccountChanged).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(answered).toHaveBeenCalledTimes(2));
     expect(saved()).toEqual([`${CSS}\n`, `${CSS}\n`]);
     expect(css).toHaveValue(`${CSS}\n`);
   });
@@ -144,13 +144,13 @@ describe(feature("accounts.custom-css"), () => {
 
   it("says why a save failed, keeping the CSS typed", async () => {
     serve({ saved: () => Response.json({ error: "Custom CSS must be at most 100,000 characters" }, { status: 422 }) });
-    const { onAccountChanged, onFailed, user } = showPage();
+    const { answered, onFailed, user } = showPage();
     await user.type(await loadedField(), " /* more */");
     await user.click(saveButton());
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: "Custom CSS must be at most 100,000 characters" })));
     expect(field()).toHaveValue(`${CSS} /* more */`);
     expect(saveButton()).toBeEnabled();
-    expect(onAccountChanged).not.toHaveBeenCalled();
+    expect(answered).not.toHaveBeenCalled();
   });
 
   it("sends anyone but an administrator to workspace settings, saying why, where ember-rust answers an empty 403", async () => {

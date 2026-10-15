@@ -80,4 +80,26 @@ describe(feature("accounts.translation-buttons"), () => {
     const menu = globe().nextElementSibling as HTMLElement;
     expect(menu.style.getPropertyValue("--max-width")).toBe(`${320 - menu.getBoundingClientRect().left}px`);
   });
+
+  it("opens leftward where there's more room, keeping to what's seen of the part of the page it's in", async () => {
+    // A globe 240px to 276px across a 320px phone, in messages that show 20px to 300px of it.
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(320);
+    render(
+      <AccountContext value={shown}>
+        <div role="log" style={{ overflowX: "hidden" }}>
+          <TranslationButton translations="account_name" />
+        </div>
+      </AccountContext>,
+    );
+    const messages = screen.getByRole("log");
+    vi.spyOn(messages, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 20, width: 280 }));
+    vi.spyOn(messages, "clientWidth", "get").mockReturnValue(280);
+    vi.spyOn(globe().closest("details")!, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 240, width: 36 }));
+    const menu = globe().nextElementSibling as HTMLElement;
+    vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ width: 200 }));
+    await userEvent.setup().click(globe());
+    await waitFor(() => expect(isOpen()).toBe(true));
+    expect(menu.style.getPropertyValue("right")).toBe("0px");
+    expect(menu.style.getPropertyValue("--max-width")).toBe(`${276 - 20}px`);
+  });
 });

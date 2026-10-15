@@ -124,6 +124,7 @@ function serve({
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: me });
     if (route === "GET /api/account") return Response.json({ account, joinCode: JOIN_CODE, canAdminister: me.administrator });
+    if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "PATCH /api/account") {
       const { name = account.name, settings } = JSON.parse(String(init?.body)) as AccountChanges;
       account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons };
@@ -265,6 +266,19 @@ describe(feature("auth.sessions"), () => {
 });
 
 describe(feature("accounts.name"), () => {
+  /** Serves signed in, as `serve` does, holding back its answer to `held`, such as "GET /api/account", until it's let go. */
+  function serveHolding(held: string) {
+    const server = serve({ signedIn: true });
+    const answer = server.getMockImplementation()!;
+    let letGo!: () => void;
+    const goes = new Promise<void>((resolve) => (letGo = resolve));
+    server.mockImplementation(async (input, init) => {
+      if (`${init?.method ?? "GET"} ${String(input)}` === held) await goes;
+      return answer(input, init);
+    });
+    return letGo;
+  }
+
   it("takes a name saved in another tab at once, as the workspace socket says, on every page", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -292,6 +306,45 @@ describe(feature("accounts.name"), () => {
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps a name the workspace socket says over settings asked for before it said so, which may be older", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    history.replaceState(null, "", "/account/edit");
+    const sendSettings = serveHolding("GET /api/account");
+    render(<App />);
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    // Saved in another tab after the settings were read.
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, name: "Analytical Engines" } }));
+    sendSettings();
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Ember"));
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+
+  it("keeps a name the workspace socket says over a save answered after it said so, which may be older", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    history.replaceState(null, "", "/account/edit");
+    const answerSave = serveHolding("PATCH /api/account");
+    render(<App />);
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    const user = userEvent.setup();
+    const name = await screen.findByRole("textbox", { name: "Workspace name" });
+    await waitFor(() => expect(name).toHaveValue("Ember"));
+    await user.clear(name);
+    await user.type(name, "Difference Engines{Enter}");
+    // Saved in another tab after this one's save.
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, name: "Analytical Engines" } }));
+    answerSave();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 });
 
