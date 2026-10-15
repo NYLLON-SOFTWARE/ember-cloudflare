@@ -104,14 +104,14 @@ export async function keepOtherRoomsOut(target: Page | BrowserContext, roomIds: 
 }
 
 /**
- * Makes `room` the only room in this page's sidebar, so the test starts in an empty room of its
- * own instead of among every other test's open rooms. Given a `joinCode`, it's the room with the
+ * Makes `room` the only room in this page's sidebar, with nobody suggested for DMs, so the test starts
+ * in an empty room of its own instead of among every other test's open rooms and oldest people. Given a `joinCode`, it's the room with the
  * welcome card too, inviting people with that code.
  */
 export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { joinCode?: string } = {}): Promise<void> {
   const invitation = joinCode === undefined ? null : { roomId: room.id, joinCode };
   await page.route("**/api/sidebar", (route) =>
-    route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation } satisfies Sidebar }),
+    route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation, suggestions: [] } satisfies Sidebar }),
   );
   await keepOtherRoomsOut(page, [room.id]);
 }

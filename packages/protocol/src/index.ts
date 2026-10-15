@@ -71,6 +71,8 @@ export interface DirectRoom {
   kind: "direct";
   /** Everyone in it, whoever's reading included, by id, with the names they had when it was read. */
   members: User[];
+  /** When its latest message came, or when it started, until one has, as an ISO time, which DMs are listed by, latest first. */
+  activeAt: string;
 }
 
 /** A room someone is in, as their room list shows it: a shared room, or a DM. */
@@ -103,14 +105,30 @@ export interface Favorites {
 
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
- * they've starred, and the invitation, when they're in its room. It comes with an ETag, and a request
- * whose If-None-Match names it gets 304 Not Modified instead.
+ * they've starred, the invitation, when they're in its room, and the people suggested for DMs. It
+ * comes with an ETag, and a request whose If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
   favorites: Favorites;
   invitation: Invitation | null;
+  /**
+   * People to start a DM with, as ember-rust's sidebar suggests them after the DMs
+   * (`find_direct_placeholder_users`, controllers/presenters/accounts.rs): the active people with the
+   * oldest accounts who share no DM with this person, never them, as many as `suggestedCount` says.
+   */
+  suggestions: User[];
 }
+
+/** How many people the sidebar's suggestions start from, ember-rust's `DIRECT_PLACEHOLDERS`. */
+export const SUGGESTED_PEOPLE = 20;
+
+/**
+ * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
+ * DMs, them included, as ember-rust counts them: `SUGGESTED_PEOPLE` less those people, less one more,
+ * so 19 with no DMs, 18 with only a DM with themselves and 17 with a DM with one other person.
+ */
+export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
@@ -442,6 +460,11 @@ export type WorkspaceServerFrame =
   | { type: "room.saved"; room: Room }
   /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
   | { type: "room.gone"; roomId: RoomId }
+  /**
+   * A message came in a DM of theirs at `at`, which lists it first among their DMs, unless they've heard
+   * of a later one. Sent to everyone in the DM, its author included, as the Workspace applies the message.
+   */
+  | { type: "room.active"; roomId: RoomId; at: string }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */

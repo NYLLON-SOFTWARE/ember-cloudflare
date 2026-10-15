@@ -57,11 +57,11 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
  * while it wasn't connected reached it. Meanwhile the socket brings rooms as they're made, changed and
- * deleted, and as this person is put in them and taken out, marks rooms unread and read, and brings the
- * stars saved in any of their tabs. It loads again when the tab is shown after more than a minute
- * hidden too, as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's
- * page and this does on every page. `refresh` asks for it again, settling once a list asked for since
- * has come, or failing as that did.
+ * deleted, and as this person is put in them and taken out, marks rooms unread and read, moves DMs as
+ * messages come in them, and brings the stars saved in any of their tabs. It loads again when the tab
+ * is shown after more than a minute hidden too, as `refresh-room:visible` reloads it
+ * (helpers/users.rs), which ember-rust does on a room's page and this does on every page. `refresh`
+ * asks for it again, settling once a list asked for since has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
@@ -156,6 +156,8 @@ export function useSidebar(
         case "room.unread":
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
+        case "room.active":
+          return change({ type: "active", roomId: frame.roomId, at: frame.at });
         case "user.updated":
           if (!isSomeoneElse(frame.user)) toldOf.you = true;
           return changed(frame.user);

@@ -53,7 +53,19 @@ function subscribe(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-const notify = () => listeners.forEach((listener) => listener());
+// How many times the app has shown another page.
+let pagesShown = 0;
+
+const notify = () => {
+  pagesShown++;
+  listeners.forEach((listener) => listener());
+};
+
+/**
+ * A mark of the page the app shows, which changes whenever it shows another: work that takes a while
+ * compares it with the mark from when it began, to tell whether the person has gone elsewhere since.
+ */
+export const pageMark = () => pagesShown;
 
 /** The number the app gave a history entry, or null for one it didn't number. */
 function positionOf(state: unknown): number | null {

@@ -786,7 +786,7 @@ export const features = [
     id: "dms.create",
     title: "Start or reopen a direct message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM. With nobody chosen, it's your DM with yourself.",
       "Anyone who exists can be included, whatever their status, and you go to the DM afterwards.",
@@ -795,7 +795,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/directs.rs", "crates/db/src/models/room.rs", "crates/views/templates/rooms/directs/new.html", "reference/app/models/rooms/direct.rb"],
     upstreamTests: ["reference/test/controllers/rooms/directs_controller_test.rb", "reference/test/models/rooms/direct_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "`POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. New direct message starts one from the page (`dms.picker`), and `/rooms/directs/new` opens that dialog over the last room visited, where ember-rust's is a page of its own with a \"To\" people search, since a modifier-click opens it in a new tab and the dialog does all the page does. Missing: a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).",
+    notes: "`POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. New direct message starts one from the page (`dms.picker`), and `/rooms/directs/new` opens that dialog over the last room visited, where ember-rust's is a page of its own with a \"To\" people search, since a modifier-click opens it in a new tab and the dialog does all the page does. A new DM goes to the top of its members' DM lists, and one opened again stays in its place (`sidebar.dm-order`).",
   },
   {
     id: "dms.naming",
@@ -849,7 +849,7 @@ export const features = [
     id: "dms.suggestions",
     title: "Suggested people",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Under your DMs, the sidebar suggests active people, bots included, you have no DM with, oldest accounts first, never you.",
       "It shows 20, less the people across your DMs (you included), less 1: 19 with no DMs, 17 with one DM with one person, 18 with only a DM with yourself.",
@@ -857,6 +857,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/presenters/accounts.rs", "crates/views/templates/users/sidebars/rooms/_direct_placeholder.html", "reference/app/controllers/users/sidebars_controller.rb"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/screens.yml"],
+    notes: "`GET /api/sidebar` lists the people suggested (`suggestions`) with the rooms, found by one query that leaves out the people in your DMs with a subquery and reads users through an index on their age (`docs/database.md`), where ember-rust reads the DMs' members first and binds them. Of two accounts made at once, the one with the smaller id comes first. A suggestion starts its DM through `POST /api/directs` (`dms.create`) once the page's unsaved changes let it, and opens it for its composer to take focus; one that fails says why in an alert and stays. Unlike ember-rust, whose suggestions stay as they were until the sidebar loads again, a person leaves the suggestions as soon as a DM with them is listed, however it started, and the count follows at once.",
   },
 
   // Sidebar and navigation
@@ -873,7 +874,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: suggestions (\"No direct messages yet.\" stands in for them while you have no DMs), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one, on a link to one of its messages too. Your DMs are listed under DMs, latest active first (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is, then the people suggested for DMs (`dms.suggestions`). Once the list has come with nothing in it and nobody to suggest, it says \"No conversations found.\" Missing: rooms can't be hidden here yet (`notifications.hide-room`).",
   },
   {
     id: "sidebar.room-order",
@@ -893,7 +894,7 @@ export const features = [
     id: "sidebar.dm-order",
     title: "DM order",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "On load, DMs are listed most recently active first; a new message, an edit, a deletion, an attachment change and a reaction all count as activity.",
       "While the page is open, only new messages move a DM: it jumps to the top at once in every member's sidebar, the author's too, bot and webhook messages included.",
@@ -901,6 +902,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/presenters/accounts.rs", "crates/views/templates/users/sidebars/rooms/_direct.html", "reference/app/controllers/users/sidebars_controller.rb", "reference/app/javascript/controllers/sorted_list_controller.js", "crates/assets/overrides/controllers/rooms_list_controller.js", "crates/db/src/models/message.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "reference/test/system/unread_rooms_test.rb"],
+    notes: "Each DM is listed by when its latest message came, or when it started until one has (`activeAt`), latest first, and of two at once, the one started later. The Workspace keeps that time with the room (`last_message_at`) as it applies the room's messages, and tells everyone in the DM, the author included, with `room.active`, which moves it in every open tab at once. Unlike ember-rust, only a new message counts, on load as well as live: an edit, a deletion or a reaction moves a DM neither at once nor when the list loads again, so a reload shows the order the page did. Bots' and webhooks' messages will move a DM as anyone's do once bots can post (`bots.api-post`). A DM from before this change goes by when it started until its next message.",
   },
   {
     id: "sidebar.live-updates",

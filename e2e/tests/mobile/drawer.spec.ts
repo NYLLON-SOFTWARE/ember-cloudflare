@@ -52,19 +52,22 @@ test("choosing a room closes the drawer", async ({ page, room }) => {
   await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
 });
 
-test("Activity filters the drawer's conversations, and the drawer stays open as it turns on and off", async ({ page, screenIsFine }) => {
+test("Activity filters the drawer's conversations, and the drawer stays open as it turns on and off", async ({ page, room, screenIsFine }) => {
   await page.getByRole("button", { name: "Open conversations" }).tap();
   const drawer = page.getByRole("dialog", { name: "Conversations" });
   const activity = drawer.getByRole("button", { name: "Activity" });
+  // The room shown is read, so Activity leaves it out.
+  const row = drawer.getByRole("link", { name: room.name });
   await activity.tap();
   await expect(activity).toHaveAttribute("aria-pressed", "true");
-  await expect(drawer.getByText("No direct messages yet.")).toBeHidden();
+  await expect(row).toBeHidden();
+  await expect(drawer.getByText("You’re all caught up. No unread conversations.")).toBeVisible();
   await screenIsFine();
 
   await activity.tap();
   await expect(activity).toHaveAttribute("aria-pressed", "false");
   await expect(drawer).toBeVisible();
-  await expect(drawer.getByText("No direct messages yet.")).toBeVisible();
+  await expect(row).toBeVisible();
 });
 
 test("rotating the phone with the drawer open leaves the page usable", async ({ page, room }) => {

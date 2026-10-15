@@ -9,7 +9,7 @@ const grace: Me = { id: "u2", name: "Grace", administrator: true };
 const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
-const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
+const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null, suggestions: [] });
 const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
@@ -317,6 +317,30 @@ describe(feature("sidebar.unread"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+  });
+});
+
+describe(feature("sidebar.dm-order"), () => {
+  const withGrace = { id: "d1", kind: "direct", members: [ada, { id: grace.id, name: grace.name }], activeAt: "2026-10-15T12:00:00.000Z", unread: false } satisfies SidebarRoom;
+
+  it("moves a DM as the workspace socket says a message came in it", async () => {
+    server.sidebar = unstarred([design, withGrace]);
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.active", roomId: withGrace.id, at: "2026-10-15T12:05:00.000Z" });
+    expect(result.current.list?.rooms).toEqual([design, { ...withGrace, activeAt: "2026-10-15T12:05:00.000Z" }]);
+  });
+
+  it("keeps a message that comes while a list is on its way that may not show it", async () => {
+    server.sidebar = unstarred([design, withGrace]);
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "room.active", roomId: withGrace.id, at: "2026-10-15T12:05:00.000Z" });
+    await release();
+    await settle();
+    expect(result.current.list?.rooms).toEqual([design, { ...withGrace, activeAt: "2026-10-15T12:05:00.000Z" }]);
   });
 });
 

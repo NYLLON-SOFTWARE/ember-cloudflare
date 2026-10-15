@@ -86,7 +86,7 @@ test.describe(feature("ui.layout"), () => {
       await expect(header).toHaveCSS("border-bottom-color", colors.border);
       await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("color", colors.ink);
       await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.hover);
-      await expect(page.getByText("No direct messages yet.")).toHaveCSS("color", colors.muted);
+      await expect(page.getByRole("heading", { name: "DMs" })).toHaveCSS("color", colors.muted);
     }
   });
 });
