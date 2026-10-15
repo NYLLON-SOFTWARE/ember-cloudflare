@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, MAX_CHECKED_MESSAGES, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
@@ -590,6 +590,35 @@ describe(feature("realtime.connection"), () => {
   });
 });
 
+/** A paragraph of `length` characters of plain text. */
+const paragraphOf = (length: number) => `<p>${"x".repeat(length)}</p>`;
+/** A short message in more markup than a frame carries. */
+const overformatted = `<p>${"<b></b>".repeat(Math.ceil(MAX_MESSAGE_HTML_LENGTH / 7))}x</p>`;
+
+describe(feature("messages.create"), () => {
+  it(`says a message over ${MAX_MESSAGE_LENGTH} characters, or in more markup than a frame carries, is too long instead of sending it`, () => {
+    const { result } = joinGeneral();
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.postMessage(paragraphOf(MAX_MESSAGE_LENGTH + 1));
+    });
+    expect(sent).toBe(false);
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    expect(result.current.state.messages).toEqual([]);
+    expect(result.current.state.notice).toBe("Messages can be up to 10,000 characters.");
+    act(() => {
+      sent = result.current.postMessage(overformatted);
+    });
+    expect(sent).toBe(false);
+
+    act(() => {
+      sent = result.current.postMessage(paragraphOf(MAX_MESSAGE_LENGTH));
+    });
+    expect(sent).toBe(true);
+    expect(socket().sentOfType("message.create")).toHaveLength(1);
+  });
+});
+
 describe(feature("messages.optimistic"), () => {
   it("shows a message at once, then swaps in the room's copy", () => {
     const { result } = joinGeneral();
@@ -710,6 +739,21 @@ describe(feature("messages.edit"), () => {
     const edited = message("m1", { body: "<p>Better</p>", plainText: "Better", updatedAt: "2026-10-12T10:01:00.000Z", editedAt: "2026-10-12T10:01:00.000Z" });
     socket().receive({ type: "message.updated", message: edited, seq: 1 });
     expect(result.current.state.messages[0]).toEqual(edited);
+  });
+
+  it(`says an edit over ${MAX_MESSAGE_LENGTH} characters, or in more markup than a frame carries, is too long instead of sending it`, () => {
+    const { result } = joinGeneral({ messages: [message("m1")] });
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.messageActions.edit("m1", paragraphOf(MAX_MESSAGE_LENGTH + 1));
+    });
+    expect(sent).toBe(false);
+    act(() => {
+      sent = result.current.messageActions.edit("m1", overformatted);
+    });
+    expect(sent).toBe(false);
+    expect(socket().sentOfType("message.update")).toEqual([]);
+    expect(result.current.state.notice).toBe("Messages can be up to 10,000 characters.");
   });
 
   it("shows the room's refusal", () => {

@@ -1034,7 +1034,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "reference/app/controllers/messages_controller.rb", "reference/app/models/message.rb"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/controllers/messages_controller_test.rb"],
-    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload (\"Ember has been updated. Reload the page to keep chatting.\"), and its messages and edits are refused until it does. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.",
+    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload (\"Ember has been updated. Reload the page to keep chatting.\"), and its messages and edits are refused until it does. The composer doesn't send a message the room would refuse as too long, where ember-rust has no limit: it says \"Messages can be up to 10,000 characters.\" and keeps it to be cut down.",
   },
   {
     id: "messages.rich-text",
@@ -1050,7 +1050,7 @@ export const features = [
     ],
     sources: ["reference/app/helpers/content_filters.rb", "reference/app/helpers/messages_helper.rb", "crates/richtext/src/sanitizer.rs", "crates/richtext/src/filters.rs", "crates/ember/src/controllers/presenters.rs", "reference/app/javascript/models/message_formatter.js", "reference/app/javascript/initializers/highlight.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/helpers/content_filters_test.rb", "reference/test/system/composer_test.rb", "crates/richtext/tests/corpus.rs"],
-    notes: "What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. The composer is still a plain-text box, so nothing writes formatting yet.",
+    notes: "What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.",
   },
   {
     id: "messages.optimistic",
@@ -1082,7 +1082,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/composer.css"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Only authors can edit, since there are no administrators yet. The editor is a plain-text box with Cancel and Save buttons, and on a computer Enter saves (Shift+Enter starts a new line). Up Arrow does nothing. The editor edits a message's plain text and sends it as typed text, so saving a formatted message drops its formatting, though nothing can write formatting yet. An edit is refused as a new message is. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
+    notes: "Only authors can edit, since there are no administrators yet. The editor is Lexxy, as in ember-rust, but until its edit form is ported it has Cancel and Save buttons, Enter saves on a computer (Shift+Enter starts a new line), and its formatting toolbar never shows. Up Arrow does nothing. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
   },
   {
     id: "messages.delete",
@@ -2184,7 +2184,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "There's no formatting toolbar or mention list. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too.",
+    notes: "There's no mention list yet. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too. An address left unfinished in Link, or Link opened out of sight by Cmd or Ctrl+K, doesn't stop Send, where in ember-rust it keeps the message from reaching the server.",
   },
   {
     id: "composer.layout",
@@ -2198,24 +2198,25 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_composer.html", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The text box is named after its placeholder, the button is called \"Send\", a \"Shift + Enter for a new line\" hint (hidden on touch screens) sits where Attach files and Formatting options would be, and nothing is focused on load.",
+    notes: "There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.",
   },
   {
     id: "composer.draft",
     title: "Keep drafts",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Whatever you've typed in a room, formatting and mentions included, is kept in this browser (`composer-draft-<room id>`) and restored, cursor at the end, when you come back.",
       "Sending, or emptying the box, clears it.",
     ],
     sources: ["crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/composer_controller.js"],
+    notes: "Drafts are kept for each person apart (`composer-draft-<user id>-<room id>`), where ember-rust keeps one a room, so whoever signs in on the same browser next doesn't see them.",
   },
   {
     id: "composer.formatting-toolbar",
     title: "Formatting toolbar",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Formatting options shows or hides a toolbar under the text: Bold, Italic, Strikethrough, Text formatting (Normal, Large Heading, Clear formatting), Link, Quote, Code, Bullet list and Numbered list. Buttons that don't fit go under \"Show more toolbar buttons\", and its menus open upward.",
       "Link, or Cmd or Ctrl+K, asks for an address (\"Enter a URL…\") with Link and Unlink buttons.",
@@ -2224,6 +2225,7 @@ export const features = [
     ],
     sources: ["crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "reference/app/javascript/initializers/rich_text.js", "reference/app/assets/stylesheets/actiontext.css", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb"],
+    notes: "This is Lexxy's own toolbar and Markdown, with Campfire's settings and styles, placed and sized as ember-rust's is. Each tool has yet to be checked against ember-rust's.",
   },
   {
     id: "composer.paste",

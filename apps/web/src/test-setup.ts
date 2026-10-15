@@ -2,8 +2,12 @@
 import "./test-animation-event";
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { installMatchMedia, setPrefersDark } from "./test-media";
+
+// Lexxy doesn't keep what's written under jsdom, so the message editor is a stand-in here
+// (components/workspace/__mocks__/rich-text-editor.tsx), and e2e/ tests the real one.
+vi.mock("./components/workspace/rich-text-editor");
 
 // jsdom has no matchMedia, so this one says every query is false (a mouse, light mode) unless a
 // test sets the color scheme or stubs it.
