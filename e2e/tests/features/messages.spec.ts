@@ -348,6 +348,26 @@ test.describe(feature("messages.actions"), () => {
     await expect(actions).toBeHidden();
   });
 
+  test("keeps the bar on its row as a message above grows, as when someone reacts to it", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    const above = await grace.say("React to me");
+    await grace.say("Keep my actions open");
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
+    const message = ada.message("Keep my actions open");
+    const actions = await ada.actions("Keep my actions open");
+    // Message options keeps it open as the pointer goes.
+    await message.getByRole("button", { name: "Message options" }).click();
+    await ada.page.getByRole("heading", { level: 1 }).hover();
+    const before = await box(message);
+
+    await grace.boost(above.id, "👍");
+    await expect(ada.message("React to me").getByRole("list", { name: "Reactions" })).toBeVisible();
+    const row = await box(message);
+    expect(row.y).toBeGreaterThan(before.y);
+    await expect(actions).toBeVisible();
+    expect(row.y - (await box(actions)).y).toBe(17);
+  });
+
   test("opens the tray above a bar near the composer, keeping the bar where it was", async ({ members, participant }) => {
     const grace = await participant("Grace");
     for (let i = 1; i <= 8; i++) await grace.say(`Earlier message ${i}`);

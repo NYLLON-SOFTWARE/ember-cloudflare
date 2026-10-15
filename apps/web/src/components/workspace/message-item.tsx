@@ -81,10 +81,15 @@ function Name({ user }: { user: User }) {
 }
 
 /** The reaction chips under a message, each naming who reacted with it, which toggle yours. */
-function Reactions({ message, me, actions }: Pick<Props, "message" | "me" | "actions">) {
+function Reactions({ message, me, threaded, actions }: Pick<Props, "message" | "me" | "threaded" | "actions">) {
   const nameOf = useNameOf();
   return (
-    <ul className="mt-1 flex flex-wrap gap-1" aria-label="Reactions">
+    <ul
+      aria-label="Reactions"
+      // Where Message options is 44px, the next message's rises 11px into this one, reaching 38px in from
+      // its edge, so the chips stop short of it. A grouped message's body already keeps 32px of that clear.
+      className={cn("mt-1 flex flex-wrap gap-1", threaded ? "touch:pr-1.5" : "touch:pr-[38px]")}
+    >
       {boostSummary(message, me.id, nameOf).map((group) => (
         <li key={group.content}>
           <button
@@ -180,7 +185,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
 
           {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
 
-          {message.boosts.length > 0 && <Reactions message={message} me={me} actions={actions} />}
+          {message.boosts.length > 0 && <Reactions message={message} me={me} threaded={threaded} actions={actions} />}
         </div>
       )}
 

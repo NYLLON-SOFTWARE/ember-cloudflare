@@ -361,6 +361,24 @@ describe(feature("messages.actions"), () => {
     vi.useRealTimers();
   });
 
+  it("opens as the pointer first moves over a message whose editor just shut under it, which it never left", async () => {
+    withMouse();
+    const { article, user } = show(message());
+    await pressAction(user, "Edit");
+    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    const options = optionsOn("Hello");
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerMove(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "true");
+
+    // After that, as in ember-rust, only the pointer coming back to the message opens them again.
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.pointerMove(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    expect(options).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("opens only from Message options on a touch screen, or when a finger crosses the message", () => {
     show(message());
     fireEvent.pointerEnter(screen.getByRole("article"), { pointerType: "mouse" });

@@ -148,7 +148,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
   // Whether the toolbar shows only for its Link field, which Ctrl or Cmd+K opened while it was shut.
   const [toolbarForLink, setToolbarForLink] = useState(false);
   const key = draftKey(userId, roomId);
-  const [draft] = useState(() => readDraft(key));
+  const [draft, setDraft] = useState(() => readDraft(key));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
   // Where focus was as the room opened. The editor can be ready a moment later, by when you may have put
@@ -157,9 +157,28 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
   const editorShown = useEditorShown(deferEditor);
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
+  // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
+  const replied = useRef(false);
   const placeholder = `Message #${roomName}`;
 
-  useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus(), replace: (markup) => editor.current?.replace(markup) }), []);
+  // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
+  const wrote = (body: string | null) => {
+    if (body !== null) onTyping(true);
+    else if (!wasBlank.current) onTyping(false);
+    wasBlank.current = body === null;
+    keepDraft(key, body);
+  };
+
+  useImperativeHandle(ref, () => ({
+    focus: () => editor.current?.focus(),
+    replace: (markup) => {
+      if (editor.current) return editor.current.replace(markup);
+      // Before the editor shows, as its code loads, the reply is what it opens with.
+      replied.current = true;
+      setDraft(markup);
+      wrote(markup);
+    },
+  }));
 
   // ember-rust's Up Arrow (rooms/show.html, messages_controller.js#editMyLastMessage): with nothing written,
   // it edits your newest message. ember-rust takes it from anywhere on the page, other fields included,
@@ -179,13 +198,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
     return () => document.removeEventListener("keydown", keyDown);
   }, []);
 
-  const changed = () => {
-    const blank = editor.current!.isBlank();
-    if (!blank) onTyping(true);
-    else if (!wasBlank.current) onTyping(false);
-    wasBlank.current = blank;
-    keepDraft(key, blank ? null : editor.current!.value());
-  };
+  const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
 
   // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends
   // what's written unless it's blank, closes the toolbar and focuses the editor, on touch screens too.
@@ -264,7 +277,7 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
-                  autoFocus={() => focusOnOpen && focusStayedOn(focusAtOpen)}
+                  autoFocus={() => replied.current || (focusOnOpen && focusStayedOn(focusAtOpen))}
                   onChange={changed}
                   onKeyDown={keyDown}
                 />

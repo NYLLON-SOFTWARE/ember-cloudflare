@@ -236,6 +236,26 @@ describe(feature("messages.reply"), () => {
     expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>“Third time's a charm.”<br><br>Ada</p>");
     expect(onTyping).toHaveBeenLastCalledWith(true);
   });
+
+  it("opens the editor with a reply written while its code loaded, taking focus, even on touch screens", async () => {
+    (await showComposer()).view.unmount();
+    touchScreen();
+    const composer = createRef<ComposerHandle>();
+    const onTyping = vi.fn();
+    const page = (deferEditor: boolean) => (
+      <Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor={deferEditor} onSend={() => true} onTyping={onTyping} />
+    );
+    const view = render(page(true));
+    const quote = "<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada</cite><p><br></p>";
+    act(() => composer.current!.replace(quote));
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe(quote);
+    expect(onTyping).toHaveBeenLastCalledWith(true);
+
+    view.rerender(page(false));
+    const input = await screen.findByRole("textbox", { name: "Write a message" });
+    expect(input).toHaveValue("“Third time's a charm.”\n\nAda");
+    expect(input).toHaveFocus();
+  });
 });
 
 describe(feature("realtime.typing"), () => {

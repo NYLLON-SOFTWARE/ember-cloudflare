@@ -114,7 +114,10 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   };
 
   const place = () => {
-    if (open && !placeMenu({ row: row.current!, container: container.current!, trigger: trigger.current!, menu: menu.current!, bar: bar.current!, tray: tray.current!, overlapping })) close();
+    // The bar can leave the page, with its message or as the message's editor opens, a moment before what
+    // watches the page for it stops.
+    if (!open || !container.current) return;
+    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, menu: menu.current!, bar: bar.current!, tray: tray.current!, overlapping })) close();
   };
 
   const hovered = useEffectEvent((event: PointerEvent) => {
@@ -136,9 +139,13 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     const leave = () => left();
     element.addEventListener("pointerenter", enter);
     element.addEventListener("pointerleave", leave);
+    // The bar comes back as its message's editor shuts, maybe under a pointer that never left the message
+    // and so won't enter it, so the pointer's first move over the message opens it too.
+    element.addEventListener("pointermove", enter, { once: true });
     return () => {
       element.removeEventListener("pointerenter", enter);
       element.removeEventListener("pointerleave", leave);
+      element.removeEventListener("pointermove", enter);
       clearTimeout(leaveTimer.current);
     };
   }, [row]);
@@ -188,10 +195,15 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     window.visualViewport?.addEventListener("resize", () => moved(), options);
     const resized = new ResizeObserver(() => moved());
     resized.observe(menu.current!);
+    // Messages above can change or go without anything scrolling, as when someone reacts to one, moving the row.
+    const changed = new MutationObserver(() => moved());
+    const timeline = row.current!.closest('[role="log"]');
+    if (timeline) changed.observe(timeline, { childList: true, characterData: true, subtree: true });
     return () => {
       if (openBar === self) openBar = null;
       events.abort();
       resized.disconnect();
+      changed.disconnect();
     };
   }, [open]);
 
