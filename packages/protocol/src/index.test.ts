@@ -18,6 +18,7 @@ import {
   parseClientFrame,
   parseCustomStyles,
   parseNewRoom,
+  parsePasswordReset,
   parseRoleChange,
   parseRoomChanges,
   parseRoomSocketParams,
@@ -326,6 +327,27 @@ describe(feature("accounts.roles"), () => {
     ["an object without a role", { name: "Grace" }],
   ])("finds no role change in %s", (_, body) => {
     expect(parseRoleChange(body)).toBeNull();
+  });
+});
+
+describe(feature("accounts.reset-password"), () => {
+  it("takes an email address and a password as they're given", () => {
+    expect(parsePasswordReset({ emailAddress: " Ada@example.com", password: "  correct horse  " })).toEqual({
+      emailAddress: " Ada@example.com",
+      password: "  correct horse  ",
+    });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["text", "ada@example.com", "Expected a JSON object"],
+    ["no email address", { password: "correct horse" }, "Email address and password are required"],
+    ["a blank email address", { emailAddress: "", password: "correct horse" }, "Email address and password are required"],
+    ["an email address that isn't text", { emailAddress: ["ada@example.com"], password: "correct horse" }, "Email address and password are required"],
+    ["no password", { emailAddress: "ada@example.com" }, "Email address and password are required"],
+    ["a password that isn't text", { emailAddress: "ada@example.com", password: 12345678 }, "Email address and password are required"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parsePasswordReset(body)).toBe(error);
   });
 });
 

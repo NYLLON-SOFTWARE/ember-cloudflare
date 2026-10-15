@@ -218,6 +218,16 @@ export interface SignUp {
   password: string;
 }
 
+/**
+ * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
+ * apps/worker/scripts/reset-password.ts, where ember-rust's `reset-password` takes the address as its
+ * argument and the password on stdin.
+ */
+export interface PasswordReset {
+  emailAddress: string;
+  password: string;
+}
+
 /** What `POST /api/first_run` answers: the administrator it signed in, and general, which opens first. */
 export interface NewWorkspace {
   user: Me;
@@ -646,6 +656,18 @@ export function parseSignUp(data: unknown): SignUp | string {
   const emailAddress = typeof f.emailAddress === "string" ? f.emailAddress : "";
   if (!name || !emailAddress || typeof f.password !== "string") return "Name, email address and password are required";
   return { name, emailAddress, password: f.password };
+}
+
+/**
+ * Parses an untrusted password reset. Returns why it's refused instead, when a field is missing; the
+ * password's length is checked apart from this, as for first run.
+ */
+export function parsePasswordReset(data: unknown): PasswordReset | string {
+  if (typeof data !== "object" || data === null) return "Expected a JSON object";
+  const { emailAddress, password } = data as Record<string, unknown>;
+  // Taken as given, as sign-in takes it.
+  if (typeof emailAddress !== "string" || !emailAddress || typeof password !== "string") return "Email address and password are required";
+  return { emailAddress, password };
 }
 
 /** Whether a password is shorter than first run takes, counting an emoji as one character. */

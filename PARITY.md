@@ -13,12 +13,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 44 ported and 58 partial of 172 features; 65 not started, 5 not applicable.
+**Overall:** 45 ported and 58 partial of 172 features; 64 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 5 | 4 | 5 | 0 | 14 |
+| [Workspace administration](#workspace-administration) | 6 | 4 | 4 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 1 | 3 | 1 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **44** | **58** | **65** | **5** | **172** |
+| **Total** | **45** | **58** | **64** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -143,7 +143,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The session cookie lasts 20 years, so the session survives browser restarts. At most once an hour, a request refreshes the session's last activity, browser and IP and extends the cookie.
 - Signing out ends only this device's session. Removing or banning a person, or resetting their password, ends all of theirs.
 
-Note: The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Nobody can be removed or banned or reset a password yet.
+Note: The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Resetting a password ends all of the person's sessions (`accounts.reset-password`); nobody can be removed or banned yet.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/db/src/models/session.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/session.rs) · [`reference/app/models/session.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/session.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb)
 
@@ -231,7 +231,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
 | Ban and unban people | `accounts.ban` | Campfire | ⬜ Not started |  |
 | What a ban blocks | `accounts.ban-enforcement` | Campfire | ⬜ Not started |  |
-| Reset a password from the server | `accounts.reset-password` | Ember | ⬜ Not started |  |
+| Reset a password from the server | `accounts.reset-password` | Ember | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [recovery](apps/worker/test/recovery.test.ts)<br>Scripts: [reset-password](apps/worker/scripts/reset-password.test.ts)<br>E2E: [accounts](e2e/tests/features/accounts.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -408,7 +408,7 @@ Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`reference/test/controllers/concerns/block_banned_requests_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/concerns/block_banned_requests_test.rb) · [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs)
 
-**Reset a password from the server** (`accounts.reset-password`) ⬜
+**Reset a password from the server** (`accounts.reset-password`) ✅
 
 - `ember reset-password <email>` reads exactly one password from stdin and refuses a terminal: "Read the new password with a hidden prompt, then pipe it to ember reset-password; passwords are accepted only on stdin".
 - One trailing LF or CRLF is stripped and spaces are kept. Any other CR, LF or NUL gives "provide exactly one password on stdin", more than 4096 bytes "password input exceeds 4096 bytes", invalid UTF-8 "password must be UTF-8", and fewer than 8 characters "password must contain at least 8 characters".
@@ -416,6 +416,8 @@ ember-rust tests: [`reference/test/controllers/concerns/block_banned_requests_te
 - Only the password digest and update time change, so role and status stay, a ban included. That person's sessions are deleted and nobody else's, and it prints "Password reset; existing sessions revoked. Restart Ember to close existing WebSocket connections."
 - `emberctl reset-password <email>` needs a terminal ("Run reset-password from a terminal; passwords are read privately and never accepted as arguments.") and prompts "New password: " and "Repeat new password: " without echoing, refusing with "Password must contain at least eight characters and fit within 4096 bytes." or "Passwords do not match."
 - It then pipes the password to `ember reset-password`, restarts the app so the person's live connections close, and prints "Password updated; existing sessions and live connections for this user were revoked."
+
+Note: A Worker has no shell beside its data, so `POST /api/recovery/reset-password` does `ember reset-password`'s work behind a secret of its own, `EMBER_RECOVERY_TOKEN`, answering 404 while it's unset or to anything without it, and apps/worker/scripts/reset-password.ts does emberctl's: it prompts on a terminal as emberctl does, and otherwise reads stdin with `ember reset-password`'s rules and messages. Unlike ember-rust, the password must also fit sign-in's 72 characters ("password must contain at most 72 characters"), the person's live connections close at once, as emberctl's restart closes them, and a sign-in that checked the old password while it was reset starts no session. Pending migrations and a missing database have no counterpart: each Durable Object migrates itself as it opens, and D1 migrates at deploy.
 
 Sources: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py)
 

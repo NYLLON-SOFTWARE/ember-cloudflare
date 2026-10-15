@@ -50,6 +50,7 @@ import { manifest, manifestFormatOf } from "./manifest";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
+import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { unfurlLink } from "./unfurl";
@@ -93,7 +94,8 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
 
   const matches = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
   const token = newSessionToken();
-  const user = found && matches ? await workspace(env).startSession(found.userId, await tokenDigest(token, env.SESSION_SECRET), clientOf(request)) : null;
+  const user =
+    found && matches ? await workspace(env).startSession(found.userId, found.passwordDigest, await tokenDigest(token, env.SESSION_SECRET), clientOf(request)) : null;
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
@@ -373,6 +375,9 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
 async function route(request: Request, env: Env, pathname: string): Promise<Response> {
   // The deploy check isn't a browser's, any more than /up is.
   if (pathname === "/api/health") return health(env);
+  // Nor is password recovery's script, whose token another site's page can't send, since its header
+  // takes a preflight nothing here answers.
+  if (pathname === RECOVERY_PATH) return resetPassword(request, env);
   // First, where ember-rust checks after sign-in and the forgery check: a browser too old for the
   // app has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
   if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
@@ -431,11 +436,12 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
 /**
  * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API, and
  * Campfire's 500 page otherwise. Setup's pages and form can hold the setup token or the first
- * administrator's password, so there the log says only that the request failed.
+ * administrator's password, and recovery its token and a new password, so there the log says only
+ * that the request failed.
  */
 function failure(request: Request, env: Env, pathname: string, error: unknown): Response {
-  const isSetup = isSetupPath(pathname) || pathname === "/api/first_run";
-  console.error(`${request.method} ${pathname} failed:`, isSetup ? "500 Internal Server Error" : error);
+  const holdsSecrets = isSetupPath(pathname) || pathname === "/api/first_run" || pathname === RECOVERY_PATH;
+  console.error(`${request.method} ${pathname} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
   return keepSetupPrivate(failed(request), env, pathname);
 }
