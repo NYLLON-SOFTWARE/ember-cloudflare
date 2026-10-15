@@ -234,9 +234,20 @@ describe(feature("dms.picker"), () => {
     await answer(Response.json({ room }, { status: 201 }));
     expect(onAnswered).toHaveBeenCalledExactlyOnceWith({ type: "saved", room });
     expect(location.pathname).toBe("/rooms/d1");
-    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onClose).toHaveBeenCalledExactlyOnceWith(false));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // Focus is left for the DM's composer to take.
+    expect(screen.getByRole("link", { name: "DMs" })).not.toHaveFocus();
+  });
+
+  it("says, once it's closed, that it started the DM the page shows, whose composer is still to take focus", async () => {
+    history.replaceState(null, "", "/rooms/d1");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ room: directWith("d1", [grace]) }, { status: 201 }));
+    const { user, onClose } = showDialog();
+    await user.click(option("Grace Hopper"));
+    await user.click(start());
+    await waitFor(() => expect(onClose).toHaveBeenCalledExactlyOnceWith(true));
+    expect(location.pathname).toBe("/rooms/d1");
     expect(screen.getByRole("link", { name: "DMs" })).not.toHaveFocus();
   });
 

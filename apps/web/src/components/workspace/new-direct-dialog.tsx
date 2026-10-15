@@ -4,7 +4,7 @@ import { Close, Search } from "@/components/icons/ember";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
-import { leave, navigate, roomPath } from "@/hooks/use-route";
+import { leave, navigate, roomPath, useRoute } from "@/hooks/use-route";
 import { isSignedOut, startDirect } from "@/lib/api";
 import { PEOPLE_PAGE, peopleMatching, soughtName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
@@ -54,8 +54,11 @@ interface Props {
   reloadPeople: () => Promise<void>;
   /** Called as a DM starts, with what lists it, for the sidebar, as the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
-  /** Called once it has closed. */
-  onClose: () => void;
+  /**
+   * Called once it has closed, with whether it started the DM the page shows, which going there leaves as
+   * it is, so its composer has yet to take focus.
+   */
+  onClose: (startedShown: boolean) => void;
   /** Hears that the session has ended, when that's why a DM didn't start. */
   onFailed: (error: unknown) => void;
 }
@@ -81,8 +84,10 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
   const [loading, setLoading] = useState<"loading" | "failed" | null>("loading");
   const [starting, setStarting] = useState(false);
   const [startFailed, setStartFailed] = useState(false);
-  // Whether the dialog closed on starting a DM, which leaves focus for the DM's page to take.
-  const started = useRef(false);
+  const route = useRoute();
+  // How the dialog closed on starting a DM, which leaves focus for the DM's page to take: "shown" when the
+  // page showed it already, and stays as it is.
+  const started = useRef<"opened" | "shown" | null>(null);
 
   const name = soughtName(typed);
   const matches = useMemo(() => peopleMatching(people.values(), meId, name), [people, meId, name]);
@@ -174,7 +179,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
       const room = await startDirect(picked.map((person) => person.id));
       answered({ type: "saved", room });
       if (!mounted.current) return false;
-      started.current = true;
+      started.current = route.page === "room" && route.roomId === room.id ? "shown" : "opened";
       setOpen(false);
       navigate(roomPath(room.id));
       return true;
@@ -223,7 +228,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           if (!started.current) returnFocus(opener);
-          onClose();
+          onClose(started.current === "shown");
         }}
         className={cn(
           "block w-[500px] max-w-[calc(100dvw-24px-env(safe-area-inset-left)-env(safe-area-inset-right))] sm:max-w-[calc(100dvw-24px-env(safe-area-inset-left)-env(safe-area-inset-right))]",

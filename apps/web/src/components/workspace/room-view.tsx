@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Favorites, Invitation, Me } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
@@ -30,9 +30,15 @@ interface Props {
   onSessionChanged: (me: Me | null) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
   onGone: (room: Room) => void;
+  ref?: Ref<RoomViewHandle>;
 }
 
-export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone }: Props) {
+export interface RoomViewHandle {
+  /** Gives the composer focus, as opening the room does, except on touch screens. */
+  focusComposer(): void;
+}
+
+export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone, ref }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
@@ -79,6 +85,7 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
       reply: (quote) => composer.current?.replace(quote),
     };
   }, []);
+  useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
 
   // ember-rust's Up Arrow edits your newest message, unless it's still on its way.
   const editLastMessage = () => {

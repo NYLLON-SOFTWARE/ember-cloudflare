@@ -168,16 +168,28 @@ test.describe(feature("dms.picker"), () => {
     await expect(grace.message("Hello, both")).toBeVisible();
   });
 
-  test("opens the DM a group already has, from the sidebar's New direct message", async ({ members, request }) => {
+  test("opens the DM a group already has, from the sidebar's New direct message, whose composer takes focus though the DM's shown", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
     const roomId = await startDirect(request, grace, [ada]);
     await expect(directRow(ada, [grace])).toBeVisible();
-    await ada.page.getByRole("region", { name: "DMs" }).getByRole("link", { name: "New direct message" }).click();
-    await pick(ada, [grace]);
-    await newDirect(ada).getByRole("button", { name: "Start conversation" }).click();
+    const startWithGrace = async () => {
+      await ada.page.getByRole("region", { name: "DMs" }).getByRole("link", { name: "New direct message" }).click();
+      await pick(ada, [grace]);
+      await newDirect(ada).getByRole("button", { name: "Start conversation" }).click();
+      await expect(newDirect(ada)).toBeHidden();
+    };
+    await startWithGrace();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
     await expect(directRow(ada, [grace])).toHaveCount(1);
+    await ada.connected();
+    await expect(ada.composer()).toBeFocused();
+
+    // Started again from the DM, which stays as it is, its composer takes focus for typing at once.
+    await startWithGrace();
+    await expect(ada.composer()).toBeFocused();
+    await ada.page.keyboard.type("Typed at once");
+    await expect(ada.composer()).toHaveText("Typed at once");
   });
 
   test("opens in a new tab, over the last room visited, from DMs clicked with a modifier key", async ({ members, rooms }) => {

@@ -20,7 +20,7 @@ import { DrawerOpen, PageHeader } from "./page-header";
 import { ProfilePage } from "./profile-page";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
-import { RoomView } from "./room-view";
+import { RoomView, type RoomViewHandle } from "./room-view";
 import { Sidebar } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
@@ -165,6 +165,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // keep it on, and loading the page again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
+  const roomView = useRef<RoomViewHandle>(null);
   const route = useRoute();
 
   const rooms = list?.rooms ?? null;
@@ -376,6 +377,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           return (
             <RoomView
               key={`${room.id}/${returns}`}
+              ref={roomView}
               room={room}
               invitation={invitation?.roomId === room.id ? invitation : null}
               me={me}
@@ -466,7 +468,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               meId={me.id}
               reloadPeople={directory.reload}
               askForRoom={askForRoom}
-              onClose={() => setNewDirect(null)}
+              onClose={(startedShown) => {
+                setNewDirect(null);
+                // The DM shown stays as it is when it's the one started, so its composer takes focus, as
+                // opening it would.
+                if (startedShown) roomView.current?.focusComposer();
+              }}
               onFailed={failed}
             />
           )}

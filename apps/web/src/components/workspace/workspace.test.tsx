@@ -621,6 +621,24 @@ describe(feature("dms.picker"), () => {
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 
+  it("gives focus to the composer of the DM shown when that's the one started, which stays as it is", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "GET /api/users": () => Response.json({ users: people }),
+      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/d1");
+    const composer = await screen.findByRole("textbox", { name: "Write a message" });
+    await user.click(dms());
+    await user.click(await screen.findByRole("option", { name: "Grace" }));
+    await user.click(screen.getByRole("button", { name: "Start conversation" }));
+    await waitFor(() => expect(newDirect()).not.toBeInTheDocument());
+    expect(location.pathname).toBe("/rooms/d1");
+    expect(screen.getByRole("textbox", { name: "Write a message" })).toBe(composer);
+    await waitFor(() => expect(composer).toHaveFocus());
+  });
+
   it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
     serve({
       "GET /api/users": () => Response.json({ users: people }),
