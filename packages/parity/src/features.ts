@@ -150,7 +150,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions/transfers.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/views/templates/users/profiles/_transfer.html", "crates/views/templates/users/show.html", "reference/app/models/user/transferable.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions/transfers_controller_test.rb"],
-    notes: "A link's id is the person's id, when it expires (in base-36 milliseconds) and an HMAC-SHA256 of both under `SESSION_SECRET`, where ember-rust's is a Rails signed id, so changing the secret ends every link, as changing ember-rust's `SECRET_KEY_BASE` does. The Worker answers the app's page at `/session/transfers/<id>` for any id, which no cache keeps, and the page signs in with `PUT /api/session/transfers/<id>` rather than a form sent to itself, with the API's cross-site check in place of ember-rust's form token. It answers 201 with who's signed in and the new session's cookie, and the page then loads the page asked for before signing in, else `/`, afresh, as ember-rust's redirect does. A link that doesn't work leaves the page blank, as ember-rust's empty 400 does; a request that can't reach Ember, or that Ember fails, is tried again, waiting longer each time up to 15 seconds, as the app's first request is. Someone who signed in with just a name gets a link too, which signs them in only while `EMBER_GUEST_SIGN_IN` lets guests stay signed in. Your profile makes a new link each time it loads or saves, and someone's page each time it loads; the page hides theirs as soon as they're banned or removed, or you stop being an administrator.",
+    notes: "A link's id is the person's id, when it expires (in base-36 milliseconds) and an HMAC-SHA256 of both under `SESSION_SECRET`, where ember-rust's is a Rails signed id, so changing the secret ends every link, as changing ember-rust's `SECRET_KEY_BASE` does. The Worker answers the app's page at `/session/transfers/<id>` for any id, which no cache keeps, nor the link's QR code (`accounts.qr-codes`), and the page signs in with `PUT /api/session/transfers/<id>` rather than a form sent to itself, with the API's cross-site check in place of ember-rust's form token. It answers 201 with who's signed in and the new session's cookie, and the page then loads the page asked for before signing in, else `/`, afresh, as ember-rust's redirect does. A link that doesn't work leaves the page blank, as ember-rust's empty 400 does; a request that can't reach Ember, or that Ember fails, is tried again, waiting longer each time up to 15 seconds, as the app's first request is. Someone who signed in with just a name gets a link too, which signs them in only while `EMBER_GUEST_SIGN_IN` lets guests stay signed in. Your profile makes a new link each time it loads or saves, and someone's page each time it loads; the page hides theirs as soon as they're banned or removed, or you stop being an administrator.",
   },
   {
     id: "auth.sign-up",
@@ -315,7 +315,7 @@ export const features = [
     id: "accounts.qr-codes",
     title: "QR codes for links",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.",
       "It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version=\"1.0\" standalone=\"yes\"?><svg`.",
@@ -325,7 +325,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/qr_code.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs", "crates/views/src/helpers/application.rs", "reference/app/controllers/qr_code_controller.rb"],
     upstreamTests: ["reference/test/controllers/qr_code_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/ember/src/controllers/qr_code/rqrcode.rs"],
-    notes: "The join link opens its QR code, on the welcome card and in workspace settings; the sign-in link gets its own when it's ported (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.",
+    notes: "The join link opens its QR code on the welcome card and in workspace settings, and the sign-in link opens its own on your profile and on someone's page (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500. The QR code of a sign-in link, to any site, answers `Cache-Control: no-store`, where ember-rust caches it publicly for a year as it does any other: the link signs someone in for 4 hours, and its page is kept out of caches too.",
   },
   {
     id: "accounts.people",

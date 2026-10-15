@@ -13,12 +13,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 61 ported and 57 partial of 172 features; 49 not started, 5 not applicable.
+**Overall:** 62 ported and 56 partial of 172 features; 49 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 6 | 6 | 0 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 7 | 3 | 4 | 0 | 14 |
+| [Workspace administration](#workspace-administration) | 8 | 2 | 4 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 1 | 3 | 1 | 0 | 5 |
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **61** | **57** | **49** | **5** | **172** |
+| **Total** | **62** | **56** | **49** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -169,7 +169,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - Opening a link needs no session: the page submits itself, signs that person in with a new session that replaces any session this browser had (without ending it), and goes to the page asked for before signing in, else `/`.
 - The page opens for any link, but submitting an expired, tampered or unknown link, or one for a removed or banned person, gets 400 with an empty body.
 
-Note: A link's id is the person's id, when it expires (in base-36 milliseconds) and an HMAC-SHA256 of both under `SESSION_SECRET`, where ember-rust's is a Rails signed id, so changing the secret ends every link, as changing ember-rust's `SECRET_KEY_BASE` does. The Worker answers the app's page at `/session/transfers/<id>` for any id, which no cache keeps, and the page signs in with `PUT /api/session/transfers/<id>` rather than a form sent to itself, with the API's cross-site check in place of ember-rust's form token. It answers 201 with who's signed in and the new session's cookie, and the page then loads the page asked for before signing in, else `/`, afresh, as ember-rust's redirect does. A link that doesn't work leaves the page blank, as ember-rust's empty 400 does; a request that can't reach Ember, or that Ember fails, is tried again, waiting longer each time up to 15 seconds, as the app's first request is. Someone who signed in with just a name gets a link too, which signs them in only while `EMBER_GUEST_SIGN_IN` lets guests stay signed in. Your profile makes a new link each time it loads or saves, and someone's page each time it loads; the page hides theirs as soon as they're banned or removed, or you stop being an administrator.
+Note: A link's id is the person's id, when it expires (in base-36 milliseconds) and an HMAC-SHA256 of both under `SESSION_SECRET`, where ember-rust's is a Rails signed id, so changing the secret ends every link, as changing ember-rust's `SECRET_KEY_BASE` does. The Worker answers the app's page at `/session/transfers/<id>` for any id, which no cache keeps, nor the link's QR code (`accounts.qr-codes`), and the page signs in with `PUT /api/session/transfers/<id>` rather than a form sent to itself, with the API's cross-site check in place of ember-rust's form token. It answers 201 with who's signed in and the new session's cookie, and the page then loads the page asked for before signing in, else `/`, afresh, as ember-rust's redirect does. A link that doesn't work leaves the page blank, as ember-rust's empty 400 does; a request that can't reach Ember, or that Ember fails, is tried again, waiting longer each time up to 15 seconds, as the app's first request is. Someone who signed in with just a name gets a link too, which signs them in only while `EMBER_GUEST_SIGN_IN` lets guests stay signed in. Your profile makes a new link each time it loads or saves, and someone's page each time it loads; the page hides theirs as soon as they're banned or removed, or you stop being an administrator.
 
 Sources: [`crates/ember/src/controllers/sessions/transfers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions/transfers.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/profiles/_transfer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_transfer.html) · [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`reference/app/models/user/transferable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/transferable.rb)
 
@@ -227,7 +227,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Translation buttons | `accounts.translation-buttons` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [account](apps/worker/test/account.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [translation-button](apps/web/src/components/translation-button.test.tsx), [custom-styles-page](apps/web/src/components/workspace/custom-styles-page.test.tsx), [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [translation-buttons](e2e/tests/workspace-settings/translation-buttons.spec.ts) |
 | Join link | `accounts.join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [accounts](e2e/tests/features/accounts.spec.ts), [rooms](e2e/tests/features/rooms.spec.ts) |
 | Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [join-link](e2e/tests/workspace-settings/join-link.spec.ts) |
-| QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| QR codes for links | `accounts.qr-codes` | Campfire | ✅ Ported | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | People list | `accounts.people` | Campfire | ✅ Ported | Web: [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [people](apps/web/src/lib/people.test.ts) |
 | Make or revoke administrators | `accounts.roles` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [roles](apps/worker/test/roles.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts)<br>E2E: [people](e2e/tests/workspace-settings/people.spec.ts) |
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
@@ -334,7 +334,7 @@ Sources: [`crates/ember/src/controllers/accounts/join_codes.rs`](https://github.
 
 ember-rust tests: [`reference/test/controllers/accounts/join_codes_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/join_codes_controller_test.rb)
 
-**QR codes for links** (`accounts.qr-codes`) 🟡
+**QR codes for links** (`accounts.qr-codes`) ✅
 
 - `/qr_code/<id>` needs no sign-in and draws whatever text the id holds, not only this site's links. The id is padded URL-safe base64, though the standard alphabet and unpadded ids decode too.
 - It answers `image/svg+xml; charset=utf-8` with `Cache-Control: max-age=31556952, public`, an SVG that starts `<?xml version="1.0" standalone="yes"?><svg`.
@@ -342,7 +342,7 @@ ember-rust tests: [`reference/test/controllers/accounts/join_codes_controller_te
 - Text too long for the largest QR code, such as 3,000 bytes, answers 422.
 - The join link and sign-in link open their QR codes in the image viewer.
 
-Note: The join link opens its QR code, on the welcome card and in workspace settings; the sign-in link gets its own when it's ported (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500.
+Note: The join link opens its QR code on the welcome card and in workspace settings, and the sign-in link opens its own on your profile and on someone's page (`auth.sign-in-link`). An id that isn't base64 answers 400 where ember-rust answers 500. The QR code of a sign-in link, to any site, answers `Cache-Control: no-store`, where ember-rust caches it publicly for a year as it does any other: the link signs someone in for 4 hours, and its page is kept out of caches too.
 
 Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs) · [`reference/app/controllers/qr_code_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/qr_code_controller.rb)
 

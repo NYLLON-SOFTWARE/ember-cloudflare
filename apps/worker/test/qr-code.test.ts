@@ -47,6 +47,19 @@ describe(feature("accounts.qr-codes"), () => {
     expect(await response.text()).toBe(qrCodeSvg(utf8("Not a link at all")));
   });
 
+  it("keeps a sign-in link's QR code out of caches, as the link's page is, where ember-rust caches it for a year", async () => {
+    const idOf = (text: string) => btoa(text).replaceAll("+", "-").replaceAll("/", "_");
+    const link = await api(`/qr_code/${idOf("https://ember.test/session/transfers/user_1.mg3x0k0.c2lnbmVk")}`);
+    expect(link.status).toBe(200);
+    expect(link.headers.get("Cache-Control")).toBe("no-store");
+    const otherSite = await api(`/qr_code/${idOf("http://campfire.test/session/transfers/anything")}`, { method: "HEAD" });
+    expect(otherSite.headers.get("Cache-Control")).toBe("no-store");
+    for (const text of ["https://ember.test/session/transfers/", "https://ember.test/session/transfers/one/two", "/session/transfers/no-site"]) {
+      const response = await api(`/qr_code/${idOf(text)}`);
+      expect(response.headers.get("Cache-Control"), text).toBe("max-age=31556952, public");
+    }
+  });
+
   it("answers HEAD with the headers alone, and ignores a format, as Rails routes do", async () => {
     const head = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { method: "HEAD" });
     expect(head.status).toBe(200);

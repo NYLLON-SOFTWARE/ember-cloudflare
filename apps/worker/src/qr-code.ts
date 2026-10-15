@@ -1,3 +1,4 @@
+import { transferIdFromPath } from "@ember/protocol";
 import { urlsafeDecode64 } from "./encoding";
 import { notFound } from "./error-pages";
 
@@ -13,6 +14,12 @@ import { notFound } from "./error-pages";
 
 /** The cache ember-rust's `expires_in 1.year, public: true` asks for. */
 const CACHE_CONTROL = "max-age=31556952, public";
+
+/**
+ * A sign-in link signs someone in for hours, so its QR code is kept out of caches, as its page is,
+ * where ember-rust caches it for a year as it does any other.
+ */
+const SIGN_IN_LINK_CACHE_CONTROL = "no-store";
 
 /** Rails' `/qr_code/:id(.:format)`, whose id can't hold "/", "." or "?". */
 const ROUTE = /^\/qr_code\/([^/.?]+)(?:\.[^/.?]+)?$/;
@@ -31,8 +38,14 @@ export function showQrCode(request: Request): Response {
   const svg = qrCodeSvg(text);
   if (svg === null) return new Response(null, { status: 422 });
   return new Response(request.method === "HEAD" ? null : svg, {
-    headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": CACHE_CONTROL },
+    headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": isSignInLink(text) ? SIGN_IN_LINK_CACHE_CONTROL : CACHE_CONTROL },
   });
+}
+
+/** Whether `text` is the address of a sign-in link, on any site. */
+function isSignInLink(text: Uint8Array): boolean {
+  const url = URL.parse(new TextDecoder().decode(text));
+  return url !== null && transferIdFromPath(url.pathname) !== null;
 }
 
 /** A path segment as Rails reads it, or null if its percent-encoding is malformed. */
