@@ -58,7 +58,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 void submit();
               }}
             >
-              <Field id="email_address" label="Email address">
+              <Field id="email_address" label="Email address" translation="email_address">
                 <Input
                   id="email_address"
                   type="email"
@@ -71,7 +71,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                   className={FIELD_INPUT}
                 />
               </Field>
-              <Field id="password" label="Password">
+              <Field id="password" label="Password" translation="password">
                 <Input
                   ref={passwordInput}
                   id="password"

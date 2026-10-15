@@ -165,8 +165,9 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const problem = cutOff(node, box, clipping);
     if (problem) overflow.push(problem);
   };
-  const scrollWidth = document.scrollingElement!.scrollWidth;
-  if (scrollWidth > innerWidth + TOLERANCE) overflow.push(`the page scrolls sideways: ${px(scrollWidth)} wide on a ${px(innerWidth)}-wide screen`);
+  // A phone widens the window to fit a page wider than the screen, but not the box the page is laid out in.
+  const [scrollWidth, screenWidth] = [document.scrollingElement!.scrollWidth, document.documentElement.clientWidth];
+  if (scrollWidth > screenWidth + TOLERANCE) overflow.push(`the page scrolls sideways: ${px(scrollWidth)} wide on a ${px(screenWidth)}-wide screen`);
   for (const node of textNodes()) {
     for (const line of lineBoxes(node)) checkFits(node, line, clippers(node.parentElement!, true));
   }

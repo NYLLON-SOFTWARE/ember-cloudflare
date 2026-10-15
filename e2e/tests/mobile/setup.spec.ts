@@ -1,7 +1,15 @@
 import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "./fixtures";
 
-const PENDING: Bootstrap = { setup: "pending", setupProtected: false, guestSignIn: true, account: { name: "Ember" }, helpContact: null, version: "0.1", user: null };
+const PENDING: Bootstrap = {
+  setup: "pending",
+  setupProtected: false,
+  guestSignIn: true,
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+  helpContact: null,
+  version: "0.1",
+  user: null,
+};
 
 // The first-run project has set the server up by now, so these show the page as a new deployment
 // would: the app's page at /first_run, told that Ember is waiting to be set up.

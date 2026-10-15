@@ -4,6 +4,7 @@ import {
   type AccountChanges,
   type Bootstrap,
   type ChangedPerson,
+  type CustomStyles,
   type Directory,
   type DirectoryUser,
   type Favorites,
@@ -105,6 +106,16 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** The workspace's custom CSS, for the Custom CSS page. Fails with a 403 ApiError for anyone but an administrator. */
+export async function fetchCustomStyles(): Promise<string> {
+  return (await request<CustomStyles>("/api/account/custom_styles")).customStyles;
+}
+
+/** Saves the workspace's custom CSS, answering the workspace as it is then. Fails with a 403 ApiError for anyone but an administrator. */
+export async function changeCustomStyles(customStyles: string): Promise<Account> {
+  return (await request<{ account: Account }>("/api/account/custom_styles", { method: "PATCH", body: JSON.stringify({ customStyles }) })).account;
 }
 
 /** Gives the join link a new code, answering it. Fails with a 403 ApiError for anyone but an administrator. */

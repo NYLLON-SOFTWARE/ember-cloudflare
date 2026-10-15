@@ -1,0 +1,60 @@
+import { feature } from "@ember/parity";
+import { expect, test, type Page } from "@playwright/test";
+import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { join } from "./fixtures";
+
+/** CSS whose effect a test can read, and no other test notices. */
+const CSS = ":root { --e2e-custom-styles: applied; }";
+
+/** What the CSS has set on `page`, if anything. */
+const styled = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--e2e-custom-styles").trim());
+
+test.describe(feature("accounts.custom-css"), () => {
+  test("the administrator saves custom CSS, which every page applies at once, open ones and sign-in included", async ({ page, browser, baseURL }) => {
+    await useOwnAddress(page);
+    await page.goto("/account/edit");
+    await signInAsAdministrator(page);
+    const otherTab = await page.context().newPage();
+    await otherTab.goto("/account/edit");
+    await expect(otherTab.getByRole("heading", { level: 1 })).toHaveText("Workspace settings");
+
+    await page.getByRole("link", { name: "Custom styles" }).click();
+    await expect(page).toHaveURL(/\/account\/custom_styles\/edit$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Custom CSS");
+    const css = page.getByRole("textbox", { name: "Custom CSS" });
+    await css.fill(CSS);
+    await css.press("ControlOrMeta+Enter");
+    // The flash's check, read as "Changes saved".
+    await expect(page.getByRole("alert")).toHaveText("Changes saved");
+    await expect.poll(() => styled(page)).toBe("applied");
+    await expect.poll(() => styled(otherTab)).toBe("applied");
+
+    const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+    const signIn = await signedOut.newPage();
+    await signIn.goto("/");
+    await expect(signIn.getByRole("heading", { level: 1 })).toHaveText(/^Sign in to /);
+    expect(await styled(signIn)).toBe("applied");
+    await signedOut.close();
+
+    await page.reload();
+    await expect(css).toHaveValue(CSS);
+    await css.fill("");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect.poll(() => styled(otherTab)).toBe("");
+    expect(await styled(page)).toBe("");
+  });
+
+  test("a member who opens Custom CSS is sent to workspace settings, told why", async ({ page, browser, baseURL }) => {
+    await useOwnAddress(page);
+    await page.goto("/account/edit");
+    await signInAsAdministrator(page);
+    const member = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), "Grace Hopper");
+
+    await member.goto("/account/custom_styles/edit");
+    await expect(member.getByRole("alert")).toHaveText("Only administrators can change the workspace");
+    await expect(member).toHaveURL(/\/account\/edit$/);
+    await expect(member.getByRole("heading", { level: 1 })).toHaveText("Workspace settings");
+    await expect(member.getByRole("link", { name: "Custom styles" })).toHaveCount(0);
+    await member.context().close();
+  });
+});

@@ -58,7 +58,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
             void submit();
           }}
         >
-          <Field id="user_name" label="Name">
+          <Field id="user_name" label="Name" translation="user_name">
             <Input
               id="user_name"
               required
@@ -71,7 +71,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               className={FIELD_INPUT}
             />
           </Field>
-          <Field id="user_email_address" label="Email address">
+          <Field id="user_email_address" label="Email address" translation="email_address">
             <Input
               id="user_email_address"
               type="email"
@@ -83,7 +83,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               className={FIELD_INPUT}
             />
           </Field>
-          <Field id="user_password" label="Password">
+          <Field id="user_password" label="Password" translation="password">
             <Input
               id="user_password"
               type="password"

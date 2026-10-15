@@ -1,4 +1,5 @@
 import { Link } from "@/components/icons/ember";
+import { TranslationButton } from "@/components/translation-button";
 import { JoinLinkButtons, joinUrl } from "./join-link";
 
 // ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
@@ -19,6 +20,7 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
           <h2 className="mb-[3px] text-[17px] font-[650] max-md:text-[15px]">Welcome to Ember</h2>
           <p className="text-muted-foreground max-md:text-[13px]">To invite people to chat, share the join link below.</p>
         </div>
+        <TranslationButton translations="invite_message" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[9px] border px-[9px] py-[7px] max-[68.75rem]:basis-full touch:min-h-11">

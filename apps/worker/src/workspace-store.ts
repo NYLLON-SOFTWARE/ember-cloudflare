@@ -1,4 +1,4 @@
-import type { CloseCode, Favorites, HelpContact, PersonRole, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
+import type { Account, CloseCode, Favorites, HelpContact, PersonRole, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -24,16 +24,23 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
+/** What a new account's settings and custom CSS read as: translation buttons hidden, and no CSS. */
+export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "" } as const;
+
 /** The workspace's account, with the code in its join link, which only the people in it see. */
-export interface JoinableAccount {
-  name: string;
+export interface JoinableAccount extends Account {
   joinCode: string;
 }
 
 /** The account first run creates. */
-export interface NewAccount extends JoinableAccount {
+export interface NewAccount {
   id: string;
+  name: string;
+  joinCode: string;
 }
+
+/** What `WorkspaceStore.changeAccount` changes: the name, Hide translation buttons, or both. */
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -114,6 +121,30 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   status: STATUSES[row.status] ?? "active",
   updatedAt: row.updated_at,
 });
+
+/** Whether a value is `present?`, as ember-rust reads a setting (account.rs): not null, false, blank, or empty. */
+function isPresent(value: unknown): boolean {
+  if (value === null || value === false || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value !== "object" || Object.keys(value).length > 0;
+}
+
+/**
+ * Whether the account's settings hide the translation buttons, as ember-rust reads them (account.rs,
+ * `hide_translation_buttons`): hidden until the setting is stored, even for an existing account, then
+ * only while it's present, so a stored false or blank shows them. Settings that don't parse hide them.
+ */
+function hidesTranslationButtons(settings: string | null): boolean {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(settings ?? "{}");
+  } catch {
+    return true;
+  }
+  const hide = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>).hide_translation_buttons : undefined;
+  return hide === undefined || isPresent(hide);
+}
 
 interface RoomToChangeRow extends Room {
   can_administer: number;
@@ -202,6 +233,19 @@ export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role =
  * `Account::update` changes only what differs (account.rs).
  */
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
+
+/**
+ * Sets Hide translation buttons, true or false as JSON, in the account's settings and records when.
+ * The other settings stay, as ember-rust merges a change into them (account.rs, `assign`), and
+ * settings that aren't a JSON object start afresh, as ember-rust reads them.
+ */
+const SET_HIDE_TRANSLATION_BUTTONS = `UPDATE accounts SET settings = json_set(
+    CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
+    '$.hide_translation_buttons', json(?1)
+  ), updated_at = ?2`;
+
+/** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
+const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
 
 /** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
 const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
@@ -337,13 +381,24 @@ export class WorkspaceStore {
 
   /** The workspace's account, or null until first run creates it. */
   async account(): Promise<JoinableAccount | null> {
-    const [row] = await this.db.all<{ name: string; join_code: string }>(`SELECT name, join_code FROM accounts`);
-    return row ? { name: row.name, joinCode: row.join_code } : null;
+    const [row] = await this.db.all<{ name: string; join_code: string; settings: string | null; custom_styles: string | null }>(
+      `SELECT name, join_code, settings, custom_styles FROM accounts`,
+    );
+    if (!row) return null;
+    return { name: row.name, joinCode: row.join_code, hideTranslationButtons: hidesTranslationButtons(row.settings), customStyles: row.custom_styles ?? "" };
   }
 
-  /** Renames the workspace. */
-  async renameAccount(name: string, now: string): Promise<void> {
-    await this.db.run(RENAME_ACCOUNT, name, now);
+  /** Changes the workspace's name, Hide translation buttons, or both, in one batch. */
+  async changeAccount({ name, hideTranslationButtons }: AccountChange, now: string): Promise<void> {
+    await this.db.batch([
+      ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
+      ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
+    ]);
+  }
+
+  /** Saves the workspace's custom CSS. */
+  async changeCustomStyles(customStyles: string, now: string): Promise<void> {
+    await this.db.run(CHANGE_CUSTOM_STYLES, customStyles, now);
   }
 
   /** Gives the join link a new code, so the old one joins no more. */

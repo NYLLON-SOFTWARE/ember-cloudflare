@@ -5,12 +5,14 @@ import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
 import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
+import art from "./campfire/art.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
 import copyPaste from "./campfire/copy-paste.svg";
 import crown from "./campfire/crown.svg";
 import download from "./campfire/download.svg";
 import everyone from "./campfire/everyone.svg";
+import globe from "./campfire/globe.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
@@ -34,6 +36,8 @@ const tones = {
   reversed: "invert dark:invert-0",
   /** In a flash or a `.btn--negative` button: white on red in both modes. */
   white: "invert",
+  /** `color-icon`, as the translation buttons' globe is: in its own colors in both modes. */
+  color: "",
 };
 
 export type CampfireIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "alt"> & { tone?: keyof typeof tones };
@@ -62,6 +66,10 @@ export function ArrowUp(props: CampfireIconProps) {
   return <CampfireIcon src={arrowUp} {...props} />;
 }
 
+export function Art(props: CampfireIconProps) {
+  return <CampfireIcon src={art} {...props} />;
+}
+
 export function Cancel(props: CampfireIconProps) {
   return <CampfireIcon src={cancel} {...props} />;
 }
@@ -84,6 +92,10 @@ export function Download(props: CampfireIconProps) {
 
 export function Everyone(props: CampfireIconProps) {
   return <CampfireIcon src={everyone} {...props} />;
+}
+
+export function Globe(props: CampfireIconProps) {
+  return <CampfireIcon src={globe} {...props} />;
 }
 
 export function Lifebuoy(props: CampfireIconProps) {

@@ -32,7 +32,11 @@ beforeEach(freshDeploy);
 describe(feature("platform.live-socket"), () => {
   it("lets in a signed-in tab's socket from the app's own pages, saying who it signs in", async () => {
     const grace = await signIn("Grace");
-    expect((await openWorkspaceSocket(grace)).welcome).toEqual({ type: "welcome", you: { ...grace.user, administrator: false } });
+    expect((await openWorkspaceSocket(grace)).welcome).toEqual({
+      type: "welcome",
+      you: { ...grace.user, administrator: false },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+    });
   });
 
   it("refuses an upgrade without a session, or from another site, and anything but an upgrade", async () => {

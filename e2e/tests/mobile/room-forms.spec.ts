@@ -1,11 +1,5 @@
 import { cookieHeader, signInAs, type TestRoom } from "../../fixtures";
-import { expect, hasDrawerLayout, test } from "./fixtures";
-
-/**
- * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones
- * (zz-ember.css), which WCAG 2.5.8's 24px floor allows.
- */
-const SWITCHES = "[role=switch]";
+import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 // Asking for the test's room makes it the only one in the sidebar, which wider phones show beside the page.
 test.beforeEach(async ({ page, session, room: _ }) => {
