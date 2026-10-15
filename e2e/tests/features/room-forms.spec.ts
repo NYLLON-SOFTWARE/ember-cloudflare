@@ -1,10 +1,7 @@
 import { feature } from "@ember/parity";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { cookieHeader, createRoom, createSession, signInAs, type Session, type TestRoom } from "../../fixtures";
-import { expect, Member, test } from "./fixtures";
-
-/** A name no other test's people or rooms have, since they all share the server. */
-const unique = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
+import { expect, Member, test, unique } from "./fixtures";
 
 /** The id of the room `member` is in, from the address. */
 const roomIdOf = (member: Member) => new URL(member.page.url()).pathname.split("/").pop()!;

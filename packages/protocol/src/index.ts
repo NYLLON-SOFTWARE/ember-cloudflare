@@ -360,6 +360,14 @@ export type WorkspaceServerFrame =
   | { type: "room.read"; roomId: RoomId }
   /** Someone changed, as the people directory now lists them: an administrator gave them another role. Sent to everyone. */
   | { type: "user.updated"; user: DirectoryUser }
+  /**
+   * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
+   * opened to everyone or made private, and to whoever a change puts in it. A room they have keeps its
+   * mark, and one new to them starts read.
+   */
+  | { type: "room.saved"; room: Room }
+  /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
+  | { type: "room.gone"; roomId: RoomId }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */

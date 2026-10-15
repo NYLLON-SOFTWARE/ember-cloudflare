@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type Me, type Message, type Room, type RoomId, type RoomSettings, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, type Me, type Message, type Room, type RoomId, type RoomSettings, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
@@ -622,6 +622,67 @@ describe(feature("sidebar.rooms"), () => {
     await user.click(within(sidebar).getByRole("link", { name: /random/ }));
     expect(await roomHeading()).toHaveTextContent("random");
     expect(location.pathname).toBe("/rooms/random");
+  });
+});
+
+describe(feature("sidebar.live-updates"), () => {
+  /** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
+  class WorkspaceSocket extends QuietSocket {
+    static last: WorkspaceSocket | null = null;
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(url: string) {
+      super();
+      if (!url.includes("/api/socket")) return;
+      WorkspaceSocket.last = this;
+      setTimeout(() => {
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+      });
+    }
+  }
+
+  /** Has the workspace socket bring `frame`, once it has welcomed Ada and asked for her rooms again. */
+  async function workspaceSends(frame: WorkspaceServerFrame) {
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify(frame) }));
+  }
+
+  beforeEach(() => {
+    WorkspaceSocket.last = null;
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+  });
+
+  it("shows rooms as they're made and changed anywhere, the one shown included", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await workspaceSends({ type: "room.saved", room: { id: "design", name: "Design", kind: "open", icon: null } });
+    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
+
+    await workspaceSends({ type: "room.saved", room: { ...rooms[0]!, name: "plans" } });
+    expect(sidebarRooms()).toEqual(["Design", "plans", "random"]);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("plans");
+    expect(screen.getByRole("textbox", { name: "Message #plans" })).toBeInTheDocument();
+  });
+
+  it("keeps the room shown on screen, saying it was deleted, when the workspace socket says it's gone before the room's own does", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    await workspaceSends({ type: "room.gone", roomId: "random" });
+    expect(sidebarRooms()).toEqual(["general"]);
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.queryByRole("textbox", { name: "Message #random" })).not.toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("takes a room that's gone out of the sidebar, leaving the room shown as it is", async () => {
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await workspaceSends({ type: "room.gone", roomId: "random" });
+    expect(sidebarRooms()).toEqual(["general"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message #general" })).toBeInTheDocument();
   });
 });
 

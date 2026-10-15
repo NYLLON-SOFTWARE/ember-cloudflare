@@ -17,6 +17,8 @@ interface Props {
   me: User;
   /** Whether this person has starred the room. */
   favorite: boolean;
+  /** Whether the workspace socket has said the room is gone for this person, as it can before the room's own socket does. */
+  gone: boolean;
   /** Called with this person's stars once the room's star saves them. */
   onStarred: (favorites: Favorites) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -24,16 +26,17 @@ interface Props {
   onGone: (room: Room) => void;
 }
 
-export function RoomView({ room, invitation, me, favorite, onStarred, onSessionChanged, onGone }: Props) {
+export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
   useTitle(room.name);
   // As ember-rust's rooms#show remembers the room it shows, for home and Go Back to return to.
   useEffect(() => rememberLastRoom(room.id), [room.id]);
-  const gone = state.status === "gone";
+  const foundGone = state.status === "gone";
   const roomGone = useEffectEvent(() => onGone(room));
   useEffect(() => {
-    if (gone) roomGone();
-  }, [gone]);
+    if (foundGone) roomGone();
+  }, [foundGone]);
+  const deleted = gone || foundGone;
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
@@ -59,8 +62,8 @@ export function RoomView({ room, invitation, me, favorite, onStarred, onSessionC
             </button>
           </div>
         )}
-        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={gone ? null : messageActions} onLoadOlder={loadOlder} />
-        {gone ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.offline} onSend={postMessage} onTyping={typing} />}
+        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={deleted ? null : messageActions} onLoadOlder={loadOlder} />
+        {deleted ? <RoomDeleted /> : <Composer roomName={room.name} typing={typingUsers} disabled={state.offline} onSend={postMessage} onTyping={typing} />}
       </MainContent>
     </>
   );

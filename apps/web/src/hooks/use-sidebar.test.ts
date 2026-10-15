@@ -229,6 +229,40 @@ describe(feature("sidebar.live-updates"), () => {
     await settle();
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
+
+  it("adds the rooms the workspace socket brings as they're saved, and changes the ones it has, keeping their marks", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.saved", room: { id: general.id, name: "general", kind: "open", icon: null } });
+    expect(result.current.list?.rooms).toEqual([design, general]);
+
+    socket().receive({ type: "room.unread", roomId: design.id });
+    socket().receive({ type: "room.saved", room: { id: design.id, name: "Roadmap", kind: "closed", icon: "rocket" } });
+    expect(result.current.list?.rooms).toEqual([{ id: design.id, name: "Roadmap", kind: "closed", icon: "rocket", unread: true }, general]);
+  });
+
+  it("takes out each room the workspace socket says is gone, saying which", async () => {
+    const onGone = vi.fn();
+    server.change(unstarred([design, general]));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, undefined, undefined, onGone));
+    await settle();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.gone", roomId: design.id });
+    expect(result.current.list?.rooms).toEqual([general]);
+    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id);
+  });
+
+  it("keeps a room gone that a list on its way may still show", async () => {
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "room.gone", roomId: design.id });
+    await release();
+    await settle();
+    expect(result.current.list?.rooms).toEqual([]);
+  });
 });
 
 describe(feature("sidebar.unread"), () => {

@@ -135,7 +135,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, accountHeard);
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -188,7 +188,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
 
-  // A room found gone while it's shown stays on screen to say so until another page shows.
+  // A room found gone while it's shown stays on screen to say so until another page shows, whether its
+  // own socket finds it gone or the workspace socket, which can hear first, says so.
   const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
   const roomGone = (room: Room) => {
     setGone({ room, route });
@@ -240,6 +241,11 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   }, [goingOn, redirect]);
 
   const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
+  // The workspace socket's news that a room is gone takes it out of the list, and the room shown stays.
+  // Declared as a function, so that `useSidebar` above can take it.
+  function shownRoomGone(roomId: RoomId) {
+    if (room?.id === roomId) setGone({ room, route });
+  }
   // Go Back on the settings pages returns to the last room visited, as ember-rust's
   // `link_back_to_last_room_visited` does, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
@@ -324,6 +330,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               invitation={invitation?.roomId === room.id ? invitation : null}
               me={me}
               favorite={starred.has(room.id)}
+              gone={goneRoom !== null}
               onStarred={starredRooms}
               onSessionChanged={onSessionChanged}
               onGone={roomGone}

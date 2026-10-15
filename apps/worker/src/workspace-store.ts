@@ -92,6 +92,17 @@ export interface AvatarOwner {
   bot: boolean;
 }
 
+/** What changing a room changed, and who's in it then. */
+export interface SavedRoomChange {
+  /** Whether its name, kind or icon changed. */
+  roomChanged: boolean;
+  memberIds: UserId[];
+  /** Who the change put in the room. */
+  addedIds: UserId[];
+  /** Who it took out, whose sockets there it queued closing. */
+  removedIds: UserId[];
+}
+
 /** A revocation the Workspace has yet to deliver to its room. */
 export interface PendingRevocation extends Revocation {
   id: number;
@@ -165,6 +176,13 @@ function hidesTranslationButtons(settings: string | null): boolean {
 interface RoomToChangeRow extends Room {
   can_administer: number;
 }
+
+/** A row naming someone, as the statements that answer whom they changed return them. */
+interface UserIdRow {
+  user_id: UserId;
+}
+
+const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
 
 const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
@@ -362,9 +380,12 @@ export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
 const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' ON CONFLICT DO NOTHING`;
 
-/** Puts every active person in an open room, keeping the memberships they already have (room.rs). */
+/**
+ * Puts every active person in an open room, keeping the memberships they already have (room.rs), and
+ * answers whom it put in.
+ */
 const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING`;
+  SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /**
  * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
@@ -380,12 +401,18 @@ const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at,
 /** The oldest open room with a name, which first run opens: the one it added, or the one it found. */
 const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
 
-/** Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do. */
+/**
+ * Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do,
+ * and answers whom it put in.
+ */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING`;
+  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Takes everyone but the people a JSON list names out of a room. */
-export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?))`;
+/** Takes everyone but the people a JSON list names out of a room, and answers whom. */
+export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING user_id`;
+
+/** Who's in a room, which the memberships' key finds. */
+export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
 
 /**
  * Renames a room, changes its kind and sets its icon, keeping whichever is null as it is, and records
@@ -395,7 +422,7 @@ export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = 
 const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?1, name), kind = coalesce(?2, kind),
     icon = CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END, updated_at = ?4
   WHERE id = ?5 AND (name IS NOT coalesce(?1, name) OR kind IS NOT coalesce(?2, kind)
-    OR icon IS NOT CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END)`;
+    OR icon IS NOT CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END) RETURNING id`;
 
 /** Of the rooms a JSON list names, those that are neither registered nor deleted. */
 const UNREGISTERED_ROOMS = `SELECT DISTINCT value AS id FROM json_each(?)
@@ -739,51 +766,58 @@ export class WorkspaceStore {
   /**
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
-   * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers
-   * whether it queued any.
+   * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers what
+   * it changed, and who's in the room then.
    */
-  async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+  async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
+    const members = statement(ROOM_MEMBERS, roomId);
     if (changes.kind === "open") {
-      await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now)]);
-      return false;
+      const [updated, added, after] = (await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now), members])) as UserIdRow[][];
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [] };
     }
     if (changes.kind !== "closed") {
-      await this.db.batch([update]);
-      return false;
+      const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [] };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    const [, , queued] = await this.db.batch([
+    const [updated, added, , removed, after] = (await this.db.batch([
       update,
       statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
-    ]);
-    return queued!.length > 0;
+      members,
+    ])) as UserIdRow[][];
+    return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: userIdsOf(removed!) };
   }
 
   /**
    * Deletes a room and who is in it, as ember-rust's `Room::destroy` does (room.rs), and in the same
    * transaction queues closing every socket in it with `code`, due at `dueAt`, in place of whatever
    * else the outbox had for it. The room's own object deletes its messages when that reaches it. The
-   * room is remembered as deleted, so registering `LEGACY_ROOMS` doesn't bring it back.
+   * room is remembered as deleted, so registering `LEGACY_ROOMS` doesn't bring it back. Answers who was
+   * in it.
    */
-  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<void> {
-    await this.db.batch([
+  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<UserId[]> {
+    const [, , members] = (await this.db.batch([
       // Queued before the rest go, so it takes an id none of them had: SQLite numbers a row after the
       // largest id left, and the alarm settles what it delivered by id, so taking the id of one it's
       // delivering now would settle the deletion with it.
       statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
       statement(`DELETE FROM pending_revocations WHERE room_id = ? AND tag <> ?`, roomId, EVERYONE),
-      statement(`DELETE FROM memberships WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM memberships WHERE room_id = ? RETURNING user_id`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
-    ]);
+    ])) as UserIdRow[][];
+    return userIdsOf(members!);
   }
 
-  /** Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one. */
-  async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<void> {
-    await this.db.batch([
+  /**
+   * Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one.
+   * Answers who's in it.
+   */
+  async createRoom(room: Room, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[]> {
+    const [, members] = (await this.db.batch([
       statement(
         `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         room.id,
@@ -795,7 +829,8 @@ export class WorkspaceStore {
         now,
       ),
       memberIds ? statement(GRANT_ROOM_TO_USERS, room.id, now, now, JSON.stringify(memberIds)) : statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
-    ]);
+    ])) as UserIdRow[][];
+    return userIdsOf(members!);
   }
 
   /** Of the rooms `ids` names, the ones that aren't registered yet and were never deleted. The ids go as one JSON value. */
