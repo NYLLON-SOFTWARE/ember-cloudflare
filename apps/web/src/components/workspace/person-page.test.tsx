@@ -70,7 +70,8 @@ describe(feature("users.show"), () => {
     serve(found(grace));
     showPage(grace, { people: new Map([[grace.id, grace]]) });
     expect(await heading()).toHaveTextContent("Grace Hopper");
-    expect(document.title).toBe("Grace Hopper");
+    // The title follows in an effect, which React can run after the heading is drawn.
+    await waitFor(() => expect(document.title).toBe("Grace Hopper"));
     expect(screen.getByText("Wrote the first compiler")).toBeVisible();
     expect(await avatar()).toHaveAttribute("src", grace.avatarUrl);
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
