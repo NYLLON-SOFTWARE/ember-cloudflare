@@ -418,6 +418,10 @@ export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & {
 
 /** The most characters a message's plain text can have. */
 export const MAX_MESSAGE_LENGTH = 10_000;
+/** What the room says of a message with more, which the app says itself rather than send one. */
+export const MESSAGE_TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
+/** Whether a message whose plain text is `plainText` is longer than the room takes. */
+export const isMessageTooLong = (plainText: string) => plainText.length > MAX_MESSAGE_LENGTH;
 /** The most characters of markup a message can arrive as: room for the longest message, formatted. */
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */

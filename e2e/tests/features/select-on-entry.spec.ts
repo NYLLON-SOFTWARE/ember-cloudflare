@@ -59,9 +59,9 @@ test.describe(feature("ui.select-on-entry"), () => {
     await ada.composer().fill("Hello");
     await ada.page.getByRole("heading", { level: 1 }).click();
     await ada.composer().click();
-    expect(await hasCursor(ada.composer())).toBe(true);
+    expect(await ada.composer().evaluate(() => getSelection()!.isCollapsed)).toBe(true);
     await ada.page.keyboard.type(" there");
-    await expect(ada.composer()).toHaveValue("Hello there");
+    await expect(ada.composer()).toHaveText("Hello there");
   });
 
   test("works on the sign-in page, signed out", async ({ page }) => {

@@ -11,6 +11,6 @@ export async function join(browser: Browser, baseURL: string, joinUrl: string, n
   await page.getByLabel("Email address").fill(`${crypto.randomUUID()}@example.com`);
   await page.getByLabel("Password").fill("compiler error");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByRole("textbox", { name: /^Message #/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
   return page;
 }

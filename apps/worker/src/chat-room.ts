@@ -2,7 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
-  MAX_MESSAGE_LENGTH,
+  isMessageTooLong,
+  MESSAGE_TOO_LONG,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
@@ -43,10 +44,9 @@ const DELETED_ROOM = "deletedRoom";
 /** What a room's object keeps in its own storage while its alarm is to send the Workspace its log: the room's id. */
 const UNDELIVERED_ROOM = "undeliveredRoom";
 
-/** Why the room keeps nothing of a message: it couldn't show it, there's nothing in it, or there's too much. */
+/** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
 const UNREADABLE = "That message couldn't be saved.";
 const EMPTY = "Your message is empty.";
-const TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
 /** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
 const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
 /** Whether `ws`'s tab runs an app older than the room protocol. */
@@ -323,7 +323,7 @@ export class ChatRoom extends DurableObject<Env> {
     const body = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
-    return body.plainText.length > MAX_MESSAGE_LENGTH ? TOO_LONG : body;
+    return isMessageTooLong(body.plainText) ? MESSAGE_TOO_LONG : body;
   }
 
   /** The room's database, with its migrations applied first if its storage needs them. */
