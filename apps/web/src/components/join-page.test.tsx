@@ -3,6 +3,7 @@ import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/p
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { JoinPage } from "./join-page";
 
@@ -13,7 +14,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
   guestSignIn: false,
-  account: { name: "Ember" },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
 };
@@ -65,7 +66,7 @@ describe(feature("auth.sign-up"), () => {
   });
 
   it("names the workspace", () => {
-    render(<JoinPage workspace={{ ...workspace, account: { name: "Analytical Engines" } }} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    render(<JoinPage workspace={{ ...workspace, account: { ...workspace.account, name: "Analytical Engines" } }} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     expect(screen.getByRole("heading", { level: 1, name: "Join Analytical Engines" })).toBeInTheDocument();
   });
 
@@ -129,5 +130,18 @@ describe(feature("auth.help-contact"), () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     expect(screen.getByRole("link", { name: "ada@example.com" })).toHaveAttribute("title", "Email Ada Lovelace");
     expect(screen.getByText(/^Ember™ version/)).toHaveTextContent("Ember™ version 0.1");
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("has a translation button by the name, the email address and the password once an administrator shows them", () => {
+    const shown = { ...workspace.account, hideTranslationButtons: false };
+    render(
+      <AccountContext value={shown}>
+        <JoinPage workspace={{ ...workspace, account: shown }} joinCode={JOIN_CODE} onJoined={vi.fn()} />
+      </AccountContext>,
+    );
+    expect(screen.getAllByText("Translate")).toHaveLength(3);
+    for (const text of ["Enter your name", "Enter your email address", "Enter your password"]) expect(screen.getByText(text)).toBeInTheDocument();
   });
 });

@@ -9,12 +9,14 @@ import {
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
+  MAX_CUSTOM_STYLES_LENGTH,
   MAX_LISTED_USERS,
   MAX_MESSAGE_HTML_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   parseAccountChanges,
   parseClientFrame,
+  parseCustomStyles,
   parseNewRoom,
   parseRoleChange,
   parseRoomChanges,
@@ -126,7 +128,11 @@ describe(feature("platform.live-socket"), () => {
   });
 
   it("reads the workspace socket's frames as the server sends them", () => {
-    const welcome: WorkspaceServerFrame = { type: "welcome", you: { id: "u1", name: "Ada", administrator: true } };
+    const welcome: WorkspaceServerFrame = {
+      type: "welcome",
+      you: { id: "u1", name: "Ada", administrator: true },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+    };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
   });
@@ -262,6 +268,46 @@ describe(feature("accounts.name"), () => {
     ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("takes Hide translation buttons as true or false, with the name or alone", () => {
+    expect(parseAccountChanges({ settings: { hideTranslationButtons: false } })).toEqual({ settings: { hideTranslationButtons: false } });
+    expect(parseAccountChanges({ name: "Ember Studio", settings: { hideTranslationButtons: true } })).toEqual({
+      name: "Ember Studio",
+      settings: { hideTranslationButtons: true },
+    });
+    expect(parseAccountChanges({ settings: {} })).toEqual({ settings: {} });
+  });
+
+  it.each([
+    ["settings that aren't an object", { settings: [true] }, "Settings must be a JSON object"],
+    ["a setting that isn't true or false", { settings: { hideTranslationButtons: "false" } }, "Hide translation buttons must be true or false"],
+    ["a setting it doesn't know", { settings: { hideTranslationButtons: true, restrictRoomCreation: true } }, "Unknown setting: restrictRoomCreation"],
+    ["a setting named for an object's own methods", { settings: { toString: true } }, "Unknown setting: toString"],
+    ["a good setting beside a bad name", { name: 7, settings: { hideTranslationButtons: true } }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.custom-css"), () => {
+  it("takes custom CSS as typed, even blank, or nothing to change", () => {
+    expect(parseCustomStyles({ customStyles: "  body { color: red }\n" })).toEqual({ customStyles: "  body { color: red }\n" });
+    expect(parseCustomStyles({ customStyles: "" })).toEqual({ customStyles: "" });
+    expect(parseCustomStyles({ customStyles: "x".repeat(MAX_CUSTOM_STYLES_LENGTH) })).toEqual({ customStyles: "x".repeat(MAX_CUSTOM_STYLES_LENGTH) });
+    expect(parseCustomStyles({})).toEqual({});
+    expect(parseCustomStyles({ name: "Ember Studio" })).toEqual({});
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ customStyles: "" }], "Expected a JSON object"],
+    ["CSS that isn't text", { customStyles: null }, "Custom CSS must be at most 100,000 characters"],
+    ["CSS that's too long", { customStyles: "x".repeat(MAX_CUSTOM_STYLES_LENGTH + 1) }, "Custom CSS must be at most 100,000 characters"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseCustomStyles(body)).toBe(error);
   });
 });
 

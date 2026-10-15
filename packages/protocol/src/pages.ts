@@ -19,13 +19,16 @@ export type WorkspacePage =
   | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
   | { page: "new-room"; access: RoomAccess }
   | { page: "room-settings"; access: RoomAccess; roomId: RoomId }
-  | { page: "workspace-settings" };
+  | { page: "workspace-settings" }
+  /** The Custom CSS page, which only administrators may open. */
+  | { page: "custom-styles" };
 
 /** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
 
 const SIGN_IN_PATH = "/session/new";
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
+export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 
 /**
  * Pages the app links to before it has them, which go home until they come: the installed app's My
@@ -51,6 +54,7 @@ const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct 
 export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === "/" || PAGES_TO_COME.some((page) => page.test(pathname))) return { page: "home" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
+  if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (pathname === "/rooms") return { page: "newest-room" };
   const newRoom = pathname.match(/^\/rooms\/(opens|closeds)\/new$/);
   if (newRoom) return { page: "new-room", access: accessOf(newRoom[1]!) };

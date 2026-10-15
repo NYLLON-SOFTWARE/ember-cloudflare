@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Chat bots, Custom styles, the logo and the translation setting aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Administrators also get Hide translation buttons (`accounts.translation-buttons`) under the name, and Custom styles (`accounts.custom-css`) at the top bar's other end, its label hidden at 500px wide and below as zz-ember.css hides it. Chat bots and the logo aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -229,7 +229,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts.rs", "crates/db/src/models/account.rs", "crates/views/templates/accounts/edit.html", "reference/app/controllers/accounts_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "Saved with `PATCH /api/account`, which members get 403 from, and loaded with `GET /api/account`, which tells the page whether you can change it. Unlike ember-rust, a name is at most 100 characters (422 past that, and the field stops there), so the sidebar's heading can show it. The tab that saves it shows the new name at once; other tabs show it when they next load, or open workspace settings, where ember-rust's show it on their next page.",
+    notes: "Saved with `PATCH /api/account`, which members get 403 from, and loaded with `GET /api/account`, which tells the page whether you can change it. Unlike ember-rust, a name is at most 100 characters (422 past that, and the field stops there), so the sidebar's heading can show it. Every open tab shows the new name at once, as the workspace socket says it (`account.updated`, and each welcome, for a tab that was without its socket), where ember-rust's show it on their next page.",
   },
   {
     id: "accounts.logo",
@@ -252,7 +252,7 @@ export const features = [
     id: "accounts.custom-css",
     title: "Custom CSS",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators edit Custom CSS at `/account/custom_styles/edit`, titled \"Custom styles\" and opened from settings' Custom styles button: \"Custom CSS\", \"Add custom CSS styles.\" and \"Use Caution: you could break things.\" Members get 403.",
       "The textarea (\"Add CSS styles…\") has spellcheck, autocorrect, autocapitalize and autocomplete off. The check button (\"Save changes\"), Ctrl+Enter or ⌘+Enter saves the CSS as typed and reloads the page with the check notice; Go Back returns to settings.",
@@ -261,12 +261,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/custom_styles.rs", "crates/views/templates/accounts/custom_styles/edit.html", "crates/views/src/helpers/application.rs", "crates/views/templates/layouts/application.html", "reference/app/controllers/accounts/custom_styles_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/custom_styles_controller_test.rb"],
+    notes: "Loaded with `GET /api/account/custom_styles` and saved with `PATCH /api/account/custom_styles`, both 403 for anyone but an administrator. Anyone else who opens the page is sent to workspace settings with the alert \"Only administrators can change the workspace\", where ember-rust answers an empty 403 page. Saving keeps the page, with the check notice, and every open tab, sign-in and join included on their next load, applies the CSS at once as the workspace socket says (`account.updated`), where ember-rust reloads the page and other tabs wait for their next one. The CSS is a `<style>`'s text after the app's own styles, so `</style>` in it can't add anything else to the page as it can in ember-rust's, and nothing is added while there's none. Unlike ember-rust, it's at most 100,000 characters (422 past that, and the field stops there), and the field is 16px on phones, where ember-rust's is 13px, so iOS doesn't zoom in on it. `account-has-logo` comes with the logo (`accounts.logo`).",
   },
   {
     id: "accounts.translation-buttons",
     title: "Translation buttons",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Translation buttons are hidden unless an administrator turns off Hide translation buttons (\"Hide language help throughout the app for everyone.\") in workspace settings, which saves at once with no notice, or with a \"Save\" button without JavaScript. Members never see the switch and get 403.",
       "Hidden is the default while nothing is stored, and a stored false or blank value shows them. Saving the switch leaves other settings alone.",
@@ -277,6 +278,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/views/src/helpers/translations.rs", "crates/views/src/helpers/translations_table.rs", "crates/db/src/models/account.rs", "reference/app/javascript/controllers/popup_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/first-run.test.mjs", "crates/db/src/tests/account_test.rs"],
+    notes: "The switch saves `settings.hideTranslationButtons` with `PATCH /api/account` (422 for any other setting), stored as ember-rust stores `hide_translation_buttons`. Every open tab follows at once as the workspace socket says (`account.updated`), where ember-rust reloads the administrator's page and other tabs wait for their next one. The globe is Campfire's globe.svg on a `<details>` whose summary Tab skips, listing ember-rust's table verbatim; Escape or a click elsewhere closes it, and on a narrow screen its list keeps to the room on its right, as popup_controller.js measures it. That controller also marks it to open upward near the bottom of the screen, but nothing styles the language list for that (Campfire's messages.css styles only message menus), so it opens below there in ember-rust too, as it does here. Globes sit by the workspace name, the custom CSS, sign-in's email and password, join's name, email and password, room names and the welcome card's invite text. The profile's come with the profile (`users.profile`), the bots' with the bots, and there's no unsupported-browser message yet.",
   },
   {
     id: "accounts.join-link",

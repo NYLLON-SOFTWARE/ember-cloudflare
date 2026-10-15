@@ -1,20 +1,7 @@
 import { feature } from "@ember/parity";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
-
-/** Has someone new join through `joinUrl` in a browser of their own, and answers their page. */
-async function join(browser: Browser, baseURL: string, joinUrl: string, name: string): Promise<Page> {
-  const context = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
-  const page = await context.newPage();
-  await useOwnAddress(page);
-  await page.goto(joinUrl);
-  await page.getByLabel("Name").fill(name);
-  await page.getByLabel("Email address").fill(`${crypto.randomUUID()}@example.com`);
-  await page.getByLabel("Password").fill("compiler error");
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
-  return page;
-}
+import { join } from "./fixtures";
 
 test.describe(feature("accounts.roles"), () => {
   test("the administrator makes someone an administrator, and a member again, and that person's pages follow at once", async ({ page, browser, baseURL }) => {

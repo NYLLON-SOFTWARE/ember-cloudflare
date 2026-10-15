@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_ACCOUNT_NAME_LENGTH, type Bootstrap, type NewJoinCode, type NewWorkspace, type Sidebar, type WorkspaceSettings } from "@ember/protocol";
+import { MAX_ACCOUNT_NAME_LENGTH, type Account, type Bootstrap, type NewJoinCode, type NewWorkspace, type Sidebar, type WorkspaceSettings } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,9 +7,12 @@ import { credentialsFor } from "../src/auth";
 import type { Env } from "../src/env";
 import type { Workspace } from "../src/workspace";
 import type { JoinableAccount, WorkspaceStore } from "../src/workspace-store";
-import { api, cookieOf, freshDeploy, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
+
+/** The workspace named `name`, as pages show a new one: translation buttons hidden, and no custom CSS. */
+const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "" });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -32,6 +35,8 @@ const bootstrap = async (session?: Session) => (await (await api("/api/bootstrap
 
 const storedAccount = async () => ((await workspaceSql("SELECT name, updated_at FROM accounts")) as Array<{ name: string; updated_at: string }>)[0]!;
 
+const storedSettings = async () => ((await workspaceSql("SELECT settings, updated_at FROM accounts")) as Array<{ settings: string | null; updated_at: string }>)[0]!;
+
 const storedJoinCode = async () => ((await workspaceSql("SELECT join_code FROM accounts")) as Array<{ join_code: string }>)[0]!.join_code;
 
 /** A join code as ember-rust makes them: 12 letters and digits, in fours. */
@@ -47,8 +52,8 @@ describe(feature("accounts.settings-page"), () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
     const joinCode = await storedJoinCode();
-    expect(await (await settings(administrator)).json()).toEqual({ account: { name: "Ember" }, joinCode, canAdminister: true } satisfies WorkspaceSettings);
-    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember" }, joinCode, canAdminister: false } satisfies WorkspaceSettings);
+    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false } satisfies WorkspaceSettings);
   });
 
   it("asks who's signed in", async () => {
@@ -81,22 +86,22 @@ describe(feature("accounts.name"), () => {
 
     const response = await change(administrator, { name: "Ember Studio" });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ account: { name: "Ember Studio" } });
+    expect(await response.json()).toEqual({ account: named("Ember Studio") });
     expect((await storedAccount()).name).toBe("Ember Studio");
 
-    expect(await (await settings(member)).json()).toEqual({ account: { name: "Ember Studio" }, joinCode: await storedJoinCode(), canAdminister: false });
-    expect((await bootstrap(member)).account).toEqual({ name: "Ember Studio" });
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false });
+    expect((await bootstrap(member)).account).toEqual(named("Ember Studio"));
     // "Sign in to <name>", and the installed app's name.
-    expect((await bootstrap()).account).toEqual({ name: "Ember Studio" });
+    expect((await bootstrap()).account).toEqual(named("Ember Studio"));
     expect(await (await api("/webmanifest.json")).json()).toMatchObject({ name: "Ember Studio" });
   });
 
   it("saves the name as typed, even blank", async () => {
     const administrator = await setUp();
     for (const name of ["  Ember Studio ", "", "x".repeat(MAX_ACCOUNT_NAME_LENGTH)]) {
-      expect(await (await change(administrator, { name })).json()).toEqual({ account: { name } });
+      expect(await (await change(administrator, { name })).json()).toEqual({ account: named(name) });
       expect((await storedAccount()).name).toBe(name);
-      expect((await bootstrap()).account).toEqual({ name });
+      expect((await bootstrap()).account).toEqual(named(name));
     }
   });
 
@@ -108,12 +113,24 @@ describe(feature("accounts.name"), () => {
     for (const body of [{ name: "Ember" }, {}]) {
       const response = await change(administrator, body);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ account: { name: "Ember" } });
+      expect(await response.json()).toEqual({ account: named("Ember") });
       expect(await storedAccount()).toEqual({ name: "Ember", updated_at: long });
     }
 
     await change(administrator, { name: "Ember Studio" });
     expect((await storedAccount()).updated_at > long).toBe(true);
+  });
+
+  it("tells everyone's workspace sockets the new name, where ember-rust's pages show it as they next load", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
+
+    // Neither a name saved unchanged nor a new join code changes what pages show.
+    await change(administrator, { name: "Ember" });
+    await regenerate(administrator);
+    await change(administrator, { name: "Ember Studio" });
+    for (const socket of sockets) expect(await socket.next()).toEqual({ type: "account.updated", account: named("Ember Studio") });
   });
 
   it("lets only administrators rename it, and tells anyone else so before looking at what they sent", async () => {
@@ -164,8 +181,8 @@ describe(feature("accounts.name"), () => {
     // On D1 a write can be saved and its answer lost on the way back.
     await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
       const store = storeOf(workspace);
-      const rename = store.renameAccount.bind(store);
-      vi.spyOn(store, "renameAccount").mockImplementationOnce(async (...args) => {
+      const rename = store.changeAccount.bind(store);
+      vi.spyOn(store, "changeAccount").mockImplementationOnce(async (...args) => {
         await rename(...args);
         throw new Error("The database's answer was lost");
       });
@@ -184,8 +201,8 @@ describe(feature("accounts.name"), () => {
       let finishReading!: (account: JoinableAccount | null) => void;
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null);
-      expect(await workspace.changeAccount(credentials, { name: "Ember Studio" })).toEqual({ name: "Ember Studio" });
-      finishReading({ name: "Ember", joinCode: "aB3d-Ef5h-iJ7k" });
+      expect(await workspace.changeAccount(credentials, { name: "Ember Studio" })).toEqual(named("Ember Studio"));
+      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k" });
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
@@ -197,6 +214,117 @@ describe(feature("accounts.join-link"), () => {
     const response = await settings(await setUp());
     expect((await response.json()) as WorkspaceSettings).toMatchObject({ joinCode: expect.stringMatching(JOIN_CODE) });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  const shown = { ...named("Ember"), hideTranslationButtons: false };
+
+  it("hides them until an administrator shows them, before first run too", async () => {
+    expect((await bootstrap()).account.hideTranslationButtons).toBe(true);
+    const administrator = await setUp();
+    expect((await bootstrap()).account.hideTranslationButtons).toBe(true);
+    expect((await bootstrap(administrator)).account.hideTranslationButtons).toBe(true);
+  });
+
+  it("shows or hides them for everyone as an administrator switches them, keeping the other settings", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+
+    const response = await change(administrator, { settings: { hideTranslationButtons: false } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ account: shown });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({ restrict_room_creation_to_administrators: false, hide_translation_buttons: false });
+    // Sign-in and join show them too.
+    expect((await bootstrap()).account).toEqual(shown);
+    expect(((await (await settings(grace)).json()) as WorkspaceSettings).account).toEqual(shown);
+
+    await change(administrator, { settings: { hideTranslationButtons: true } });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({ restrict_room_creation_to_administrators: false, hide_translation_buttons: true });
+    expect((await bootstrap(grace)).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["no setting", '{"restrict_room_creation_to_administrators":false}', true],
+    ["true", '{"hide_translation_buttons":true}', true],
+    ["false", '{"hide_translation_buttons":false}', false],
+    ["null", '{"hide_translation_buttons":null}', false],
+    ["blank text", '{"hide_translation_buttons":" "}', false],
+    ["other text", '{"hide_translation_buttons":"no"}', true],
+    ["a number", '{"hide_translation_buttons":0}', true],
+    ["an empty list", '{"hide_translation_buttons":[]}', false],
+    ["settings that aren't an object", "[]", true],
+    ["settings that don't parse", "not JSON", true],
+  ])("reads %s as ember-rust does", async (_, stored, hidden) => {
+    await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", stored);
+    // Started afresh, the Workspace has to read the account again.
+    await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).account.hideTranslationButtons).toBe(hidden);
+  });
+
+  it("hides them while there are no settings at all", async () => {
+    await setUp();
+    await workspaceSql("UPDATE accounts SET settings = NULL");
+    await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).account.hideTranslationButtons).toBe(true);
+  });
+
+  it("saves the setting with the name, recording when only if either changed", async () => {
+    const administrator = await setUp();
+    const long = "2026-01-01T00:00:00.000Z";
+    await workspaceSql("UPDATE accounts SET updated_at = ?", long);
+
+    const unchanged = await change(administrator, { name: "Ember", settings: { hideTranslationButtons: true } });
+    expect(await unchanged.json()).toEqual({ account: named("Ember") });
+    expect(await storedSettings()).toEqual({ settings: '{"restrict_room_creation_to_administrators":false}', updated_at: long });
+
+    const changed = await change(administrator, { name: "Ember Studio", settings: { hideTranslationButtons: false } });
+    expect(await changed.json()).toEqual({ account: { ...shown, name: "Ember Studio" } });
+    expect((await storedAccount()).name).toBe("Ember Studio");
+    expect((await storedSettings()).updated_at > long).toBe(true);
+  });
+
+  it("starts the settings afresh when they don't parse", async () => {
+    const administrator = await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", "not JSON");
+    await evictDurableObject(workspaceStub());
+    expect((await change(administrator, { settings: { hideTranslationButtons: false } })).status).toBe(200);
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({ hide_translation_buttons: false });
+  });
+
+  it("tells everyone's workspace sockets once it changes, where ember-rust's pages change as they next load", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
+
+    await change(administrator, { settings: { hideTranslationButtons: true } });
+    await change(administrator, { settings: { hideTranslationButtons: false } });
+    for (const socket of sockets) expect(await socket.next()).toEqual({ type: "account.updated", account: shown });
+  });
+
+  it("lets only administrators switch them, and tells anyone else so before looking at what they sent", async () => {
+    await setUp();
+    const grace = await signIn("Grace");
+    for (const body of [{ settings: { hideTranslationButtons: false } }, { settings: { logo: "earth.png" } }]) {
+      const response = await change(grace, body);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    }
+    expect((await bootstrap()).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["a setting it doesn't know", { settings: { restrictRoomCreationToAdministrators: true } }, "Unknown setting: restrictRoomCreationToAdministrators"],
+    ["a setting that isn't true or false", { settings: { hideTranslationButtons: "false" } }, "Hide translation buttons must be true or false"],
+    ["settings that aren't an object", { settings: "hide" }, "Settings must be a JSON object"],
+    ["a good change beside a bad one", { name: "Ember Studio", settings: { hideTranslationButtons: false, logo: "earth.png" } }, "Unknown setting: logo"],
+  ])("refuses %s, changing nothing", async (_, body, error) => {
+    const administrator = await setUp();
+    const response = await change(administrator, body);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error });
+    expect((await bootstrap()).account).toEqual(named("Ember"));
   });
 });
 
@@ -276,7 +404,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null);
       const regenerated = await workspace.regenerateJoinCode(credentials);
-      finishReading({ name: "Ember", joinCode: old });
+      finishReading({ ...named("Ember"), joinCode: old });
       await reading;
       return regenerated;
     });

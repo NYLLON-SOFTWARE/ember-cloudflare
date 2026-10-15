@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type DirectoryUser, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer } from "@/lib/room-list";
@@ -65,9 +65,15 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
- * socket says has changed.
+ * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
+ * it connects and whenever an administrator changes it.
  */
-export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, directory: Directory = NO_DIRECTORY) {
+export function useSidebar(
+  me: Me,
+  onSessionChanged: (me: Me | null) => void,
+  directory: Directory = NO_DIRECTORY,
+  onAccountChanged: (account: Account) => void = () => {},
+) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
@@ -84,6 +90,7 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     });
   });
   const sessionChanged = useEffectEvent(onSessionChanged);
+  const accountChanged = useEffectEvent(onAccountChanged);
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
@@ -113,11 +120,11 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
       void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
     };
 
-    // Whether this connection has said the person signed in changed, which can come before its welcome.
-    // The welcome may have read them before that change, so it doesn't undo it. Each try starts afresh,
-    // after a close or a socket that stopped answering alike.
-    let toldOfChange = false;
-    const onConnecting = () => void (toldOfChange = false);
+    // What this connection has said changed, the person signed in or the workspace, which can come
+    // before its welcome. The welcome may have read it before that change, so it doesn't undo it. Each
+    // try starts afresh, after a close or a socket that stopped answering alike.
+    let toldOf = { you: false, account: false };
+    const onConnecting = () => void (toldOf = { you: false, account: false });
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
       switch (frame?.type) {
@@ -128,16 +135,20 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
             return sessionChanged(frame.you);
           }
           workspace.connected();
-          if (!toldOfChange) signsIn(frame.you);
+          if (!toldOf.you) signsIn(frame.you);
+          if (!toldOf.account) accountChanged(frame.account);
           return reload();
         case "room.unread":
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, unread: frame.type === "room.unread" });
         case "user.updated":
-          if (!isSomeoneElse(frame.user)) toldOfChange = true;
+          if (!isSomeoneElse(frame.user)) toldOf.you = true;
           return changed(frame.user);
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "account.updated":
+          toldOf.account = true;
+          return accountChanged(frame.account);
       }
     };
 

@@ -11,7 +11,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
   guestSignIn: false,
-  account: { name: "Ember" },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
 };
@@ -54,7 +54,7 @@ describe(feature("auth.sign-in"), () => {
   });
 
   it("names the workspace", () => {
-    render(<SignInPage workspace={{ ...workspace, account: { name: "Analytical Engines" } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    render(<SignInPage workspace={{ ...workspace, account: { ...workspace.account, name: "Analytical Engines" } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.getByRole("heading", { name: "Sign in to Analytical Engines" })).toBeInTheDocument();
   });
 

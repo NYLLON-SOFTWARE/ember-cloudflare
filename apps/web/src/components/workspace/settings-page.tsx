@@ -7,9 +7,9 @@ import { HEADER_BUTTON, PageHeader } from "./page-header";
 
 /**
  * ember-rust's pages beside rooms, such as rooms/layouts/_new.html and _edit.html: Go Back in the top
- * bar, then panels on the canvas, which scrolls.
+ * bar, with any `links` the page has at its other end, then panels on the canvas, which scrolls.
  */
-export function SettingsPage({ back, children }: { back: string; children: ReactNode }) {
+export function SettingsPage({ back, links, children }: { back: string; links?: ReactNode; children: ReactNode }) {
   return (
     <>
       <PageHeader>
@@ -17,6 +17,7 @@ export function SettingsPage({ back, children }: { back: string; children: React
           <ArrowLeft className="size-5" />
           <span className="sr-only">Go Back</span>
         </PageLink>
+        {links && <div className="ml-auto flex items-center gap-[1ch]">{links}</div>}
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {children}

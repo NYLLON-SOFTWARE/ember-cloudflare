@@ -15,7 +15,11 @@ const rooms: Room[] = [
 /** The sidebar's list of `listed`, with the rooms starred in `favorites`. */
 const roomList = (listed: Room[], favorites: RoomId[] = []) => ({ rooms: listed, favorites: { rooms: favorites, version: 0 }, invitation: null });
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
-const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: "aB3d-Ef5h-iJ7k", canAdminister: false };
+const workspaceSettings: WorkspaceSettings = {
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" },
+  joinCode: "aB3d-Ef5h-iJ7k",
+  canAdminister: false,
+};
 
 /**
  * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", with

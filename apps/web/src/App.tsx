@@ -5,6 +5,8 @@ import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { Workspace } from "@/components/workspace/workspace";
+import { AccountContext } from "@/hooks/use-account";
+import { useCustomStyles } from "@/hooks/use-custom-styles";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
@@ -17,6 +19,8 @@ const MAX_RETRY_MS = 15_000;
 const SETUP_PATH = "/first_run";
 /** Where the sign-in page is, as in ember-rust. */
 const SIGN_IN_PATH = "/session/new";
+
+const isSameAccount = (a: Account, b: Account) => a.name === b.name && a.hideTranslationButtons === b.hideTranslationButtons && a.customStyles === b.customStyles;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.
@@ -31,6 +35,8 @@ export function App() {
 
   // Every page keeps up with the device and other tabs, as each of ember-rust's does, rail or not.
   useEffect(() => followAppearance(), []);
+  // And has the workspace's custom CSS, once it's known, which is before any page shows.
+  useCustomStyles(workspace?.account.customStyles ?? "", me?.administrator === true);
 
   useEffect(() => {
     forgetStoredSession();
@@ -106,8 +112,12 @@ export function App() {
     setMe(user);
     setWorkspace((workspace) => workspace && { ...workspace, setup: "complete" });
   }, []);
-  // The rail, the sidebar and the pages signed out show the workspace as its settings last loaded or saved it.
-  const accountChanged = useCallback((account: Account) => setWorkspace((workspace) => workspace && { ...workspace, account }), []);
+  // Every page shows the workspace as its settings last loaded or saved it, or the workspace socket last
+  // said it is, which it says again each time it connects.
+  const accountChanged = useCallback(
+    (account: Account) => setWorkspace((workspace) => workspace && (isSameAccount(workspace.account, account) ? workspace : { ...workspace, account })),
+    [],
+  );
 
   // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
@@ -133,8 +143,10 @@ export function App() {
   // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's
   // flash, as ember-rust's redirect after signing in shows none.
   return (
-    <FlashProvider key={showsWorkspace ? me.id : "signed out"} workspace={showsWorkspace}>
-      {page()}
-    </FlashProvider>
+    <AccountContext value={workspace.account}>
+      <FlashProvider key={showsWorkspace ? me.id : "signed out"} workspace={showsWorkspace}>
+        {page()}
+      </FlashProvider>
+    </AccountContext>
   );
 }
