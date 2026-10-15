@@ -164,3 +164,11 @@ describe(feature("sidebar.favorites"), () => {
     expect(roomListReducer(unanswered, { type: "starred", favorites: { rooms: ["r1"], version: 1 } }).list!.favorites.rooms).toEqual(["r1"]);
   });
 });
+
+describe(feature("sidebar.favorite-order"), () => {
+  it("drops the star of a room that's gone, as the server's stars do, so an order saved next is one it knows", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four, { rooms: ["r1", "r3"], version: 2 }) });
+    expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.favorites).toEqual({ rooms: ["r3"], version: 2 });
+    expect(roomListReducer(loaded, { type: "gone", roomId: "r2" }).list!.favorites).toBe(loaded.list!.favorites);
+  });
+});

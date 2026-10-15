@@ -139,6 +139,11 @@ function serve({
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1, name: "general" });
+/** The room page's first socket, which it opens just after it shows, so it may not exist yet when the page is found. */
+async function roomSocket(): Promise<RoomSocket> {
+  await waitFor(() => expect(RoomSocket.all).not.toHaveLength(0));
+  return RoomSocket.all[0]!;
+}
 const signInPage = () => screen.findByRole("heading", { name: "Sign in to Ember" });
 
 async function signInAsAda(password = "correct horse") {
@@ -238,7 +243,8 @@ describe(feature("auth.sessions"), () => {
 
     // Another tab joins as Grace, whose cookie reaches the room when this tab's socket reconnects.
     await fetch(`/api/join/${JOIN_CODE}`, { method: "POST", body: JSON.stringify({ emailAddress: "grace@example.com" }) });
-    act(() => RoomSocket.all[0]!.welcome(grace));
+    const socket = await roomSocket();
+    act(() => socket.welcome(grace));
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace"));
     // Grace's workspace opens its own socket to the room.
     await waitFor(() => expect(RoomSocket.all).toHaveLength(2));
@@ -259,11 +265,12 @@ describe(feature("auth.sessions"), () => {
     const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
-    act(() => RoomSocket.all[0]!.welcome(ada));
+    const socket = await roomSocket();
+    act(() => socket.welcome(ada));
 
     // Another tab signs out, and the room tells this tab's socket to reconnect.
     await fetch("/api/session", { method: "DELETE" });
-    act(() => RoomSocket.all[0]!.end(CloseCode.Reconnect));
+    act(() => socket.end(CloseCode.Reconnect));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
   });
@@ -546,7 +553,8 @@ describe(feature("auth.sign-out"), () => {
     const fetch = serve({ signedIn: true });
     render(<App />);
     await roomHeading();
-    act(() => RoomSocket.all[0]!.welcome(ada));
+    const socket = await roomSocket();
+    act(() => socket.welcome(ada));
     // The server ends the session at once, but its answer is held back.
     let answer!: () => void;
     const answered = new Promise<void>((resolve) => (answer = resolve));
@@ -558,7 +566,7 @@ describe(feature("auth.sign-out"), () => {
     });
 
     await signOutFromTheRail();
-    act(() => RoomSocket.all[0]!.end(CloseCode.Reconnect));
+    act(() => socket.end(CloseCode.Reconnect));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/me", expect.anything()));
     answer();
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));

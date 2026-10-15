@@ -971,7 +971,7 @@ export const features = [
     id: "sidebar.favorite-order",
     title: "Reorder starred rooms",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "With at least two starred rooms showing, a starred row can be dragged after a 400ms hold with a mouse, pen or finger (moving 8px first cancels), or moved with Alt+Up and Alt+Down. The new order saves at once, and unstarred rows don't move.",
       "Dragging near the list's top or bottom scrolls it, and releasing a drag never opens the room.",
@@ -983,6 +983,8 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/views/templates/users/sidebars/show.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
+    notes:
+      "`PUT /api/sidebar/order` takes `{\"roomIds\": [...]}` as JSON and answers `{\"favorites\": {\"rooms\": [...], \"version\": n}}`, where ember-rust's `/users/me/sidebar/order` takes `room_ids` and answers 204, and your other tabs hear `favorites.changed` and re-sort at once rather than at their next reload. Room ids are Ember's own, so the 400s say \"roomIds must be an array\" and \"room IDs must be unique and valid\". The same batch drops your stars on rooms you've since left or hidden, as starring does. The status region is in the page from the start, empty until a room moves, so the first announcement is heard, where ember-rust's is hidden until then. An unread starred row keeps its grip beside its dot at the row's end, where ember-rust's grip and dot each take an auto margin, which leaves the grip halfway along. A session that has expired goes to sign in.",
   },
   {
     id: "sidebar.shared-order",
@@ -1005,13 +1007,15 @@ export const features = [
     id: "sidebar.refresh-preserves-state",
     title: "Background sidebar reloads keep your place",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "A reload for a shared-order change waits until any hold, drag or save in the room list is over, then keeps the list's scroll position and the focused row.",
       "Other background reloads, on reconnect or when a tab comes back after 60 seconds, never interrupt a hold, drag or save in progress.",
     ],
     sources: ["crates/assets/overrides/controllers/channel_order_controller.js", "crates/assets/overrides/ember/shell.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
+    notes:
+      "A sidebar reloaded in the background, as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust. There's no shared order yet, so nothing waits on one.",
   },
 
   // Messages

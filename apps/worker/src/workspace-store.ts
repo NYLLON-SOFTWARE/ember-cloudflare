@@ -1,4 +1,20 @@
-import type { Account, CloseCode, Favorites, HelpContact, PersonRole, Role, Room, RoomChanges, RoomId, RoomSettings, SidebarRoom, User, UserId, UserStatus } from "@ember/protocol";
+import {
+  MAX_FAVORITES,
+  type Account,
+  type CloseCode,
+  type Favorites,
+  type HelpContact,
+  type PersonRole,
+  type Role,
+  type Room,
+  type RoomChanges,
+  type RoomId,
+  type RoomSettings,
+  type SidebarRoom,
+  type User,
+  type UserId,
+  type UserStatus,
+} from "@ember/protocol";
 import { statement, type Db } from "./db";
 import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -250,9 +266,6 @@ const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at
 /** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
 const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
 
-/** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
-export const MAX_FAVORITES = 4_096;
-
 /**
  * The rooms someone, ?1, can star: the ones they're in and haven't hidden, but not DMs, as ember-rust's
  * `set_channel_favorite` finds them (account.rs).
@@ -280,9 +293,9 @@ const STAR = `INSERT INTO favorites (user_id, room_id, position)
 const UNSTAR = `DELETE FROM favorites WHERE user_id = ?1 AND room_id = ?2 AND ${STARRABLE}`;
 
 /**
- * What follows starring or unstarring a room, once `saved` says that did what was asked: dropping
- * ?1's stars on rooms they can't star now, as ember-rust drops them (account.rs), and counting the
- * change, answering the new version.
+ * What follows a change to someone's stars, once `saved` says it did what was asked: dropping ?1's
+ * stars on rooms they can't star now, as ember-rust drops them (account.rs), and counting the change,
+ * answering the new version.
  */
 const afterStarring = (saved: string) => ({
   drop: `DELETE FROM favorites WHERE user_id = ?1 AND room_id NOT IN (${STARRABLE_ROOMS}) AND ${saved}`,
@@ -295,6 +308,23 @@ const AFTER_UNSTAR = afterStarring(STARRABLE);
 /** The rooms ?1 has starred and can star, in the order they starred them. */
 const FAVORITES_FOR_USER = `SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}) ORDER BY position`;
 const FAVORITES_VERSION = `SELECT favorites_version AS version FROM users WHERE id = ?`;
+
+/**
+ * Whether ?2, a JSON array of distinct room ids, is exactly the rooms ?1 has starred and can star, as
+ * ember-rust's `set_favorite_order` requires (account.rs), so that an order from a tab that hasn't
+ * heard of a star or unstar since can't undo it. The ids go in as one value, since there can be
+ * thousands.
+ */
+const THEIR_STARS = `(SELECT count(*) FROM json_each(?2)) = (SELECT count(*) FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}))
+  AND NOT EXISTS (SELECT 1 FROM json_each(?2) WHERE value NOT IN (SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS})))`;
+
+/**
+ * Puts ?1's stars in the order ?2 lists them, if it lists exactly their stars. Their stars on rooms they
+ * can't star now, which ?2 leaves out, are dropped after it, as ember-rust's new list loses them.
+ */
+const REORDER_STARS = `UPDATE favorites SET position = listed.key FROM json_each(?2) AS listed
+  WHERE favorites.user_id = ?1 AND favorites.room_id = listed.value AND ${THEIR_STARS}`;
+const AFTER_REORDER = afterStarring(THEIR_STARS);
 
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
@@ -596,6 +626,23 @@ export class WorkspaceStore {
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
       originalRoomId: original?.id ?? null,
     };
+  }
+
+  /**
+   * Puts someone's stars in the order `roomIds` lists them, as dragging one does in ember-rust's sidebar
+   * (`set_favorite_order`, account.rs), in one transaction that also drops their stars on rooms they
+   * can't star any more. Answers their stars as they are then, or null, having changed nothing, when
+   * `roomIds` isn't exactly the rooms they've starred and can star.
+   */
+  async setFavoriteOrder(userId: UserId, roomIds: RoomId[]): Promise<Favorites | null> {
+    const listed = JSON.stringify(roomIds);
+    const [, , [saved], starred] = (await this.db.batch([
+      statement(REORDER_STARS, userId, listed),
+      statement(AFTER_REORDER.drop, userId, listed),
+      statement(AFTER_REORDER.count, userId, listed),
+      statement(FAVORITES_FOR_USER, userId),
+    ])) as [unknown[], unknown[], Array<{ version: number }>, Array<{ room_id: RoomId }>];
+    return saved ? { rooms: starred.map((row) => row.room_id), version: saved.version } : null;
   }
 
   /**

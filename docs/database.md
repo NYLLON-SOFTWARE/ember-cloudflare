@@ -185,9 +185,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   settings to star or unstar one. Ours is a `favorites` row for each star (workspace migration 0013),
   keyed by person and room, whose `position` orders them, so a star or unstar writes its row and
   bumps its person's `users.favorites_version`, in one batch. That version is how a tab keeps the
-  newer of two lists of their stars, which can reach it in either order. As in ember-rust, a star
-  outlives its person's membership: it's left out while they can't star the room, and dropped at
-  their next star or unstar.
+  newer of two lists of their stars, which can reach it in either order. Reordering them sets every
+  `position` in one `UPDATE ... FROM json_each`, given the new order as one JSON value, so it binds
+  the same few values however many stars there are, and changes nothing unless the order holds
+  exactly their stars. As in ember-rust, a star outlives its person's membership: it's left out while
+  they can't star the room, and dropped at their next star, unstar or reorder.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace
