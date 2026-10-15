@@ -2,6 +2,7 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import { MAX_ID_LENGTH } from "./pages.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
@@ -10,6 +11,7 @@ export {
   CUSTOM_STYLES_PATH,
   isAppPage,
   KIND_SEGMENTS,
+  MAX_ID_LENGTH,
   NEW_DIRECT_PATH,
   PROFILE_PATH,
   transferIdFromPath,
@@ -423,12 +425,35 @@ export type ClientFrame =
   | { type: "boost.delete"; boostId: string }
   | { type: "typing.start" }
   | { type: "typing.stop" }
+  /** Up to `limit` messages before a message, oldest first, as history pages back from the oldest the timeline holds. */
   | { type: "history.before"; before: string; limit?: number }
+  /** Up to `limit` messages after a message, as history pages forward from the newest the timeline holds while it's behind. */
+  | { type: "history.after"; after: string; limit?: number }
+  /**
+   * The page around a message, as its permalink opens the room: up to a page before it, it, and up to a
+   * page after. Without one, or for one the room doesn't have, the newest page, as Jump to newest message shows.
+   */
+  | { type: "history.around"; messageId?: string }
   /** Asks which of these messages the room stored from the sender, after a closed socket lost their confirmations. */
   | { type: "message.check"; clientMessageIds: string[] }
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   | { type: "ping" };
+
+/**
+ * A page of a room's messages that takes the timeline's place: the newest, or the one around a message
+ * (ember-rust's `last_page` and `page_around`).
+ */
+export interface TimelinePage {
+  /** Oldest first. */
+  messages: Message[];
+  /** Whether the room has messages older than the page. */
+  hasMore: boolean;
+  /** Whether it has newer ones, which only a page around a message can leave out. */
+  hasNewer: boolean;
+  /** The message the page is around, or null for the newest page. */
+  around: string | null;
+}
 
 /**
  * What a room sends on a socket. The room numbers the changes to its messages, 1 for its first and one
@@ -437,8 +462,11 @@ export type ClientFrame =
  * `RoomSocketParams`), so the room can send only what changed after it.
  */
 export type ServerFrame =
-  /** Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. */
-  | { type: "welcome"; you: User; messages: Message[]; present: User[]; hasMore: boolean; seq: number }
+  /**
+   * Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. Its
+   * page is the newest, or the one around the message the socket's address names, if the room has it.
+   */
+  | ({ type: "welcome"; you: User; present: User[]; seq: number } & TimelinePage)
   /**
    * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
    * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
@@ -456,7 +484,12 @@ export type ServerFrame =
   /** Someone closed the last tab they had the room open in, which stops their typing, too. */
   | { type: "presence.left"; userId: UserId }
   | { type: "typing"; user: User; typing: boolean }
-  | { type: "history"; messages: Message[]; hasMore: boolean }
+  /** Answers history.before: the page before `before`, oldest first, and whether there are older ones still. */
+  | { type: "history"; before: string; messages: Message[]; hasMore: boolean }
+  /** Answers history.after: the page after `after`, oldest first, and whether there are newer ones still. */
+  | { type: "history.after"; after: string; messages: Message[]; hasNewer: boolean }
+  /** Answers history.around with a page to show in the timeline's place. */
+  | ({ type: "history.around" } & TimelinePage)
   /** Answers message.check: which of the sender's messages the room stored, and which it never received. */
   | { type: "message.checked"; stored: string[]; missing: string[] }
   /**
@@ -519,11 +552,18 @@ export interface RoomSocketParams {
    * an earlier socket: the room answers with what changed since (`resumed`) rather than a welcome, if it can.
    */
   since?: number;
+  /**
+   * The message whose permalink the tab opened the room at, which its welcome brings the page around, if the
+   * room has it. Named only until the first welcome, since a socket that connects again keeps the tab's page.
+   */
+  around?: string;
 }
 
 /** The query that carries `params` on a room socket's address, with the revision of the protocol the tab speaks. */
-export const roomSocketQuery = ({ visible, since }: RoomSocketParams) =>
-  `?visible=${visible ? 1 : 0}&protocol=${ROOM_PROTOCOL}${since === undefined ? "" : `&since=${since}`}`;
+export const roomSocketQuery = ({ visible, since, around }: RoomSocketParams) =>
+  `?visible=${visible ? 1 : 0}&protocol=${ROOM_PROTOCOL}` +
+  (since === undefined ? "" : `&since=${since}`) +
+  (around === undefined ? "" : `&around=${encodeURIComponent(around)}`);
 
 /** The part of a `URLSearchParams` that reading a socket's address needs, which the protocol, made for every runtime, names itself. */
 interface SearchParams {
@@ -533,6 +573,9 @@ interface SearchParams {
 /** A change's number as an address writes it, or undefined for anything else. */
 const parseSeq = (value: string | null) => (value !== null && /^\d{1,15}$/.test(value) ? Number(value) : undefined);
 
+/** A message's id as an address names it, or undefined for none, or for what no message's id could be. */
+const messageIdOf = (value: string | null) => (value !== null && id(value) ? value : undefined);
+
 /**
  * What a room socket's address says about its tab, as `roomSocketQuery` wrote it, and the revision of the
  * protocol it speaks. A tab that doesn't say counts as shown and new to the room, and one naming no
@@ -541,6 +584,7 @@ const parseSeq = (value: string | null) => (value !== null && /^\d{1,15}$/.test(
 export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & { protocol: number } => ({
   visible: query.get("visible") !== "0",
   since: parseSeq(query.get("since")),
+  around: messageIdOf(query.get("around")),
   protocol: Number(query.get("protocol")) || 1,
 });
 
@@ -554,7 +598,11 @@ export const isMessageTooLong = (plainText: string) => plainText.length > MAX_ME
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
 /** Matches the `boosts.content varchar(16)` column in ember-rust. */
 export const MAX_BOOST_LENGTH = 16;
-export const HISTORY_PAGE_SIZE = 50;
+/**
+ * ember-rust's page of messages (`Message::PAGE_SIZE`): the newest a room opens on, what each page of
+ * history adds before or after the timeline, and how many a permalink shows on either side of its message.
+ */
+export const HISTORY_PAGE_SIZE = 40;
 /** How many messages one message.check can ask about: more than anyone sends before a dead socket is noticed. */
 export const MAX_CHECKED_MESSAGES = 50;
 /** ember-rust has no limit; this keeps a name to what a sidebar row and a room's header can show. */
@@ -586,7 +634,9 @@ export const REACTIONS = [
 ] as const;
 export const QUICK_REACTION_COUNT = 3;
 
-const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
+const id = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_LENGTH;
+/** How many messages a page asked for may hold: 1 to 100, or undefined for a page's usual size. */
+const pageLimit = (v: unknown) => (typeof v === "number" ? Math.min(Math.max(1, Math.floor(v)), 100) : undefined);
 /** Whether `v` lists people's ids, as many as one request can name. */
 const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= MAX_LISTED_USERS && v.every(id);
 
@@ -632,11 +682,12 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     }
     case "boost.delete":
       return id(f.boostId) ? { type: f.type, boostId: f.boostId } : null;
-    case "history.before": {
-      if (!id(f.before)) return null;
-      const limit = typeof f.limit === "number" ? Math.min(Math.max(1, Math.floor(f.limit)), 100) : undefined;
-      return { type: f.type, before: f.before, limit };
-    }
+    case "history.before":
+      return id(f.before) ? { type: f.type, before: f.before, limit: pageLimit(f.limit) } : null;
+    case "history.after":
+      return id(f.after) ? { type: f.type, after: f.after, limit: pageLimit(f.limit) } : null;
+    case "history.around":
+      return f.messageId === undefined || id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;
     case "message.check": {
       const ids = f.clientMessageIds;
       return Array.isArray(ids) && ids.length > 0 && ids.length <= MAX_CHECKED_MESSAGES && ids.every(id)

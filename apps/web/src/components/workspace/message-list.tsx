@@ -3,11 +3,62 @@ import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { RoomConnection } from "@/hooks/use-room";
 import { timeline } from "@/lib/messages";
-import type { RoomState } from "@/lib/room-state";
+import type { Focus, RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
 import { MessageItem, type MessageActions, type MessageEditors } from "./message-item";
 
-const NEAR_BOTTOM_PX = 120;
+/**
+ * How near the end of the room's messages a reader can be and still be at it, which keeps them there as
+ * new ones come, as ember-rust's scroll_manager.js has it (`AUTO_SCROLL_THRESHOLD`).
+ */
+const AT_END_PX = 100;
+/** How near the view an end of the timeline comes before the page beyond it loads. */
+const PAGE_AHEAD_PX = 200;
+
+/**
+ * Campfire's `.message.search-highlight` (messages.css): the message a permalink goes to is outlined in
+ * the ink for a second, then the outline fades over half a second. Drawn as an outline rather than a
+ * border, so the message doesn't move, and run apart from its CSS, so a mention's wiggle still plays.
+ */
+const OUTLINE: Keyframe[] = [
+  { outline: "2px solid var(--foreground)" },
+  { outline: "2px solid var(--foreground)", offset: 2 / 3 },
+  { outline: "2px solid transparent" },
+];
+const OUTLINE_MS = 1_500;
+
+/** Where the reader is: a message's row, and how far its bottom is from the view's. */
+interface Place {
+  row: string;
+  offset: number;
+}
+
+const rowsIn = (scroller: HTMLElement) => [...scroller.querySelectorAll<HTMLElement>("[data-row]")];
+
+/**
+ * Where the reader is in the timeline: the last message that starts above the view's bottom. Keeping it
+ * where it is moves what's above it instead, which keeps the place of someone reading as older messages
+ * come in above or the oldest are cut, or as a message above the view's bottom grows, as ember-rust's
+ * maintain_scroll_controller.js keeps the bottom for an edit or a boost above the fold.
+ */
+function placeIn(scroller: HTMLElement): Place | null {
+  const rows = rowsIn(scroller);
+  const bottom = scroller.getBoundingClientRect().bottom;
+  let [low, high] = [0, rows.length - 1];
+  let found: HTMLElement | undefined;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (rows[middle]!.getBoundingClientRect().top < bottom) [found, low] = [rows[middle], middle + 1];
+    else high = middle - 1;
+  }
+  return found ? { row: found.dataset.row!, offset: bottom - found.getBoundingClientRect().bottom } : null;
+}
+
+/** Scrolls the timeline so the reader is at `place` again, if its message is still there. */
+function restore(scroller: HTMLElement, { row, offset }: Place) {
+  const element = rowsIn(scroller).find((r) => r.dataset.row === row);
+  if (element) scroller.scrollTop += offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+}
 
 interface Props {
   /** The room's name as the reader reads it, which a DM's names the others in it. */
@@ -24,69 +75,113 @@ interface Props {
   editing: ReadonlySet<string>;
   editors: MessageEditors;
   onLoadOlder: () => void;
+  onLoadNewer: () => void;
+  /** Goes to the newest messages, answering whether it could, which it can't while the room is away and they aren't loaded. */
+  onJumpToNewest: () => boolean;
 }
 
-/** The scrolling timeline. Stays pinned to the newest message unless you've scrolled up. */
-export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder }: Props) {
+/**
+ * The scrolling timeline, as ember-rust's messages_controller.js keeps it. At the end of the room's
+ * messages, it stays there as new ones come. Anywhere else, it keeps the reader's place, loads the pages
+ * before and after as they near either end, and offers Jump to newest message when new ones come.
+ */
+export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true);
+  const bottom = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  const place = useRef<Place | null>(null);
   const viewHeight = useRef(0);
-  // Where the reader was after the last render, resize or scroll.
-  const position = useRef({ top: 0, height: 0 });
-  const firstId = useRef<string | undefined>(undefined);
-  const [showLatest, setShowLatest] = useState(false);
+  const focused = useRef<Focus | null>(null);
+  const arrivals = useRef(state.arrivals);
+  // Whether new messages have come that the reader isn't at the end to see.
+  const [behind, setBehind] = useState(false);
+
+  const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
+
+  // Keeps the reader at the end, or in their place, as what the timeline shows changes. A short last page
+  // of later messages can leave them at the end without scrolling them, so this asks again.
+  const settle = useEffectEvent(() => {
+    const el = scroller.current!;
+    if (atEnd.current) el.scrollTop = el.scrollHeight;
+    else if (place.current) restore(el, place.current);
+    atEnd.current = nearEnd(el);
+    if (atEnd.current) setBehind(false);
+    place.current = placeIn(el);
+  });
+
+  // Goes to a message, centred and outlined, as ember-rust's opens a permalink's, or, for none, to the
+  // end, as sending and Jump to newest message go.
+  const go = useEffectEvent((messageId: string | null) => {
+    const el = scroller.current!;
+    const row = messageId === null ? undefined : rowsIn(el).find((r) => r.dataset.messageId === messageId);
+    if (row) {
+      const view = el.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      el.scrollTop += box.top - view.top - (el.clientHeight - box.height) / 2;
+      row.querySelector("[data-body-content]")?.animate?.(OUTLINE, OUTLINE_MS);
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+    atEnd.current = nearEnd(el);
+    place.current = placeIn(el);
+    setBehind(false);
+  });
 
   useLayoutEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const oldest = state.messages[0]?.id;
-    if (pinned.current) {
-      el.scrollTop = el.scrollHeight;
-    } else if (oldest !== firstId.current && state.messages.some(({ id }) => id === firstId.current)) {
-      // Older history was prepended: keep the reader's place. Measure from where they were, since
-      // the browser's own scroll anchoring may already have moved scrollTop by the same amount.
-      el.scrollTop = position.current.top + el.scrollHeight - position.current.height;
-    }
-    firstId.current = oldest;
-    position.current = { top: el.scrollTop, height: el.scrollHeight };
-  }, [state.messages]);
+    const moved = state.focus !== focused.current;
+    focused.current = state.focus;
+    if (moved && state.focus) go(state.focus.messageId);
+    else settle();
+  }, [state.messages, state.focus]);
 
-  // When the timeline gets shorter, as it does when a phone's keyboard opens, stay on the newest
-  // message rather than leaving it hidden below the fold.
+  // When the timeline gets shorter, as it does when a phone's keyboard opens, or what it shows changes size
+  // after it's drawn, the reader stays where they were.
   useEffect(() => {
     const el = scroller.current!;
     const observer = new ResizeObserver(() => {
       viewHeight.current = el.clientHeight;
-      if (pinned.current) el.scrollTop = el.scrollHeight;
-      position.current = { top: el.scrollTop, height: el.scrollHeight };
+      settle();
     });
     observer.observe(el);
+    observer.observe(content.current!);
     return () => observer.disconnect();
   }, []);
 
-  const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
+  // New messages the reader can't see, away from the end, offer the way there.
   useEffect(() => {
-    // Load the previous page whenever the top of the timeline comes into view, whether by
-    // scrolling, a resize, or a window tall enough to show every loaded message. Observing
-    // afresh after each change asks again while the top is still in view, but a failed page
-    // changes nothing, so it waits for the reader instead of retrying in a loop.
-    const observer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadOlder(), {
-      root: scroller.current,
-      rootMargin: "200px 0px 0px 0px",
-    });
-    observer.observe(top.current!);
-    return () => observer.disconnect();
+    if (state.arrivals === arrivals.current) return;
+    arrivals.current = state.arrivals;
+    if (!atEnd.current) setBehind(true);
+  }, [state.arrivals]);
+
+  const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
+  const loadNewer = useEffectEvent(() => state.hasNewer && !state.loadingNewer && onLoadNewer());
+  useEffect(() => {
+    // Load the page beyond either end of the timeline whenever that end comes near the view, whether by
+    // scrolling, a resize, or a window tall enough to show every loaded message. Observing afresh after
+    // each change asks again while the end is still near, but a failed page changes nothing, so it waits
+    // for the reader instead of retrying in a loop.
+    const root = scroller.current;
+    const older = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadOlder(), { root, rootMargin: `${PAGE_AHEAD_PX}px 0px 0px 0px` });
+    const newer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadNewer(), { root, rootMargin: `0px 0px ${PAGE_AHEAD_PX}px 0px` });
+    older.observe(top.current!);
+    newer.observe(bottom.current!);
+    return () => {
+      older.disconnect();
+      newer.disconnect();
+    };
   }, [state.messages]);
 
   const onScroll = () => {
     const el = scroller.current!;
     // A scroll can arrive after the timeline has resized but before the resize observer has caught
-    // up. The reader didn't move, so it mustn't unpin them from the newest message.
+    // up. The reader didn't move, so it mustn't take them away from the end.
     if (el.clientHeight !== viewHeight.current) return;
-    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-    setShowLatest(!pinned.current);
-    position.current = { top: el.scrollTop, height: el.scrollHeight };
+    atEnd.current = nearEnd(el);
+    if (atEnd.current) setBehind(false);
+    place.current = placeIn(el);
   };
 
   const items = timeline(state.messages);
@@ -96,46 +191,51 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
   const waiting = state.status === "connecting" || state.status === "reconnecting";
 
   return (
-    <div className="relative min-h-0 flex-1">
-      {/* `isolate` keeps the message controls' z-indexes inside the timeline, so the return button
+    <div className="min-h-0 flex-1">
+      {/* `isolate` keeps the message controls' z-indexes inside the timeline, so Jump to newest message
           below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
       <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || undefined}>
-        <div ref={top} aria-hidden className="h-px" />
-        {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
+        <div ref={content}>
+          <div ref={top} aria-hidden className="h-px" />
+          {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
-        {welcomeCard && <InvitationCard joinCode={invitation.joinCode} />}
+          {welcomeCard && <InvitationCard joinCode={invitation.joinCode} />}
 
-        {state.status === "open" && items.length === 0 && !state.hasMore && !welcomeCard && (
-          <div className="p-6 text-center text-muted-foreground">
-            <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
-            <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
-          </div>
-        )}
-
-        <RoomConnection value={state.connections}>
-          {items.map(({ message, daySeparator, threaded }) => (
-            // Stable from optimistic copy to stored message, and distinct across senders.
-            <div key={`${message.creator.id}:${message.clientMessageId}`}>
-              {daySeparator && (
-                <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
-                  <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
-                </div>
-              )}
-              <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+          {state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
+            <div className="p-6 text-center text-muted-foreground">
+              <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
+              <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
             </div>
-          ))}
-        </RoomConnection>
+          )}
+
+          <RoomConnection value={state.connections}>
+            {items.map(({ message, daySeparator, threaded }) => {
+              // Stable from optimistic copy to stored message, and distinct across senders.
+              const key = `${message.creator.id}:${message.clientMessageId}`;
+              return (
+                <div key={key} data-row={key} data-message-id={message.id}>
+                  {daySeparator && (
+                    <div role="separator" className="mx-0 mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
+                      <span className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">{daySeparator}</span>
+                    </div>
+                  )}
+                  <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+                </div>
+              );
+            })}
+          </RoomConnection>
+          <div ref={bottom} aria-hidden className="h-px" />
+        </div>
       </div>
 
-      {showLatest && (
+      {/* ember-rust's sits 160px above the bottom of the main content, which holds the composer too. */}
+      {behind && (
         <button
           type="button"
-          onClick={() => {
-            pinned.current = true;
-            scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
-          }}
-          aria-label="Return to latest messages"
-          className="absolute right-6 bottom-4 z-[3] flex size-[38px] items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] hover:bg-hover touch:size-11"
+          // Kept to try again when it can't go yet.
+          onClick={() => onJumpToNewest() && setBehind(false)}
+          aria-label="Jump to newest message"
+          className="absolute bottom-[160px] left-1/2 z-[3] flex size-[38px] -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] touch:size-11"
         >
           <ArrowDown className="size-[18px]" />
         </button>

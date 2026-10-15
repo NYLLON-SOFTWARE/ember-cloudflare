@@ -1,19 +1,28 @@
-import type { Message, ServerFrame, User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
 
 /**
- * ember-rust's page of messages (`Message::PAGE_SIZE`). The welcome card shows only in a room with no
- * more than this, which the room's first page, being longer, can tell.
+ * The most messages the timeline keeps, and how many more it takes before it's cut back to that, as
+ * ember-rust's message_paginator.js keeps the page's (`MAX_MESSAGES`, `MAX_MESSAGES_LEEWAY`).
  */
-export const WELCOME_CARD_MESSAGES = 40;
+export const MAX_MESSAGES = 300;
+export const MAX_MESSAGES_LEEWAY = 20;
 
 export interface PendingMessage extends Message {
   pending: true;
   failed?: boolean;
   /** Written without a connection, to send once the room lets one in again, unless the page goes offline first. */
   queued?: boolean;
+}
+
+/**
+ * Where the timeline goes next: to a message, centred and outlined, as its permalink opens the room, or
+ * to its end, when it names none. Each is a new object, so going to the same place again goes again.
+ */
+export interface Focus {
+  messageId: string | null;
 }
 
 /** What a message that couldn't go says, as the room's own refusals do. */
@@ -23,20 +32,37 @@ export interface RoomState {
   status: ConnectionStatus;
   /** Whether the room has been without a connection for 5 seconds, which stops sending until it's back. */
   offline: boolean;
+  /** The timeline's messages, oldest first, followed by those this page sent that the room hasn't confirmed. */
   messages: Array<Message | PendingMessage>;
   present: User[];
   /** Who is typing, with when we last heard so stale entries can expire. */
   typing: Record<string, { user: User; at: number }>;
+  /** Whether the room has messages older than the timeline holds. */
   hasMore: boolean;
+  /**
+   * Whether it has newer ones, as when it opened at a permalink, or once paging back has cut the newest
+   * off: ember-rust's paginator isn't `upToDate` then. New messages wait for the timeline to page forward
+   * to them, rather than show after the gap, and count as `arrivals`.
+   */
+  hasNewer: boolean;
   /**
    * The oldest message the room has sent this page, which history pages back from. It stays when that
    * message is deleted, so a timeline whose messages were all deleted can still page back to older ones.
    */
   oldestId: string | null;
+  /** The newest the room has sent the timeline, which, while it has newer ones, history pages forward from. It stays when deleted, too. */
+  newestId: string | null;
   loadingOlder: boolean;
+  loadingNewer: boolean;
+  /** Whether a page to take the timeline's place is on its way: the newest, or the one around a message. */
+  loadingPage: boolean;
+  /** Where the timeline goes next, or null until the room has said what it holds. */
+  focus: Focus | null;
+  /** How many times messages have come from the room, other than this page's own: the timeline shows Jump to newest message when one comes out of view. */
+  arrivals: number;
   notice: string | null;
   /**
-   * Whether the room had more than `WELCOME_CARD_MESSAGES` when it first answered, or null until then.
+   * Whether the room had more than a page of messages (`HISTORY_PAGE_SIZE`) when it first answered, or null until then.
    * As ember-rust decides when it renders the room's page, it holds until the room is opened again.
    */
   paged: boolean | null;
@@ -55,6 +81,10 @@ export type RoomAction =
   | { type: "pending"; message: PendingMessage }
   | { type: "sent"; clientMessageIds: string[] }
   | { type: "loading-older" }
+  | { type: "loading-newer" }
+  | { type: "loading-page" }
+  /** Goes to a message the timeline holds, or to its end when it holds the newest. */
+  | { type: "focus"; messageId: string | null }
   | { type: "expire-typing"; before: number }
   | { type: "dismiss-notice" };
 
@@ -65,8 +95,14 @@ export const initialRoomState: RoomState = {
   present: [],
   typing: {},
   hasMore: false,
+  hasNewer: false,
   oldestId: null,
+  newestId: null,
   loadingOlder: false,
+  loadingNewer: false,
+  loadingPage: false,
+  focus: null,
+  arrivals: 0,
   notice: null,
   paged: null,
   connections: 0,
@@ -89,20 +125,54 @@ const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 
 /**
  * The page's messages caught up with what changed while it was away, as `resumed` says. Deleted messages
- * go, changed ones are replaced, and new ones take their places by id, except those older than the
- * oldest the room has sent, which history brings as they are once it's paged to. The messages sent
- * before the connection dropped that none confirms stay as sending while useRoom asks the room about
- * them, as after a welcome: one may be older than the page a welcome before brought, which nothing since
- * names.
+ * go, changed ones are replaced, and new ones take their places by id, except those outside the
+ * timeline: older than the oldest the room has sent, or, while it has newer ones, newer than the newest,
+ * which history brings as they are once it's paged to. The messages sent before the connection dropped
+ * that none confirms stay as sending while useRoom asks the room about them, as after a welcome: one may
+ * be older than the page a welcome before brought, which nothing since names. And whether any came newer
+ * than the timeline's end.
  */
-function caughtUp({ messages, oldestId }: RoomState, { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
+function caughtUp({ messages, oldestId, newestId, hasNewer }: RoomState, { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
   const deleted = new Set(deletedIds);
   const updates = new Map(changed.map((m) => [m.id, m]));
   const stored = messages.filter((m) => !isPending(m));
   const kept = stored.flatMap((m) => (deleted.has(m.id) ? [] : [updates.get(m.id) ?? m]));
   const loaded = new Set(stored.map((m) => m.id));
-  const added = changed.filter((m) => !loaded.has(m.id) && (oldestId === null || m.id > oldestId));
-  return [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)];
+  const end = hasNewer ? newestId : null;
+  const added = changed.filter((m) => !loaded.has(m.id) && (oldestId === null || m.id > oldestId) && (end === null || m.id < end));
+  const newest = stored.at(-1)?.id ?? newestId;
+  const came = changed.some((m) => !loaded.has(m.id) && (newest === null || m.id > newest));
+  return { messages: [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)], came };
+}
+
+/**
+ * The timeline in place of the one shown: `page`, and after it the messages this page sent that it doesn't
+ * confirm, which wait for the room as they were.
+ */
+const showing = (state: RoomState, page: TimelinePage) => ({
+  messages: [...page.messages, ...unconfirmed(state.messages, page.messages)],
+  hasMore: page.hasMore,
+  hasNewer: page.hasNewer,
+  oldestId: page.messages[0]?.id ?? null,
+  newestId: page.messages.at(-1)?.id ?? null,
+  focus: { messageId: page.around },
+});
+
+/**
+ * The timeline cut back to `MAX_MESSAGES` once it holds more than `MAX_MESSAGES_LEEWAY` over: from its
+ * start after it grows at the end, and from its end after it grows at the start, as ember-rust's paginator
+ * drops the end the reader is furthest from. What's cut is paged to again from the new `oldestId` or
+ * `newestId`. Messages waiting for the room aren't cut.
+ */
+function cut(state: RoomState, from: "start" | "end"): RoomState {
+  const stored = state.messages.filter((m) => !isPending(m));
+  const over = stored.length - MAX_MESSAGES;
+  if (over <= MAX_MESSAGES_LEEWAY) return state;
+  const dropped = new Set((from === "start" ? stored.slice(0, over) : stored.slice(-over)).map((m) => m.id));
+  const messages = state.messages.filter((m) => isPending(m) || !dropped.has(m.id));
+  return from === "start"
+    ? { ...state, messages, hasMore: true, oldestId: stored[over]!.id }
+    : { ...state, messages, hasNewer: true, newestId: stored[stored.length - over - 1]!.id };
 }
 
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
@@ -139,14 +209,24 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
         : { ...state, status: action.status };
     case "offline":
       return action.offline ? unsent({ ...state, offline: true }) : { ...state, offline: false };
-    case "pending":
-      return unsent({ ...state, messages: [...state.messages, action.message] });
+    case "pending": {
+      // Sending goes to the end of the timeline, as ember-rust's insertPendingMessage scrolls there, once
+      // the newest page has come, which useRoom asks for first when the timeline doesn't hold it.
+      const focus = state.hasNewer || state.loadingPage ? state.focus : { messageId: null };
+      return unsent({ ...state, messages: [...state.messages, action.message], focus });
+    }
     case "sent": {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
       return { ...state, messages: state.messages.map((m) => (sent(m) ? dequeued(m) : m)) };
     }
     case "loading-older":
       return { ...state, loadingOlder: true };
+    case "loading-newer":
+      return { ...state, loadingNewer: true };
+    case "loading-page":
+      return { ...state, loadingPage: true };
+    case "focus":
+      return { ...state, focus: { messageId: action.messageId } };
     case "dismiss-notice":
       return { ...state, notice: null };
     case "expire-typing": {
@@ -167,37 +247,51 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       // useRoom asks the room about them.
       return {
         ...state,
+        ...showing(state, frame),
         status: "open",
-        messages: [...frame.messages, ...unconfirmed(state.messages, frame.messages)],
         present: frame.present,
-        hasMore: frame.hasMore,
-        oldestId: frame.messages[0]?.id ?? null,
         // A history request on the old socket will never be answered.
         loadingOlder: false,
+        loadingNewer: false,
+        loadingPage: false,
         typing: {},
-        paged: state.paged ?? (frame.hasMore || frame.messages.length > WELCOME_CARD_MESSAGES),
+        // As ember-rust's `paged?` asks, whatever the page: whether the room has more than a page of messages.
+        paged: state.paged ?? (frame.hasMore || frame.hasNewer || frame.messages.length > HISTORY_PAGE_SIZE),
         connections: state.connections + 1,
       };
     }
-    case "resumed":
+    case "resumed": {
       // The pages already loaded stay, older ones included, where a welcome would replace them.
-      return {
-        ...state,
-        status: "open",
-        messages: caughtUp(state, frame),
-        present: frame.present,
-        // A history request on the old socket will never be answered.
-        loadingOlder: false,
-        typing: {},
-        connections: state.connections + 1,
-      };
+      const { messages, came } = caughtUp(state, frame);
+      return cut(
+        {
+          ...state,
+          status: "open",
+          messages,
+          present: frame.present,
+          // A history request on the old socket will never be answered.
+          loadingOlder: false,
+          loadingNewer: false,
+          loadingPage: false,
+          typing: {},
+          arrivals: came ? state.arrivals + 1 : state.arrivals,
+          connections: state.connections + 1,
+        },
+        "start",
+      );
+    }
     case "message.created": {
       const { message } = frame;
       // A confirmed message goes where the room put it, at the end, not where its optimistic copy sat:
       // the room may have stored someone else's first. ember-rust's messages_controller does the same.
       const others = state.messages.filter((m) => !confirms(message, m));
+      const typing = withoutTyping(state.typing, message.creator.id);
+      const arrivals = others.length < state.messages.length ? state.arrivals : state.arrivals + 1;
+      // A timeline that doesn't hold the newest messages shows this one once it pages forward to it, where
+      // ember-rust's adds it after the gap.
+      if (state.hasNewer) return { ...state, messages: others, typing, arrivals };
       const messages = others.some((m) => m.id === message.id) ? replace(others, message.id, () => message) : [...others, message];
-      return { ...state, messages, typing: withoutTyping(state.typing, message.creator.id) };
+      return cut({ ...state, messages, typing, arrivals }, "start");
     }
     case "message.updated":
       return { ...state, messages: replace(state.messages, frame.message.id, () => frame.message) };
@@ -235,16 +329,37 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       return { ...state, messages, notice };
     }
     case "history": {
+      // A page asked for before the timeline took another's place, or was cut, pages from where it no longer starts.
+      if (frame.before !== state.oldestId) return { ...state, loadingOlder: false };
       // A page can hold the stored copy of a message that a reconnect left unconfirmed.
       const messages = state.messages.filter((m) => !frame.messages.some((stored) => confirms(stored, m)));
-      return {
-        ...state,
-        messages: [...frame.messages, ...messages],
-        hasMore: frame.hasMore,
-        oldestId: frame.messages[0]?.id ?? state.oldestId,
-        loadingOlder: false,
-      };
+      return cut(
+        {
+          ...state,
+          messages: [...frame.messages, ...messages],
+          hasMore: frame.hasMore,
+          oldestId: frame.messages[0]?.id ?? state.oldestId,
+          loadingOlder: false,
+        },
+        "end",
+      );
     }
+    case "history.after": {
+      if (!state.hasNewer || frame.after !== state.newestId) return { ...state, loadingNewer: false };
+      const waiting = state.messages.filter((m) => isPending(m) && !frame.messages.some((stored) => confirms(stored, m)));
+      return cut(
+        {
+          ...state,
+          messages: [...state.messages.filter((m) => !isPending(m)), ...frame.messages, ...waiting],
+          hasNewer: frame.hasNewer,
+          newestId: frame.messages.at(-1)?.id ?? state.newestId,
+          loadingNewer: false,
+        },
+        "start",
+      );
+    }
+    case "history.around":
+      return { ...state, ...showing(state, frame), loadingPage: false };
     case "error": {
       // A message the room refused shows as not sent, as do the ones it couldn't check. An error about no
       // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
@@ -254,8 +369,14 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         ? state.messages.map((m) => (isPending(m) && notSent.includes(m.clientMessageId) ? { ...m, failed: true } : m))
         : state.messages;
       // A failed history request leaves nothing in flight, so paging can be tried again.
-      const loadingOlder = frame.failed === "history.before" ? false : state.loadingOlder;
-      return { ...state, messages, notice: frame.message, loadingOlder };
+      return {
+        ...state,
+        messages,
+        notice: frame.message,
+        loadingOlder: frame.failed === "history.before" ? false : state.loadingOlder,
+        loadingNewer: frame.failed === "history.after" ? false : state.loadingNewer,
+        loadingPage: frame.failed === "history.around" ? false : state.loadingPage,
+      };
     }
     case "pong":
       return state;

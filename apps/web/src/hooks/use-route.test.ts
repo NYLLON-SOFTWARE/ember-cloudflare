@@ -5,6 +5,7 @@ import {
   guardLeaving,
   joinCodeFromPath,
   leave,
+  messagePath,
   navigate,
   newRoomPath,
   roomIdFromPath,
@@ -14,6 +15,7 @@ import {
   useBackPath,
   useJoinRoute,
   useRoute,
+  useVisit,
   type LeaveGuard,
 } from "./use-route";
 
@@ -66,6 +68,25 @@ describe(feature("rooms.show"), () => {
     navigate("/rooms/random", { replace: true });
     expect(location.pathname).toBe("/rooms/random");
     expect(history.length).toBe(length);
+  });
+});
+
+describe(feature("messages.permalink"), () => {
+  it("reads a message's permalink as its room's page, naming the message", () => {
+    expect(messagePath("general", "m 1")).toBe("/rooms/general/@m%201");
+    expect(routeOf("/rooms/general/@m%201")).toEqual({ page: "room", roomId: "general", messageId: "m 1" });
+  });
+
+  it("counts every visit, to the page shown too, so following a permalink again goes to its message again", async () => {
+    history.replaceState(null, "", "/rooms/general/@m1");
+    const { result } = renderHook(() => useVisit());
+    const first = result.current;
+    act(() => navigate("/rooms/general/@m1"));
+    expect(result.current).toBe(first + 1);
+    act(() => navigate("/rooms/general"));
+    expect(result.current).toBe(first + 2);
+    act(() => history.back());
+    await waitFor(() => expect(result.current).toBe(first + 3));
   });
 });
 

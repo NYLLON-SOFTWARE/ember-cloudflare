@@ -137,19 +137,20 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await expect(field).toBeHidden();
 });
 
-test("return to latest appears after scrolling back, and fits", async ({ page, room, participant, screenIsFine }) => {
+test("Jump to newest message appears as one comes while you're scrolled back, and fits", async ({ page, room, participant, screenIsFine }) => {
   const ada = await participant("Ada");
   for (let i = 1; i <= 30; i++) await ada.say(`Message ${i}`);
   await openRoom(page, room);
   await expect(page.getByText("Message 30", { exact: true })).toBeVisible();
 
   await page.getByRole("log").evaluate((log) => log.scrollTo({ top: 0 }));
-  const latest = page.getByRole("button", { name: "Return to latest messages" });
-  await expect(latest).toBeVisible();
+  await ada.say("Message 31");
+  const jump = page.getByRole("button", { name: "Jump to newest message" });
+  await expect(jump).toBeVisible();
   await screenIsFine();
 
-  await latest.tap();
-  await expect(page.getByText("Message 30", { exact: true })).toBeInViewport();
+  await jump.tap();
+  await expect(page.getByText("Message 31", { exact: true })).toBeInViewport();
 });
 
 test("the timeline stays on the newest message when it grows and then shrinks", async ({ page, room, participant }) => {

@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { isAppPage, transferIdFromPath, transferPath, workspacePageOf } from "./index";
+import { isAppPage, MAX_ID_LENGTH, transferIdFromPath, transferPath, workspacePageOf } from "./index";
 
 describe(feature("platform.error-pages"), () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
@@ -43,9 +43,17 @@ describe(feature("dms.naming"), () => {
 });
 
 describe(feature("messages.permalink"), () => {
-  it("opens a message's room at its permalink", () => {
-    expect(workspacePageOf("/rooms/caf%C3%A9/@m-1")).toEqual({ page: "room", roomId: "café" });
+  it("opens a message's room at its permalink, around the message", () => {
+    expect(workspacePageOf("/rooms/caf%C3%A9/@m-1")).toEqual({ page: "room", roomId: "café", messageId: "m-1" });
+    expect(workspacePageOf("/rooms/general/@m%2D1")).toEqual({ page: "room", roomId: "general", messageId: "m-1" });
     for (const path of ["/rooms/general/@", "/rooms/general/@m-1/extra", "/rooms/new/@m-1"]) expect(isAppPage(path), path).toBe(false);
+  });
+
+  it("opens the room at its newest messages for a permalink whose message id is malformed or too long for one", () => {
+    expect(workspacePageOf("/rooms/general/@%FF")).toEqual({ page: "room", roomId: "general" });
+    expect(workspacePageOf(`/rooms/general/@${"m".repeat(MAX_ID_LENGTH + 1)}`)).toEqual({ page: "room", roomId: "general" });
+    const longest = "m".repeat(MAX_ID_LENGTH);
+    expect(workspacePageOf(`/rooms/general/@${longest}`)).toEqual({ page: "room", roomId: "general", messageId: longest });
   });
 });
 

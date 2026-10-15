@@ -579,7 +579,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/templates/rooms/show.html", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms_controller_test.rb", "parity/screens.yml"],
-    notes: "Rooms open at `/rooms/<id>`, titled with the room's name, and show the newest 50 messages. An address naming a room you aren't in, or one that doesn't exist, goes to `/` with \"Room not found or inaccessible\", once the room list, asked for again, hasn't got it either, since the app keeps the list from when it loaded and the room may be newer. When the list can't be asked for again, the address stays and the page says Ember can't be reached, with Try again to ask again. Room ids are strings here, so there's no malformed id but a malformed escape, which goes home without the alert. Opening a room remembers it (`rooms.last-visited`). DMs' titles come with direct messages, and there are no unread marks yet.",
+    notes: "Rooms open at `/rooms/<id>`, titled with the room's name, and show the newest 40 messages, or the page around the message a permalink names (`messages.permalink`). An address naming a room you aren't in, or one that doesn't exist, goes to `/` with \"Room not found or inaccessible\", once the room list, asked for again, hasn't got it either, since the app keeps the list from when it loaded and the room may be newer. When the list can't be asked for again, the address stays and the page says Ember can't be reached, with Try again to ask again. Room ids are strings here, so there's no malformed id but a malformed escape, which goes home without the alert. Opening a room remembers it (`rooms.last-visited`). DMs' titles come with direct messages, and there are no unread marks yet.",
   },
   {
     id: "rooms.last-visited",
@@ -1109,7 +1109,7 @@ export const features = [
     id: "messages.history",
     title: "Scroll back through history",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A room opens on its newest 40 messages. Scrolling back to the first one loads the 40 before it, and what you were reading stays where it was.",
       "After jumping back in history, bringing the last message into view loads newer ones; at most about 300 messages stay loaded, trimmed beyond 320.",
@@ -1117,7 +1117,7 @@ export const features = [
     ],
     sources: ["reference/app/models/message/pagination.rb", "crates/ember/src/controllers/messages.rs", "reference/app/javascript/models/message_paginator.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/controllers/messages_controller_test.rb", "parity/screens.yml"],
-    notes: "Pages hold 50 messages. The timeline only grows backwards from the newest message, so it never pages forward or trims.",
+    notes: "Pages hold 40 messages and come over the room's socket rather than HTTP (`history.before`, `history.after`, and `history.around` for the page around a message), so there are no ETags, a page with nothing in it is an empty list rather than 204, and a message that's gone, or was never in the room, still pages from where its id falls rather than answering 404. The timeline holds at most 320 messages, cut back to 300 from the end you're furthest from, as ember-rust's paginator cuts it.",
   },
   {
     id: "messages.grouping",
@@ -1226,7 +1226,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/messages.css"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/controllers/messages/tests.rs", "parity/screens.yml"],
-    notes: "`/rooms/<room>/@<message>` opens its room at the newest messages, on a reload or a link from elsewhere too. Opening the room around the message and outlining it, and `/rooms/<room>/messages/<id>`, come with paging forward through history (`messages.history`).",
+    notes: "`/rooms/<room>/@<message>` opens its room on the page around the message, centered and outlined, and following one in the room goes there again each time, loading its page when the timeline doesn't hold it. The outline is drawn outside the message rather than as its border, so nothing moves, and a mention of you keeps its own border, where ember-rust's highlight replaces it. `/rooms/<room>/messages/<id>`, ember-rust's page of a single message, isn't built, since nothing in this app asks for one.",
   },
   {
     id: "messages.emoji-only",
@@ -1723,7 +1723,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/refreshes.rs", "crates/db/src/models/message.rs", "crates/views/templates/rooms/refreshes/show.turbo_stream.html", "crates/views/templates/rooms/show.html", "crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/refresh_room_controller.js", "reference/app/controllers/rooms/refreshes_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms/refreshes_controller_test.rb", "parity/screens.yml"],
-    notes: "A tab whose room socket drops connects again naming the latest change to the room it has heard of (`since` on the socket's address, the `seq` that the welcome and every frame announcing a change carry), and the room answers with `resumed`: the messages changed since, as they are now, each replacing its old copy or taking its place by id, the ids of those deleted, and who's here. Older pages already loaded stay, and a changed message older than all of them is left for history to bring. The room numbers its changes one after another, so a tab that misses one, as when D1 saves a change whose batch reported failure and the room never announces it, keeps naming the change before it, and connecting again brings it. Unlike ember-rust, which asks for what changed since a time, the room numbers its changes (room migration 0015) and keeps deleted messages' ids for the latest 100, so deletions are caught, and a tab more than 100 changes behind gets the newest 50 messages, as a new tab does, where ember-rust's fetch skips new messages past its 40. The first connection fetches nothing, since its welcome and the frames after it come from the room in turn, where ember-rust renders the page before its socket subscribes. Nor does a tab shown after 60 seconds hidden: a socket that stayed open missed nothing, and showing the tab checks it, so one that died connects again and catches up. The app asks the room about each message sent before the drop that the reconnect doesn't confirm (`message.check`), since `resumed` doesn't go back past the page an earlier welcome brought: if the room stored one, the message leaves the bottom of the timeline with \"Your message was sent. Scroll up to see it.\", and if not, it shows as not sent. A message written while the connection is down stays as sending, and goes, in order, once the room lets the page in again. After 5 seconds without a connection, the header says \"Reconnecting…\" (\"Connecting…\" before the first), Send is disabled, and any message still waiting shows as not sent; the message box stays editable, where ember-rust disables the whole composer.",
+    notes: "A tab whose room socket drops connects again naming the latest change to the room it has heard of (`since` on the socket's address, the `seq` that the welcome and every frame announcing a change carry), and the room answers with `resumed`: the messages changed since, as they are now, each replacing its old copy or taking its place by id, the ids of those deleted, and who's here. Older pages already loaded stay, and a changed message outside the timeline, older than all of it or, while you're reading older history, newer, is left for history to bring. The room numbers its changes one after another, so a tab that misses one, as when D1 saves a change whose batch reported failure and the room never announces it, keeps naming the change before it, and connecting again brings it. Unlike ember-rust, which asks for what changed since a time, the room numbers its changes (room migration 0015) and keeps deleted messages' ids for the latest 100, so deletions are caught, and a tab more than 100 changes behind gets the newest 40 messages, as a new tab does, where ember-rust's fetch skips new messages past its 40. The first connection fetches nothing, since its welcome and the frames after it come from the room in turn, where ember-rust renders the page before its socket subscribes. Nor does a tab shown after 60 seconds hidden: a socket that stayed open missed nothing, and showing the tab checks it, so one that died connects again and catches up. The app asks the room about each message sent before the drop that the reconnect doesn't confirm (`message.check`), since `resumed` doesn't go back past the page an earlier welcome brought: if the room stored one, the message leaves the bottom of the timeline with \"Your message was sent. Scroll up to see it.\", and if not, it shows as not sent. A message written while the connection is down stays as sending, and goes, in order, once the room lets the page in again. After 5 seconds without a connection, the header says \"Reconnecting…\" (\"Connecting…\" before the first), Send is disabled, and any message still waiting shows as not sent; the message box stays editable, where ember-rust disables the whole composer.",
   },
   {
     id: "realtime.connection",
@@ -2331,7 +2331,7 @@ export const features = [
     id: "ui.scroll",
     title: "Stay at the newest message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Rooms open at the newest message. A new message scrolls into view only if you were within 100px of the bottom; otherwise, or whenever one arrives while you're reading older history, a centered Jump to newest message button appears. It hides once the newest message comes into view.",
       "Clicking it, or sending, scrolls to the bottom, loading the newest messages first if you were reading history.",
@@ -2340,7 +2340,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/messages_controller.js", "reference/app/javascript/models/scroll_manager.js", "reference/app/javascript/models/message_paginator.js", "reference/app/javascript/controllers/maintain_scroll_controller.js", "crates/ember/src/channels/broadcasts.rs", "crates/views/templates/rooms/show.html"],
     upstreamTests: ["parity/screens.yml"],
-    notes: "The button is \"Return to latest messages\", at the bottom right, and shows whenever you're more than 120px from the bottom, new messages or not. Sending while scrolled up doesn't scroll down, nothing is trimmed, and only loading older history keeps your place on purpose: edits and reactions are left to the browser's scroll anchoring.",
+    notes: "The button is ember-rust's, measured against its own, except that it's 44px on touch screens, as Ember's controls are, and it hides once you're back within 100px of the newest message. New messages that arrive while you're reading older history wait until you go to the newest, where ember-rust adds them below the history it has loaded, past the messages it hasn't.",
   },
   {
     id: "ui.empty-room",
@@ -2395,7 +2395,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/views/templates/rooms/show/_composer.html", "crates/views/templates/users/sidebars/show.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/nav.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has none yet (`auth.first-run`). The message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is \"Message #<room>\", Send is \"Send\", and the jump button is \"Return to latest messages\". Attach a file, Rich text, Activity and the star aren't built yet.",
+    notes: "The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has none yet (`auth.first-run`). The message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is \"Message #<room>\" and Send is \"Send\". Attach a file, Rich text, Activity and the star aren't built yet.",
   },
   {
     id: "ui.icons",
@@ -2579,7 +2579,7 @@ export const features = [
     ],
     sources: ["crates/kit/src/body.rs", "README.md"],
     upstreamTests: ["crates/kit/tests/http.rs"],
-    notes: "Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 50 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.",
+    notes: "Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 40 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.",
   },
   {
     id: "platform.install-commands",

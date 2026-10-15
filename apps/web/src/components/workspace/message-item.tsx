@@ -143,7 +143,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           onClose={() => editors.close(message.id)}
         />
       ) : (
+        // ember-rust's `.message__body-content`, which a permalink outlines.
         <div
+          data-body-content
           className={cn(
             "min-w-0",
             allEmoji ? "py-0" : "py-1",
