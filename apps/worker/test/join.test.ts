@@ -9,12 +9,12 @@ import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, origin, si
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
 
-/** Sets Ember up with Ada as its administrator, signed in, answering All Talk too. */
-async function setUp(): Promise<Session & { allTalk: NewWorkspace["room"] }> {
+/** Sets Ember up with Ada as its administrator, signed in, answering general, its first room, too. */
+async function setUp(): Promise<Session & { general: NewWorkspace["room"] }> {
   const response = await api("/api/first_run", { method: "POST", body: JSON.stringify(ada) });
   expect(response.status).toBe(201);
   const { user, room } = (await response.json()) as NewWorkspace;
-  return { user, cookie: cookieOf(response), allTalk: room };
+  return { user, cookie: cookieOf(response), general: room };
 }
 
 const joinCode = async () => ((await workspaceSql("SELECT join_code FROM accounts")) as Array<{ join_code: string }>)[0]!.join_code;
@@ -63,8 +63,11 @@ describe(feature("auth.sign-up"), () => {
 
     const cookie = cookieOf(response);
     expect(await (await api("/api/me", { headers: { Cookie: cookie } })).json()).toEqual({ user });
-    expect((await roomList(cookie)).rooms.map((room) => room.id).sort()).toEqual([administrator.allTalk.id, design.id].sort());
-    expect((await roomList(cookie)).rooms.map((room) => room.id)).not.toContain(leads.id);
+    const rooms = (await roomList(cookie)).rooms;
+    expect(rooms.map((room) => room.name)).toEqual(["general", "random", "Design"]);
+    expect(rooms[0]!.id).toBe(administrator.general.id);
+    expect(rooms[2]!.id).toBe(design.id);
+    expect(rooms.map((room) => room.id)).not.toContain(leads.id);
 
     // And can sign in again with the password they chose.
     const signIn = await api("/api/session", { method: "POST", body: JSON.stringify({ emailAddress: grace.emailAddress, password: grace.password }) });
@@ -210,10 +213,10 @@ describe(feature("rooms.invitation-card"), () => {
     const administrator = await setUp();
     const code = await joinCode();
     await createRoom("Design", { as: administrator });
-    expect((await roomList(administrator.cookie)).invitation).toEqual({ roomId: administrator.allTalk.id, joinCode: code });
+    expect((await roomList(administrator.cookie)).invitation).toEqual({ roomId: administrator.general.id, joinCode: code });
     // Including people who joined after it was made.
     const member = cookieOf(await join(code, grace));
-    expect((await roomList(member)).invitation).toEqual({ roomId: administrator.allTalk.id, joinCode: code });
+    expect((await roomList(member)).invitation).toEqual({ roomId: administrator.general.id, joinCode: code });
     expect((await api("/api/sidebar", { headers: { Cookie: member } })).headers.get("Cache-Control")).toBe("no-store");
   });
 
@@ -231,15 +234,19 @@ describe(feature("rooms.invitation-card"), () => {
     expect((await roomList(guest.cookie)).invitation).toBeNull();
   });
 
-  it("passes over rooms from before the Workspace kept a list", async () => {
-    await workspaceStub().registerLegacyRooms(["general"]);
+  it("is the oldest room, of any kind, counting rooms from before the Workspace kept a list from when they were listed", async () => {
+    await workspaceStub().registerLegacyRooms(["lobby"]);
+    // Apart from the rooms made around it by a moment, so it's never made at the same time as one.
+    await scheduler.wait(2);
     const administrator = await setUp();
-    expect((await roomList(administrator.cookie)).invitation?.roomId).toBe(administrator.allTalk.id);
+    await scheduler.wait(2);
+    await workspaceStub().registerLegacyRooms(["watercooler"]);
+    expect((await roomList(administrator.cookie)).invitation?.roomId).toBe("lobby");
   });
 
-  it("finds the first room by the primary key, however many rooms there are", async () => {
+  it("finds the first room through an index, however many rooms there are", async () => {
     const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${ORIGINAL_ROOM}`)).map((row) => (row as { detail: string }).detail).join("; ");
-    expect(plan).toMatch(/USING INDEX sqlite_autoindex_rooms_1/);
+    expect(plan).toMatch(/USING COVERING INDEX index_rooms_on_created_at_and_id/);
     expect(plan).not.toContain("TEMP B-TREE");
   });
 });

@@ -82,14 +82,14 @@ export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { jo
 }
 
 /**
- * The welcome card's invitation: the workspace's first room, All Talk, which every open room's
- * member is in, and the join code. Anyone in All Talk gets it with their rooms.
+ * The welcome card's invitation: the workspace's first room, the general that setup made, which every
+ * open room's member is in, and the join code. Anyone in that room gets it with their rooms.
  */
 export async function invitation(request: APIRequestContext, session: Session): Promise<Invitation> {
   const response = await request.get("/api/sidebar", { headers: { Cookie: cookieHeader(session) } });
   expect(response.status(), await response.text()).toBe(200);
   const { invitation } = (await response.json()) as Sidebar;
-  expect(invitation, "Everyone is in All Talk, where the welcome card is").not.toBeNull();
+  expect(invitation, "Everyone is in general, where the welcome card is").not.toBeNull();
   return invitation!;
 }
 

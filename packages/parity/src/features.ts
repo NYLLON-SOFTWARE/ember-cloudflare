@@ -29,7 +29,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/first_runs/show.html", "crates/views/templates/components/ui.html", "crates/assets/overrides/basecoat/src/password.js", "crates/ember/src/controllers/first_runs.rs", "crates/db/src/models/first_run.rs", "reference/app/models/first_run.rb"],
     upstreamTests: ["parity/kro/first-run.test.mjs", "crates/ember/src/controllers/first_runs.rs", "crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/first_runs_controller_test.rb"],
-    notes: "There's no photo picker until profile photos are stored. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens All Talk without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.",
+    notes: "There's no photo picker until profile photos are stored. First run makes two open rooms, general and random, as a Slack workspace starts, rather than ember-rust's All Talk; general, made first, is the workspace's first room (`rooms.invitation-card`). Where the workspace already has an open room of either name, such as one from before the Workspace kept a list (`rooms.legacy-rooms`), that room stands in for the one first run would make. The app asks `/api/bootstrap` whether Ember is set up and, until it is, sends every page to `/first_run`; the form posts JSON to `/api/first_run` and opens general without reloading. A missing name or email address answers 400 rather than failing with 500 or saving an empty address. Passwords are kept as PBKDF2-SHA256 digests rather than bcrypt (`docs/database.md` says why). PBKDF2 hashes every character where bcrypt ignores all but the first 72 bytes, so a password longer than the field's 72 characters answers 422 before it's hashed. The fields are 44px tall on touch screens.",
   },
   {
     id: "auth.protected-setup",
@@ -746,7 +746,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_invitation.html", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs"],
     upstreamTests: ["parity/screens.yml", "parity/kro/workspace.test.mjs"],
-    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) are never the first room.",
+    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.",
   },
   {
     id: "rooms.member-only-access",
@@ -770,10 +770,11 @@ export const features = [
       "Each room named in `LEGACY_ROOMS` is registered as an open room whose id and name are its old address, so `/rooms/general` keeps its messages and reactions, and everyone is a member.",
       "Registering again changes nothing, and an old room that isn't listed can no longer be opened.",
       "The people who wrote or reacted in those rooms become deactivated people with the same ids and names, so their names and avatar colors still show.",
-      "A fresh deploy leaves `LEGACY_ROOMS` unset, so its first room is the one first run creates.",
+      "They count from when they were listed, so the first listed before setup is the workspace's first room, where the welcome card shows.",
+      "First run makes no general or random where one of these rooms has that name, and opens the old general instead. A fresh deploy leaves `LEGACY_ROOMS` unset.",
     ],
     sources: [],
-    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
+    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before, so they're its general and random, and general its first room. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
   },
 
   // Direct messages

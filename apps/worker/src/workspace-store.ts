@@ -140,11 +140,11 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
 /**
- * The workspace's first room, where the welcome card shows, as ember-rust's `Room::original` finds it
- * (room.rs). Ids sort in the order rooms were made, so the primary key's index finds it at once, and
- * rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have no creator and are passed over.
+ * The workspace's first room, where the welcome card shows: its oldest, of any kind, as ember-rust's
+ * `Room::original` finds it (room.rs). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`)
+ * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the preview's is its general.
  */
-export const ORIGINAL_ROOM = `SELECT id FROM rooms WHERE creator_id IS NOT NULL ORDER BY id LIMIT 1`;
+export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
 
 /**
  * Queues revoking a session's sockets in every room its person is in, the only rooms it can have
@@ -292,6 +292,20 @@ const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, cre
 const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING`;
 
+/**
+ * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
+ * already, as the preview has its general and random from before the Workspace kept a list.
+ */
+const INSERT_FIRST_ROOM = `INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at)
+  SELECT ?1, 'open', ?2, ?3, ?4, ?4 WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE kind = 'open' AND name = ?2)`;
+
+/** Puts every active person in one of first run's rooms, if it was added: one it found has them already, being open. */
+const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT rooms.id, users.id, ?, ? FROM rooms, users WHERE rooms.id = ? AND users.status = ${ACTIVE} ON CONFLICT DO NOTHING`;
+
+/** The oldest open room with a name, which first run opens: the one it added, or the one it found. */
+const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
+
 /** Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do. */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING`;
@@ -344,20 +358,22 @@ export class WorkspaceStore {
 
   /**
    * Creates the workspace as ember-rust's first run does (crates/db/src/models/first_run.rs): the
-   * account, its first administrator, an open room that takes in every active person, and the
-   * administrator's session, who also joins every other open room. If there's an account already,
-   * its singleton guard refuses the first statement, and so the whole batch.
+   * account, its first administrator, open rooms that take in every active person, and the
+   * administrator's session, who also joins every other open room. It adds `rooms` in order, all made
+   * at once, so the first is the workspace's first room by its id, except any the workspace has an
+   * open room of the same name for already, and answers the first, which opens. If there's an account
+   * already, its singleton guard refuses the first statement, and so the whole batch.
    */
   async createWorkspace(
     account: NewAccount,
     administrator: NewPerson,
-    room: Pick<Room, "id" | "name">,
+    rooms: Array<Pick<Room, "id" | "name">>,
     sessionId: string,
     tokenDigest: string,
     client: Client,
     now: string,
-  ): Promise<void> {
-    await this.db.batch([
+  ): Promise<Room> {
+    const results = await this.db.batch([
       statement(`INSERT INTO accounts (id, name, join_code, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, account.id, account.name, account.joinCode, NEW_ACCOUNT_SETTINGS, now, now),
       statement(
         `INSERT INTO users (id, name, email_address, password_digest, role, created_at, updated_at) VALUES (?, ?, ?, ?, ${ADMINISTRATOR}, ?, ?)`,
@@ -368,11 +384,12 @@ export class WorkspaceStore {
         now,
         now,
       ),
-      statement(`INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at) VALUES (?, 'open', ?, ?, ?, ?)`, room.id, room.name, administrator.id, now, now),
-      statement(GRANT_ROOM_TO_ACTIVE_USERS, room.id, now, now),
+      ...rooms.flatMap((room) => [statement(INSERT_FIRST_ROOM, room.id, room.name, administrator.id, now), statement(GRANT_FIRST_ROOM, now, now, room.id)]),
       statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(OPEN_ROOM_NAMED, rooms[0]!.name),
     ]);
+    return (results.at(-1) as Room[])[0]!;
   }
 
   /**
