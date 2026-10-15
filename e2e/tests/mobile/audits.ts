@@ -210,6 +210,22 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const middle = (box: Box): Point => [(box.left + box.right) / 2, (box.top + box.bottom) / 2];
   const isWithin = ([x, y]: Point, box: Box) => box.left <= x && x < box.right && box.top <= y && y < box.bottom;
 
+  /**
+   * The boxes of a control's ::before and ::after placed absolutely, which take its taps where they
+   * spread past it, as a reaction pill's button spreads its ::after over the whole pill.
+   */
+  const spreadHitAreas = (element: Element): Box[] =>
+    ["::before", "::after"].flatMap((pseudo) => {
+      const style = getComputedStyle(element, pseudo);
+      if (style.content === "none" || style.position !== "absolute") return [];
+      const holder = getComputedStyle(element).position === "static" ? (element as HTMLElement).offsetParent : element;
+      if (!holder) return [];
+      const outer = holder.getBoundingClientRect();
+      const [left, top] = [outer.left + holder.clientLeft, outer.top + holder.clientTop];
+      const inset = (side: "top" | "right" | "bottom" | "left") => parseFloat(style[side]);
+      return [{ left: left + inset("left"), top: top + inset("top"), right: left + holder.clientWidth - inset("right"), bottom: top + holder.clientHeight - inset("bottom") }];
+    });
+
   // Touch targets: probe a fingertip-sized circle around the middle of what shows of each control and
   // make sure every point lands on the control or a label for it. That catches small controls,
   // controls crowded together and controls partly covered or cut off, and credits hit areas enlarged
@@ -236,8 +252,8 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
     const partlyShown = shown.left > rect.left + TOLERANCE || shown.right < rect.right - TOLERANCE || shown.top > rect.top + TOLERANCE || shown.bottom < rect.bottom - TOLERANCE;
     if (partlyShown && !cutOff(element, rect, clipping)) {
       // Scrolling can bring the rest into view, but the audits don't scroll and can't probe what's
-      // scrolled away, so probe the boxes of the control and its labels, which take taps too.
-      const boxes = [rect, ...labels.flatMap((label) => [...label.getClientRects()])];
+      // scrolled away, so probe the boxes of the control, its labels and what spreads its hit area.
+      const boxes = [rect, ...spreadHitAreas(element), ...labels.flatMap((label) => [...label.getClientRects()])];
       if (!fingertip(middle(rect), size).every((point) => boxes.some((box) => isWithin(point, box)))) {
         touchTargets.push(`${describe(element)} is ${px(rect.width)}×${px(rect.height)} and partly scrolled out of view; a ${size}px fingertip on it can land beside it`);
       }
