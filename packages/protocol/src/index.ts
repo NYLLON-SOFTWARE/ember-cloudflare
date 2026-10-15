@@ -6,7 +6,7 @@ import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
-export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
+export { CUSTOM_STYLES_PATH, isAppPage, KIND_SEGMENTS, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH, workspacePageOf, type RoomAccess, type WorkspacePage } from "./pages.ts";
 
 export type UserId = string;
 export type RoomId = string;

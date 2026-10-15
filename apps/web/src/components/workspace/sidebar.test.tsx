@@ -26,6 +26,7 @@ function renderSidebar(props: Partial<Props> = {}) {
     currentRoomId: null,
     unreadOnly: false,
     onSelect: vi.fn(),
+    onNewDirect: vi.fn(),
     onStarred: vi.fn(),
     onSessionChanged: vi.fn(),
     ...props,
@@ -39,7 +40,7 @@ const [ada, grace, linus, alan, edsger, barbara]: User[] = ["Ada", "Grace", "Lin
 const direct = (id: string, members: User[], unread = false): SidebarRoom => ({ id, kind: "direct", members, unread });
 
 /** The DM rows, top to bottom. */
-const directRows = () => within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link");
+const directRows = () => within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / });
 
 /** The room rows, top to bottom. */
 const rows = () => within(screen.getByRole("region", { name: "Rooms" })).queryAllByRole("link");
@@ -439,7 +440,7 @@ describe(feature("dms.naming"), () => {
     const renamed: DirectoryUser = { ...grace!, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
-        <Sidebar {...{ workspaceName: "Ember", meId: ada!.id, favorites: unstarred, currentRoomId: null, unreadOnly: false, onSelect: vi.fn(), onStarred: vi.fn(), onSessionChanged: vi.fn() }} rooms={[direct("d1", [ada!, grace!])]} />
+        <Sidebar {...{ workspaceName: "Ember", meId: ada!.id, favorites: unstarred, currentRoomId: null, unreadOnly: false, onSelect: vi.fn(), onNewDirect: vi.fn(), onStarred: vi.fn(), onSessionChanged: vi.fn() }} rooms={[direct("d1", [ada!, grace!])]} />
       </PeopleContext>,
     );
     expect(directRows()[0]).toHaveAccessibleName("Direct message with Grace Hopper");
@@ -455,6 +456,19 @@ describe(feature("sidebar.rooms"), () => {
     expect(onSelect).toHaveBeenCalledWith("d1");
     expect(fireEvent.click(directRows()[0]!, { metaKey: true })).toBe(true);
     expect(onSelect).toHaveBeenCalledOnce();
+  });
+});
+
+describe(feature("dms.picker"), () => {
+  it("opens New direct message in place from the DMs heading's link, which a click with a modifier key leaves to the browser", async () => {
+    const { onNewDirect } = renderSidebar();
+    const link = within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "New direct message" });
+    expect(link).toHaveAttribute("href", "/rooms/directs/new");
+    expect(link).toHaveAttribute("title", "New direct message");
+    await userEvent.click(link);
+    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(link);
+    expect(fireEvent.click(link, { shiftKey: true })).toBe(true);
+    expect(onNewDirect).toHaveBeenCalledOnce();
   });
 });
 

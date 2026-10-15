@@ -14,6 +14,7 @@ import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { CustomStylesPage } from "./custom-styles-page";
 import { DirectSettingsPage } from "./direct-settings-page";
+import { NewDirectDialog } from "./new-direct-dialog";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { ProfilePage } from "./profile-page";
@@ -27,7 +28,8 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
  * a room's page and the pages that go on to one, your avatar on your profile, and nothing on a room's
- * forms, a DM's settings or the Custom CSS page, whose addresses none of its links have.
+ * forms, a DM's settings or the Custom CSS page, whose addresses none of its links have, nor on New
+ * direct message's, which goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -36,6 +38,7 @@ const RAIL_PAGES = {
   "room-of-kind": "room",
   "new-room": null,
   "room-settings": null,
+  "new-direct": null,
   "direct-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": null,
@@ -78,6 +81,7 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
  * it shows a page of its own: home to the last room visited (controllers/welcome.rs), `/rooms` to the
  * newest room (rooms.rs, `index`), a room's address for its kind to the room's own (rooms/opens.rs,
  * closeds.rs and directs.rs), and a DM's settings home, as `set_room` sends someone, unless it's theirs.
+ * New direct message's goes home too, under the dialog it opens, where ember-rust's is a page.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
@@ -98,6 +102,8 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
       return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
     case "direct-settings":
       return directIn(rooms, route.roomId) ? null : ROOM_NOT_FOUND;
+    case "new-direct":
+      return { path: "/" };
     default:
       return null;
   }
@@ -152,6 +158,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const directory = useDirectory();
   const { list, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // New direct message, while it's open, with the link that opened it, which gets focus back, or null
+  // when its address did.
+  const [newDirect, setNewDirect] = useState<{ opener: HTMLElement | null } | null>(null);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -174,6 +183,15 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   // Another page starts with the drawer closed, as each of ember-rust's does.
   useEffect(() => setDrawerOpen(false), [route]);
+
+  // On a phone, the drawer closes as New direct message opens, as direct_message_controller.js has it.
+  const openNewDirect = (opener: HTMLElement | null) => {
+    setDrawerOpen(false);
+    setNewDirect({ opener });
+  };
+  useLayoutEffect(() => {
+    if (route.page === "new-direct") openNewDirect(null);
+  }, [route]);
 
   const flash = useFlash();
   const mounted = useMounted();
@@ -300,7 +318,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => setUnreadOnly((on) => !on),
   };
-  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} />;
+  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onNewDirect={openNewDirect} />;
   const sidebar = (
     <Sidebar
       workspaceName={workspaceName}
@@ -310,6 +328,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
+      onNewDirect={openNewDirect}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />
@@ -441,6 +460,16 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           </SheetContent>
 
           {page()}
+          {newDirect && (
+            <NewDirectDialog
+              opener={newDirect.opener}
+              meId={me.id}
+              reloadPeople={directory.reload}
+              askForRoom={askForRoom}
+              onClose={() => setNewDirect(null)}
+              onFailed={failed}
+            />
+          )}
         </div>
       </DrawerOpen>
     </Sheet>

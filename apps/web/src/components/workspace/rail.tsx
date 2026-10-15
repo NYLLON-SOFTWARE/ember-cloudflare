@@ -1,10 +1,11 @@
-import type { ComponentType } from "react";
+import type { ComponentType, MouseEvent } from "react";
 import type { Me } from "@ember/protocol";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
-import { PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
+import { opensNewDirect } from "./new-direct-dialog";
 import { UserAvatar } from "./user-avatar";
 
 const RAIL_LINK = cn(
@@ -14,10 +15,18 @@ const RAIL_LINK = cn(
 
 type Icon = ComponentType<{ className?: string }>;
 
+interface RailLinkProps {
+  icon: Icon;
+  label: string;
+  href: string;
+  current: boolean;
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}
+
 /** One of the rail's links, marked when it's the page shown. */
-function RailLink({ icon: Icon, label, href, current }: { icon: Icon; label: string; href: string; current: boolean }) {
+function RailLink({ icon: Icon, label, href, current, onClick }: RailLinkProps) {
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} onClick={onClick} className={RAIL_LINK}>
       <Icon className="size-[22px]" />
       <span>{label}</span>
     </PageLink>
@@ -83,10 +92,12 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** Opens New direct message, which DMs does in place, from the link that opened it. */
+  onNewDirect: (opener: HTMLElement) => void;
 }
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
-export function Rail({ me, workspaceName, current, activity }: Props) {
+export function Rail({ me, workspaceName, current, activity, onNewDirect }: Props) {
   const marked = activity.on ? null : current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
@@ -104,7 +115,8 @@ export function Rail({ me, workspaceName, current, activity }: Props) {
         <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
       </PageLink>
       <RailLink icon={Home} label="Home" href="/" current={marked === "home" || marked === "room"} />
-      <UnbuiltRailLink icon={Messages} label="DMs" />
+      {/* Never marked, since its address opens New direct message over the last room visited. */}
+      <RailLink icon={Messages} label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
       <UnbuiltRailLink icon={Search} label="Search" />
       <hr className="my-1 w-8 border-t" />

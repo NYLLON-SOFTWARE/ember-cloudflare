@@ -86,8 +86,8 @@ describe(feature("rooms.index"), () => {
     expect(routeOf("/rooms/directs")).toEqual({ page: "room", roomId: "directs" });
   });
 
-  it("leaves New direct message, which comes with direct messages, at home for now", () => {
-    expect(routeOf("/rooms/directs/new")).toEqual({ page: "home" });
+  it("reads /rooms/directs/new as New direct message's address rather than a DM's", () => {
+    expect(routeOf("/rooms/directs/new")).toEqual({ page: "new-direct" });
   });
 });
 

@@ -608,7 +608,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/rooms/opens.rs", "crates/ember/src/controllers/rooms/closeds.rs", "crates/ember/src/controllers/rooms/directs.rs", "crates/ember/src/controllers.rs", "reference/config/routes.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/controllers.rs", "reference/test/controllers/rooms_controller_test.rb", "reference/test/controllers/rooms/opens_controller_test.rb", "reference/test/controllers/rooms/closeds_controller_test.rb"],
-    notes: "Each address takes the place of the one typed, as a redirect does. With no rooms, `/rooms` goes to `/`, which says there are none, rather than failing. `/rooms/directs/new`, the New direct message page, shows home until direct messages come (`dms.picker`).",
+    notes: "Each address takes the place of the one typed, as a redirect does. With no rooms, `/rooms` goes to `/`, which says there are none, rather than failing. `/rooms/directs/new` opens New direct message over the last room visited (`dms.picker`).",
   },
   {
     id: "rooms.settings-page",
@@ -722,7 +722,7 @@ export const features = [
     id: "rooms.unsaved-changes",
     title: "Unsaved changes guard",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Leaving a changed room form, by a link, another form, Back or Forward, opens \"Unsaved Changes\" / \"You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.\" with Discard and Save (focused). Changing a field back clears the guard.",
       "The dialog's × (\"Keep editing\") and Escape return to the form, and Tab stays within the dialog.",
@@ -734,7 +734,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/settings.js", "crates/views/templates/components/unsaved_changes.html", "crates/views/templates/rooms/layouts/_form.html", "crates/ember/src/controllers/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "New room and room settings compare the form with how it opened, as settings.js does, and ask in a dialog ported from `unsaved_changes.html` and styled as `zz-ember.css` styles it (`.mb-unsaved-*`). Links, the sidebar, Back and Forward ask; the app numbers its history entries, as Turbo does, so Back and Forward go back to the form until the person decides, leaving the history as it was. Save from the dialog saves as the form's own Save does, and any failure, a session that's ended included, shows the error. The dialog is a Radix dialog where ember-rust's is a native one, so it can open over the drawer, which is a Radix dialog too. Delete isn't guarded, where ember-rust's guard asks about the changes before Delete's own question: deleting the room makes them moot. Still to come: the New direct message dialog (`dms.picker`), which this guard lets open but asks before it starts a conversation.",
+    notes: "New room and room settings compare the form with how it opened, as settings.js does, and ask in a dialog ported from `unsaved_changes.html` and styled as `zz-ember.css` styles it (`.mb-unsaved-*`). Links, the sidebar, Back and Forward ask; the app numbers its history entries, as Turbo does, so Back and Forward go back to the form until the person decides, leaving the history as it was. Save from the dialog saves as the form's own Save does, and any failure, a session that's ended included, shows the error. The dialog is a Radix dialog where ember-rust's is a native one, so it can open over the drawer, which is a Radix dialog too. Delete isn't guarded, where ember-rust's guard asks about the changes before Delete's own question: deleting the room makes them moot. New direct message opens over a changed form without asking, and asks before it starts a conversation, as settings.js guards the dialog's form: Keep editing goes back to the dialog with the people picked, and Discard or Save starts the DM and goes there. A DM that then fails to start leaves the page guarded again, as a failed sign-out does.",
   },
   {
     id: "rooms.invitation-card",
@@ -795,7 +795,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/directs.rs", "crates/db/src/models/room.rs", "crates/views/templates/rooms/directs/new.html", "reference/app/models/rooms/direct.rb"],
     upstreamTests: ["reference/test/controllers/rooms/directs_controller_test.rb", "reference/test/models/rooms/direct_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "`POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. Missing: New direct message (`dms.picker`), so a DM can be started only through the API, and `/rooms/directs/new` goes home; and a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).",
+    notes: "`POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. New direct message starts one from the page (`dms.picker`), and `/rooms/directs/new` opens that dialog over the last room visited, where ember-rust's is a page of its own with a \"To\" people search, since a modifier-click opens it in a new tab and the dialog does all the page does. Missing: a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).",
   },
   {
     id: "dms.naming",
@@ -831,7 +831,7 @@ export const features = [
     id: "dms.picker",
     title: "New direct message dialog",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The rail's DMs and the sidebar's New direct message open \"New direct message\" / \"Find people by full name. You can also type @name.\" without leaving the page, focus \"Search by name or @name\" and list the first 20 people; on phones the drawer closes first. Clicked with a modifier key, they follow the link to `/rooms/directs/new`.",
       "Typing searches 180ms after you stop for active people, bots included, whose name contains the text, ignoring leading @s and never listing you; Show more people adds 20 more. Entering the search keeps the usual cursor rather than selecting what's in it (`ui.select-on-entry`).",
@@ -843,6 +843,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/direct_message_controller.js", "crates/views/templates/components/direct_message.html", "crates/ember/src/controllers/autocompletable.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
+    notes: "The dialog is ported from `direct_message.html`, styled as `zz-ember.css` styles it (`.mb-dm-*`), and starts the DM through `POST /api/directs` (`dms.create`). It searches the people directory the page already has (`GET /api/users`), which it loads again each time it opens, so it finds people as you type rather than asking the server 180ms after you stop: \"Searching…\" never shows, nor does \"Search by name or @name.\", which ember-rust replaces with \"Loading people…\" as it opens, and \"Loading people…\" shows only until the page has the directory. Matching and order are the server's: a name holding the text, ignoring the case of A to Z as SQLite's LIKE does, by name in lower case, and people with the same name by id. Each 20 counts only the others, where ember-rust's server counts you in its pages and the dialog then leaves you out. It's a Radix dialog, where ember-rust's is a native one, so Unsaved Changes can open over it (`rooms.unsaved-changes`), and the chips are a group named \"Selected people\" for screen readers. Once a DM starts, focus is left for its composer to take, as a room opened takes it. `/rooms/directs/new` opens the dialog over the last room visited rather than showing a page of its own (`dms.create`).",
   },
   {
     id: "dms.suggestions",
@@ -872,7 +873,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: the workspace's name (the heading says \"Ember\"), New direct message, which is a disabled button (`dms.picker`), suggestions (\"No direct messages yet.\" stands in for them while you have no DMs), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: suggestions (\"No direct messages yet.\" stands in for them while you have no DMs), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
   },
   {
     id: "sidebar.room-order",
@@ -2274,7 +2275,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs and Search are disabled buttons, and the logo is always Ember's until workspaces have logos.",
+    notes: "Home, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. Search is a disabled button, and the logo is always Ember's until workspaces have logos.",
   },
   {
     id: "ui.room-header",
@@ -2359,7 +2360,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/components/direct_message.html", "crates/views/templates/rooms/layouts/_icon_picker.html", "crates/views/templates/accounts/edit.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields, and Workspace name on its field. Direct-message search isn't built yet, and `dms.picker` says it keeps the cursor. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.",
+    notes: "Ported from shell.js, listening from the moment the app opens, so a field focused as its page opens is selected too, as New room's name is. ember-rust's mark, `data-ember-preserve-selection`, keeps the usual cursor; Set up Ember carries it on its page, for all its fields, and Workspace name on its field. New direct message's search carries it too. Two things differ from ember-rust. A press selects when its click comes, not as it focuses the field: pressing on selected text drags it, so in ember-rust a drag across a field that isn't focused picks up all its text instead of selecting part of it. And coming back to the window leaves the field you were in as it was: browsers focus it again then, which ember-rust takes for entering it, so carrying on typing there replaces what was typed before.",
   },
   {
     id: "ui.flash",

@@ -4,11 +4,12 @@ import { MessagesAdd } from "@/components/icons/campfire";
 import { GripVertical } from "@/components/icons/lucide";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useNameOf } from "@/hooks/use-directory";
-import { roomPath } from "@/hooks/use-route";
+import { NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
 import { apart, inSidebarOrder, markedUnread, type DirectSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { opensNewDirect } from "./new-direct-dialog";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a room's or a DM's, as ember-rust's `.room` and `.direct` are (zz-ember.css). */
@@ -31,6 +32,8 @@ interface Props {
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
   onSelect: (roomId: string) => void;
+  /** Opens New direct message, which the DMs heading's link does in place, from the link that opened it. */
+  onNewDirect: (opener: HTMLElement) => void;
   /** Called with this person's stars as the server answers them, once a new order for them is saved. */
   onStarred: (favorites: Favorites) => void;
   /** Called with null when the session has expired. */
@@ -48,7 +51,7 @@ interface Props {
  * a placeholder stands where ember-rust's suggestions would, which the filter hides too, so "No
  * conversations found.", for a sidebar with no rows at all, never shows yet.
  */
-export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, unreadOnly, onSelect, onStarred, onSessionChanged }: Props) {
+export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, unreadOnly, onSelect, onNewDirect, onStarred, onSessionChanged }: Props) {
   const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
@@ -132,15 +135,15 @@ export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, 
       <section aria-labelledby="directs-heading" className="flex flex-col gap-[3px]">
         <div className="mb-[5px] flex items-center gap-2 px-[9px] text-xs font-medium text-muted-foreground">
           <h3 id="directs-heading">DMs</h3>
-          <button
-            type="button"
-            disabled
-            title="New direct message isn't built yet"
+          <a
+            href={NEW_DIRECT_PATH}
+            title="New direct message"
             aria-label="New direct message"
-            className="ml-auto flex size-7 items-center justify-center rounded-lg hover:bg-hover disabled:opacity-50 touch:size-11"
+            onClick={opensNewDirect(onNewDirect)}
+            className="ml-auto flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-hover touch:size-11"
           >
             <MessagesAdd className="size-[15px]" />
-          </button>
+          </a>
         </div>
         {directs.map((room) => (
           <DirectRow

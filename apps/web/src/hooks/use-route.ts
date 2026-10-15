@@ -5,7 +5,7 @@ import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type Room
 // small typed router over the History API rather than a library. A page with changes to lose can
 // hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
-export { CUSTOM_STYLES_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { CUSTOM_STYLES_PATH, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -38,8 +38,9 @@ export function guardLeaving(leaveGuard: LeaveGuard): () => void {
 }
 
 /**
- * Leaves the app with `go`, as signing out does, once the page's guard lets it. `go` settles with
- * whether the app left, since signing out can fail and leave the page as it was.
+ * Leaves the page with `go` once the page's guard lets it, by a way whose address isn't known yet: out
+ * of the app, as signing out goes, or to the DM New direct message starts. `go` settles with whether
+ * the page was left, since either can fail and leave the page as it was.
  */
 export function leave(go: () => Promise<boolean>): void {
   if (!guard?.(null, go)) void go();
