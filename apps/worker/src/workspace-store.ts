@@ -1,5 +1,7 @@
 import {
   MAX_FAVORITES,
+  SUGGESTED_PEOPLE,
+  suggestedCount,
   type Account,
   type CloseCode,
   type DirectRoom,
@@ -115,6 +117,14 @@ export interface SavedRoomChange {
   removedIds: UserId[];
 }
 
+/** What applying events from a room's log changed. */
+export interface AppliedEvents {
+  /** Whose unread marks changed, and whether each is now unread. */
+  marks: Map<UserId, boolean>;
+  /** When messages came in a DM, when the latest did and everyone in the DM; null otherwise. */
+  active: { at: string; userIds: UserId[] } | null;
+}
+
 /** A revocation the Workspace has yet to deliver to its room. */
 export interface PendingRevocation extends Revocation {
   id: number;
@@ -198,12 +208,18 @@ interface SidebarRow {
   kind: SidebarRoom["kind"];
   name: string | null;
   icon: SharedRoom["icon"];
+  active_at: string;
   unread: number;
 }
 
 /** Someone in a DM, as the statements that read a DM's people return them. */
 interface DirectMemberRow extends User {
   room_id: RoomId;
+}
+
+/** Someone in a DM, as `DIRECT_WITH_KEY` reads them, with when the DM was last active. */
+interface KeyedDirectMemberRow extends DirectMemberRow {
+  active_at: string;
 }
 
 /** A row naming someone, as the statements that answer whom they changed return them. */
@@ -217,8 +233,10 @@ const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
 
 /** A room as someone's sidebar lists it, with the people in it if it's a DM, whom `members` reads. */
-const sidebarRoom = ({ id, kind, name, icon, unread }: SidebarRow, members: DirectMemberRow[] = []): SidebarRoom =>
-  kind === "direct" ? { id, kind, members: membersOf(members), unread: unread === 1 } : { id, kind, name: name ?? "", icon, unread: unread === 1 };
+const sidebarRoom = ({ id, kind, name, icon, active_at, unread }: SidebarRow, members: DirectMemberRow[] = []): SidebarRoom =>
+  kind === "direct"
+    ? { id, kind, members: membersOf(members), activeAt: active_at, unread: unread === 1 }
+    : { id, kind, name: name ?? "", icon, unread: unread === 1 };
 
 const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
@@ -230,13 +248,17 @@ const storedSession = (row: SessionRow): StoredSession => ({
   lastActiveAt: Date.parse(row.last_active_at),
 });
 
+/** When a room was last active: when its latest message came, or when it was made, until one has. */
+const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_at`;
+
 /**
- * The rooms someone is in, with whether each is marked unread for them, in the order they were made,
- * for the app to go home to the oldest and to `/rooms` to the newest, as ember-rust's
- * `original_for_user` and `last_for_user` find them (room.rs). Rooms from before the Workspace kept a
- * list (`LEGACY_ROOMS`) have ids that don't sort by time, so they go by when they were listed.
+ * The rooms someone is in, with whether each is marked unread for them and when it was last active,
+ * which orders DMs, in the order they were made, for the app to go home to the oldest and to `/rooms`
+ * to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs). Rooms
+ * from before the Workspace kept a list (`LEGACY_ROOMS`) have ids that don't sort by time, so they go
+ * by when they were listed.
  */
-export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, memberships.unread_at IS NOT NULL AS unread
+export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
@@ -278,10 +300,24 @@ const GRANT_DIRECT = `INSERT INTO memberships (room_id, user_id, involvement, cr
   WHERE users.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM rooms WHERE id = ?1)
   ON CONFLICT DO NOTHING`;
 
-/** The DM a key names, and who's in it, by id. */
-const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, users.id, users.name
+/** The DM a key names, when it was last active, and who's in it, by id. */
+const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, ${ACTIVE_AT}, users.id, users.name
   FROM rooms JOIN memberships ON memberships.room_id = rooms.id JOIN users ON users.id = memberships.user_id
   WHERE rooms.direct_key = ? ORDER BY memberships.user_id`;
+
+/**
+ * The people the sidebar suggests ?1 start a DM with, before it leaves out as many as their DMs take:
+ * the active people with the oldest accounts who share no DM with them, never them, as ember-rust's
+ * `find_direct_placeholder_users` finds them (controllers/presenters/accounts.rs). The people in their
+ * DMs come from a subquery, where ember-rust binds them as a list, and the index on users' age lets it
+ * stop at the last one it needs rather than sorting everyone.
+ */
+export const SUGGESTED_FOR_USER = `SELECT id, name FROM users
+  WHERE status = ${ACTIVE} AND id <> ?1 AND id NOT IN (
+    SELECT members.user_id FROM memberships AS mine JOIN rooms ON rooms.id = mine.room_id
+      JOIN memberships AS members ON members.room_id = mine.room_id
+    WHERE mine.user_id = ?1 AND rooms.kind = 'direct')
+  ORDER BY created_at, id LIMIT ${SUGGESTED_PEOPLE - 1}`;
 
 /**
  * Queues revoking a session's sockets in every room its person is in, the only rooms it can have
@@ -339,6 +375,20 @@ export const MARK_UNREAD = `UPDATE memberships SET unread_at = ?1
 export const MARK_READ = `UPDATE memberships SET unread_at = NULL
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   RETURNING user_id`;
+
+/**
+ * Everyone in DM ?1, to tell of a message in it, numbered ?2, that the Workspace hasn't applied yet,
+ * and nobody for any other room or a message applied before.
+ */
+const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
+  WHERE room_id = ?1 AND ?2 > (SELECT applied_seq FROM rooms WHERE id = ?1 AND kind = 'direct')`;
+
+/** Records that the Workspace has applied room ?2's events up to ?1. */
+const APPLIED = `UPDATE rooms SET applied_seq = ?1 WHERE id = ?2 AND applied_seq < ?1`;
+
+/** Records that too, and that the room's latest message came at ?3, unless it has heard of a later one. */
+const APPLIED_WITH_MESSAGE = `UPDATE rooms SET applied_seq = ?1, last_message_at = max(coalesce(last_message_at, ?3), ?3)
+  WHERE id = ?2 AND applied_seq < ?1`;
 
 /** Whether someone is one of the workspace's active administrators. */
 export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role = ${ADMINISTRATOR} AND status = ${ACTIVE}`;
@@ -779,20 +829,24 @@ export class WorkspaceStore {
 
   /**
    * The rooms someone is in, with their unread marks and the people in their DMs, the ones they've
-   * starred, and the workspace's first room, if there is one yet.
+   * starred, the people their sidebar suggests for DMs, and the workspace's first room, if there is one
+   * yet.
    */
-  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; originalRoomId: RoomId | null }> {
-    const [rows, [original], starred, [user], members] = (await this.db.batch([
+  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; suggestions: User[]; originalRoomId: RoomId | null }> {
+    const [rows, [original], starred, [user], members, suggested] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
       statement(FAVORITES_FOR_USER, userId),
       statement(FAVORITES_VERSION, userId),
       statement(DIRECT_MEMBERS_FOR_USER, userId),
-    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>, DirectMemberRow[]];
+      statement(SUGGESTED_FOR_USER, userId),
+    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>, DirectMemberRow[], User[]];
     const membersByRoom = Map.groupBy(members, (member) => member.room_id);
+    const peopleInDirects = new Set(members.map((member) => member.id)).size;
     return {
       rooms: rows.map((row) => sidebarRoom(row, membersByRoom.get(row.id))),
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
+      suggestions: suggested.slice(0, suggestedCount(peopleInDirects)),
       originalRoomId: original?.id ?? null,
     };
   }
@@ -835,23 +889,28 @@ export class WorkspaceStore {
   /**
    * Applies `events` from room `roomId`'s log, in order and in one transaction, with `viewerIds`, who
    * is viewing the room: a message marks it unread for the members who aren't, and a read clears the
-   * reader's mark. Those the Workspace has applied before change nothing. Answers whose marks changed,
-   * and whether each is now unread.
+   * reader's mark. The latest message also records when the room was last active. Those the Workspace
+   * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
+   * when a message has come in a DM, when the latest did and everyone in the DM, to tell.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<Map<UserId, boolean>> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
+    const message = events.findLast((event) => event.kind === "message");
+    // When the latest message came, which a clock behind can make earlier than one logged before it.
+    const messageAt = message && events.reduce((latest, { kind, at }) => (kind === "message" && at > latest ? at : latest), message.at);
     const results = (await this.db.batch([
       ...events.map(({ seq, kind, userId, at }) =>
         kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq),
       ),
-      statement(`UPDATE rooms SET applied_seq = ? WHERE id = ? AND applied_seq < ?`, last, roomId, last),
+      ...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]),
     ])) as Array<Array<{ user_id: UserId }>>;
     const marks = new Map<UserId, boolean>();
     events.forEach(({ kind }, i) => {
       for (const { user_id } of results[i]!) marks.set(user_id, kind === "message");
     });
-    return marks;
+    const told = message ? userIdsOf(results[events.length]!) : [];
+    return { marks, active: told.length > 0 ? { at: messageAt!, userIds: told } : null };
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
@@ -1012,8 +1071,9 @@ export class WorkspaceStore {
       statement(INSERT_DIRECT, roomId, creatorId, key, now),
       statement(GRANT_DIRECT, roomId, now, key),
       statement(DIRECT_WITH_KEY, key),
-    ])) as [unknown[], unknown[], DirectMemberRow[]];
-    return { room: { id: members[0]!.room_id, kind: "direct", members: membersOf(members) }, started: added!.length > 0 };
+    ])) as [unknown[], unknown[], KeyedDirectMemberRow[]];
+    const [{ room_id: id, active_at: activeAt }] = members as [KeyedDirectMemberRow];
+    return { room: { id, kind: "direct", members: membersOf(members), activeAt }, started: added!.length > 0 };
   }
 
   /** Of the rooms `ids` names, the ones that aren't registered yet and were never deleted. The ids go as one JSON value. */

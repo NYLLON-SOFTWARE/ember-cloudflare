@@ -223,6 +223,21 @@ search index. On top of that schema it adds indexes and query changes for speed.
   puts the group in it only if it was added, and reads the DM the key names. So it costs the same
   however many DMs there are, and two people starting the same DM at once get one between them. A
   DM's members never change, so its key stays true.
+- **A DM's place is the time of its latest message, which the Workspace writes as it applies it.**
+  ember-rust lists DMs by `rooms.updated_at` (`crates/ember/src/controllers/presenters/accounts.rs`),
+  which a message's edits, deletion and reactions touch too. Ours keeps when a DM's latest message
+  came in `rooms.last_message_at` (workspace migration 0017), set by the statement that records the
+  events a room sent (`applied_seq`, below) when they hold a message, and never moved back, so events
+  sent again or late change nothing. Until a DM has one, it goes by `created_at`. The sidebar's
+  statement reads the time with each room, so listing DMs in order costs nothing more.
+- **Suggestions are one statement.** ember-rust reads the members of someone's DMs, then binds their
+  ids to a `NOT IN` list to find the people to suggest (`direct_placeholder_users`, in the same file).
+  Ours leaves them out with a subquery over the memberships of their DMs, so it binds one value
+  however many DMs they have, and runs in the batch that reads the rest of the sidebar.
+  `index_users_on_created_at_and_id` (workspace migration 0017) gives it people oldest first, so it
+  stops at the nineteenth it can suggest rather than sorting everyone. The index leaves status out,
+  since SQLite would otherwise read every active person through it, as New room's list does, rather
+  than reading the table straight through.
 - **Rooms send the Workspace their change logs.** ember-rust marks a room unread in the transaction
   that creates the message. Ours are in different objects, so a room logs each new message in
   `room_events`, in the batch that stores it, and each time someone opens it in a shown tab, then

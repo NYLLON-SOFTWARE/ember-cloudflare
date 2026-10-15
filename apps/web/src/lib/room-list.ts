@@ -1,10 +1,11 @@
-import type { Favorites, Room, RoomId, SharedRoom, Sidebar, SidebarRoom } from "@ember/protocol";
+import { suggestedCount, type Favorites, type Room, type RoomId, type SharedRoom, type Sidebar, type SidebarRoom, type User } from "@ember/protocol";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms they've
 // starred first, in the order they starred them, then the rest by name, as ember-rust's
 // channel_order_controller.js sorts its rows: each name lowercased and compared as `localeCompare`
-// compares it, in the browser's language, then by id.
+// compares it, in the browser's language, then by id. Their DMs go by when each was last active, latest
+// first, as ember-rust's sorted_list_controller.js sorts them.
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
@@ -42,6 +43,24 @@ export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: Room
 }
 
 /**
+ * `directs`, in the order the sidebar lists them: the one active latest first, as ember-rust's
+ * sorted_list_controller.js sorts its rows, and of two active at once, the one made later.
+ */
+export function inDirectOrder<T extends DirectSidebarRoom>(directs: T[]): T[] {
+  return directs.toReversed().sort((a, b) => (a.activeAt < b.activeAt ? 1 : a.activeAt > b.activeAt ? -1 : 0));
+}
+
+/**
+ * The people the sidebar suggests for DMs, of the ones `suggestions` lists, given someone's `rooms` as
+ * they are now: everyone but the people in their DMs, as many as `suggestedCount` allows for them, as
+ * the server would list them now, but for the people who've joined since it did.
+ */
+export function suggestedPeople(suggestions: User[], rooms: SidebarRoom[]): User[] {
+  const inDirects = new Set(rooms.flatMap((room) => (room.kind === "direct" ? room.members.map((member) => member.id) : [])));
+  return suggestions.filter((person) => !inDirects.has(person.id)).slice(0, suggestedCount(inDirects.size));
+}
+
+/**
  * `order` with `roomId` moved to just before `beforeId`, or last when that's null, as
  * channel_order_controller.js moves a starred room's row.
  */
@@ -60,23 +79,34 @@ export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) =>
 /**
  * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last and read, as the
  * room made most recently, which a room someone has just been put in counts as until the list loads again.
+ * A DM keeps the later of the two times it was last active, since a message can come between the server
+ * reading it and its answer arriving.
  */
 export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
   return rooms.some((r) => r.id === room.id)
-    ? rooms.map((r) => (r.id === room.id ? { ...room, unread: r.unread } : r))
+    ? rooms.map((r) => (r.id === room.id ? { ...room, ...laterActivity(r, room), unread: r.unread } : r))
     : [...rooms, { ...room, unread: false }];
 }
+
+/** `listed`'s time last active, when it's a DM and that's later than `room`'s. */
+const laterActivity = (listed: SidebarRoom, room: Room) =>
+  listed.kind === "direct" && room.kind === "direct" && listed.activeAt > room.activeAt ? { activeAt: listed.activeAt } : {};
+
+/** `rooms` with DM `roomId` active at `at`, unless it was later. */
+const withActivity = (rooms: SidebarRoom[], roomId: RoomId, at: string): SidebarRoom[] =>
+  rooms.map((room) => (room.id === roomId && room.kind === "direct" && room.activeAt < at ? { ...room, activeAt: at } : room));
 
 /**
  * A change to someone's rooms, which the server's list shows the next time it's asked: a room as it was
  * saved, here or anywhere else, one that's gone for this person, deleted or no longer theirs, a room the
- * workspace socket says has been marked unread or read, or their stars, as a star saved in any of their
- * tabs leaves them.
+ * workspace socket says has been marked unread or read, a DM it says a message has come in, or their
+ * stars, as a star saved in any of their tabs leaves them.
  */
 export type RoomChange =
   | { type: "saved"; room: Room }
   | { type: "gone"; roomId: RoomId }
   | { type: "marked"; roomId: RoomId; unread: boolean }
+  | { type: "active"; roomId: RoomId; at: string }
   | { type: "starred"; favorites: Favorites };
 
 /** What the server answers a change to a room with: the room as saved, or gone for this person. */
@@ -114,6 +144,8 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
     }
     case "marked":
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
+    case "active":
+      return { ...list, rooms: withActivity(list.rooms, change.roomId, change.at) };
     case "join code":
       return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
     // Stars come from a star's answer, the socket and the list itself, in whatever order they arrive,
@@ -131,7 +163,7 @@ export function roomListReducer(state: RoomListState, action: RoomListAction): R
       return { list: (state.pending ?? []).reduce(changed, action.list), pending: null };
     // When the first list fails to arrive, there are no rooms to show, rather than a list loading for good.
     case "unanswered":
-      return { list: state.list ?? { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null }, pending: null };
+      return { list: state.list ?? { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null, suggestions: [] }, pending: null };
     default:
       return { list: state.list && changed(state.list, action), pending: state.pending && [...state.pending, action] };
   }

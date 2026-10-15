@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 57 ported and 56 partial of 172 features; 54 not started, 5 not applicable.
+**Overall:** 60 ported and 55 partial of 172 features; 52 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -21,8 +21,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Workspace administration](#workspace-administration) | 6 | 4 | 4 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 1 | 1 | 3 | 0 | 5 |
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
-| [Direct messages](#direct-messages) | 3 | 1 | 1 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 4 | 4 | 2 | 0 | 10 |
+| [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
 | [Messages](#messages) | 5 | 14 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 3 | 0 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **57** | **56** | **54** | **5** | **172** |
+| **Total** | **60** | **55** | **52** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -775,23 +775,23 @@ Note: The preview sets `LEGACY_ROOMS` to general and random, which hold its mess
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Start or reopen a direct message | `dms.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
+| Start or reopen a direct message | `dms.create` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | Group DMs and DM names | `dms.naming` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [direct-settings-page](apps/web/src/components/workspace/direct-settings-page.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [directs](apps/web/src/lib/directs.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | Delete a direct message | `dms.delete` | Campfire | ✅ Ported | Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [direct-settings-page](apps/web/src/components/workspace/direct-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | New direct message dialog | `dms.picker` | Ember | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Web: [new-direct-dialog](apps/web/src/components/workspace/new-direct-dialog.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [directs](e2e/tests/features/directs.spec.ts), [directs](e2e/tests/mobile/directs.spec.ts) |
-| Suggested people | `dms.suggestions` | Campfire | ⬜ Not started |  |
+| Suggested people | `dms.suggestions` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts), [directs](e2e/tests/mobile/directs.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**Start or reopen a direct message** (`dms.create`) 🟡
+**Start or reopen a direct message** (`dms.create`) ✅
 
 - Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM. With nobody chosen, it's your DM with yourself.
 - Anyone who exists can be included, whatever their status, and you go to the DM afterwards.
 - Members of a new DM start at the `everything` notification level, and it goes to the top of their DM lists; reopening a DM leaves it in its place, since the list is ordered by last activity.
 - `/rooms/directs/new`, where New direct message leads when clicked with a modifier key, is a page with "New direct message", a "To" people search, Start Ping and "Search for people to start a conversation."
 
-Note: `POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. New direct message starts one from the page (`dms.picker`), and `/rooms/directs/new` opens that dialog over the last room visited, where ember-rust's is a page of its own with a "To" people search, since a modifier-click opens it in a new tab and the dialog does all the page does. Missing: a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).
+Note: `POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. New direct message starts one from the page (`dms.picker`), and `/rooms/directs/new` opens that dialog over the last room visited, where ember-rust's is a page of its own with a "To" people search, since a modifier-click opens it in a new tab and the dialog does all the page does. A new DM goes to the top of its members' DM lists, and one opened again stays in its place (`sidebar.dm-order`).
 
 Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/views/templates/rooms/directs/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/new.html) · [`reference/app/models/rooms/direct.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/direct.rb)
 
@@ -839,11 +839,13 @@ Sources: [`crates/assets/overrides/controllers/direct_message_controller.js`](ht
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Suggested people** (`dms.suggestions`) ⬜
+**Suggested people** (`dms.suggestions`) ✅
 
 - Under your DMs, the sidebar suggests active people, bots included, you have no DM with, oldest accounts first, never you.
 - It shows 20, less the people across your DMs (you included), less 1: 19 with no DMs, 17 with one DM with one person, 18 with only a DM with yourself.
 - Each suggestion is a button with the person's avatar and name ("Start a direct message with &lt;name&gt;" to screen readers) that starts the DM in one click. Suggestions hide while Activity is on.
+
+Note: `GET /api/sidebar` lists the people suggested (`suggestions`) with the rooms, found by one query that leaves out the people in your DMs with a subquery and reads users through an index on their age (`docs/database.md`), where ember-rust reads the DMs' members first and binds them. Of two accounts made at once, the one with the smaller id comes first. A suggestion starts its DM through `POST /api/directs` (`dms.create`) once the page's unsaved changes let it, and opens it for its composer to take focus; one that fails says why in an alert and stays. Unlike ember-rust, whose suggestions stay as they were until the sidebar loads again, a person leaves the suggestions as soon as a DM with them is listed, however it started, and the count follows at once.
 
 Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct_placeholder.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct_placeholder.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb)
 
@@ -857,7 +859,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 |---|---|---|---|---|
 | Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts) |
-| DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
+| DM order | `sidebar.dm-order` | Campfire | ✅ Ported | Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts), [sidebar-updates](apps/worker/test/sidebar-updates.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Activity filter | `sidebar.activity-filter` | Ember | ✅ Ported | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
@@ -875,7 +877,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 - Room rows show the room's icon and name and are at least 36px tall (44px on phones). The room you're in is marked `aria-current="page"` and set in weight 600, even on a link to one of its messages.
 - It's on every signed-in page, settings and profiles included, and stays put as you move between pages, reloading only in the background (`sidebar.live-updates`).
 
-Note: The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: suggestions ("No direct messages yet." stands in for them while you have no DMs), "No conversations found.", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.
+Note: The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one, on a link to one of its messages too. Your DMs are listed under DMs, latest active first (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is, then the people suggested for DMs (`dms.suggestions`). Once the list has come with nothing in it and nobody to suggest, it says "No conversations found." Missing: rooms can't be hidden here yet (`notifications.hide-room`).
 
 Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/templates/users/sidebars/rooms/_shared.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_shared.html) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 
@@ -893,11 +895,13 @@ Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/N
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**DM order** (`sidebar.dm-order`) ⬜
+**DM order** (`sidebar.dm-order`) ✅
 
 - On load, DMs are listed most recently active first; a new message, an edit, a deletion, an attachment change and a reaction all count as activity.
 - While the page is open, only new messages move a DM: it jumps to the top at once in every member's sidebar, the author's too, bot and webhook messages included.
 - Suggestions always come after your DMs.
+
+Note: Each DM is listed by when its latest message came, or when it started until one has (`activeAt`), latest first, and of two at once, the one started later. The Workspace keeps that time with the room (`last_message_at`) as it applies the room's messages, and tells everyone in the DM, the author included, with `room.active`, which moves it in every open tab at once. Unlike ember-rust, only a new message counts, on load as well as live: an edit, a deletion or a reaction moves a DM neither at once nor when the list loads again, so a reload shows the order the page did. Bots' and webhooks' messages will move a DM as anyone's do once bots can post (`bots.api-post`). A DM from before this change goes by when it started until its next message.
 
 Sources: [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct.html) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb) · [`reference/app/javascript/controllers/sorted_list_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sorted_list_controller.js) · [`crates/assets/overrides/controllers/rooms_list_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/rooms_list_controller.js) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
 

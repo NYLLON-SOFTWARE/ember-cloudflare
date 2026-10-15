@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { membersShown, roomName, toSentence } from "./directs";
 
 const [ada, grace, linus, alan]: User[] = ["Ada", "Grace", "Linus", "Alan"].map((name, i) => ({ id: `u${i + 1}`, name }));
-const direct = (...members: User[]): DirectRoom => ({ id: "d1", kind: "direct", members });
+const direct = (...members: User[]): DirectRoom => ({ id: "d1", kind: "direct", members, activeAt: "2026-10-15T12:00:00.000Z" });
 const nameOf = (user: User) => user.name;
 
 describe(feature("dms.naming"), () => {

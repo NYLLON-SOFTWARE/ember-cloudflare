@@ -12,7 +12,7 @@ import { RoomHeader } from "./room-header";
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
 /** Ada's DM with Linus, as Linus reads it. */
-const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }] };
+const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }], activeAt: "2026-10-15T12:00:00.000Z" };
 
 afterEach(() => history.replaceState(null, "", "/"));
 

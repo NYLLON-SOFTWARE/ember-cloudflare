@@ -32,6 +32,7 @@ import {
   ROOM_ICON_NAMES,
   ROOM_PROTOCOL,
   roomSocketQuery,
+  suggestedCount,
   type WorkspaceServerFrame,
 } from "./index";
 
@@ -306,6 +307,16 @@ describe(feature("dms.create"), () => {
       expect(parseNewDirect(body), JSON.stringify(body).slice(0, 40)).toBe(refused);
     }
     expect(parseNewDirect({ userIds: tooMany.slice(1) })).not.toBeTypeOf("string");
+  });
+});
+
+describe(feature("dms.suggestions"), () => {
+  it("suggests 20 people less those in your DMs, you included, and one more, as ember-rust counts them", () => {
+    expect(suggestedCount(0)).toBe(19);
+    expect(suggestedCount(1)).toBe(18);
+    expect(suggestedCount(2)).toBe(17);
+    expect(suggestedCount(19)).toBe(0);
+    expect(suggestedCount(25)).toBe(0);
   });
 });
 
