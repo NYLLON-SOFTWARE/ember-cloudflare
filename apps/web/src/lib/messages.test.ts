@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { displayBody } from "@ember/richtext/dom";
 import { dateLabel, dateTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
 
@@ -45,6 +45,23 @@ describe(feature("messages.day-separators"), () => {
   it("starts a day at the first message and wherever the date changes in the reader's time zone", () => {
     const items = timeline([at("2026-10-11T23:59:59"), at("2026-10-12T00:00:00", "u2"), at("2026-10-12T18:00:00"), at("2026-10-14T08:00:00")]);
     expect(items.map((i) => i.firstOfDay)).toEqual([true, true, false, true]);
+  });
+
+  it("dates days and tells them apart in the zone the app opened in, even once the device's zone changes", async () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "UTC";
+    vi.resetModules();
+    const opened = await import("./messages");
+    try {
+      // In Los Angeles, the first would be January 1st's.
+      process.env.TZ = "America/Los_Angeles";
+      const items = opened.timeline([at("2026-01-02T05:00:00Z"), at("2026-01-02T09:00:00Z", "u2")]);
+      expect(items.map((i) => i.firstOfDay)).toEqual([true, false]);
+      expect(opened.dateLabel(new Date(items[0]!.message.createdAt))).toBe("January 2, 2026");
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
   });
 
   it("writes the date out, with the date and time on hover, as local_time_controller.js does", () => {

@@ -16,9 +16,13 @@ export interface TimelineItem {
 }
 
 // Times and dates as Campfire's local_time_controller.js writes them, in the reader's locale and time zone.
+// Days are told apart as message_formatter.js tells them, by a formatter's short dates rather than by `Date`,
+// since a formatter keeps the zone it was made in: should the device's zone change, times, dates and the
+// days they separate all stay in the zone the app opened in until the page loads again.
 const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
 
 /** A message's time: "3:04 PM". */
 export const timeLabel = (date: Date) => timeFormat.format(date);
@@ -27,7 +31,13 @@ export const dateLabel = (date: Date) => dateFormat.format(date);
 /** What a time or a separator's date shows on hover: "10/12/26, 3:04 PM". */
 export const dateTimeLabel = (date: Date) => dateTimeFormat.format(date);
 
-const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+/** The day each message was written, as `dayFormat` writes it, kept with the message, since a timeline asks again on every render. */
+const days = new WeakMap<Message, string>();
+function dayOf(message: Message): string {
+  let day = days.get(message);
+  if (day === undefined) days.set(message, (day = dayFormat.format(new Date(message.createdAt))));
+  return day;
+}
 
 /**
  * The messages as message_formatter.js lays them out. A message is the first of its day when the one above it
@@ -42,7 +52,7 @@ export function timeline(messages: Message[]): TimelineItem[] {
     const [created, before] = [new Date(message.createdAt), new Date(previous.createdAt)];
     return {
       message,
-      firstOfDay: dayKey(before) !== dayKey(created),
+      firstOfDay: dayOf(previous) !== dayOf(message),
       threaded: previous.creator.id === message.creator.id && Math.abs(created.getTime() - before.getTime()) <= THREAD_WINDOW_MS,
     };
   });
