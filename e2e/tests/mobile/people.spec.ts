@@ -1,4 +1,4 @@
-import { cookieHeader, createSession, signInAs } from "../../fixtures";
+import { cookieHeader, createSession, signInAs, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
@@ -26,5 +26,19 @@ test("your own page fits the phone with the pencil to your profile in the top ba
   await page.goto(`/users/${session.user.id}`);
   await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toHaveText(session.user.name);
   await expect(page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Edit my profile" })).toBeVisible();
+  await screenIsFine();
+});
+
+test("an administrator's view of someone's page fits the phone, down to their sign-in link", async ({ page, request, screenIsFine }) => {
+  const person = await createSession(request, LONG_NAME);
+  await useOwnAddress(page);
+  await page.goto("/session/new");
+  await signInAsAdministrator(page);
+  await expect(page).not.toHaveURL(/\/session\/new$/);
+
+  await page.goto(`/users/${person.user.id}`);
+  const link = page.getByRole("textbox", { name: "Share to get them back into their account" });
+  await link.scrollIntoViewIfNeeded();
+  await expect(link).toBeInViewport();
   await screenIsFine();
 });

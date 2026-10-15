@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { DirectoryUser, Me, Person, User } from "@ember/protocol";
+import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -242,5 +242,52 @@ describe(feature("users.show"), () => {
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
     expect(onFailed.mock.calls[0]![0]).toMatchObject({ status: 500, message: "Something went wrong" });
     expect(onMissing).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("auth.sign-in-link"), () => {
+  const administrator: Me = { ...ada, administrator: true };
+  const TRANSFER_ID = "u2.mgk3x2a9.signature";
+  const withLink = (person: Person) => () => Response.json({ person, transferId: TRANSFER_ID } satisfies PersonAnswer);
+  const signInLink = () => screen.queryByRole("textbox");
+
+  it("shows administrators a sign-in link for someone, after the DM button, to get them back into their account", async () => {
+    serve(withLink(grace));
+    showPage(grace, { me: administrator });
+    await heading();
+    const link = screen.getByRole("textbox", { name: "Share to get them back into their account" });
+    expect(link).toHaveValue(`http://localhost:3000/session/transfers/${TRANSFER_ID}`);
+    expect(directButton("Grace Hopper")!.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("labels an administrator's own link for screen readers only", async () => {
+    serve(withLink({ ...grace, id: ada.id, name: ada.name }));
+    showPage(ada.id, { me: administrator });
+    await heading();
+    expect(screen.getByRole("textbox", { name: "Use this link to login automatically on another device" })).toBeVisible();
+  });
+
+  it("hides the link while they're banned, and as soon as you stop being an administrator", async () => {
+    serve(withLink(grace));
+    const { list, become } = showPage(grace, { me: administrator });
+    await heading();
+    expect(signInLink()).toBeInTheDocument();
+    list(new Map([[grace.id, { ...grace, status: "banned" }]]));
+    expect(signInLink()).toBeNull();
+    list(new Map([[grace.id, grace]]));
+    expect(signInLink()).toBeInTheDocument();
+
+    // Even before the page has loaded them again.
+    become(ada);
+    expect(signInLink()).toBeNull();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(signInLink()).toBeNull();
+  });
+
+  it("shows none when the page isn't given one", async () => {
+    serve(found(grace));
+    showPage(grace, { me: administrator });
+    await heading();
+    expect(signInLink()).toBeNull();
   });
 });

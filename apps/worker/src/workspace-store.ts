@@ -150,6 +150,13 @@ const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_addr
 const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ?`;
 
+/**
+ * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
+ * while the last value says guests can't stay signed in.
+ */
+const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND (guest = 0 OR ? = 1)`;
+
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
     users.role = ${ADMINISTRATOR} AS administrator, users.guest
@@ -724,6 +731,18 @@ export class WorkspaceStore {
   async startSession(userId: UserId, passwordDigest: string, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
       statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest),
+      statement(SESSION, tokenDigest),
+    ])) as [unknown[], SessionRow[]];
+    return row ? storedSession(row) : null;
+  }
+
+  /**
+   * Starts a session for someone who opened a sign-in link for them, unless they're no longer active,
+   * or are a guest while `guests` says guests can't stay signed in.
+   */
+  async startTransferredSession(userId: UserId, guests: boolean, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+    const [, [row]] = (await this.db.batch([
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, guests ? 1 : 0),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;

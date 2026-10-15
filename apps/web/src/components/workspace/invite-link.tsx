@@ -1,12 +1,10 @@
 import { PersonAdd, Refresh } from "@/components/icons/campfire";
-import { JoinLinkButtons, joinUrl } from "./join-link";
+import { JOIN_LINK, joinUrl } from "./join-link";
+import { LinkButtons, ROUND_BUTTON } from "./link-buttons";
 
 // ember-rust's invite block on workspace settings (crates/views/templates/accounts/_invite.html): the
 // join link in Campfire's `.input--actor` field, then its buttons, Campfire's round `.btn`s (inputs.css,
 // buttons.css), as zz-ember.css sizes them in a panel.
-
-/** A round `.btn` showing only an icon: 36px, and 44px for fingers. */
-const BUTTON = "grid size-9 flex-none cursor-pointer place-items-center rounded-full border bg-background touch:size-11 disabled:pointer-events-none disabled:opacity-50";
 
 interface Props {
   joinCode: string;
@@ -37,9 +35,9 @@ export function InviteLink({ joinCode, onRegenerate, regenerating = false }: Pro
         </span>
       </label>
       <div className="flex items-center gap-[1ch]">
-        <JoinLinkButtons url={url} className={BUTTON} />
+        <LinkButtons url={url} sharing={JOIN_LINK} className={ROUND_BUTTON} />
         {onRegenerate && (
-          <button type="button" onClick={onRegenerate} disabled={regenerating} className={BUTTON}>
+          <button type="button" onClick={onRegenerate} disabled={regenerating} className={ROUND_BUTTON}>
             <Refresh className="size-[1.3em]" />
             <span className="sr-only">Regenerate join link</span>
           </button>

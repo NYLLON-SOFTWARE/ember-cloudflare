@@ -96,6 +96,22 @@ export const ACCOUNT_NAME = "Ember";
  */
 const FIRST_ROOM_NAMES = ["general", "random"];
 
+/** Your profile, and your id, which the Worker makes your sign-in link for. */
+export interface YourProfile {
+  userId: UserId;
+  profile: Profile;
+}
+
+/** Someone as their page shows them to the person asking. */
+export interface ShownPerson {
+  person: DirectoryEntry | ProfileEntry;
+  /**
+   * Whether the page gives a sign-in link for them, as ember-rust's does for administrators when
+   * they're active and aren't a bot (users/show.html).
+   */
+  transferable: boolean;
+}
+
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
 
@@ -486,6 +502,19 @@ export class Workspace extends DurableObject<Env> {
     return session && meOf(session);
   }
 
+  /**
+   * Signs in the person a sign-in link names, with a session of its own, as ember-rust's session
+   * transfers do, unless they're no longer active, or are a guest while `guests` says guests can't
+   * stay signed in.
+   */
+  async transferSession(userId: UserId, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
+    // On D1 a role change can overlap it, so it's remembered only if none did.
+    const session = await this.sessions.keep(tokenDigest, () =>
+      this.store.startTransferredSession(userId, guests, sortableId(), tokenDigest, client, new Date().toISOString()),
+    );
+    return session && meOf(session);
+  }
+
   /** Adds someone who signs in with just a name, and the session their cookie's token opens. */
   async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me> {
     const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
@@ -686,17 +715,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Someone as their page shows them to the person `credentials` signs in, whatever their status, as
-   * ember-rust's `users#show` finds them (users.rs), and with their email address to administrators:
-   * "not found" if nobody has id `userId`, or null without a valid session.
+   * ember-rust's `users#show` finds them (users.rs), and with their email address and sign-in link to
+   * administrators: "not found" if nobody has id `userId`, or null without a valid session.
    */
-  async person(credentials: Credentials, userId: UserId): Promise<DirectoryEntry | ProfileEntry | "not found" | null> {
+  async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(user.id)]);
     if (!person) return "not found";
-    if (administrator) return person;
+    if (administrator) return { person, transferable: person.status === "active" && person.role !== "bot" };
     const { emailAddress, ...listed } = person;
-    return listed;
+    return { person: listed, transferable: false };
   }
 
   /**
@@ -759,10 +788,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
-  async profile(credentials: Credentials): Promise<Profile | null> {
+  async profile(credentials: Credentials): Promise<YourProfile | null> {
     const user = await this.authenticate(credentials);
     const person = user && (await this.store.personWithProfile(user.id));
-    return person && profileOf(person);
+    return person && { userId: person.id, profile: profileOf(person) };
   }
 
   /**
@@ -778,7 +807,7 @@ export class Workspace extends DurableObject<Env> {
     credentials: Credentials,
     changes: Omit<ProfileChanges, "password">,
     passwordDigest: string | null,
-  ): Promise<Profile | "email address taken" | null> {
+  ): Promise<YourProfile | "email address taken" | null> {
     return this.oneAtATime(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -792,7 +821,7 @@ export class Workspace extends DurableObject<Env> {
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
       };
       const listed = profile.name !== person.name || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return profile;
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return { userId: user.id, profile };
       if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
         return "email address taken";
       }
@@ -817,7 +846,7 @@ export class Workspace extends DurableObject<Env> {
         const { id, role, status } = person;
         this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name: profile.name, bio: profile.bio, role, status, updatedAt: now }) });
       }
-      return profile;
+      return { userId: user.id, profile };
     });
   }
 

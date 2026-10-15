@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from "react";
-import type { Me, Person, User, UserId } from "@ember/protocol";
+import type { Me, Person, PersonAnswer, User, UserId } from "@ember/protocol";
 import { Cancel, Messages, Pencil } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
+import { SignInLink } from "./sign-in-link";
 import { UserAvatar } from "./user-avatar";
 
 interface Props {
@@ -37,24 +38,26 @@ const DIRECT_BUTTON =
  * their avatar. Active and banned people show their name and bio, with their email address for
  * administrators, and active people a button that starts a DM with them, or opens the one you have.
  * Removed people show their name and that they're no longer on this account, and bots only their
- * avatar, then the DM button while they're active. The people directory keeps what it lists of them
- * current. There's no sign-in link or ban button until those are built.
+ * avatar, then the DM button while they're active. Administrators get a new sign-in link for anyone
+ * active who isn't a bot, themselves included. The people directory keeps what it lists of them
+ * current. There's no ban button until that's built.
  */
 export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: Props) {
-  const [fetched, setFetched] = useState<Person | null>(null);
+  const [fetched, setFetched] = useState<PersonAnswer | null>(null);
   // As the people directory lists them now, kept current by the workspace socket, with what only the page is told.
   const listed = useContext(PeopleContext).get(userId);
-  const person = fetched && { ...fetched, ...listed };
+  const person = fetched && { ...fetched.person, ...listed };
   const [starting, setStarting] = useState(false);
   const back = useBackPath();
   const mounted = useMounted();
   useTitle(person?.name ?? null);
 
-  // Again once you become an administrator or stop being one, which decides whether it's told their email address.
+  // Again once you become an administrator or stop being one, which decides whether it's told their
+  // email address and given a sign-in link for them.
   useEffect(() => {
     let stopped = false;
     fetchPerson(userId).then(
-      (person) => !stopped && setFetched(person),
+      (answer) => !stopped && setFetched(answer),
       (error: unknown) => {
         if (stopped && !isSignedOut(error)) return;
         if (isMissing(error)) onMissing();
@@ -78,6 +81,8 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
   };
 
   const mine = userId === me.id;
+  // Gone as soon as you stop being an administrator, before the page has loaded them again.
+  const transferId = me.administrator ? fetched?.transferId : undefined;
   const editProfile = mine && (
     <PageLink href={PROFILE_PATH} className={HEADER_BUTTON}>
       <Pencil className="size-5" />
@@ -124,18 +129,27 @@ export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: P
                   <div>{person.bio}</div>
                 </div>
                 {person.status === "active" && (
-                  <div className="mx-[1ch] mt-4 px-[2ch] max-md:px-3">
-                    {/* ember-rust labels the icon, which hides it, so the button says nothing; this one is named for it. */}
-                    <button
-                      type="button"
-                      aria-disabled={starting || undefined}
-                      onClick={startDirect}
-                      className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
-                    >
-                      <Messages tone="reversed" className="w-[1.3em]" />
-                      <span className="sr-only">Ping {person.name}</span>
-                    </button>
-                  </div>
+                  <>
+                    <div className="mx-[1ch] mt-4 px-[2ch] max-md:px-3">
+                      {/* ember-rust labels the icon, which hides it, so the button says nothing; this one is named for it. */}
+                      <button
+                        type="button"
+                        aria-disabled={starting || undefined}
+                        onClick={startDirect}
+                        className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
+                      >
+                        <Messages tone="reversed" className="w-[1.3em]" />
+                        <span className="sr-only">Ping {person.name}</span>
+                      </button>
+                    </div>
+                    {transferId && (
+                      <>
+                        {/* Campfire's borderless `hr`, which ember-rust spaces the sign-in link from the button with. */}
+                        <hr className="mt-4 mb-2 border-0" />
+                        <SignInLink transferId={transferId} mine={mine} />
+                      </>
+                    )}
+                  </>
                 )}
               </>
             )}

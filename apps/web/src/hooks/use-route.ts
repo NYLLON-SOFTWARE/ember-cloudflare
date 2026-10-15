@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
+import { KIND_SEGMENTS, transferIdFromPath, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
 // The app's few pages, at ember-rust's addresses, which @ember/protocol lists for the Worker too: a
 // small typed router over the History API rather than a library. A page with changes to lose can
@@ -216,6 +216,11 @@ export function joinCodeFromPath(pathname: string): string | null {
 
 export function useJoinRoute(): string | null {
   return joinCodeFromPath(useSyncExternalStore(subscribe, shownPath));
+}
+
+/** The id in the sign-in link at the address, `/session/transfers/<id>`, or null. */
+export function useTransferRoute(): string | null {
+  return transferIdFromPath(useSyncExternalStore(subscribe, shownPath));
 }
 
 /** Whether the address is `path`, re-rendering only when that changes. */

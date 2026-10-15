@@ -59,7 +59,7 @@ describe(feature("users.profile"), () => {
     const response = await api("/api/users/me/profile", { headers: as(administrator) });
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ profile: { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null } } satisfies ProfileAnswer);
+    expect(await response.json()).toEqual({ profile: { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null }, transferId: expect.any(String) } satisfies ProfileAnswer);
     expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral" } satisfies Profile);
   });
 
@@ -70,7 +70,7 @@ describe(feature("users.profile"), () => {
 
     const response = await save(grace, changed);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ profile: changed } satisfies ProfileAnswer);
+    expect(await response.json()).toEqual({ profile: changed, transferId: expect.any(String) } satisfies ProfileAnswer);
     expect(await profileOf(grace)).toEqual(changed);
     expect(await (await me(grace)).json()).toEqual({ user: { id: grace.user.id, name: "Grace Brewster Hopper", administrator: false } });
     expect(await listed(administrator, grace.user.id)).toMatchObject({ name: "Grace Brewster Hopper", bio: "Wrote the first compiler" });
@@ -83,11 +83,11 @@ describe(feature("users.profile"), () => {
     for (const body of [{}, { name: "Grace Hopper" }, { bio: "Rear admiral", password: "" }]) {
       const response = await save(grace, body);
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral" } });
+      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral" }, transferId: expect.any(String) });
       expect((await stored(grace.user.id)).updated_at).toBe(LONG_AGO);
     }
 
-    expect(await (await save(grace, { bio: "Admiral" })).json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral" } });
+    expect(await (await save(grace, { bio: "Admiral" })).json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral" }, transferId: expect.any(String) });
     expect((await stored(grace.user.id)).updated_at > LONG_AGO).toBe(true);
   });
 
