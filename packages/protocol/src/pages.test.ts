@@ -10,7 +10,7 @@ describe(feature("platform.error-pages"), () => {
   });
 
   it("names nothing at any other path, which answers 404", () => {
-    const paths = ["/nope", "/index.html", "/account", "/account/custom_styles", "/users/1", "/rooms/general/extra", "/rooms/opens/general/extra", "/messages/1"];
+    const paths = ["/nope", "/index.html", "/account", "/account/custom_styles", "/users/1/extra", "/rooms/general/extra", "/rooms/opens/general/extra", "/messages/1"];
     for (const path of paths) expect(isAppPage(path), path).toBe(false);
   });
 
@@ -60,6 +60,16 @@ describe(feature("messages.permalink"), () => {
 describe(feature("users.profile"), () => {
   it("shows your profile at anyone's profile address, as ember-rust ignores whose it names", () => {
     for (const path of ["/users/me/profile", "/users/01J9Z3/profile"]) expect(workspacePageOf(path), path).toEqual({ page: "profile" });
-    for (const path of ["/users/profile", "/users/me/profile/", "/users/me/profile/edit"]) expect(workspacePageOf(path), path).toBeNull();
+    for (const path of ["/users/me/profile/", "/users/me/profile/edit"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});
+
+describe(feature("users.show"), () => {
+  it("shows someone's page at /users/<id>, whatever the id, as ember-rust's router reads one", () => {
+    expect(workspacePageOf("/users/0mgk3x2a9b4c5d")).toEqual({ page: "person", userId: "0mgk3x2a9b4c5d" });
+    expect(workspacePageOf("/users/caf%C3%A9")).toEqual({ page: "person", userId: "café" });
+    // An id nobody has is the page's to answer 404 for.
+    expect(workspacePageOf("/users/profile")).toEqual({ page: "person", userId: "profile" });
+    for (const path of ["/users", "/users/", "/users/%FF", "/users/ada/edit"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });

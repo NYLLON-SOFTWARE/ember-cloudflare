@@ -11,6 +11,7 @@ import {
   parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
+  workspacePageOf,
   type Bootstrap,
   type ChangedPerson,
   type CustomStyles,
@@ -18,6 +19,7 @@ import {
   type Favorites,
   type NewJoinCode,
   type NewRoomForm,
+  type PersonAnswer,
   type ProfileAnswer,
   type RoomId,
   type RoomSettings,
@@ -46,7 +48,7 @@ import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
 import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
-import { failed } from "./error-pages";
+import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
@@ -284,6 +286,38 @@ async function directory(request: Request, env: Env): Promise<Response> {
   return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
 }
 
+/** A path segment as text, or "" for malformed percent-encoding, which names nobody. */
+function segmentText(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Someone's page, as ember-rust's `users#show` finds them (users.rs): anyone, whatever their status,
+ * with their email address for administrators. An id nobody has is 404.
+ */
+async function showPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const found = credentials && (await workspace(env).person(credentials, userId));
+  if (!found) return problem(401, "Not signed in");
+  if (found === "not found") return problem(404, "Not found");
+  const [shown] = await directoryOf([found], env.SESSION_SECRET);
+  return json({ person: shown! } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Someone's page, `/users/<id>`, as ember-rust answers it: Campfire's 404 page once signed in, for an
+ * id nobody has, and otherwise the app's page, which sends anyone signed out to sign in first.
+ */
+async function personPage(request: Request, env: Env, pathname: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const found = credentials && (await workspace(env).person(credentials, userId));
+  return found === "not found" ? notFound(request) : anyOtherPage(request, env, pathname);
+}
+
 /**
  * Whom the mentions prompt offers, as ember-rust's `Autocompletable::UsersController` answers Lexxy: the
  * first 20 by name of the active people in `room_id`, or anywhere without one, whose names contain
@@ -470,6 +504,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return changeProfile(request, env);
+  const someone = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (someone && request.method === "GET") return showPerson(request, env, segmentText(someone[1]!));
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
@@ -501,6 +537,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);
   const avatarToken = avatarTokenOf(pathname);
   if (avatarToken !== null) return showAvatar(request, env, avatarToken);
+  const page = write ? null : workspacePageOf(pathname);
+  if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   return anyOtherPage(request, env, pathname);
 }
 

@@ -685,6 +685,21 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Someone as their page shows them to the person `credentials` signs in, whatever their status, as
+   * ember-rust's `users#show` finds them (users.rs), and with their email address to administrators:
+   * "not found" if nobody has id `userId`, or null without a valid session.
+   */
+  async person(credentials: Credentials, userId: UserId): Promise<DirectoryEntry | ProfileEntry | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(user.id)]);
+    if (!person) return "not found";
+    if (administrator) return person;
+    const { emailAddress, ...listed } = person;
+    return listed;
+  }
+
+  /**
    * What the avatar of whoever has id `userId` is drawn from, for the person `credentials` signs in:
    * "not found" if nobody has it, or null without a valid session.
    */

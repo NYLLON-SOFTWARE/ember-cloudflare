@@ -13,13 +13,13 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 60 ported and 55 partial of 172 features; 52 not started, 5 not applicable.
+**Overall:** 60 ported and 56 partial of 172 features; 51 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 6 | 4 | 4 | 0 | 14 |
-| [People and profiles](#people-and-profiles) | 1 | 1 | 3 | 0 | 5 |
+| [People and profiles](#people-and-profiles) | 1 | 2 | 2 | 0 | 5 |
 | [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **60** | **55** | **52** | **5** | **172** |
+| **Total** | **60** | **56** | **51** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -431,7 +431,7 @@ ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWA
 |---|---|---|---|---|
 | Edit your profile | `users.profile` | Ember | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [profile](apps/worker/test/profile.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [profile](e2e/tests/features/profile.spec.ts) |
 | Upload an avatar | `users.avatar-upload` | Ember | ⬜ Not started |  |
-| Someone's profile page | `users.show` | Campfire | ⬜ Not started |  |
+| Someone's profile page | `users.show` | Campfire | 🟡 Partial | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [people](apps/worker/test/people.test.ts)<br>Web: [person-page](apps/web/src/components/workspace/person-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [people](e2e/tests/features/people.spec.ts) |
 | Initials avatars | `users.avatars` | Campfire | ✅ Ported | Protocol: [avatars](packages/protocol/src/avatars.test.ts)<br>Worker: [avatars](apps/worker/test/avatars.test.ts)<br>Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [user-avatar](apps/web/src/components/workspace/user-avatar.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Avatars open people's pages | `users.avatar-links` | Campfire | ⬜ Not started |  |
 
@@ -465,7 +465,7 @@ Sources: [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NY
 
 ember-rust tests: [`reference/test/controllers/users/avatars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/avatars_controller_test.rb) · [`reference/test/models/user/avatar_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/avatar_test.rb)
 
-**Someone's profile page** (`users.show`) ⬜
+**Someone's profile page** (`users.show`) 🟡
 
 - `/users/<id>` shows anyone, whatever their status, titled with their name: Go Back to the previous page, the avatar ("Profile avatar"), and on your own page a pencil to "Edit my profile". Unknown ids are 404.
 - Active and banned people show their name and bio, and to administrators their email as a mail link.
@@ -473,6 +473,8 @@ ember-rust tests: [`reference/test/controllers/users/avatars_controller_test.rb`
 - Administrators see Ban, or Remove ban for banned people, on everyone's page but their own, removed people's and bots'.
 - Banned people's avatars are dimmed under a cancel mark.
 - Removed people show their name and "&lt;name&gt; is no longer on this account". Bots show only their avatar, then a direct message button while active, or that line once deleted.
+
+Note: There's no sign-in link until `auth.sign-in-link` is ported, and no Ban or Remove ban until `accounts.ban`. `GET /api/users/<id>` answers someone as the people directory lists them, whatever their status, adding their email address, or null, for administrators, and 404 for an id nobody has; the page keeps what it shows current from the directory, as everyone's open pages show a rename. Signed in, the page of someone nobody is answers Campfire's 404 page, as ember-rust's does. The DM button starts the DM, or opens the one you have, as the sidebar's suggestions do (`dms.suggestions`), and says "Ping &lt;name&gt;" to screen readers, where ember-rust's says nothing: a person's labels its icon, which `aria-hidden` silences, and a bot's icon has no text at all. Someone with no email address shows administrators no link, where ember-rust's is an empty one, and a long name or bio wraps rather than running out of the panel.
 
 Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`crates/views/templates/users/_ban_button.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/_ban_button.html) · [`crates/views/templates/users/profiles/_transfer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_transfer.html) · [`crates/ember/src/controllers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users.rs)
 

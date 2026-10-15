@@ -1,4 +1,4 @@
-import type { RoomId, RoomKind } from "./index.ts";
+import type { RoomId, RoomKind, UserId } from "./index.ts";
 
 // The app's pages, at ember-rust's addresses (crates/ember/src/controllers.rs). The app's router reads
 // a path with `workspacePageOf`, and the Worker serves the app only where `isAppPage` says it shows a
@@ -33,7 +33,9 @@ export type WorkspacePage =
   /** The Custom CSS page, which only administrators may open. */
   | { page: "custom-styles" }
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
-  | { page: "profile" };
+  | { page: "profile" }
+  /** Someone's page, at `/users/<id>`, whatever their status. */
+  | { page: "person"; userId: UserId };
 
 /** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -64,6 +66,9 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
+  const person = pathname.match(/^\/users\/([^/]+)$/);
+  const personId = person && decoded(person[1]!);
+  if (personId) return { page: "person", userId: personId };
   if (pathname === "/rooms") return { page: "newest-room" };
   const newRoom = pathname.match(/^\/rooms\/(opens|closeds)\/new$/);
   if (newRoom) return { page: "new-room", access: accessOf(newRoom[1]!) };

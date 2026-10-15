@@ -1,0 +1,165 @@
+import { useContext, useEffect, useState } from "react";
+import type { Me, Person, User, UserId } from "@ember/protocol";
+import { Cancel, Messages, Pencil } from "@/components/icons/campfire";
+import { PageLink } from "@/components/page-link";
+import { PeopleContext } from "@/hooks/use-directory";
+import { useMounted } from "@/hooks/use-mounted";
+import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
+import { useTitle } from "@/hooks/use-title";
+import { fetchPerson, isSignedOut } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { HEADER_BUTTON } from "./page-header";
+import { isMissing } from "./room-settings-page";
+import { Panel, SettingsPage } from "./settings-page";
+import { UserAvatar } from "./user-avatar";
+
+interface Props {
+  userId: UserId;
+  me: Me;
+  /** Starts a DM with someone, or opens the one you have, and goes there, settling with whether it did. */
+  onStartDirect: (person: User) => Promise<boolean>;
+  /** Nobody has the id, which Campfire's 404 page says. */
+  onMissing: () => void;
+  /** Says why loading failed, as the workspace's alerts do. */
+  onFailed: (error: unknown) => void;
+}
+
+/**
+ * Campfire's `.btn` as ember-rust draws it in a panel (zz-ember.css), the full width of the panel: 9px
+ * corners at medium weight, 36px tall, or 44px for fingers, with its icon at 1.3em.
+ */
+const DIRECT_BUTTON =
+  "inline-flex w-full min-h-9 cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border px-[1.1em] py-[0.5em] font-medium transition-[filter] aria-disabled:cursor-default touch:min-h-11";
+
+/**
+ * ember-rust's page for someone (users/show.html), at `/users/<id>`, whatever their status, titled with
+ * their name: Go Back to the page it was opened from, a pencil to Edit my profile on your own, and
+ * their avatar. Active and banned people show their name and bio, with their email address for
+ * administrators, and active people a button that starts a DM with them, or opens the one you have.
+ * Removed people show their name and that they're no longer on this account, and bots only their
+ * avatar, then the DM button while they're active. The people directory keeps what it lists of them
+ * current. There's no sign-in link or ban button until those are built.
+ */
+export function PersonPage({ userId, me, onStartDirect, onMissing, onFailed }: Props) {
+  const [fetched, setFetched] = useState<Person | null>(null);
+  // As the people directory lists them now, kept current by the workspace socket, with what only the page is told.
+  const listed = useContext(PeopleContext).get(userId);
+  const person = fetched && { ...fetched, ...listed };
+  const [starting, setStarting] = useState(false);
+  const back = useBackPath();
+  const mounted = useMounted();
+  useTitle(person?.name ?? null);
+
+  // Again once you become an administrator or stop being one, which decides whether it's told their email address.
+  useEffect(() => {
+    let stopped = false;
+    fetchPerson(userId).then(
+      (person) => !stopped && setFetched(person),
+      (error: unknown) => {
+        if (stopped && !isSignedOut(error)) return;
+        if (isMissing(error)) onMissing();
+        else onFailed(error);
+      },
+    );
+    return () => void (stopped = true);
+  }, [userId, me.administrator, onMissing, onFailed]);
+
+  // As the sidebar's suggestions do, once the page's guard lets it, which a second click doesn't start again.
+  const startDirect = () => {
+    if (!person || starting) return;
+    leave(async () => {
+      setStarting(true);
+      try {
+        return await onStartDirect(person);
+      } finally {
+        if (mounted.current) setStarting(false);
+      }
+    });
+  };
+
+  const mine = userId === me.id;
+  const editProfile = mine && (
+    <PageLink href={PROFILE_PATH} className={HEADER_BUTTON}>
+      <Pencil className="size-5" />
+      <span className="sr-only">Edit my profile</span>
+    </PageLink>
+  );
+
+  return (
+    <SettingsPage back={back} links={editProfile}>
+      <Panel aria-busy={person === null} className="text-center">
+        {person && (
+          <div className="flex flex-col gap-x-[1ch] gap-y-4 wrap-anywhere">
+            <Avatar person={person} />
+            {person.role === "bot" ? (
+              person.status === "active" ? (
+                // ember-rust's `button_to_direct_room_with`, whose `txt--large` Campfire doesn't define, so it's at the page's size.
+                <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
+                  <Messages className="w-[1.3em]" />
+                  <span className="sr-only">Ping {person.name}</span>
+                </button>
+              ) : (
+                <NoLongerHere name={person.name} />
+              )
+            ) : person.status === "deactivated" ? (
+              <div>
+                <h1 className="text-[23px] font-bold">{person.name}</h1>
+                <NoLongerHere name={person.name} />
+              </div>
+            ) : (
+              <>
+                {/* Campfire's `.gap` with a third of its block space between rows. */}
+                <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
+                  <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
+                  {/* Campfire's link, which ember-rust leaves empty for someone with no address, where this has none. */}
+                  {person.emailAddress !== undefined && (
+                    <div>
+                      {person.emailAddress && (
+                        <a href={`mailto:${person.emailAddress}`} className="text-link underline hover:not-active:brightness-130">
+                          {person.emailAddress}
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  <div>{person.bio}</div>
+                </div>
+                {person.status === "active" && (
+                  <div className="mx-[1ch] mt-4 px-[2ch] max-md:px-3">
+                    {/* ember-rust labels the icon, which hides it, so the button says nothing; this one is named for it. */}
+                    <button
+                      type="button"
+                      aria-disabled={starting || undefined}
+                      onClick={startDirect}
+                      className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
+                    >
+                      <Messages tone="reversed" className="w-[1.3em]" />
+                      <span className="sr-only">Ping {person.name}</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </Panel>
+    </SettingsPage>
+  );
+}
+
+/**
+ * Campfire's `.avatar.txt-xx-large.center` on white: 5ch across at 2.4rem, named "Profile avatar", and
+ * dimmed under a cancel mark when they're banned (avatars.css).
+ */
+function Avatar({ person }: { person: Person }) {
+  const banned = person.status === "banned";
+  return (
+    <div className="relative mx-auto grid size-[5ch] place-items-center rounded-full bg-white text-[2.4rem]">
+      <UserAvatar user={person} label="Profile avatar" className={cn("col-start-1 row-start-1 size-[5ch]", banned && "opacity-50")} />
+      {banned && <Cancel className="absolute inset-0 size-full" />}
+    </div>
+  );
+}
+
+function NoLongerHere({ name }: { name: string }) {
+  return <div>{name} is no longer on this account</div>;
+}
