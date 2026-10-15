@@ -17,7 +17,7 @@ import {
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
-import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
+import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { workspace } from "../src/workspace";
@@ -65,6 +65,8 @@ export interface Session {
   user: User;
   /** The `Cookie` header that carries the session, `name=value`. */
   cookie: string;
+  /** The IP address its sockets come from, as Cloudflare's `CF-Connecting-IP` says, if any. */
+  ip?: string;
 }
 
 /** The `name=value` a response's `Set-Cookie` sets. */
@@ -81,24 +83,52 @@ export async function signIn(name: string): Promise<Session> {
   return { user: shown(user), cookie: cookieOf(response) };
 }
 
-/** A room socket's upgrade request from the app's own pages, signed in with `cookie` if given. */
-export const upgrade = (cookie?: string) => ({ headers: { Upgrade: "websocket", Origin: origin, ...(cookie ? { Cookie: cookie } : {}) } });
+/** A room socket's upgrade request from the app's own pages, signed in with `cookie` if given, from the IP address `ip` if given. */
+export const upgrade = (cookie?: string, ip?: string) => ({
+  headers: { Upgrade: "websocket", Origin: origin, ...(cookie ? { Cookie: cookie } : {}), ...(ip ? { "CF-Connecting-IP": ip } : {}) },
+});
 
 /** The room's Durable Object. */
 export const roomStub = (room: string) => (env as unknown as Env).CHAT_ROOM.getByName(room);
 
-/** Who the Workspace let into a room, and when it checked. */
+/** Who the Workspace let into a room, and when it checked, and the IP address their socket comes from and whether a ban blocks it, if said. */
 export interface Access {
   user: User;
   sessionId: string;
   authorizedAt: number;
+  address?: string;
+  banned?: boolean;
 }
 
 /** A room socket's upgrade as the Worker sends it on to the room, once the Workspace has let it through. */
-export const forwardUpgrade = (room: RoomId, { user, sessionId, authorizedAt }: Access) =>
+export const forwardUpgrade = (room: RoomId, { user, sessionId, authorizedAt, address, banned = false }: Access) =>
   roomStub(room).fetch(`https://room/${room}?protocol=${ROOM_PROTOCOL}`, {
-    headers: { Upgrade: "websocket", [USER_HEADER]: JSON.stringify(user), [ROOM_HEADER]: room, [SESSION_HEADER]: sessionId, [AUTHORIZED_AT_HEADER]: String(authorizedAt) },
+    headers: {
+      Upgrade: "websocket",
+      [USER_HEADER]: JSON.stringify(user),
+      [ROOM_HEADER]: room,
+      [SESSION_HEADER]: sessionId,
+      [AUTHORIZED_AT_HEADER]: String(authorizedAt),
+      [BANNED_HEADER]: String(banned),
+      ...(address ? { [ADDRESS_HEADER]: address } : {}),
+    },
   });
+
+/**
+ * What a socket the Worker sends on to the room comes to: let in and welcomed, or closed at once,
+ * with a code and reason. A socket let in is closed again once it's welcomed.
+ */
+export async function outcome(room: RoomId, access: Access): Promise<"welcome" | { code: number; reason: string }> {
+  const ws = (await forwardUpgrade(room, access)).webSocket!;
+  ws.accept();
+  let welcomed = false;
+  ws.addEventListener("message", (event) => {
+    welcomed = (JSON.parse(event.data as string) as { type: string }).type === "welcome";
+    ws.close(1000);
+  });
+  const { code, reason } = await closeOf(ws);
+  return welcomed ? "welcome" : { code, reason };
+}
 
 /** How `ws` closes, once it does. */
 export const closeOf = (ws: WebSocket) => new Promise<CloseEvent>((resolve) => ws.addEventListener("close", resolve));
@@ -192,7 +222,7 @@ export async function reconnect(room: string, session: Session, since: number) {
 /** Opens a room socket in `session` and queues every frame it receives. */
 async function openSocket(room: string, session: Session, params?: RoomSocketParams | "outdated") {
   const query = params === "outdated" ? "" : params ? roomSocketQuery(params) : `?protocol=${ROOM_PROTOCOL}`;
-  const response = await api(`/api/rooms/${room}/socket${query}`, upgrade(session.cookie));
+  const response = await api(`/api/rooms/${room}/socket${query}`, upgrade(session.cookie, session.ip));
   const ws = response.webSocket;
   if (!ws) throw new Error(`No socket: ${response.status} ${await response.text()}`);
   ws.accept();

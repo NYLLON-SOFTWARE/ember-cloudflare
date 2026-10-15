@@ -37,13 +37,19 @@ export async function createSession(request: APIRequestContext, name: string): P
 /** The administrator the first-run project sets Ember up with, whom every other suite can sign in as. */
 export const ADMINISTRATOR = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse battery" };
 
-/**
- * Gives `page` an IP address of its own, as Cloudflare's `CF-Connecting-IP` header, which `wrangler
- * dev` passes through, so the per-address limit on signing in never counts another test's attempts.
- */
-export async function useOwnAddress(page: Page): Promise<void> {
+/** An IP address no other test uses, from the range set aside for documentation. */
+export function newAddress(): string {
   const groups = Array.from(crypto.getRandomValues(new Uint16Array(4)), (group) => group.toString(16));
-  await page.setExtraHTTPHeaders({ "CF-Connecting-IP": `2001:db8::${groups.join(":")}` });
+  return `2001:db8::${groups.join(":")}`;
+}
+
+/**
+ * Gives `page` an IP address of its own, or `address`, as Cloudflare's `CF-Connecting-IP` header, which
+ * `wrangler dev` passes through, so the per-address limit on signing in never counts another test's attempts.
+ * Browsers don't send it when they open a WebSocket, which comes from the test server's own address.
+ */
+export async function useOwnAddress(page: Page, address = newAddress()): Promise<void> {
+  await page.setExtraHTTPHeaders({ "CF-Connecting-IP": address });
 }
 
 /** Signs the administrator in on the sign-in page `page` is showing, with `password` if given. */

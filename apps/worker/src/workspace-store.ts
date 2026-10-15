@@ -20,7 +20,7 @@ import {
   type UserStatus,
 } from "@ember/protocol";
 import { statement, type Db } from "./db";
-import { EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
@@ -371,6 +371,19 @@ const QUEUE_PURGES = `INSERT INTO pending_purges (room_id, user_id, due_at)
   SELECT id, ?1, ?2 FROM rooms WHERE kind <> 'direct' OR id IN (SELECT room_id FROM memberships WHERE user_id = ?1) RETURNING id`;
 
 /**
+ * Queues having every room close the sockets from each address in a JSON list, telling them to connect
+ * again, answering a row for each room and address: banning an address, or lifting the ban, changes
+ * what they may do, which the Workspace checks as they connect.
+ */
+const QUEUE_ADDRESS_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT rooms.id, ?1 || addresses.value, ?2, ?3 FROM rooms, json_each(?4) AS addresses RETURNING id`;
+
+/** The same for the addresses someone's ban blocks, which lifting it unblocks. */
+const QUEUE_UNBANNED_ADDRESS_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT rooms.id, ?1 || addresses.ip_address, ?2, ?3 FROM rooms, (SELECT DISTINCT ip_address FROM bans WHERE user_id = ?4) AS addresses
+  RETURNING id`;
+
+/**
  * The purges a room can take: none while it has sockets left to close, which may be the banned person's,
  * who could write through one after their purge had finished. The outbox holds a revocation only until
  * its room answers, so this reads them all rather than keep an index.
@@ -394,8 +407,15 @@ const LONGEST_RETRY_MS = 5 * 60 * 1000;
  */
 const DELIVERY_ATTEMPTS = 10;
 
-/** Whether someone is in a room, asked on every room socket's upgrade. */
+/** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
+
+/**
+ * Whether someone is in a room, and whether a ban blocks the IP address they come from, in one go,
+ * asked on every room socket's upgrade.
+ */
+export const ROOM_ACCESS = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?) AS member,
+  EXISTS (SELECT 1 FROM bans WHERE ip_address = ?) AS banned`;
 
 /**
  * Marks a room unread, as of a message, for its members who aren't marked already, haven't hidden it,
@@ -883,34 +903,47 @@ export class WorkspaceStore {
    * Bans someone, as ember-rust's `User#ban` does (user.rs), in one transaction: queues closing each of
    * their sessions' sockets with `code` in every room they're in, due at `dueAt`, blocks each of
    * `ipAddresses`, ends their sessions, marks them banned, recording when, unless they were already,
-   * and queues deleting their messages in every room they can have written in, due then too. Their
-   * memberships, role and avatar stay. Answers whether it queued anything.
+   * and queues deleting their messages in every room they can have written in, due then too. It queues
+   * having every room tell the sockets from those addresses to reconnect, due then as well, so they
+   * come back able only to read. Their memberships, role and avatar stay. Answers whether it queued
+   * anything.
    */
-  async banPerson(userId: UserId, ipAddresses: string[], code: CloseCode, dueAt: number, now: string): Promise<boolean> {
-    const [revocations, , , , purges] = (await this.db.batch([
+  async banPerson(userId: UserId, ipAddresses: string[], code: CloseCode, reconnect: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [revocations, , reconnections, , , purges] = (await this.db.batch([
       // Before their sessions go, which it finds their sockets by.
       statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(`INSERT INTO bans (user_id, ip_address, created_at, updated_at) SELECT ?, value, ?, ? FROM json_each(?)`, userId, now, now, JSON.stringify(ipAddresses)),
+      statement(QUEUE_ADDRESS_REVOCATIONS, ADDRESS_TAG_PREFIX, reconnect, dueAt, JSON.stringify(ipAddresses)),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${BANNED}, updated_at = ? WHERE id = ? AND status <> ${BANNED}`, now, userId),
       statement(QUEUE_PURGES, userId, dueAt),
     ])) as unknown[][];
-    return revocations!.length > 0 || purges!.length > 0;
+    return revocations!.length > 0 || reconnections!.length > 0 || purges!.length > 0;
   }
 
   /**
    * Lifts someone's ban, as ember-rust's `User#unban` does (user.rs): unblocks their IP addresses and
    * makes them active, recording when, unless they were already, whatever their status was. The rooms
    * yet to delete their messages delete only those written by then, as ember-rust's job finds only
-   * what they'd written when it runs, at once (jobs.rs).
+   * what they'd written when it runs, at once (jobs.rs). It queues having every room tell the sockets
+   * from those addresses to reconnect, due at `dueAt`, so they come back able to change things again,
+   * unless another ban blocks them too. Answers whether it queued anything.
    */
-  async unbanPerson(userId: UserId, now: string): Promise<void> {
-    await this.db.batch([
+  async unbanPerson(userId: UserId, reconnect: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [reconnections] = (await this.db.batch([
+      // Before the bans go, which it finds the addresses by.
+      statement(QUEUE_UNBANNED_ADDRESS_REVOCATIONS, ADDRESS_TAG_PREFIX, reconnect, dueAt, userId),
       statement(`DELETE FROM bans WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status <> ${ACTIVE}`, now, userId),
       // The outbox holds a row only until its room answers, so this reads it all rather than keep an index.
       statement(`UPDATE pending_purges SET lifted_at = ? WHERE user_id = ? AND lifted_at IS NULL`, now, userId),
-    ]);
+    ])) as unknown[][];
+    return reconnections!.length > 0;
+  }
+
+  /** Every IP address a ban blocks. */
+  async bannedAddresses(): Promise<string[]> {
+    return (await this.db.all<{ ip_address: string }>(`SELECT DISTINCT ip_address FROM bans`)).map((row) => row.ip_address);
   }
 
   /** The IP addresses recorded on someone's sessions, which banning them blocks. */
@@ -1077,6 +1110,12 @@ export class WorkspaceStore {
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
     return (await this.db.all(MEMBERSHIP, roomId, userId)).length > 0;
+  }
+
+  /** Whether `userId` is in room `roomId`, and whether a ban blocks `ipAddress`, if there is one. */
+  async roomAccess(roomId: RoomId, userId: UserId, ipAddress: string | null): Promise<{ member: boolean; banned: boolean }> {
+    const [row] = await this.db.all<{ member: number; banned: number }>(ROOM_ACCESS, roomId, userId, ipAddress);
+    return { member: row!.member === 1, banned: row!.banned === 1 };
   }
 
   /** Everyone active, by name. */
