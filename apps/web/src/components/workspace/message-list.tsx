@@ -76,7 +76,8 @@ interface Props {
   editors: MessageEditors;
   onLoadOlder: () => void;
   onLoadNewer: () => void;
-  onJumpToNewest: () => void;
+  /** Goes to the newest messages, answering whether it could, which it can't while the room is away and they aren't loaded. */
+  onJumpToNewest: () => boolean;
 }
 
 /**
@@ -99,11 +100,14 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
-  // Keeps the reader at the end, or in their place, as what the timeline shows changes.
+  // Keeps the reader at the end, or in their place, as what the timeline shows changes. A short last page
+  // of later messages can leave them at the end without scrolling them, so this asks again.
   const settle = useEffectEvent(() => {
     const el = scroller.current!;
     if (atEnd.current) el.scrollTop = el.scrollHeight;
     else if (place.current) restore(el, place.current);
+    atEnd.current = nearEnd(el);
+    if (atEnd.current) setBehind(false);
     place.current = placeIn(el);
   });
 
@@ -228,10 +232,8 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
       {behind && (
         <button
           type="button"
-          onClick={() => {
-            setBehind(false);
-            onJumpToNewest();
-          }}
+          // Kept to try again when it can't go yet.
+          onClick={() => onJumpToNewest() && setBehind(false)}
           aria-label="Jump to newest message"
           className="absolute bottom-[160px] left-1/2 z-[3] flex size-[38px] -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border bg-background shadow-[0_3px_12px_#00000014] touch:size-11"
         >

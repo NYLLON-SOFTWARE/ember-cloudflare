@@ -115,7 +115,7 @@ const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invi
     editors={editors}
     onLoadOlder={onLoadOlder}
     onLoadNewer={vi.fn()}
-    onJumpToNewest={vi.fn()}
+    onJumpToNewest={vi.fn(() => true)}
     {...more}
   />
 );
@@ -321,7 +321,7 @@ describe(feature("ui.scroll"), () => {
   });
 
   it("offers Jump to newest message when new ones come while you're further up, rather than on scrolling up", async () => {
-    const onJumpToNewest = vi.fn();
+    const onJumpToNewest = vi.fn(() => true);
     const more = { onJumpToNewest };
     const { rerender } = render(list({ messages: messages(1, 6) }, vi.fn(), null, more));
     const log = screen.getByRole("log");
@@ -349,6 +349,40 @@ describe(feature("ui.scroll"), () => {
     scrollTo(log, 200);
     rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }));
     expect(jump()).toBeInTheDocument();
+  });
+
+  it("keeps it to try again when it can't go yet, as while the room is away and the newest aren't loaded", async () => {
+    const onJumpToNewest = vi.fn(() => false);
+    const more = { onJumpToNewest };
+    const { rerender } = render(list({ messages: messages(1, 6), hasNewer: true }, vi.fn(), null, more));
+    const log = screen.getByRole("log");
+    layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }, vi.fn(), null, more));
+    await userEvent.click(jump()!);
+    expect(jump()).toBeInTheDocument();
+
+    onJumpToNewest.mockReturnValue(true);
+    await userEvent.click(jump()!);
+    expect(onJumpToNewest).toHaveBeenCalledTimes(2);
+    expect(jump()).not.toBeInTheDocument();
+  });
+
+  it("follows new ones again once a short last page of later messages leaves the reader at the end", () => {
+    const { rerender } = render(list({ messages: messages(1, 6), hasNewer: true }));
+    const log = screen.getByRole("log");
+    layOut(log, { m7: 40 });
+    scrollTo(log, 200);
+    rerender(list({ messages: messages(1, 6), hasNewer: true, arrivals: 1 }));
+    expect(jump()).toBeInTheDocument();
+
+    // The last page adds 40px below the view, which doesn't scroll the reader, but leaves them at the end.
+    rerender(list({ messages: messages(1, 7), arrivals: 1 }));
+    expect(log.scrollTop).toBe(200);
+    expect(jump()).not.toBeInTheDocument();
+    rerender(list({ messages: messages(1, 8), arrivals: 2 }));
+    expect(log.scrollTop).toBe(340);
+    expect(jump()).not.toBeInTheDocument();
   });
 
   it("keeps what's in view where it is as a message above its end grows, as an edit or a reaction does", () => {
