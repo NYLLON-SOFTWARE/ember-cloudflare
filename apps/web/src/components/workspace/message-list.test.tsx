@@ -64,7 +64,7 @@ function layOut(log: HTMLElement, heights: Record<string, number> = {}) {
   Object.defineProperties(log, {
     clientHeight: { configurable: true, value: 400 },
     scrollHeight: { configurable: true, get: scrollHeight },
-    scrollTop: { configurable: true, get: () => scrollTop, set: (top: number) => (scrollTop = Math.min(Math.max(0, top), scrollHeight() - 400)) },
+    scrollTop: { configurable: true, get: () => scrollTop, set: (top: number) => (scrollTop = Math.min(Math.max(0, top), scrollHeight() - log.clientHeight)) },
   });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this === log) return DOMRect.fromRect({ width: 800, height: 400 });
@@ -76,6 +76,9 @@ function layOut(log: HTMLElement, heights: Record<string, number> = {}) {
   resize();
   return { heights, resize };
 }
+
+/** Makes the log show `height` px of the timeline, as resizing it does, though the browser hasn't reported it yet. */
+const setViewHeight = (log: HTMLElement, height: number) => Object.defineProperty(log, "clientHeight", { configurable: true, value: height });
 
 const scrollTo = (log: HTMLElement, top: number) => {
   log.scrollTop = top;
@@ -405,6 +408,39 @@ describe(feature("ui.scroll"), () => {
     heights.m2 = 200;
     rerender(list({ messages: messages(1, 8) }));
     expect(log.scrollTop).toBe(350);
+  });
+
+  it("keeps the reader where they scroll as the timeline resizes, though the scroll comes before the resize is reported", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    const { resize } = layOut(log);
+    expect(log.scrollTop).toBe(400);
+    // The composer is 6px shorter for a moment as its editor loads, so the timeline is 6px taller.
+    setViewHeight(log, 406);
+    scrollTo(log, 0);
+    resize();
+    expect(log.scrollTop).toBe(0);
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }));
+    expect(log.scrollTop).toBe(0);
+    expect(jump()).toBeInTheDocument();
+  });
+
+  it("stays at the newest message when the scroll a resize made comes once the timeline has resized again", () => {
+    const { rerender } = render(list({ messages: messages(1, 8) }));
+    const log = screen.getByRole("log");
+    const { resize } = layOut(log);
+    // The timeline grows, as when the keyboard closes, which keeps the end in view by scrolling it.
+    setViewHeight(log, 520);
+    log.scrollTop = 280;
+    resize();
+    // It shrinks, as when the keyboard opens, before the scroll that the growing made arrives.
+    setViewHeight(log, 20);
+    fireEvent.scroll(log);
+    resize();
+    expect(log.scrollTop).toBe(780);
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }));
+    expect(log.scrollTop).toBe(880);
+    expect(jump()).not.toBeInTheDocument();
   });
 
   it("goes to the end as you send or jump there", () => {
