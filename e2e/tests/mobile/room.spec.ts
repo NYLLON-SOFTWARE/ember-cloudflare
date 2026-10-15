@@ -14,7 +14,7 @@ test("an empty room fits the phone", async ({ page, room, screenIsFine }) => {
 });
 
 test("the page for someone in no rooms fits the phone", async ({ page, screenIsFine }) => {
-  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], invitation: null } satisfies Sidebar }));
+  await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null } satisfies Sidebar }));
   await page.goto("/");
   await expect(page).toHaveTitle("No rooms yet");
   await expect(page.getByRole("main").locator("img")).toBeVisible();
@@ -54,6 +54,31 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
   // Four faces, then a count for everyone else.
   await expect(page.getByText("+3")).toBeVisible();
   await screenIsFine({ denseTargets: [REACTION_CHIPS] });
+});
+
+test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
+  await isolateRoom(page, room);
+  await openRoom(page, room);
+  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+  await star.tap();
+  await expect(star).toHaveAttribute("aria-pressed", "true");
+  await screenIsFine();
+
+  if (!hasDrawerLayout(page)) return;
+  await page.getByRole("button", { name: "Open conversations" }).tap();
+  await expect(page.getByRole("dialog").getByRole("link", { name: room.name })).toContainText("★");
+  await screenIsFine();
+});
+
+test("a star that can't be saved says so on the phone, however long the room's name", async ({ page, room, screenIsFine }) => {
+  // A long name pushes the star to the end of its row, where a note hung from its left edge runs off.
+  const named = { ...room, name: "quarterly-planning-and-retrospective-for-the-platform-team" };
+  await isolateRoom(page, named);
+  await page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
+  await openRoom(page, named);
+  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" }).tap();
+  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+  await screenIsFine();
 });
 
 test("long room names are truncated, not overflowing", async ({ page, room, screenIsFine }) => {

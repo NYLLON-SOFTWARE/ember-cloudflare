@@ -4,15 +4,19 @@ import {
   isRoomId,
   parseAccountChanges,
   parseNewRoom,
+  parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
   type Bootstrap,
+  type ChangedPerson,
   type Directory,
+  type Favorites,
   type NewJoinCode,
   type NewRoomForm,
   type RoomId,
   type RoomSettings,
   type Sidebar,
+  type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import {
@@ -30,7 +34,8 @@ import {
   signOut,
   tokenDigest,
 } from "./auth";
-import { avatarTokenOf, directoryOf, showAvatar } from "./avatars";
+import { directoryOf } from "./avatar-tokens";
+import { avatarTokenOf, showAvatar } from "./avatars";
 import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed } from "./error-pages";
@@ -165,6 +170,27 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
 }
 
 /**
+ * Makes someone an administrator or a member, as the crown on workspace settings does, answering them
+ * as the people directory then lists them. As in ember-rust, someone who isn't an administrator hears
+ * so first, then anyone who isn't active isn't found, before what was sent is checked
+ * (accounts/users.rs). Unlike there, nobody can change their own role or a bot's.
+ */
+async function changeRole(request: Request, env: Env, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseRoleChange(await request.json().catch(() => null));
+  // A change that doesn't parse changes nothing, but who's asking and whom it's for are still checked first.
+  const person = await workspace(env).changeRole(credentials, userId, change?.role ?? null);
+  if (!person) return problem(401, "Not signed in");
+  if (person === "forbidden") return problem(403, "Only administrators can change people's roles");
+  if (person === "not found") return problem(404, "Not found");
+  if (!change) return problem(400, "Expected a role");
+  if (person === "own role") return problem(403, "Administrators can't change their own role");
+  if (person === "bot") return problem(403, "Bots' roles can't be changed");
+  return json({ user: person } satisfies ChangedPerson);
+}
+
+/**
  * Signs this browser out. Its session's sockets close in every room its person is in, so its other
  * tabs go to sign in at once; ember-rust tells all the person's connections to reconnect instead,
  * which their other devices survive (concerns.rs). The rooms close them once this has answered, so
@@ -251,6 +277,25 @@ async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   return new Response(null, { status: 204 });
 }
 
+/**
+ * Stars a room for the signed-in person, or unstars it, as its header's star does, answering their
+ * stars, as ember-rust's `favorites#update` does for JSON (rooms/favorites.rs): 400 for a room id or a
+ * `favorite` it can't read, and 403 for a room they can't star.
+ */
+async function setFavorite(request: Request, env: Env, roomId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  // Any JSON value parses, null and numbers included, so don't assume an object.
+  const body: unknown = await request.json().catch(() => null);
+  const favorite = typeof body === "object" && body !== null ? (body as Record<string, unknown>).favorite : undefined;
+  if (typeof favorite !== "boolean") return problem(400, "favorite must be true or false");
+  const favorites = await workspace(env).setFavorite(credentials, roomId, favorite);
+  if (!favorites) return problem(401, "Not signed in");
+  if (favorites === "forbidden") return problem(403, "You can't star that room");
+  return json({ favorites } satisfies { favorites: Favorites });
+}
+
 /** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
 async function connectToWorkspace(request: Request, env: Env): Promise<Response> {
   // As with a room's, the address is only there for upgrades from the app's own pages.
@@ -298,6 +343,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
+  // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
+  const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
+  if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
@@ -315,6 +363,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   }
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND);
+  const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
+  if (favorite && request.method === "PUT") return setFavorite(request, env, favorite[1]!);
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
   if (room && request.method === "DELETE") return isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);

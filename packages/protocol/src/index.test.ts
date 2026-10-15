@@ -14,6 +14,7 @@ import {
   parseAccountChanges,
   parseClientFrame,
   parseNewRoom,
+  parseRoleChange,
   parseRoomChanges,
   parseRoomSocketParams,
   parseServerFrame,
@@ -252,6 +253,24 @@ describe(feature("accounts.name"), () => {
     ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  it("makes someone an administrator only for exactly \"administrator\", and a member for anything else", () => {
+    expect(parseRoleChange({ role: "administrator" })).toEqual({ role: "administrator" });
+    for (const role of ["member", "", "Administrator", " administrator", "bot", null, 1, ["administrator"]]) {
+      expect(parseRoleChange({ role }), JSON.stringify(role)).toEqual({ role: "member" });
+    }
+  });
+
+  it.each([
+    ["no body", null],
+    ["a list", [{ role: "administrator" }]],
+    ["text", "administrator"],
+    ["an object without a role", { name: "Grace" }],
+  ])("finds no role change in %s", (_, body) => {
+    expect(parseRoleChange(body)).toBeNull();
   });
 });
 

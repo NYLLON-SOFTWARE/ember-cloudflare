@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, type DirectoryUser, type Me, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
@@ -8,6 +8,8 @@ const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
 const design: SidebarRoom = { id: "r1", name: "Design", kind: "open", icon: null, unread: false };
 const general: SidebarRoom = { id: "r2", name: "general", kind: "open", icon: null, unread: false };
+/** Ada's sidebar with `rooms`, none of them starred. */
+const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -33,12 +35,17 @@ class FakeSocket {
     this.readyState = FakeSocket.CLOSED;
   }
 
-  /** Opens, and lets the socket in with a welcome for `you`. */
-  connect(you = ada) {
+  /** Opens, as the Workspace lets the socket in, before it says anything. */
+  open() {
     act(() => {
       this.readyState = FakeSocket.OPEN;
       this.onopen?.();
     });
+  }
+
+  /** Opens, and lets the socket in with a welcome for `you`. */
+  connect(you = ada) {
+    this.open();
     this.receive({ type: "welcome", you });
   }
 
@@ -60,7 +67,7 @@ class FakeSocket {
  * While `held`, answers for the sidebar wait for it.
  */
 const server = {
-  sidebar: { rooms: [design], invitation: null } as Sidebar,
+  sidebar: unstarred([design]),
   version: 1,
   signedIn: ada as Me | null,
   held: null as Promise<void> | null,
@@ -115,7 +122,7 @@ async function showSidebar(onSessionChanged: (me: Me | null) => void = () => {})
 beforeEach(() => {
   FakeSocket.all = [];
   vi.stubGlobal("WebSocket", FakeSocket);
-  Object.assign(server, { sidebar: { rooms: [design], invitation: null }, version: 1, signedIn: ada, held: null });
+  Object.assign(server, { sidebar: unstarred([design]), version: 1, signedIn: ada, held: null });
   vi.stubGlobal("fetch", vi.fn(answer));
   vi.useFakeTimers();
   vi.spyOn(Math, "random").mockReturnValue(0.5); // no jitter: back-off delays come out exact
@@ -130,15 +137,15 @@ afterEach(() => {
 describe(feature("sidebar.live-updates"), () => {
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
-    expect(result.current.list).toEqual({ rooms: [design], invitation: null });
+    expect(result.current.list).toEqual(unstarred([design]));
     expect(socket().url).toBe("ws://localhost:3000/api/socket");
 
-    server.change({ rooms: [design, general], invitation: null });
+    server.change(unstarred([design, general]));
     socket().connect();
     await settle();
     expect(result.current.list?.rooms).toEqual([design, general]);
 
-    server.change({ rooms: [general], invitation: null });
+    server.change(unstarred([general]));
     socket().drop();
     await wait(500);
     socket().connect();
@@ -186,7 +193,7 @@ describe(feature("sidebar.live-updates"), () => {
     const asked = [result.current.refresh(), result.current.refresh(), result.current.refresh()];
     let settled = 0;
     asked.forEach((refresh) => void refresh.then(() => settled++));
-    server.change({ rooms: [design, general], invitation: null });
+    server.change(unstarred([design, general]));
     await release();
     await settle();
     expect(sidebarRequests()).toEqual([null, 'W/"1"', 'W/"2"']);
@@ -194,9 +201,9 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
 
-  it("says each time it loads again by itself, for the people directory to load again too", async () => {
-    const onReload = vi.fn();
-    const { result } = renderHook(() => useSidebar(ada, () => {}, onReload));
+  it("says each time it loads again by itself, for the people directory to load again too, failing or not", async () => {
+    const onReload = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
     await settle();
     expect(onReload).toHaveBeenCalledOnce();
     socket().connect();
@@ -242,6 +249,116 @@ describe(feature("sidebar.unread"), () => {
     await release();
     await settle();
     expect(result.current.list?.rooms).toEqual([{ ...design, unread: true }]);
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  /** Someone as the directory lists them. */
+  const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
+
+  /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
+  async function connected() {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().connect();
+    await settle();
+    return { onSessionChanged, update };
+  }
+
+  it("changes whoever the workspace socket says has changed in the people directory", async () => {
+    const { onSessionChanged, update } = await connected();
+    const promoted = listed(grace, "administrator");
+    socket().receive({ type: "user.updated", user: promoted });
+    expect(update).toHaveBeenCalledWith(promoted);
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says when the person signed in has been made an administrator, or a member again", async () => {
+    const { onSessionChanged, update } = await connected();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    expect(update).toHaveBeenCalledWith(listed(ada, "administrator"));
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The hook still has Ada as a member, as the page would if this came before it took the change.
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+
+    // Then nothing more for word that she's as she was last heard.
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    expect(onSessionChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes a change heard before the welcome over the welcome, which may be older, until it connects again", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    expect(onSessionChanged).toHaveBeenCalledTimes(1);
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true });
+
+    // The page still has Ada as a member, but she's an administrator as far as this hook has heard.
+    socket().drop();
+    await wait(60_000);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("takes the next connection's welcome again after one that stopped answering", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    const silent = socket();
+
+    // Two heartbeats without a word drop the socket without its closing, and the next one connects.
+    await wait(60_000);
+    expect(socket()).not.toBe(silent);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("says when the welcome finds the person signed in has changed since the page loaded", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect({ ...ada, administrator: true });
+    expect(onSessionChanged).toHaveBeenCalledWith({ ...ada, administrator: true });
+    expect(socket().closedWith).toBeUndefined();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+  });
+
+  it("says nothing when the welcome finds them as they were", async () => {
+    const onSessionChanged = vi.fn();
+    await showSidebar(onSessionChanged);
+    socket().connect();
+    expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("sidebar.favorites"), () => {
+  it("takes the stars saved in any of Ada's tabs from the workspace socket, keeping the newest", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [design.id], version: 2 } });
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 2 });
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [], version: 1 } });
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 2 });
+  });
+
+  it("keeps stars that come while a list is on its way over the older ones it brings", async () => {
+    const { result } = await showSidebar();
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "favorites.changed", favorites: { rooms: [design.id], version: 1 } });
+    await release();
+    await settle();
+    expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 1 });
   });
 });
 

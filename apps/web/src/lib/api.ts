@@ -3,13 +3,17 @@ import {
   type Account,
   type AccountChanges,
   type Bootstrap,
+  type ChangedPerson,
   type Directory,
+  type DirectoryUser,
+  type Favorites,
   type Me,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
   type PasswordSignIn,
+  type PersonRole,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -17,6 +21,7 @@ import {
   type RoomSocketParams,
   type Sidebar,
   type SignUp,
+  type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
 
@@ -107,6 +112,14 @@ export async function regenerateJoinCode(): Promise<string> {
   return (await request<NewJoinCode>("/api/account/join_code", { method: "POST" })).joinCode;
 }
 
+/**
+ * Makes someone an administrator or a member, answering them as the people directory then lists them.
+ * Fails with a 403 ApiError for anyone but an administrator, and for their own role or a bot's.
+ */
+export async function changeRole(userId: UserId, role: PersonRole): Promise<DirectoryUser> {
+  return (await request<ChangedPerson>(`/api/account/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) })).user;
+}
+
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
 export interface SidebarCopy {
   sidebar: Sidebar;
@@ -155,6 +168,14 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
 /** Changes a room, answering it as it is then. */
 export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<Room> {
   return (await request<{ room: Room }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+}
+
+/**
+ * Stars a room for this person, or unstars it, answering their stars as they are then. Fails with a
+ * 403 ApiError for a room they can't star: a DM, or one they've hidden or aren't in.
+ */
+export async function setFavorite(roomId: RoomId, favorite: boolean): Promise<Favorites> {
+  return (await request<{ favorites: Favorites }>(`/api/rooms/${encodeURIComponent(roomId)}/favorite`, { method: "PUT", body: JSON.stringify({ favorite }) })).favorites;
 }
 
 /** Deletes a room, with its messages. */

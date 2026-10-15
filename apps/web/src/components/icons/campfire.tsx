@@ -5,8 +5,10 @@ import alert from "./campfire/alert.svg";
 import arrowDown from "./campfire/arrow-down.svg";
 import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
+import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
 import copyPaste from "./campfire/copy-paste.svg";
+import crown from "./campfire/crown.svg";
 import download from "./campfire/download.svg";
 import everyone from "./campfire/everyone.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
@@ -61,12 +63,20 @@ export function ArrowUp(props: CampfireIconProps) {
   return <CampfireIcon src={arrowUp} {...props} />;
 }
 
+export function Cancel(props: CampfireIconProps) {
+  return <CampfireIcon src={cancel} {...props} />;
+}
+
 export function Check(props: CampfireIconProps) {
   return <CampfireIcon src={check} {...props} />;
 }
 
 export function CopyPaste(props: CampfireIconProps) {
   return <CampfireIcon src={copyPaste} {...props} />;
+}
+
+export function Crown(props: CampfireIconProps) {
+  return <CampfireIcon src={crown} {...props} />;
 }
 
 export function Download(props: CampfireIconProps) {

@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`). Chat bots, Custom styles, the logo, the translation setting and the people list under the invite link aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Chat bots, Custom styles, the logo and the translation setting aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -328,7 +328,7 @@ export const features = [
     id: "accounts.people",
     title: "People list",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.",
       "Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.",
@@ -337,12 +337,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/views/templates/accounts/users/_user.html", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/ember/src/controllers/accounts/users.rs"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/users_controller_test.rb"],
+    notes: "Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls. Avatars don't link to people's pages until those are built (`users.avatar-links`), and your own row gets My settings with your profile (`users.profile`).",
   },
   {
     id: "accounts.roles",
     title: "Make or revoke administrators",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators toggle a crown on each active person who isn't a bot (\"Role: Administrator\" or \"Role: Member\" to screen readers), filled for administrators; it saves at once with no notice.",
       "An administrator's own crown is disabled: dimmed, and clicks do nothing.",
@@ -350,6 +351,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/users.rs", "crates/views/templates/accounts/users/_user.html", "reference/app/models/user/role.rb"],
     upstreamTests: ["reference/test/controllers/accounts/users_controller_test.rb", "reference/test/models/user/role_test.rb"],
+    notes: "`PATCH /api/account/users/<id>` with `{ \"role\" }`, where anything but exactly \"administrator\" means member and a body without a role gets 400. Unlike ember-rust, the server also refuses an administrator's own role and a bot's, so there's always an administrator and a bot stays a bot, and a change reaches the person's open pages at once: the workspace socket tells everyone `user.updated`, so their rail's Admin link and what workspace settings let them do follow without navigating. The crown's checkbox can be reached and pressed from the keyboard, where ember-rust's is hidden.",
   },
   {
     id: "accounts.remove-person",
@@ -870,7 +872,7 @@ export const features = [
     id: "sidebar.room-order",
     title: "Room order",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.",
       "A room added or renamed while the page is open sorts into place at once.",
@@ -878,7 +880,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/presenters/accounts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "Rooms are listed by name here, ignoring case in ASCII letters only, with no starred rooms or shared order. A room you create or rename sorts into place in your own sidebar at once.",
+    notes: "Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. There's no shared order yet (`sidebar.shared-order`). A room you create or rename sorts into place in your own sidebar at once.",
   },
   {
     id: "sidebar.dm-order",
@@ -947,7 +949,7 @@ export const features = [
     id: "sidebar.favorites",
     title: "Star rooms",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The header's star (\"Favorite room\", `aria-pressed`, titled \"Add to favorites\" or \"Remove from favorites\"; not on DMs) stars a room for you alone. It's disabled while saving and changes only once the save succeeds.",
       "A starred room moves to the top of your sidebar with a ★ (\"Favorite\" to screen readers). A new star goes after your other stars, and starring a starred room keeps its place.",
@@ -959,6 +961,8 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/favorites.rs", "crates/assets/overrides/controllers/room_favorite_controller.js", "crates/views/templates/rooms/show/_nav.html", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
+    notes:
+      "`PUT /api/rooms/<id>/favorite` takes `{\"favorite\": true}` or `false` as JSON, rather than a form's `\"true\"`, and answers `{\"favorites\": {\"rooms\": [...], \"version\": n}}`; there's no form without JavaScript. Each star is a row of its own (`favorites`, workspace migration 0013) rather than a list in the account's settings, and `version` counts each person's changes, so every tab of theirs, which hears `favorites.changed` on its workspace socket, keeps the newest of the answer, the socket's news and the sidebar it loads, in whatever order they come: their other tabs re-sort at once rather than at their next reload. A star refused with 403 drops nothing. Room ids are Ember's own, so an id that isn't one answers 400 \"invalid room ID\". A session that has expired goes to sign in. While it saves, the star is dimmed and ignores presses through `aria-disabled` rather than `disabled`, so it keeps the keyboard's focus, and on phones it's 44px square, where ember-rust's is 32px by 36px. Where a long name has pushed the star to the end of the top bar, the note saying a save failed moves left to stay inside the bar, where ember-rust's runs off the screen.",
   },
   {
     id: "sidebar.favorite-order",
@@ -2270,7 +2274,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#`, the name and Conversation settings (\"Settings for this room\" to screen readers), but no star, search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
+    notes: "The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings (\"Settings for this room\" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
   },
   {
     id: "ui.mobile-drawer",

@@ -81,12 +81,23 @@ export interface SidebarRoom extends Room {
 }
 
 /**
- * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, and the
- * invitation, when they're in its room. It comes with an ETag, and a request whose If-None-Match
- * names it gets 304 Not Modified instead.
+ * The rooms someone has starred, which their sidebar lists first, in the order they starred them, as
+ * ember-rust's `favorite_channels` keeps them (account.rs). `version` counts the changes to them, so
+ * of two lists, the newer is the one with the larger version, whichever arrives last.
+ */
+export interface Favorites {
+  rooms: RoomId[];
+  version: number;
+}
+
+/**
+ * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
+ * they've starred, and the invitation, when they're in its room. It comes with an ETag, and a request
+ * whose If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
+  favorites: Favorites;
   invitation: Invitation | null;
 }
 
@@ -143,6 +154,19 @@ export interface NewJoinCode {
 /** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name. */
 export interface AccountChanges {
   name?: string;
+}
+
+/** The roles an administrator can give someone with the crown on workspace settings. Bots stay bots. */
+export type PersonRole = Exclude<Role, "bot">;
+
+/** What `PATCH /api/account/users/<id>` sets, as the crown on workspace settings does: someone's role. */
+export interface RoleChange {
+  role: PersonRole;
+}
+
+/** What `PATCH /api/account/users/<id>` answers: the person as the people directory now lists them. */
+export interface ChangedPerson {
+  user: DirectoryUser;
 }
 
 /** Whom the sign-in page offers to email for help: the workspace's first administrator. */
@@ -319,6 +343,10 @@ export type WorkspaceServerFrame =
   | { type: "room.unread"; roomId: RoomId }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
+  /** Someone changed, as the people directory now lists them: an administrator gave them another role. Sent to everyone. */
+  | { type: "user.updated"; user: DirectoryUser }
+  /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
+  | { type: "favorites.changed"; favorites: Favorites }
   | { type: "error"; message: string }
   | { type: "pong" };
 
@@ -528,6 +556,16 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   const { name } = data as Record<string, unknown>;
   if (name === undefined) return {};
   return typeof name === "string" && name.length <= MAX_ACCOUNT_NAME_LENGTH ? { name } : `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
+}
+
+/**
+ * Parses an untrusted role change as ember-rust reads `user[role]` (accounts/users.rs): exactly
+ * "administrator" makes someone an administrator, and anything else a member, blank included. Null
+ * without a role at all, which ember-rust answers 400, as it does a request without `user`.
+ */
+export function parseRoleChange(data: unknown): RoleChange | null {
+  if (typeof data !== "object" || data === null || Array.isArray(data) || !("role" in data)) return null;
+  return { role: data.role === "administrator" ? "administrator" : "member" };
 }
 
 /**

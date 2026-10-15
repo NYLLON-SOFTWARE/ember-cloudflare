@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent } from "react";
-import type { Invitation, Me, User } from "@ember/protocol";
+import type { Favorites, Invitation, Me, User } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
 import { useRoom } from "@/hooks/use-room";
@@ -15,12 +15,16 @@ interface Props {
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   me: User;
+  /** Whether this person has starred the room. */
+  favorite: boolean;
+  /** Called with this person's stars once the room's star saves them. */
+  onStarred: (favorites: Favorites) => void;
   onSessionChanged: (me: Me | null) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
   onGone: (room: Room) => void;
 }
 
-export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Props) {
+export function RoomView({ room, invitation, me, favorite, onStarred, onSessionChanged, onGone }: Props) {
   const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
   useTitle(room.name);
   // As ember-rust's rooms#show remembers the room it shows, for home and Go Back to return to.
@@ -36,7 +40,15 @@ export function RoomView({ room, invitation, me, onSessionChanged, onGone }: Pro
 
   return (
     <>
-      <RoomHeader room={room} present={state.present} status={state.status} offline={state.offline} />
+      <RoomHeader
+        room={room}
+        present={state.present}
+        status={state.status}
+        offline={state.offline}
+        favorite={favorite}
+        onStarred={onStarred}
+        onSessionChanged={onSessionChanged}
+      />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (

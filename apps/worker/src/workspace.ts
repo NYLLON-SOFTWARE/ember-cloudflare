@@ -5,12 +5,15 @@ import {
   parseWorkspaceClientFrame,
   type Account,
   type AccountChanges,
+  type DirectoryUser,
+  type Favorites,
   type HelpContact,
   type Me,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type PersonRole,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -21,6 +24,7 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { directoryOf } from "./avatar-tokens";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -131,8 +135,10 @@ export class Workspace extends DurableObject<Env> {
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
   private accountChanges = 0;
-  /** The help contact, once read. Only first run makes an administrator yet, and it sets this. */
+  /** The help contact, the first administrator, once read. First run sets it, and changing a role forgets it. */
   private knownHelpContact: HelpContact | null | undefined;
+  /** Counts the starts and ends of changes to roles, so a help contact read that overlapped one isn't kept. */
+  private roleChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
@@ -174,7 +180,10 @@ export class Workspace extends DurableObject<Env> {
     // On D1, signing out can end the session while the check above reads it, and close the session's
     // sockets before this one is among them. Now that it is, checking again settles it: the session
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
-    if (await this.session(credentials)) send(server, { type: "welcome", you: meOf(session) });
+    // The welcome says who they are as this check reads them, since a change to them while the first
+    // read was told only the sockets already in.
+    const current = await this.session(credentials);
+    if (current) send(server, { type: "welcome", you: meOf(current) });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -187,6 +196,18 @@ export class Workspace extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     ws.close(RESERVED_CLOSE_CODES.has(code) ? 1000 : code, "Closing");
+  }
+
+  /** Sends `frame` on every workspace socket, written out once for them all. */
+  private broadcast(frame: WorkspaceServerFrame): void {
+    const data = JSON.stringify(frame);
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.send(data);
+      } catch {
+        // It has closed since, and its close handler has nothing to clean up.
+      }
+    }
   }
 
   /** Closes the workspace sockets tagged `tag`, with `code`. */
@@ -294,12 +315,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async helpContact(): Promise<HelpContact | null> {
-    if (this.knownHelpContact === undefined) {
-      const contact = await this.store.helpContact();
-      // On D1, first run can finish while this reads, and what it found is newer.
-      this.knownHelpContact ??= contact;
-    }
-    return this.knownHelpContact;
+    if (this.knownHelpContact !== undefined) return this.knownHelpContact;
+    const changes = this.roleChanges;
+    const contact = await this.store.helpContact();
+    // On D1, first run can finish while this reads, and what it found is newer.
+    if (changes === this.roleChanges) this.knownHelpContact ??= contact;
+    return this.knownHelpContact ?? contact;
   }
 
   /**
@@ -374,8 +395,10 @@ export class Workspace extends DurableObject<Env> {
 
   /** Signs in someone whose password checked out, unless they've stopped being active since. */
   async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
-    const session = await this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString());
-    if (session) this.sessions.remember(tokenDigest, session);
+    // On D1 a role change can overlap it, so it's remembered only if none did.
+    const session = await this.sessions.keep(tokenDigest, () =>
+      this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+    );
     return session && meOf(session);
   }
 
@@ -434,15 +457,31 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The sidebar of the person `credentials` signs in: the rooms they're in, with the welcome card's
-   * invitation if they're in the workspace's first room. Null without a valid session.
+   * The sidebar of the person `credentials` signs in: the rooms they're in and the ones they've starred,
+   * with the welcome card's invitation if they're in the workspace's first room. Null without a valid
+   * session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
     const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
-    return { rooms, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
+    return { rooms, favorites, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
+  }
+
+  /**
+   * Stars room `roomId` for the person `credentials` signs in, or unstars it, answering their stars as
+   * they are then, as ember-rust's `favorites#update` does (rooms/favorites.rs): "forbidden" when they
+   * can't star it, or null without a valid session. Every tab of theirs hears the new list.
+   */
+  async setFavorite(credentials: Credentials, roomId: RoomId, favorite: boolean): Promise<Favorites | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const favorites = await this.store.setFavorite(user.id, roomId, favorite);
+    if (!favorites) return "forbidden";
+    const frame: WorkspaceServerFrame = { type: "favorites.changed", favorites };
+    for (const socket of this.ctx.getWebSockets(user.id)) send(socket, frame);
+    return favorites;
   }
 
   /** Creates a room as the person `credentials` signs in, or answers null without a valid session. */
@@ -474,6 +513,55 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return (await this.store.avatarOwner(userId)) ?? "not found";
+  }
+
+  /**
+   * Makes the active person `userId` an administrator or a member as the person `credentials` signs
+   * in, as ember-rust's `accounts/users#update` does, answering them as the people directory then lists
+   * them: "forbidden" unless that's an administrator, "not found" unless `userId` is someone active, or
+   * null without a valid session. A null `role` changes nothing, once that's checked. Unlike
+   * ember-rust, which leaves it to the page, nobody can change their own role ("own role"), so there's
+   * always an administrator, or a bot's ("bot"). Everyone's workspace sockets hear of a change.
+   */
+  async changeRole(
+    credentials: Credentials,
+    userId: UserId,
+    role: PersonRole | null,
+  ): Promise<DirectoryUser | "forbidden" | "not found" | "own role" | "bot" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const person = await this.store.activePerson(userId);
+      if (!person) return "not found";
+      if (role === null) return this.directoryUser(person);
+      if (userId === user.id) return "own role";
+      if (person.role === "bot") return "bot";
+      // As ember-rust's `User#update` writes only what differs (user.rs).
+      if (role === person.role) return this.directoryUser(person);
+
+      const now = new Date().toISOString();
+      const changed = await this.directoryUser({ ...person, role, updatedAt: now });
+      this.roleChanges++;
+      try {
+        // Their sessions are read again, so their next welcome says what they are now.
+        await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.changeRole(userId, role, now),
+        );
+      } finally {
+        this.roleChanges++;
+        // The first administrator, who may be someone else now.
+        this.knownHelpContact = undefined;
+      }
+      this.broadcast({ type: "user.updated", user: changed });
+      return changed;
+    });
+  }
+
+  /** Someone as the people directory lists them, with their avatar's address. */
+  private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;
   }
 
   /**

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, Me, Room, RoomId } from "@ember/protocol";
+import type { Account, Favorites, Me, Room, RoomId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -10,7 +10,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
-import { byName, markedUnread } from "@/lib/room-list";
+import { inSidebarOrder, markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
@@ -40,6 +40,9 @@ interface Redirect {
   path: string;
   alert?: string;
 }
+
+/** The stars of someone whose rooms haven't loaded yet. */
+const NO_FAVORITES: RoomId[] = [];
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
@@ -106,9 +109,10 @@ interface Props {
 }
 
 export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
-  // The people directory loads again whenever the sidebar does by itself.
-  const { people, reload: reloadPeople } = useDirectory();
-  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, reloadPeople);
+  // The people directory loads again whenever the sidebar does by itself, and follows whoever the
+  // workspace socket says has changed.
+  const directory = useDirectory();
+  const { list, change: changeRooms, refresh } = useSidebar(me, onSessionChanged, directory);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
   // keep it on, and loading the page again starts with it off.
@@ -118,8 +122,10 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
-  // The sidebar lists them by name.
-  const listed = useMemo(() => byName(rooms ?? []), [rooms]);
+  const favorites = list?.favorites.rooms ?? NO_FAVORITES;
+  // The sidebar lists the starred rooms first, then the rest by name.
+  const listed = useMemo(() => inSidebarOrder(rooms ?? [], favorites), [rooms, favorites]);
+  const starred = useMemo(() => new Set(favorites), [favorites]);
 
   // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
@@ -159,6 +165,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const unlistRoom = useCallback((roomId: RoomId) => changeRooms({ type: "gone", roomId }), []);
   // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
+  const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
 
   // A room found gone while it's shown stays on screen to say so until another page shows.
   const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
@@ -240,7 +247,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     onToggle: () => setUnreadOnly((on) => !on),
   };
   const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onSignOut={onSignOut} />;
-  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} currentRoomId={currentRoomId} unreadOnly={unreadOnly} onSelect={select} />;
+  const sidebar = <Sidebar workspaceName={workspaceName} rooms={listed} starred={starred} currentRoomId={currentRoomId} unreadOnly={unreadOnly} onSelect={select} />;
 
   const page = () => {
     switch (route.page) {
@@ -263,7 +270,16 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         );
       case "workspace-settings":
         return (
-          <WorkspaceSettingsPage back={back} version={version} onAccountChanged={onAccountChanged} onJoinCodeChanged={joinCodeChanged} onFailed={failed} />
+          <WorkspaceSettingsPage
+            me={me}
+            back={back}
+            version={version}
+            onAccountChanged={onAccountChanged}
+            onJoinCodeChanged={joinCodeChanged}
+            reloadPeople={directory.reload}
+            onPersonChanged={directory.update}
+            onFailed={failed}
+          />
         );
       default:
         if (room)
@@ -273,6 +289,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               room={room}
               invitation={invitation?.roomId === room.id ? invitation : null}
               me={me}
+              favorite={starred.has(room.id)}
+              onStarred={starredRooms}
               onSessionChanged={onSessionChanged}
               onGone={roomGone}
             />
@@ -355,5 +373,5 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       </DrawerOpen>
     </Sheet>
   );
-  return <PeopleContext value={people}>{layout}</PeopleContext>;
+  return <PeopleContext value={directory.people}>{layout}</PeopleContext>;
 }

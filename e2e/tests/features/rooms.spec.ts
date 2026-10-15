@@ -103,6 +103,53 @@ test.describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
+test.describe(feature("sidebar.favorites"), () => {
+  test("stars a room from its header, which every tab of yours lists first with a star, until it's unstarred", async ({ members, rooms }) => {
+    const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
+    const secondTab = await grace.page.context().newPage();
+    await secondTab.goto(`/rooms/${rooms.general.id}`);
+    const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    await expect(rows(secondTab)).toHaveText(["#general", "#random"]);
+    await expect(star).toHaveAttribute("title", "Add to favorites");
+    await expect(star.locator("svg")).toHaveCSS("fill", "none");
+
+    await star.click();
+    await expect(star).toHaveAttribute("aria-pressed", "true");
+    await expect(star).toHaveAttribute("title", "Remove from favorites");
+    await expect(star.locator("svg")).not.toHaveCSS("fill", "none");
+    await expect(star).toBeFocused();
+    for (const page of [grace.page, secondTab]) {
+      await expect(rows(page)).toHaveText(["#random★", "#general"]);
+      await expect(rows(page).first()).toHaveAccessibleName("random Favorite");
+    }
+
+    // The server keeps it.
+    await secondTab.reload();
+    await expect(rows(secondTab)).toHaveText(["#random★", "#general"]);
+    await expect(secondTab.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "false");
+
+    await star.click();
+    await expect(star).toHaveAttribute("aria-pressed", "false");
+    for (const page of [grace.page, secondTab]) await expect(rows(page)).toHaveText(["#general", "#random"]);
+  });
+
+  test("says when a star can't be saved, under the star, and changes nothing", async ({ members, rooms }) => {
+    const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
+    await grace.page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+
+    await star.click();
+    const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." });
+    await expect(note).toBeVisible();
+    await expect(note).toHaveCSS("width", "200px");
+    // From the star's left edge, as ember-rust's, where there's room for it.
+    expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
+    await expect(star).toHaveAttribute("aria-pressed", "false");
+    await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(["#general", "#random"]);
+  });
+});
+
 test.describe(feature("rooms.show"), () => {
   test("opens the room named in the address", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });
@@ -135,7 +182,7 @@ test.describe(feature("rooms.last-visited"), () => {
 
   test("shows someone in no rooms a picture of an empty room, with their name for screen readers", async ({ page, session }) => {
     await signInAs(page, session);
-    await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], invitation: null } satisfies Sidebar }));
+    await page.route("**/api/sidebar", (route) => route.fulfill({ json: { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null } satisfies Sidebar }));
     await page.goto("/");
     await expect(page).toHaveTitle("No rooms yet");
     const main = page.getByRole("main");
