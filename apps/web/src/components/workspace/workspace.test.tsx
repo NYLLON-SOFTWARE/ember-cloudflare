@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type Me, type Message, type Room, type RoomSettings, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, type Me, type Message, type Room, type RoomId, type RoomSettings, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
@@ -12,6 +12,8 @@ const rooms: Room[] = [
   { id: "general", name: "general", kind: "open", icon: null },
   { id: "random", name: "random", kind: "open", icon: null },
 ];
+/** The sidebar's list of `listed`, with the rooms starred in `favorites`. */
+const roomList = (listed: Room[], favorites: RoomId[] = []) => ({ rooms: listed, favorites: { rooms: favorites, version: 0 }, invitation: null });
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
 const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engines" }, joinCode: "aB3d-Ef5h-iJ7k", canAdminister: false };
 
@@ -21,7 +23,7 @@ const workspaceSettings: WorkspaceSettings = { account: { name: "Analytical Engi
  */
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = { "GET /api/account": () => Response.json(workspaceSettings), ...responses };
-  vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json({ rooms })))());
+  vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
 }
 
 /** A socket that never connects: these tests are about the layout around the room. */
@@ -111,7 +113,7 @@ describe(feature("rooms.show"), () => {
 
   it("opens a room made since the list came, which the list asked again has", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
-    const lists = [{ rooms }, { rooms: [...rooms, design] }];
+    const lists = [roomList(rooms), roomList([...rooms, design])];
     serve({ "GET /api/sidebar": () => Response.json(lists.shift()) });
     showWorkspace("/rooms/design");
     expect(await roomHeading()).toHaveTextContent("Design");
@@ -133,7 +135,7 @@ describe(feature("rooms.show"), () => {
   });
 
   it("stays at a room's address, saying Ember can't be reached, when the list can't be asked for again", async () => {
-    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch"))];
+    const answers = [() => Response.json(roomList(rooms)), () => Promise.reject(new TypeError("Failed to fetch"))];
     serve({ "GET /api/sidebar": () => answers.shift()!() });
     showWorkspace("/rooms/design");
     const alert = await screen.findByRole("alert");
@@ -147,7 +149,7 @@ describe(feature("rooms.show"), () => {
 
   it("asks for the list again when you try again, once it couldn't be asked for", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
-    const answers = [() => Response.json({ rooms }), () => Promise.reject(new TypeError("Failed to fetch")), () => Response.json({ rooms: [...rooms, design] })];
+    const answers = [() => Response.json(roomList(rooms)), () => Promise.reject(new TypeError("Failed to fetch")), () => Response.json(roomList([...rooms, design]))];
     serve({ "GET /api/sidebar": () => answers.shift()!() });
     const { user } = showWorkspace("/rooms/design");
     await user.click(await screen.findByRole("button", { name: "Try again" }));
@@ -159,14 +161,14 @@ describe(feature("rooms.show"), () => {
   it("asks for the list again only once the list it last asked for has come", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     let answer = (_: Response) => {};
-    const answers = [() => Response.json({ rooms }), () => new Promise<Response>((resolve) => (answer = resolve)), () => Response.json({ rooms: [...rooms, design] })];
+    const answers = [() => Response.json(roomList(rooms)), () => new Promise<Response>((resolve) => (answer = resolve)), () => Response.json(roomList([...rooms, design]))];
     serve({ "GET /api/sidebar": () => answers.shift()!() });
     showWorkspace("/rooms/secret");
     await waitFor(() => expect(roomListRequests()).toBe(2));
     act(() => navigate("/rooms/design"));
     // So an older list can't take the place of a newer one, losing changes made since it was asked for.
     expect(roomListRequests()).toBe(2);
-    await act(async () => answer(Response.json({ rooms })));
+    await act(async () => answer(Response.json(roomList(rooms))));
     expect(await roomHeading()).toHaveTextContent("Design");
     expect(roomListRequests()).toBe(3);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -184,7 +186,7 @@ describe(feature("rooms.last-visited"), () => {
 
   it("goes from / to your oldest room when you haven't visited one, which isn't the first by name", async () => {
     const zebra: Room = { id: "zebra", name: "Zebra", kind: "closed", icon: null };
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: [zebra, ...rooms] }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList([zebra, ...rooms])) });
     showWorkspace("/");
     expect(await roomHeading()).toHaveTextContent("Zebra");
     expect(location.pathname).toBe("/rooms/zebra");
@@ -192,7 +194,7 @@ describe(feature("rooms.last-visited"), () => {
   });
 
   it("says there are no rooms yet, with your name for screen readers, under Home", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: [] }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList([])) });
     showWorkspace("/");
     await waitFor(() => expect(document.title).toBe("No rooms yet"));
     expect(screen.getByRole("main")).toHaveTextContent("Ada");
@@ -217,7 +219,7 @@ describe(feature("rooms.last-visited"), () => {
   });
 
   it("goes back home from workspace settings when you have no rooms", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: [] }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList([])) });
     showWorkspace("/account/edit");
     await waitFor(() => expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/"));
   });
@@ -231,7 +233,7 @@ describe(feature("rooms.index"), () => {
   });
 
   it("goes from /rooms home when you have no rooms", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: [] }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList([])) });
     showWorkspace("/rooms");
     await waitFor(() => expect(location.pathname).toBe("/"));
     expect(document.title).toBe("No rooms yet");
@@ -297,7 +299,7 @@ describe(feature("rooms.create-open"), () => {
     await user.type(await screen.findByRole("textbox", { name: "Room name" }), "{Enter}");
     await waitFor(() => expect(location.pathname).toBe("/rooms/design"));
     // The list answers as it was before the room was made.
-    await act(async () => answer(Response.json({ rooms })));
+    await act(async () => answer(Response.json(roomList(rooms))));
     expect(await roomHeading()).toHaveTextContent("Design");
     expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
   });
@@ -327,9 +329,9 @@ describe(feature("rooms.settings-page"), () => {
 
   it("keeps a room opened to you since the list came where it was made, once you save its settings", async () => {
     const older: Room = { id: "older", name: "older", kind: "closed", icon: null };
-    const lists = [{ rooms }];
+    const lists = [roomList(rooms)];
     serve({
-      "GET /api/sidebar": () => Response.json(lists.shift() ?? { rooms: [older, ...rooms] }),
+      "GET /api/sidebar": () => Response.json(lists.shift() ?? roomList([older, ...rooms])),
       "GET /api/rooms/older/settings": () => Response.json({ room: older, canAdminister: true, people: [{ ...ada, member: true }] }),
       "PATCH /api/rooms/older": () => Response.json({ room: { ...older, name: "elder" } }),
     });
@@ -368,7 +370,7 @@ describe(feature("rooms.members"), () => {
   it("goes home with ember-rust's alert when you save a room without yourself, and it leaves the sidebar", async () => {
     const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
-      "GET /api/sidebar": () => Response.json({ rooms: [...rooms, leadsRoom] }),
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, leadsRoom])),
       "GET /api/rooms/leads/settings": () => Response.json({ room: leadsRoom, canAdminister: true, people: [{ ...ada, member: true }] }),
       "PATCH /api/rooms/leads": () => Response.json({ room: leadsRoom }),
     });
@@ -482,7 +484,7 @@ describe(feature("ui.rail"), () => {
 });
 
 describe(feature("sidebar.activity-filter"), () => {
-  const marked = [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true }, { id: "design", name: "Design", kind: "open", icon: null, unread: false }];
+  const marked: SidebarRoom[] = [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true }, { id: "design", name: "Design", kind: "open", icon: null, unread: false }];
   const activity = () => screen.getByRole("button", { name: "Activity" });
   // The sidebar's rooms, which workspace settings has a section named for too.
   const sidebarRooms = () => within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("link").map((link) => link.textContent!.replace(/^#/, ""));
@@ -504,7 +506,7 @@ describe(feature("sidebar.activity-filter"), () => {
   }
 
   it("counts the conversations marked unread but the one shown, and shows only them while it's on", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
@@ -527,7 +529,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 
   it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(activity());
@@ -547,7 +549,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 
   it("stays on when a link opens somewhere else", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(activity());
@@ -561,7 +563,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 
   it("stays on while unsaved changes keep you on the page, and turns off once they let you go", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }), "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)), "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(activity());
@@ -589,7 +591,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 
   it("keeps the drawer open on a phone, turning on or off, and filters the drawer's rooms", async () => {
-    serve({ "GET /api/sidebar": () => Response.json({ rooms: marked }) });
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
@@ -614,6 +616,38 @@ describe(feature("sidebar.rooms"), () => {
   });
 });
 
+describe(feature("sidebar.favorites"), () => {
+  const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+  const star = () => screen.getByRole("button", { name: "Favorite room" });
+
+  it("lists your starred rooms first, and stars the room shown from its header, moving it up", async () => {
+    const answered = { rooms: ["random", "design"], version: 2 };
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], ["random"])),
+      "PUT /api/rooms/design/favorite": () => Response.json({ favorites: answered }),
+    });
+    const { user } = showWorkspace("/rooms/design");
+    expect(await roomHeading()).toHaveTextContent("Design");
+    expect(sidebarRooms()).toEqual(["random★", "Design", "general"]);
+    expect(star()).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(star());
+    expect(star()).toHaveAttribute("aria-pressed", "true");
+    expect(sidebarRooms()).toEqual(["random★", "Design★", "general"]);
+  });
+
+  it("keeps the room where it was when its star isn't saved", async () => {
+    serve({ "PUT /api/rooms/random/favorite": () => Response.json({ error: "You can't star that room" }, { status: 403 }) });
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+
+    await user.click(star());
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn’t save your favorite. Please try again.");
+    expect(star()).toHaveAttribute("aria-pressed", "false");
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+  });
+});
+
 describe(feature("auth.sessions"), () => {
   it("goes back to sign-in when the server no longer accepts the session", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
@@ -624,7 +658,7 @@ describe(feature("auth.sessions"), () => {
   });
 
   it("goes back to sign-in when asking for the list again finds the session gone", async () => {
-    const answers = [Response.json({ rooms }), Response.json({ error: "Not signed in" }, { status: 401 })];
+    const answers = [Response.json(roomList(rooms)), Response.json({ error: "Not signed in" }, { status: 401 })];
     serve({ "GET /api/sidebar": () => answers.shift()! });
     const { onSessionChanged } = showWorkspace("/rooms/secret");
     await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
@@ -664,7 +698,7 @@ describe(feature("auth.sessions"), () => {
 
   it("says nothing of the list asked again once another person's workspace has taken its place", async () => {
     let answer = (_: Response) => {};
-    const answers = [() => Response.json({ rooms }), () => new Promise<Response>((resolve) => (answer = resolve))];
+    const answers = [() => Response.json(roomList(rooms)), () => new Promise<Response>((resolve) => (answer = resolve))];
     serve({ "GET /api/sidebar": () => answers.shift()!() });
     const { onSessionChanged, unmount } = showWorkspace("/rooms/secret");
     await waitFor(() => expect(roomListRequests()).toBe(2));

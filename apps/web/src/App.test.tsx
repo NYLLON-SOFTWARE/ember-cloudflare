@@ -93,7 +93,7 @@ function serve({ signedIn, setup = "complete", guestSignIn = true }: { signedIn:
       account = JSON.parse(String(init?.body)) as typeof account;
       return Response.json({ account });
     }
-    return Response.json({ rooms, invitation: null });
+    return Response.json({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
   });
 }
 

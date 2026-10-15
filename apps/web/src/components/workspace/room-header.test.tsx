@@ -16,7 +16,7 @@ afterEach(() => history.replaceState(null, "", "/"));
 function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
   return render(
     <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader room={general} present={[]} status="open" offline={false} {...props} />
+      <RoomHeader room={general} present={[]} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} {...props} />
     </Sheet>,
   );
 }
@@ -43,6 +43,24 @@ describe(feature("ui.room-header"), () => {
     renderHeader();
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
+  });
+});
+
+describe(feature("sidebar.favorites"), () => {
+  it("has a star after the room's name, pressed while it's starred", () => {
+    const { unmount } = renderHeader();
+    const star = screen.getByRole("button", { name: "Favorite room" });
+    expect(star).toHaveAttribute("aria-pressed", "false");
+    expect(star.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    unmount();
+
+    renderHeader({ favorite: true });
+    expect(screen.getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("has none in a DM, which can't be starred", () => {
+    renderHeader({ room: { id: "direct-1", name: "Ada", kind: "direct", icon: null } });
+    expect(screen.queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
   });
 });
 

@@ -5,6 +5,7 @@ import {
   parseWorkspaceClientFrame,
   type Account,
   type AccountChanges,
+  type Favorites,
   type HelpContact,
   type Me,
   type NewJoinCode,
@@ -434,15 +435,31 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The sidebar of the person `credentials` signs in: the rooms they're in, with the welcome card's
-   * invitation if they're in the workspace's first room. Null without a valid session.
+   * The sidebar of the person `credentials` signs in: the rooms they're in and the ones they've starred,
+   * with the welcome card's invitation if they're in the workspace's first room. Null without a valid
+   * session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
     const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
-    return { rooms, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
+    return { rooms, favorites, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
+  }
+
+  /**
+   * Stars room `roomId` for the person `credentials` signs in, or unstars it, answering their stars as
+   * they are then, as ember-rust's `favorites#update` does (rooms/favorites.rs): "forbidden" when they
+   * can't star it, or null without a valid session. Every tab of theirs hears the new list.
+   */
+  async setFavorite(credentials: Credentials, roomId: RoomId, favorite: boolean): Promise<Favorites | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const favorites = await this.store.setFavorite(user.id, roomId, favorite);
+    if (!favorites) return "forbidden";
+    const frame: WorkspaceServerFrame = { type: "favorites.changed", favorites };
+    for (const socket of this.ctx.getWebSockets(user.id)) send(socket, frame);
+    return favorites;
   }
 
   /** Creates a room as the person `credentials` signs in, or answers null without a valid session. */

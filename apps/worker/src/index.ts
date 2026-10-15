@@ -8,6 +8,7 @@ import {
   SIGN_IN_REFUSED,
   type Bootstrap,
   type Directory,
+  type Favorites,
   type NewJoinCode,
   type NewRoomForm,
   type RoomId,
@@ -251,6 +252,25 @@ async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   return new Response(null, { status: 204 });
 }
 
+/**
+ * Stars a room for the signed-in person, or unstars it, as its header's star does, answering their
+ * stars, as ember-rust's `favorites#update` does for JSON (rooms/favorites.rs): 400 for a room id or a
+ * `favorite` it can't read, and 403 for a room they can't star.
+ */
+async function setFavorite(request: Request, env: Env, roomId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  // Any JSON value parses, null and numbers included, so don't assume an object.
+  const body: unknown = await request.json().catch(() => null);
+  const favorite = typeof body === "object" && body !== null ? (body as Record<string, unknown>).favorite : undefined;
+  if (typeof favorite !== "boolean") return problem(400, "favorite must be true or false");
+  const favorites = await workspace(env).setFavorite(credentials, roomId, favorite);
+  if (!favorites) return problem(401, "Not signed in");
+  if (favorites === "forbidden") return problem(403, "You can't star that room");
+  return json({ favorites } satisfies { favorites: Favorites });
+}
+
 /** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
 async function connectToWorkspace(request: Request, env: Env): Promise<Response> {
   // As with a room's, the address is only there for upgrades from the app's own pages.
@@ -315,6 +335,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   }
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND);
+  const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
+  if (favorite && request.method === "PUT") return setFavorite(request, env, favorite[1]!);
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
   if (room && request.method === "DELETE") return isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
