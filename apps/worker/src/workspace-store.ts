@@ -195,9 +195,14 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
   SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING id`;
 
-/** Queues closing someone's sockets in every room they're in, answering a row for each. Their person tag closes all their sockets there. */
-const QUEUE_PERSON_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
-  SELECT room_id, user_id, ?, ? FROM memberships WHERE user_id = ? RETURNING id`;
+/**
+ * Queues revoking the sockets of each of someone's sessions in every room they're in, answering a row
+ * for each session in each room. Session tags, rather than their person tag, so a delivery tried again
+ * after they've signed in afresh leaves the new session's sockets open.
+ */
+const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
+  WHERE sessions.user_id = ? RETURNING id`;
 
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
@@ -566,12 +571,12 @@ export class WorkspaceStore {
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
    * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs). In the
-   * same transaction it queues closing their sockets with `code` in every room they're in, due at
-   * `dueAt`. Answers whether it queued any.
+   * same transaction it queues closing each session's sockets with `code` in every room they're in, due
+   * at `dueAt`, as signing out does. Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
-      statement(QUEUE_PERSON_REVOCATIONS, code, dueAt, userId),
+      statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
     ]);

@@ -115,6 +115,27 @@ describe(feature("accounts.reset-password"), () => {
     expect((await connect(lobby, await signInAsGrace("new password"))).me).toEqual(laptop.user);
   });
 
+  it("queues closing each ended session's sockets in each of their rooms, so a delivery tried again later spares a session begun since", async () => {
+    await setUp();
+    const laptop = await joinAsGrace();
+    await signInAsGrace();
+    await freshRoom("lobby");
+    const later = Date.now() + 365 * 24 * 60 * 60 * 1000;
+    const sessions = (await workspaceSql("SELECT id FROM sessions WHERE user_id = ?", laptop.user.id)) as Array<{ id: string }>;
+    const rooms = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", laptop.user.id)) as Array<{ room_id: string }>;
+    expect(sessions).toHaveLength(2);
+    expect(rooms).toHaveLength(3);
+
+    const queued = await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
+      (workspace as unknown as { store: WorkspaceStore }).store.resetPassword(laptop.user.id, "digest", CloseCode.Reconnect, later, new Date().toISOString()),
+    );
+    expect(queued).toBe(true);
+    const expected = rooms.flatMap(({ room_id }) => sessions.map(({ id }) => ({ room_id, tag: `s:${id}`, code: CloseCode.Reconnect, due_at: later })));
+    const byRoomAndTag = (a: { room_id: string; tag: string }, b: { room_id: string; tag: string }) => a.room_id.localeCompare(b.room_id) || a.tag.localeCompare(b.tag);
+    expect(((await workspaceSql("SELECT room_id, tag, code, due_at FROM pending_revocations")) as typeof expected).sort(byRoomAndTag)).toEqual(expected.sort(byRoomAndTag));
+    expect(await sessionsOf(laptop.user.id)).toBe(0);
+  });
+
   it("keeps their role and status, so an administrator stays one and a banned person stays banned, and records when", async () => {
     await setUp();
     const member = await joinAsGrace();
