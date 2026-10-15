@@ -41,7 +41,10 @@ test.describe(feature("realtime.typing"), () => {
     await expect(ada.typingIndicator()).toBeVisible();
     await expect(grace.typingIndicator()).toHaveText("");
 
-    await grace.composer().fill("");
+    // Selected and deleted as you would. `fill("")` selects the text by script and presses Delete at
+    // once, which Lexical can take before it hears of the selection, deleting nothing.
+    await grace.composer().press("ControlOrMeta+a");
+    await grace.composer().press("Delete");
     await expect(ada.typingIndicator()).toHaveText("");
     await expect(ada.typingIndicator()).toBeHidden();
 

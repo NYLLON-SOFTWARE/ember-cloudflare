@@ -66,10 +66,14 @@ function keepDraft(key: string, body: string | null) {
   }
 }
 
-/** What the composer shows while the editor loads: its placeholder, as Lexxy draws it. */
+/**
+ * What the composer shows while the editor loads: its placeholder, as Lexxy draws it, as tall as the
+ * editor will be (rich-text-editor.css: 40px, or 30px below 900px wide, and the 4px under the text), so
+ * the composer doesn't move as the editor loads.
+ */
 function LoadingEditor({ placeholder }: { placeholder: string }) {
   return (
-    <p aria-hidden="true" className="min-h-10 text-[14px] opacity-66 max-md:min-h-[30px] touch:text-[16px]">
+    <p aria-hidden="true" className="min-h-11 text-[14px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
       {placeholder}
     </p>
   );

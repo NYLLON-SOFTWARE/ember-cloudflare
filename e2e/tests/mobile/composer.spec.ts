@@ -34,6 +34,25 @@ test("sending keeps the keyboard up", async ({ page, room }) => {
   await expect(composer).not.toHaveAttribute("data-blurred");
 });
 
+test("the composer keeps its size as its editor loads, so the timeline doesn't move under a tap", async ({ page, room }) => {
+  // The editor's code loads once the room has shown its messages. Holding it shows the composer without it.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/assets\/rich-text-editor-[^/]+\.js$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await openRoom(page, room);
+  const composer = page.getByRole("textbox", { name: "Write a message" });
+  const timeline = page.getByRole("log", { name: `Messages in ${room.name}` });
+  await expect(composer).toHaveCount(0);
+  const before = await timeline.boundingBox();
+
+  release();
+  await expect(composer).toBeVisible();
+  expect(await timeline.boundingBox()).toEqual(before);
+});
+
 test("tapping anywhere in the text area of the composer focuses it", async ({ page, room }) => {
   await openRoom(page, room);
   const composer = page.getByRole("textbox", { name: "Write a message" });
