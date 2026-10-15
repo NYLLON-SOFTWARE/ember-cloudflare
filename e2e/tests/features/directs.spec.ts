@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { APIRequestContext } from "@playwright/test";
-import { connectWorkspace, cookieHeader, listing, WORKSPACE_SOCKET } from "../../fixtures";
+import { cookieHeader } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
 /** Starts a DM between `member` and `others` through the API, as New direct message will, and returns its id. */
@@ -103,34 +103,29 @@ test.describe(feature("dms.delete"), () => {
     await expect(directRow(ada, [grace])).toHaveCount(0);
   });
 
-  test("goes home without an alert when the Workspace says the DM's gone before the deletion answers", async ({ members, request, rooms }) => {
-    const ownRooms = listing([rooms.general.id, rooms.random.id]);
-    let roomId = "";
-    let heardGone = () => {};
-    const gone = new Promise<void>((resolve) => (heardGone = resolve));
+  test("keeps a DM's settings until their deletion answers, though the Workspace says it's gone first, then goes home without an alert", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
-    const grace = await members.signIn(unique("Grace"), {
-      beforeOpen: (page) =>
-        page.routeWebSocket(WORKSPACE_SOCKET, (ws) => {
-          connectWorkspace(ws, (frame) => {
-            if (frame.type === "room.gone" && frame.roomId === roomId) heardGone();
-            return ownRooms(frame);
-          });
-        }),
-    });
-    roomId = await startDirect(request, ada, [grace]);
+    const grace = await members.signIn(unique("Grace"));
+    const roomId = await startDirect(request, ada, [grace]);
     await directRow(grace, [ada]).click();
     await settingsLink(grace).click();
-    // The deletion answers once the page has heard from the Workspace that the DM is gone.
+    // The deletion answers only once the test lets it, by when the Workspace has said the DM's gone.
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => (answer = resolve));
     await grace.page.route(`**/api/rooms/${roomId}`, async (route) => {
       if (route.request().method() !== "DELETE") return route.fallback();
       const response = await route.fetch();
-      await gone;
-      await expect(directRow(grace, [ada])).toHaveCount(0);
+      await answered;
       await route.fulfill({ response });
     });
+    const remove = grace.page.getByRole("button", { name: "Delete Ping" });
     grace.page.once("dialog", (dialog) => void dialog.accept());
-    await grace.page.getByRole("button", { name: "Delete Ping" }).click();
+    await remove.click();
+
+    await expect(directRow(grace, [ada])).toHaveCount(0);
+    await expect(remove).toBeDisabled();
+    await expect(grace.page).toHaveURL(new RegExp(`/rooms/directs/${roomId}/edit$`));
+    answer();
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
   });
