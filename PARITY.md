@@ -13,12 +13,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 40 ported and 54 partial of 172 features; 73 not started, 5 not applicable.
+**Overall:** 41 ported and 55 partial of 172 features; 71 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 5 | 6 | 1 | 0 | 12 |
-| [Workspace administration](#workspace-administration) | 3 | 2 | 9 | 0 | 14 |
+| [Workspace administration](#workspace-administration) | 4 | 3 | 7 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **40** | **54** | **73** | **5** | **172** |
+| **Total** | **41** | **55** | **71** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -51,7 +51,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [rail](apps/web/src/components/workspace/rail.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Private sign-in link | `auth.sign-in-link` | Campfire | ⬜ Not started |  |
 | Sign up with the join link | `auth.sign-up` | Ember | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
-| Help contact on sign-in pages | `auth.help-contact` | Campfire | ✅ Ported | Worker: [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Help contact on sign-in pages | `auth.help-contact` | Campfire | ✅ Ported | Worker: [roles](apps/worker/test/roles.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Forgery protection without tokens | `auth.csrf` | Ember | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts) |
 
 <details>
@@ -226,8 +226,8 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 | Join link | `accounts.join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [accounts](e2e/tests/features/accounts.spec.ts), [rooms](e2e/tests/features/rooms.spec.ts) |
 | Regenerate the join link | `accounts.regenerate-join-link` | Campfire | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts), [join](apps/worker/test/join.test.ts)<br>Web: [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [join-link](e2e/tests/workspace-settings/join-link.spec.ts) |
 | QR codes for links | `accounts.qr-codes` | Campfire | 🟡 Partial | Worker: [qr-code](apps/worker/test/qr-code.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [invite-link](apps/web/src/components/workspace/invite-link.test.tsx), [qr-code](apps/web/src/lib/qr-code.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| People list | `accounts.people` | Campfire | ⬜ Not started |  |
-| Make or revoke administrators | `accounts.roles` | Campfire | ⬜ Not started |  |
+| People list | `accounts.people` | Campfire | 🟡 Partial | Web: [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [people](apps/web/src/lib/people.test.ts) |
+| Make or revoke administrators | `accounts.roles` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [roles](apps/worker/test/roles.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [use-directory](apps/web/src/hooks/use-directory.test.ts), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts)<br>E2E: [people](e2e/tests/workspace-settings/people.spec.ts) |
 | Remove someone from the workspace | `accounts.remove-person` | Campfire | ⬜ Not started |  |
 | Ban and unban people | `accounts.ban` | Campfire | ⬜ Not started |  |
 | What a ban blocks | `accounts.ban-enforcement` | Campfire | ⬜ Not started |  |
@@ -245,7 +245,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 - The Rooms section has "Rooms" and New room, which opens `/rooms/opens/new`; administrators also get Must be admin to create new rooms and the shared room order.
 - At 390px wide nothing scrolls sideways.
 
-Note: The rail's Admin link, Workspace for members, opens `/account/edit`, titled "Account settings", with its heading and "Ember™ version &lt;version&gt;" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`). Chat bots, Custom styles, the logo, the translation setting and the people list under the invite link aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).
+Note: The rail's Admin link, Workspace for members, opens `/account/edit`, titled "Account settings", with its heading and "Ember™ version &lt;version&gt;" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under "People", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Chat bots, Custom styles, the logo and the translation setting aren't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).
 
 Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/views/src/helpers/application.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/application.rs)
 
@@ -342,22 +342,26 @@ Sources: [`crates/ember/src/controllers/qr_code.rs`](https://github.com/NYLLON-S
 
 ember-rust tests: [`reference/test/controllers/qr_code_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/qr_code_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`crates/ember/src/controllers/qr_code/rqrcode.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/qr_code/rqrcode.rs)
 
-**People list** (`accounts.people`) ⬜
+**People list** (`accounts.people`) 🟡
 
 - Workspace settings shows the whole list at once: administrators, then members, each sorted by name ignoring the case of ASCII letters, with a rule between the groups only when both have people.
 - Bots and removed people never appear. Banned people appear only to administrators, dimmed under a cancel mark and with no controls.
 - Each row shows the person's avatar, linking to their page with the title "&lt;name&gt; – &lt;bio&gt;", and their name.
 - Your own row links to your profile ("My settings").
 
+Note: Workspace settings lists everyone at once from the people directory (`GET /api/users`), which it loads again as it shows: administrators, then members, by name folding only ASCII letters, ties by id, with a rule between them only when both have people. Past 500 people nobody is listed twice, where ember-rust's next page lists them again. Bots and removed people never show; banned people show only to administrators, dimmed under Campfire's cancel mark, with no controls. Avatars don't link to people's pages until those are built (`users.avatar-links`), and your own row gets My settings with your profile (`users.profile`).
+
 Sources: [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs)
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`reference/test/controllers/accounts/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/users_controller_test.rb)
 
-**Make or revoke administrators** (`accounts.roles`) ⬜
+**Make or revoke administrators** (`accounts.roles`) ✅
 
 - Administrators toggle a crown on each active person who isn't a bot ("Role: Administrator" or "Role: Member" to screen readers), filled for administrators; it saves at once with no notice.
 - An administrator's own crown is disabled: dimmed, and clicks do nothing.
 - Members get 403, and removed, banned or unknown people 404.
+
+Note: `PATCH /api/account/users/<id>` with `{ "role" }`, where anything but exactly "administrator" means member and a body without a role gets 400. Unlike ember-rust, the server also refuses an administrator's own role and a bot's, so there's always an administrator and a bot stays a bot, and a change reaches the person's open pages at once: the workspace socket tells everyone `user.updated`, so their rail's Admin link and what workspace settings let them do follow without navigating. The crown's checkbox can be reached and pressed from the keyboard, where ember-rust's is hidden.
 
 Sources: [`crates/ember/src/controllers/accounts/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/users.rs) · [`crates/views/templates/accounts/users/_user.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/users/_user.html) · [`reference/app/models/user/role.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/role.rb)
 

@@ -54,6 +54,28 @@ class RoomSocket extends QuietSocket {
   }
 }
 
+/** The tab's workspace socket, which the test answers as the Workspace. Room sockets stay quiet. */
+class WorkspaceSocket extends QuietSocket {
+  static all: WorkspaceSocket[] = [];
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+
+  constructor(url: string) {
+    super();
+    if (url.endsWith("/api/socket")) WorkspaceSocket.all.push(this);
+  }
+
+  receive(frame: object) {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+
+  welcome(you: typeof ada) {
+    this.readyState = WorkspaceSocket.OPEN;
+    this.onopen?.();
+    this.receive({ type: "welcome", you });
+  }
+}
+
 /**
  * Plays the server, which may be waiting to be set up, and whose session cookie this browser starts
  * out with or without. Ada, its administrator, signs in as ada@example.com with "correct horse", and
@@ -247,6 +269,27 @@ describe(feature("accounts.name"), () => {
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
+  });
+});
+
+describe(feature("accounts.roles"), () => {
+  it("follows the person signed in being made a member, and an administrator again, as their rail says", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+
+    const listed = { ...ada, bio: null, status: "active", avatarUrl: "/users/u1.token/avatar?v=20261014120000" };
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "user.updated", user: { ...listed, role: "member" } }));
+    expect(await screen.findByRole("link", { name: "Workspace" })).toBeInTheDocument();
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "user.updated", user: { ...listed, role: "administrator" } }));
+    expect(await screen.findByRole("link", { name: "Admin" })).toBeInTheDocument();
+    // The same workspace, which only follows them.
+    expect(WorkspaceSocket.all).toHaveLength(1);
   });
 });
 
