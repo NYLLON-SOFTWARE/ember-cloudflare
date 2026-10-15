@@ -1021,7 +1021,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "reference/app/controllers/messages_controller.rb", "reference/app/models/message.rb"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/controllers/messages_controller_test.rb"],
-    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.",
+    notes: "Messages are sent over the room's WebSocket rather than posted over HTTP. The room keeps what it can show of a body (`prepareBody` in `packages/richtext`), with its plain text and whom it mentions, and refuses one that's empty (\"Your message is empty.\"), one whose plain text is over 10,000 characters, or one it couldn't show (\"That message couldn't be saved.\"), and the sender's copy shows as not sent. A frame's markup is capped at 100,000 characters. A tab still running the app from before rich text, which would send its text as it was typed, is told to reload (\"Ember has been updated. Reload the page to keep chatting.\"), and its messages and edits are refused until it does. The composer is still a plain-text box, which sends its text as the paragraph Lexxy sends for typed text.",
   },
   {
     id: "messages.rich-text",

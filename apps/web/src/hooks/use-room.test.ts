@@ -114,7 +114,7 @@ afterEach(() => {
 describe(feature("realtime.reconnect"), () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=2");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -652,7 +652,7 @@ describe(feature("realtime.presence"), () => {
   it("tells the room whether the tab is shown as it connects", () => {
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=2");
   });
 
   it("tells the room once the tab has been hidden for 5 seconds, and once it has been shown for 5 again", () => {
@@ -681,14 +681,14 @@ describe(feature("realtime.presence"), () => {
     visibility("hidden");
     // The room is connected to again before the tab has been hidden long enough to count.
     wait(VISIBILITY_CHANGE_DELAY_MS);
-    expect(socket().url).toMatch(/visible=1$/);
+    expect(socket().url).toMatch(/visible=1&/);
     socket().open();
     socket().receive(welcome());
     expect(socket().sentOfType("presence.visible")).toEqual([{ type: "presence.visible", visible: false }]);
 
     socket().drop();
     wait(500);
-    expect(socket().url).toMatch(/visible=0$/);
+    expect(socket().url).toMatch(/visible=0&/);
     socket().open();
     socket().receive(welcome());
     expect(socket().sentOfType("presence.visible")).toEqual([]);

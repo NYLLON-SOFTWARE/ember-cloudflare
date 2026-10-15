@@ -5,6 +5,7 @@ import {
   MAX_MESSAGE_LENGTH,
   parseClientFrame,
   parseRoomSocketParams,
+  ROOM_PROTOCOL,
   type ClientFrame,
   type RoomId,
   type ServerFrame,
@@ -25,6 +26,8 @@ import { workspace } from "./workspace";
 /** What each socket remembers across hibernation. */
 interface Attachment extends Viewing {
   roomId: RoomId;
+  /** The revision of the room protocol its tab speaks, as its address said. Absent on sockets let in before the room asked. */
+  protocol?: number;
   /** Set once the room has closed the socket for a revocation, which announced that it left. */
   revoked?: true;
 }
@@ -44,6 +47,10 @@ const UNDELIVERED_ROOM = "undeliveredRoom";
 const UNREADABLE = "That message couldn't be saved.";
 const EMPTY = "Your message is empty.";
 const TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
+/** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
+const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
+/** Whether `ws`'s tab runs an app older than the room protocol. */
+const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
 /** How many events of its log a room sends the Workspace in one call, at most. */
 const EVENTS_PER_CALL = 50;
@@ -100,7 +107,7 @@ export class ChatRoom extends DurableObject<Env> {
     const sessionId = request.headers.get(SESSION_HEADER);
     const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
-    const { visible } = parseRoomSocketParams(new URL(request.url).searchParams);
+    const { visible, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId)];
@@ -112,9 +119,11 @@ export class ChatRoom extends DurableObject<Env> {
       if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
       this.ctx.acceptWebSocket(server, tags);
-      server.serializeAttachment({ user, roomId, visible, heardAt: Date.now() } satisfies Attachment);
+      server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now() } satisfies Attachment);
 
       this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
+      // A tab running an older app hears at once that it has to reload, rather than once it sends something.
+      if (protocol < ROOM_PROTOCOL) this.send(server, { type: "error", message: OUTDATED });
       // Everyone else has the list from their own welcome, so they only hear who's new.
       if (!this.isPresent(user.id, server)) this.broadcast({ type: "presence.joined", user }, server);
       // Opening the room in a shown tab reads it, which sends the Workspace the log. Logged next,
@@ -243,6 +252,7 @@ export class ChatRoom extends DurableObject<Env> {
 
     switch (frame.type) {
       case "message.create": {
+        if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId: frame.clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
         const message = await store.create(sortableId(), frame.clientMessageId, user, body, now);
@@ -252,6 +262,7 @@ export class ChatRoom extends DurableObject<Env> {
       case "message.update": {
         const message = await store.find(frame.messageId);
         if (!message || message.creator.id !== user.id) return this.refuse(ws, "You can only edit your own messages");
+        if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
         // Saved as it was, it stays as it was, its update time included, as Rails saves nothing then.

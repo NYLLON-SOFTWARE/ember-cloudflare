@@ -98,6 +98,25 @@ describe(feature("messages.create"), () => {
     expect((await ada.next("error")).message).toBe("Unrecognized frame");
     await post(ada, "Still connected");
   });
+
+  it("tells a tab running the app from before rich text to reload, and refuses its messages and edits", async () => {
+    const room = await freshRoom("outdated");
+    const ada = await connect(room, "Ada");
+    const original = await post(ada, "<p>Mine</p>");
+    const old = await connect(room, ada.session, "outdated");
+    const reload = { type: "error", message: "Ember has been updated. Reload the page to keep chatting." };
+    expect(await old.next("error")).toEqual(reload);
+
+    // It sends what was typed as it was typed, which the room would read as markup.
+    old.send({ type: "message.create", clientMessageId: "old", body: "<b>1</b> < 2 &amp; 3" });
+    expect(await old.next("error")).toEqual({ ...reload, clientMessageId: "old", failed: "message.create" });
+    old.send({ type: "message.update", messageId: original.id, body: "Changed" });
+    expect(await old.next("error")).toEqual({ ...reload, failed: "message.update" });
+    await settle(old, ada);
+    expect(ada.pending("message.created")).toEqual([]);
+    expect(ada.pending("message.updated")).toEqual([]);
+    expect((await connect(room, "Grace")).welcome.messages).toEqual([original]);
+  });
 });
 
 describe(feature("messages.plain-text"), () => {

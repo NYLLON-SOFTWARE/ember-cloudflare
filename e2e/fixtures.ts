@@ -1,5 +1,5 @@
 import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
-import type { ClientFrame, Invitation, Message, ServerFrame, Sidebar, User } from "@ember/protocol";
+import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
@@ -117,7 +117,7 @@ export class Participant {
   }
 
   static async join(baseURL: string, session: Session, roomId: string): Promise<Participant> {
-    const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket`, baseURL);
+    const url = new URL(`/api/rooms/${encodeURIComponent(roomId)}/socket${roomSocketQuery({ visible: true })}`, baseURL);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     // The room only takes upgrades from the app's own pages, with a session cookie.
     const headers = { Cookie: cookieHeader(session), Origin: new URL(baseURL).origin };

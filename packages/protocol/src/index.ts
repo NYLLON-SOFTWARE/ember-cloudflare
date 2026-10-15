@@ -322,22 +322,36 @@ export type WorkspaceServerFrame =
   | { type: "error"; message: string }
   | { type: "pong" };
 
+/**
+ * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
+ * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
+ * tabs sent a message's text rather than its markup, which the room would now read as markup.
+ */
+export const ROOM_PROTOCOL = 2;
+
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {
   /** Whether the tab is shown, which `presence.visible` frames update. */
   visible: boolean;
 }
 
-/** The query that carries `params` on a room socket's address. */
-export const roomSocketQuery = ({ visible }: RoomSocketParams) => `?visible=${visible ? 1 : 0}`;
+/** The query that carries `params` on a room socket's address, with the revision of the protocol the tab speaks. */
+export const roomSocketQuery = ({ visible }: RoomSocketParams) => `?visible=${visible ? 1 : 0}&protocol=${ROOM_PROTOCOL}`;
 
 /** The part of a `URLSearchParams` that reading a socket's address needs, which the protocol, made for every runtime, names itself. */
 interface SearchParams {
   get(name: string): string | null;
 }
 
-/** What a room socket's address says about its tab, as `roomSocketQuery` wrote it. Without it, the tab counts as shown. */
-export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams => ({ visible: query.get("visible") !== "0" });
+/**
+ * What a room socket's address says about its tab, as `roomSocketQuery` wrote it, and the revision of the
+ * protocol it speaks. A tab that doesn't say counts as shown, and one naming no revision speaks the
+ * first, as the app did before it named them.
+ */
+export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & { protocol: number } => ({
+  visible: query.get("visible") !== "0",
+  protocol: Number(query.get("protocol")) || 1,
+});
 
 /** The most characters a message's plain text can have. */
 export const MAX_MESSAGE_LENGTH = 10_000;
