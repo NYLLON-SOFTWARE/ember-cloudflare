@@ -457,7 +457,7 @@ export const features = [
     id: "users.show",
     title: "Someone's profile page",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/users/<id>` shows anyone, whatever their status, titled with their name: Go Back to the previous page, the avatar (\"Profile avatar\"), and on your own page a pencil to \"Edit my profile\". Unknown ids are 404.",
       "Active and banned people show their name and bio, and to administrators their email as a mail link.",
@@ -468,6 +468,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/show.html", "crates/views/templates/users/_ban_button.html", "crates/views/templates/users/profiles/_transfer.html", "crates/ember/src/controllers/users.rs"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/users_controller_test.rb"],
+    notes: "There's no sign-in link until `auth.sign-in-link` is ported, and no Ban or Remove ban until `accounts.ban`. `GET /api/users/<id>` answers someone as the people directory lists them, whatever their status, adding their email address, or null, for administrators, and 404 for an id nobody has; the page keeps what it shows current from the directory, as everyone's open pages show a rename. Signed in, the page of someone nobody is answers Campfire's 404 page, as ember-rust's does. The DM button starts the DM, or opens the one you have, as the sidebar's suggestions do (`dms.suggestions`), and says \"Ping <name>\" to screen readers, where ember-rust's says nothing: a person's labels its icon, which `aria-hidden` silences, and a bot's icon has no text at all. Someone with no email address shows administrators no link, where ember-rust's is an empty one, and a long name or bio wraps rather than running out of the panel.",
   },
   {
     id: "users.avatars",

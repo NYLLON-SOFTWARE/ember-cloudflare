@@ -17,10 +17,12 @@ import globe from "./campfire/globe.svg";
 import lifebuoy from "./campfire/lifebuoy.svg";
 import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
+import messages from "./campfire/messages.svg";
 import messagesAdd from "./campfire/messages-add.svg";
 import messagesEmpty from "./campfire/messages-empty.svg";
 import messagesOutlined from "./campfire/messages-outlined.svg";
 import minus from "./campfire/minus.svg";
+import pencil from "./campfire/pencil.svg";
 import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
 import refresh from "./campfire/refresh.svg";
@@ -118,6 +120,10 @@ export function MenuDotsHorizontal(props: CampfireIconProps) {
   return <CampfireIcon src={menuDotsHorizontal} {...props} />;
 }
 
+export function Messages(props: CampfireIconProps) {
+  return <CampfireIcon src={messages} {...props} />;
+}
+
 export function MessagesAdd(props: CampfireIconProps) {
   return <CampfireIcon src={messagesAdd} {...props} />;
 }
@@ -132,6 +138,10 @@ export function MessagesOutlined(props: CampfireIconProps) {
 
 export function Minus(props: CampfireIconProps) {
   return <CampfireIcon src={minus} {...props} />;
+}
+
+export function Pencil(props: CampfireIconProps) {
+  return <CampfireIcon src={pencil} {...props} />;
 }
 
 export function PersonAdd(props: CampfireIconProps) {

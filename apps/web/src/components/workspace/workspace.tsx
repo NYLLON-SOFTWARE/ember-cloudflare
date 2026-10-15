@@ -10,6 +10,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
+import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { CustomStylesPage } from "./custom-styles-page";
@@ -17,6 +18,7 @@ import { DirectSettingsPage } from "./direct-settings-page";
 import { NewDirectDialog } from "./new-direct-dialog";
 import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
+import { PersonPage } from "./person-page";
 import { ProfilePage } from "./profile-page";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
@@ -43,7 +45,11 @@ const RAIL_PAGES = {
   "workspace-settings": "workspace",
   "custom-styles": null,
   profile: "profile",
+  person: null,
 } as const satisfies Record<Route["page"], RailPage>;
+
+/** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
+const showNotFound = () => loadPage(location.pathname);
 
 /** An address the app goes on from, to `path`, with an alert to show there. */
 interface Redirect {
@@ -298,8 +304,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
-  // A suggestion starts the DM with its person, or opens the one they have, and goes there, as
-  // ember-rust's posts its form, listing it as the server answers.
+  // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
+  // have, and goes there, as ember-rust's posts its form, listing it as the server answers.
   const startDirectWith = async (person: User) => {
     const answered = askForRoom();
     const mark = pageMark();
@@ -391,6 +397,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       case "profile":
         return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
+      case "person":
+        return <PersonPage key={route.userId} userId={route.userId} me={me} onStartDirect={startDirectWith} onMissing={showNotFound} onFailed={failed} />;
       default:
         if (direct)
           return <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />;
