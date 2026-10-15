@@ -786,7 +786,7 @@ export const features = [
     id: "dms.create",
     title: "Start or reopen a direct message",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM. With nobody chosen, it's your DM with yourself.",
       "Anyone who exists can be included, whatever their status, and you go to the DM afterwards.",
@@ -795,13 +795,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/directs.rs", "crates/db/src/models/room.rs", "crates/views/templates/rooms/directs/new.html", "reference/app/models/rooms/direct.rb"],
     upstreamTests: ["reference/test/controllers/rooms/directs_controller_test.rb", "reference/test/models/rooms/direct_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "The sidebar has a DMs heading saying \"No direct messages yet.\", and New direct message and the rail's DMs are disabled.",
+    notes: "`POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. Missing: New direct message (`dms.picker`), so a DM can be started only through the API, and `/rooms/directs/new` goes home; and a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).",
   },
   {
     id: "dms.naming",
     title: "Group DMs and DM names",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A DM is named after the other members as a sentence (\"A and B\", \"A, B, and C\"), or after you when it's only you; that name is its page title.",
       "Its sidebar row says \"Direct message with \" to screen readers, then the other members' names joined by \", \", or yours followed by \" (you)\" in a DM with yourself. One other person shows one avatar, a group up to 4.",
@@ -811,12 +811,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/rooms/_direct.html", "crates/views/templates/rooms/directs/edit.html", "crates/views/src/rooms.rs", "crates/views/templates/rooms/show/_nav.html", "crates/views/templates/rooms/show/_composer.html"],
     upstreamTests: ["reference/test/models/rooms/direct_test.rb", "parity/screens.yml"],
+    notes: "The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. Until people's pages exist (`users.show`), the settings page's avatars aren't links to them. That page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says \"This is the very beginning of your direct messages.\" under the others' names rather than welcoming you to a room, and its messages are named \"Messages with <name>\" to screen readers.",
   },
   {
     id: "dms.delete",
     title: "Delete a direct message",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Delete Ping in a DM's settings asks \"Are you sure you want to delete this ping and all messages in it? This can’t be undone.\", then deletes the DM and its messages and goes to `/`.",
       "Any member can delete a DM this way, and only their own DMs: anything else goes to `/` with \"Room not found or inaccessible\". Deleting a DM through the room address (`DELETE /rooms/<id>`) instead needs an administrator or the DM's creator.",
@@ -824,6 +825,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/directs.rs", "crates/ember/src/controllers/rooms.rs", "crates/views/templates/rooms/directs/edit.html", "reference/app/controllers/rooms/directs_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/directs_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs"],
+    notes: "One address deletes rooms and DMs, `DELETE /api/rooms/<id>`, which lets any member delete a DM, as ember-rust's DM address does, where its room address asks for an administrator or the DM's creator; no page of ember-rust's uses that one for a DM. Anyone else gets 404, administrators included. Deleting a DM works as deleting a room does (`rooms.delete`): everyone with it open sees \"This room was deleted.\" at once, rather than when they next send a message, and it leaves its members' sidebars, while nobody else hears of it.",
   },
   {
     id: "dms.picker",
@@ -870,7 +872,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Missing: the workspace's name (the heading says \"Ember\"), DMs and suggestions (New direct message is a disabled button, and \"No direct messages yet.\" stands in for the list), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
+    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: the workspace's name (the heading says \"Ember\"), New direct message, which is a disabled button (`dms.picker`), suggestions (\"No direct messages yet.\" stands in for them while you have no DMs), \"No conversations found.\", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.",
   },
   {
     id: "sidebar.room-order",
@@ -947,7 +949,7 @@ export const features = [
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/layouts/application.html", "crates/views/templates/users/sidebars/show.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
     notes:
-      "The count is the button's description (\"3 unread\"), so its name stays \"Activity\", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and \"No conversations found.\" never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.",
+      "The count is the button's description (\"3 unread\"), so its name stays \"Activity\", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder, shown while you have no DMs, stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and \"No conversations found.\" never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.",
   },
   {
     id: "sidebar.favorites",

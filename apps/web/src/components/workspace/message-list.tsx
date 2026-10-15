@@ -9,7 +9,10 @@ import { MessageItem, type MessageActions, type MessageEditors } from "./message
 const NEAR_BOTTOM_PX = 120;
 
 interface Props {
+  /** The room's name as the reader reads it, which a DM's names the others in it. */
   roomName: string;
+  /** Whether the room is a DM, which a timeline is "with" rather than "in". */
+  direct?: boolean;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   state: RoomState;
@@ -23,7 +26,7 @@ interface Props {
 }
 
 /** The scrolling timeline. Stays pinned to the newest message unless you've scrolled up. */
-export function MessageList({ roomName, invitation, state, me, actions, editing, editors, onLoadOlder }: Props) {
+export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -95,7 +98,7 @@ export function MessageList({ roomName, invitation, state, me, actions, editing,
     <div className="relative min-h-0 flex-1">
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so the return button
           below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
-      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages in ${roomName}`} aria-busy={waiting || undefined}>
+      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || undefined}>
         <div ref={top} aria-hidden className="h-px" />
         {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
@@ -103,8 +106,8 @@ export function MessageList({ roomName, invitation, state, me, actions, editing,
 
         {state.status === "open" && items.length === 0 && !state.hasMore && !welcomeCard && (
           <div className="p-6 text-center text-muted-foreground">
-            <h2 className="mb-1.5 text-xl text-foreground">Welcome to #{roomName}</h2>
-            <p>This is the very beginning of the room. Say hello!</p>
+            <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
+            <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
           </div>
         )}
 

@@ -90,11 +90,11 @@ export function connectWorkspace(ws: WebSocketRoute, passes: (frame: WorkspaceSe
 /**
  * Whether the workspace socket of a tab that lists just `roomIds` passes `frame` on: all but the rooms
  * saved that aren't among them, as the socket brings each room saved to everyone in it, and everyone's
- * in the rooms every other test opens to all.
+ * in the rooms every other test opens to all. DMs pass, since only the test's own people are in them.
  */
 export function listing(roomIds: Iterable<string>): (frame: WorkspaceServerFrame) => boolean {
   const listed = new Set(roomIds);
-  return (frame) => frame.type !== "room.saved" || listed.has(frame.room.id);
+  return (frame) => frame.type !== "room.saved" || frame.room.kind === "direct" || listed.has(frame.room.id);
 }
 
 /** Keeps the rooms every other test saves out of the sidebars of `target`'s tabs, which list just `roomIds`. */

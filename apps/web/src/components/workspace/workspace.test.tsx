@@ -2,16 +2,18 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type Me, type Message, type Room, type RoomId, type RoomSettings, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { Workspace } from "./workspace";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
-const rooms: Room[] = [
+const rooms: SharedRoom[] = [
   { id: "general", name: "general", kind: "open", icon: null },
   { id: "random", name: "random", kind: "open", icon: null },
 ];
+/** Ada's DM with Grace. */
+const withGrace: DirectRoom = { id: "d1", kind: "direct", members: [{ id: ada.id, name: ada.name }, { id: "u2", name: "Grace" }] };
 /** The sidebar's list of `listed`, with the rooms starred in `favorites`. */
 const roomList = (listed: Room[], favorites: RoomId[] = []) => ({ rooms: listed, favorites: { rooms: favorites, version: 0 }, invitation: null });
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
@@ -444,6 +446,50 @@ describe(feature("rooms.member-only-access"), () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
     expect(roomListRequests()).toBe(1);
+  });
+});
+
+describe(feature("dms.naming"), () => {
+  it("names a DM for the others in it, in its header, the tab, its messages and the composer", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/rooms/d1");
+    expect(await roomHeading()).toHaveTextContent(/^Direct message with Grace$/);
+    await waitFor(() => expect(document.title).toBe("Grace"));
+    expect(screen.getByRole("log", { name: "Messages with Grace" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace");
+  });
+});
+
+describe(feature("dms.delete"), () => {
+  it("deletes a DM from the settings its header opens, going home without an alert", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "DELETE /api/rooms/d1": () => new Response(null, { status: 204 }),
+    });
+    const { user } = showWorkspace("/rooms/d1");
+    await roomHeading();
+    await user.click(screen.getByRole("link", { name: "Settings for this Ping" }));
+    expect(location.pathname).toBe("/rooms/directs/d1/edit");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Edit settings for Grace");
+    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link")).toEqual([]);
+  });
+
+  it("goes home with an alert from the settings of a DM you aren't in, or of a room that isn't a DM", async () => {
+    showWorkspace("/rooms/directs/d9/edit");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(roomListRequests()).toBe(2);
+
+    act(() => navigate("/rooms/directs/random/edit"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(screen.getAllByRole("alert").at(-1)).toHaveTextContent("Room not found or inaccessible");
   });
 });
 

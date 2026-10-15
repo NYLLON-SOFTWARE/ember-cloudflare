@@ -1,10 +1,10 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type NewRoomForm, type Room, type RoomId, type RoomSettings, type UserId } from "@ember/protocol";
+import { CloseCode, type NewRoomForm, type RoomId, type RoomSettings, type SharedRoom, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../src/workspace";
 import { ACTIVE_PEOPLE, ACTIVE_PEOPLE_IN_ROOM, QUEUE_MEMBER_REVOCATIONS, REVOKE_ROOM_FROM_OTHERS, ROOM_TO_CHANGE, type WorkspaceStore } from "../src/workspace-store";
-import { api, closeOf, connect, createRoom, freshDeploy, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, closeOf, connect, createRoom, direct, freshDeploy, post, settle, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 beforeEach(freshDeploy);
 
@@ -39,16 +39,6 @@ async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | 
     });
     ws.addEventListener("close", (event) => resolve(event.code));
   });
-}
-
-/** Adds a DM between `sessions`, as nothing else can yet. */
-async function direct(...sessions: Session[]): Promise<RoomId> {
-  const id = `direct-${crypto.randomUUID().slice(0, 8)}`;
-  await workspaceSql(`INSERT INTO rooms (id, kind, creator_id, created_at, updated_at) VALUES (?, 'direct', ?, 'now', 'now')`, id, sessions[0]!.user.id);
-  for (const { user } of sessions) {
-    await workspaceSql(`INSERT INTO memberships (room_id, user_id, created_at, updated_at) VALUES (?, ?, 'now', 'now')`, id, user.id);
-  }
-  return id;
 }
 
 describe(feature("rooms.create-open"), () => {
@@ -190,7 +180,7 @@ describe(feature("rooms.edit-permissions"), () => {
     const room = await createRoom("Leads", { closedTo: [ada.user.id], as: ada });
     const dm = await direct(ada, grace);
 
-    for (const [roomId, session] of [[room.id, grace], ["nowhere", ada], [dm, ada], ["%FF", ada]] as const) {
+    for (const [roomId, session] of [[room.id, grace], ["nowhere", ada], [dm.id, ada], ["%FF", ada]] as const) {
       for (const response of [await settings(roomId, session), await change(roomId, session, { name: "Renamed" })]) {
         expect(response.status, roomId).toBe(404);
         expect(await response.json()).toEqual({ error: "Room not found or inaccessible" });
@@ -223,7 +213,7 @@ describe(feature("rooms.convert-access"), () => {
 
     const response = await change(room.id, ada, { kind: "open" });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ room: { ...room, kind: "open" } satisfies Room });
+    expect(await response.json()).toEqual({ room: { ...room, kind: "open" } satisfies SharedRoom });
     expect(await membersOf(room.id)).toEqual(ids(ada, grace));
     expect(await workspaceSql("SELECT involvement FROM memberships WHERE room_id = ? AND user_id = ?", room.id, ada.user.id)).toEqual([{ involvement: "everything" }]);
     expect(await reconnect(room.id, grace)).toBe("welcome");
@@ -238,7 +228,7 @@ describe(feature("rooms.convert-access"), () => {
     const closed = closeOf(linusInRoom.ws);
 
     const response = await change(room.id, ada, { name: "Leads", kind: "closed", memberIds: [ada.user.id, grace.user.id] });
-    expect(await response.json()).toEqual({ room: { ...room, name: "Leads", kind: "closed" } satisfies Room });
+    expect(await response.json()).toEqual({ room: { ...room, name: "Leads", kind: "closed" } satisfies SharedRoom });
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect(await reconnect(room.id, linus)).toBe(CloseCode.NotFound);
     expect(await membersOf(room.id)).toEqual(ids(ada, grace));

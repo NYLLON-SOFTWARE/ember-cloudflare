@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 48 ported and 60 partial of 172 features; 59 not started, 5 not applicable.
+**Overall:** 50 ported and 61 partial of 172 features; 56 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -21,7 +21,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Workspace administration](#workspace-administration) | 6 | 4 | 4 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 1 | 1 | 3 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
-| [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
+| [Direct messages](#direct-messages) | 2 | 1 | 2 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 4 | 4 | 2 | 0 | 10 |
 | [Messages](#messages) | 4 | 15 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **48** | **60** | **59** | **5** | **172** |
+| **Total** | **50** | **61** | **56** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -775,29 +775,29 @@ Note: The preview sets `LEGACY_ROOMS` to general and random, which hold its mess
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Start or reopen a direct message | `dms.create` | Campfire | ⬜ Not started |  |
-| Group DMs and DM names | `dms.naming` | Campfire | ⬜ Not started |  |
-| Delete a direct message | `dms.delete` | Campfire | ⬜ Not started |  |
+| Start or reopen a direct message | `dms.create` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
+| Group DMs and DM names | `dms.naming` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [direct-settings-page](apps/web/src/components/workspace/direct-settings-page.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [directs](apps/web/src/lib/directs.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
+| Delete a direct message | `dms.delete` | Campfire | ✅ Ported | Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [direct-settings-page](apps/web/src/components/workspace/direct-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | New direct message dialog | `dms.picker` | Ember | ⬜ Not started |  |
 | Suggested people | `dms.suggestions` | Campfire | ⬜ Not started |  |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**Start or reopen a direct message** (`dms.create`) ⬜
+**Start or reopen a direct message** (`dms.create`) 🟡
 
 - Starting a DM with some people opens the DM whose members are exactly them and you, creating it the first time, so each group of people has one DM. With nobody chosen, it's your DM with yourself.
 - Anyone who exists can be included, whatever their status, and you go to the DM afterwards.
 - Members of a new DM start at the `everything` notification level, and it goes to the top of their DM lists; reopening a DM leaves it in its place, since the list is ordered by last activity.
 - `/rooms/directs/new`, where New direct message leads when clicked with a modifier key, is a page with "New direct message", a "To" people search, Start Ping and "Search for people to start a conversation."
 
-Note: The sidebar has a DMs heading saying "No direct messages yet.", and New direct message and the rail's DMs are disabled.
+Note: `POST /api/directs` with `{ userIds }` starts the DM between you and the people named who exist, answering 201, or opens the one that group already has, answering 200, so two people who start the same DM at once get one between them. Each DM is found by a key of its members' ids rather than by reading every DM's members (`docs/database.md`). A new DM reaches its members' sidebars at once (`sidebar.live-updates`) and nobody else hears of it. Missing: New direct message (`dms.picker`), so a DM can be started only through the API, and `/rooms/directs/new` goes home; and a new DM is listed after the others rather than first until DMs are ordered by activity (`sidebar.dm-order`).
 
 Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`crates/views/templates/rooms/directs/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/new.html) · [`reference/app/models/rooms/direct.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/direct.rb)
 
 ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/directs_controller_test.rb) · [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs)
 
-**Group DMs and DM names** (`dms.naming`) ⬜
+**Group DMs and DM names** (`dms.naming`) ✅
 
 - A DM is named after the other members as a sentence ("A and B", "A, B, and C"), or after you when it's only you; that name is its page title.
 - Its sidebar row says "Direct message with " to screen readers, then the other members' names joined by ", ", or yours followed by " (you)" in a DM with yourself. One other person shows one avatar, a group up to 4.
@@ -805,15 +805,19 @@ ember-rust tests: [`reference/test/controllers/rooms/directs_controller_test.rb`
 - Its settings button ("Settings for this Ping" to screen readers) opens a page titled "Edit settings for &lt;name&gt;", with a card for each member but you (just you in a DM with yourself) and a button labelled "Delete Ping" whose text is "Ping".
 - Members can't be added or removed, and DMs have no star or icon.
 
+Note: The sidebar lists each DM with everyone in it, and the app names each person as the people directory has them now, so a rename shows in DM names at once. Until people's pages exist (`users.show`), the settings page's avatars aren't links to them. That page has a heading for screen readers alone, since ember-rust's has none, and a long name wraps inside its card, where ember-rust's runs out of it. A DM with no messages yet says "This is the very beginning of your direct messages." under the others' names rather than welcoming you to a room, and its messages are named "Messages with &lt;name&gt;" to screen readers.
+
 Sources: [`crates/views/templates/users/sidebars/rooms/_direct.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_direct.html) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/edit.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html)
 
 ember-rust tests: [`reference/test/models/rooms/direct_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/direct_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Delete a direct message** (`dms.delete`) ⬜
+**Delete a direct message** (`dms.delete`) ✅
 
 - Delete Ping in a DM's settings asks "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", then deletes the DM and its messages and goes to `/`.
 - Any member can delete a DM this way, and only their own DMs: anything else goes to `/` with "Room not found or inaccessible". Deleting a DM through the room address (`DELETE /rooms/<id>`) instead needs an administrator or the DM's creator.
 - The DM disappears from every sidebar at once. Nobody is disconnected: a member who sends a message afterwards sees "This room was deleted."
+
+Note: One address deletes rooms and DMs, `DELETE /api/rooms/<id>`, which lets any member delete a DM, as ember-rust's DM address does, where its room address asks for an administrator or the DM's creator; no page of ember-rust's uses that one for a DM. Anyone else gets 404, administrators included. Deleting a DM works as deleting a room does (`rooms.delete`): everyone with it open sees "This room was deleted." at once, rather than when they next send a message, and it leaves its members' sidebars, while nobody else hears of it.
 
 Sources: [`crates/ember/src/controllers/rooms/directs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/directs.rs) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/rooms/directs/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/directs/edit.html) · [`reference/app/controllers/rooms/directs_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/directs_controller.rb)
 
@@ -849,7 +853,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts) |
 | DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts), [sidebar-updates](apps/worker/test/sidebar-updates.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
@@ -869,7 +873,7 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 - Room rows show the room's icon and name and are at least 36px tall (44px on phones). The room you're in is marked `aria-current="page"` and set in weight 600, even on a link to one of its messages.
 - It's on every signed-in page, settings and profiles included, and stays put as you move between pages, reloading only in the background (`sidebar.live-updates`).
 
-Note: The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Missing: the workspace's name (the heading says "Ember"), DMs and suggestions (New direct message is a disabled button, and "No direct messages yet." stands in for the list), "No conversations found.", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.
+Note: The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one. Your DMs are listed under DMs in the order they were made (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is. Missing: the workspace's name (the heading says "Ember"), New direct message, which is a disabled button (`dms.picker`), suggestions ("No direct messages yet." stands in for them while you have no DMs), "No conversations found.", and marking the room on a link to one of its messages, which goes home, to the last room visited, instead. Rooms can't be hidden here yet.
 
 Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/templates/users/sidebars/rooms/_shared.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/rooms/_shared.html) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 
@@ -934,7 +938,7 @@ ember-rust tests: [`crates/ember/src/channels/tests/channels_test.rs`](https://g
 - Following any rail or sidebar link turns the filter off. Other navigation and background sidebar reloads leave it on, and a full page load starts with it off.
 - On phones, every click on Activity opens the drawer, whether it turns the filter on or off.
 
-Note: The count is the button's description ("3 unread"), so its name stays "Activity", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and "No conversations found." never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.
+Note: The count is the button's description ("3 unread"), so its name stays "Activity", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder, shown while you have no DMs, stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and "No conversations found." never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.
 
 Sources: [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html)
 

@@ -23,6 +23,7 @@ import {
   type RoomId,
   type RoomSettings,
   type RoomSocketParams,
+  type SharedRoom,
   type Sidebar,
   type SignUp,
   type UserId,
@@ -183,8 +184,8 @@ export async function fetchNewRoomForm(): Promise<NewRoomForm> {
 }
 
 /** Creates a room, answering it. */
-export async function createRoom(room: NewRoom): Promise<Room> {
-  return (await request<{ room: Room }>("/api/rooms", { method: "POST", body: JSON.stringify(room) })).room;
+export async function createRoom(room: NewRoom): Promise<SharedRoom> {
+  return (await request<{ room: SharedRoom }>("/api/rooms", { method: "POST", body: JSON.stringify(room) })).room;
 }
 
 /** A room's settings. Fails with a 404 ApiError for a room this person isn't in, or a DM. */
@@ -193,8 +194,8 @@ export async function fetchRoomSettings(roomId: RoomId): Promise<RoomSettings> {
 }
 
 /** Changes a room, answering it as it is then. */
-export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<Room> {
-  return (await request<{ room: Room }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
+export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<SharedRoom> {
+  return (await request<{ room: SharedRoom }>(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "PATCH", body: JSON.stringify(changes) })).room;
 }
 
 /**
