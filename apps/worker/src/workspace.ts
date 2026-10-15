@@ -579,9 +579,29 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     const favorites = await this.store.setFavorite(user.id, roomId, favorite);
     if (!favorites) return "forbidden";
-    const frame: WorkspaceServerFrame = { type: "favorites.changed", favorites };
-    for (const socket of this.ctx.getWebSockets(user.id)) send(socket, frame);
+    this.starsChanged(user.id, favorites);
     return favorites;
+  }
+
+  /**
+   * Puts the stars of the person `credentials` signs in in the order `roomIds` lists them, answering
+   * their stars as they are then, as ember-rust's `sidebars#update_order` does (users/sidebars.rs):
+   * "forbidden" when `roomIds` isn't exactly the rooms they've starred, or null without a valid session.
+   * Every tab of theirs hears the new order.
+   */
+  async setFavoriteOrder(credentials: Credentials, roomIds: RoomId[]): Promise<Favorites | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const favorites = await this.store.setFavoriteOrder(user.id, roomIds);
+    if (!favorites) return "forbidden";
+    this.starsChanged(user.id, favorites);
+    return favorites;
+  }
+
+  /** Tells every tab of `userId`'s what their stars are now. */
+  private starsChanged(userId: UserId, favorites: Favorites) {
+    const frame: WorkspaceServerFrame = { type: "favorites.changed", favorites };
+    for (const socket of this.ctx.getWebSockets(userId)) send(socket, frame);
   }
 
   /** Creates a room as the person `credentials` signs in, or answers null without a valid session. */

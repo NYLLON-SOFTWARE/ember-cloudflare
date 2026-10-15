@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 43 ported and 56 partial of 172 features; 68 not started, 5 not applicable.
+**Overall:** 44 ported and 57 partial of 172 features; 66 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -22,7 +22,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [People and profiles](#people-and-profiles) | 1 | 0 | 4 | 0 | 5 |
 | [Rooms](#rooms) | 6 | 11 | 1 | 0 | 18 |
 | [Direct messages](#direct-messages) | 0 | 0 | 5 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 3 | 3 | 4 | 0 | 10 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 4 | 4 | 2 | 0 | 10 |
 | [Messages](#messages) | 3 | 13 | 3 | 0 | 19 |
 | [Reactions](#reactions) | 0 | 3 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 0 | 2 | 1 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 0 | 2 | 3 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 5 | 6 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **43** | **56** | **68** | **5** | **172** |
+| **Total** | **44** | **57** | **66** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -850,15 +850,15 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [room-list](apps/web/src/lib/room-list.test.ts) |
+| Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts) |
 | DM order | `sidebar.dm-order` | Campfire | ⬜ Not started |  |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts)<br>Web: [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Activity filter | `sidebar.activity-filter` | Ember | ✅ Ported | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Star rooms | `sidebar.favorites` | Ember | ✅ Ported | Worker: [favorites](apps/worker/test/favorites.test.ts)<br>Web: [favorite-button](apps/web/src/components/workspace/favorite-button.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Reorder starred rooms | `sidebar.favorite-order` | Ember | ⬜ Not started |  |
+| Reorder starred rooms | `sidebar.favorite-order` | Ember | ✅ Ported | Worker: [favorites](apps/worker/test/favorites.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [api](apps/web/src/lib/api.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts), [sidebar](e2e/tests/mobile/sidebar.spec.ts) |
 | Shared room order | `sidebar.shared-order` | Ember | ⬜ Not started |  |
-| Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | ⬜ Not started |  |
+| Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -956,7 +956,7 @@ Sources: [`crates/ember/src/controllers/rooms/favorites.rs`](https://github.com/
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Reorder starred rooms** (`sidebar.favorite-order`) ⬜
+**Reorder starred rooms** (`sidebar.favorite-order`) ✅
 
 - With at least two starred rooms showing, a starred row can be dragged after a 400ms hold with a mouse, pen or finger (moving 8px first cancels), or moved with Alt+Up and Alt+Down. The new order saves at once, and unstarred rows don't move.
 - Dragging near the list's top or bottom scrolls it, and releasing a drag never opens the room.
@@ -965,6 +965,8 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Screen readers hear "Moving &lt;name&gt;. Release to save, or press Escape to cancel.", "Saving room order…" and "Starred room order saved." Escape, or a canceled touch, puts the row back with "Room move canceled." and saves nothing.
 - A failed save shows "Couldn’t save room order. Please try again.", the only message shown on screen, and puts the old order back unless your stars changed meanwhile.
 - The room list tells screen readers "Hold a starred room to drag it, or press Alt and the up or down arrow to reorder your favorites. Other rooms follow the workspace order."
+
+Note: `PUT /api/sidebar/order` takes `{"roomIds": [...]}` as JSON and answers `{"favorites": {"rooms": [...], "version": n}}`, where ember-rust's `/users/me/sidebar/order` takes `room_ids` and answers 204, and your other tabs hear `favorites.changed` and re-sort at once rather than at their next reload. Room ids are Ember's own, so the 400s say "roomIds must be an array" and "room IDs must be unique and valid". The same batch drops your stars on rooms you've since left or hidden, as starring does. The status region is in the page from the start, empty until a room moves, so the first announcement is heard, where ember-rust's is hidden until then. An unread starred row keeps its grip beside its dot at the row's end, where ember-rust's grip and dot each take an auto margin, which leaves the grip halfway along. A session that has expired goes to sign in.
 
 Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html)
 
@@ -984,10 +986,12 @@ Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/N
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Background sidebar reloads keep your place** (`sidebar.refresh-preserves-state`) ⬜
+**Background sidebar reloads keep your place** (`sidebar.refresh-preserves-state`) 🟡
 
 - A reload for a shared-order change waits until any hold, drag or save in the room list is over, then keeps the list's scroll position and the focused row.
 - Other background reloads, on reconnect or when a tab comes back after 60 seconds, never interrupt a hold, drag or save in progress.
+
+Note: A sidebar reloaded in the background, as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust. There's no shared order yet, so nothing waits on one.
 
 Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js)
 

@@ -1,14 +1,17 @@
 import { feature } from "@ember/parity";
-import type { Favorites, RoomId, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
+import { MAX_FAVORITES, type Favorites, type RoomId, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { MAX_FAVORITES } from "../src/workspace-store";
 import { api, createRoom, freshDeploy, openWorkspaceSocket, signIn, workspaceSql, type Session } from "./support";
 
 /** Stars room `roomId` for `session`'s person, or unstars it, as the star in its header does. */
 const star = (session: Session, roomId: RoomId, favorite = true) =>
   api(`/api/rooms/${roomId}/favorite`, { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ favorite }) });
 
-/** What a star or unstar answers: the person's stars as they are then. */
+/** Puts the stars of `session`'s person in the order `roomIds` lists them, as dragging one in their sidebar does. */
+const reorder = (session: Session, roomIds: unknown) =>
+  api("/api/sidebar/order", { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ roomIds }) });
+
+/** What a star, an unstar or a new order answers: the person's stars as they are then. */
 const answered = async (response: Promise<Response>) => {
   const settled = await response;
   expect(settled.status, await settled.clone().text()).toBe(200);
@@ -168,5 +171,91 @@ describe(feature("sidebar.favorites"), () => {
     expect(favorites.rooms).toHaveLength(MAX_FAVORITES);
     expect(favorites.rooms).not.toContain("many-2");
     expect(favorites.rooms.at(-1)).toBe(extra.id);
+  });
+});
+
+describe(feature("sidebar.favorite-order"), () => {
+  it("puts your stars in the order you list, answering it, and tells every tab of yours and nobody else", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const [design, ops, sales] = [await createRoom("Design"), await createRoom("Ops"), await createRoom("Sales")];
+    for (const room of [design, ops, sales]) await star(ada, room.id);
+    const tabs = [await openWorkspaceSocket(ada), await openWorkspaceSocket(ada)];
+    const gracesTab = await openWorkspaceSocket(grace);
+
+    const reordered = { rooms: [sales.id, design.id, ops.id], version: 4 };
+    expect(await answered(reorder(ada, [sales.id, design.id, ops.id]))).toEqual(reordered);
+    for (const tab of tabs) expect(await tab.next()).toEqual({ type: "favorites.changed", favorites: reordered } satisfies WorkspaceServerFrame);
+    expect(await gracesTab.answers()).toBe(true);
+    expect(await favoritesOf(ada)).toEqual(reordered);
+    // A new star still goes last.
+    const crm = await createRoom("CRM");
+    expect((await answered(star(ada, crm.id))).rooms).toEqual([sales.id, design.id, ops.id, crm.id]);
+  });
+
+  it("answers 403, changing nothing, for any list but exactly the rooms you've starred and can star", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const [design, ops, hidden, other] = [await createRoom("Design"), await createRoom("Ops"), await createRoom("Hidden"), await createRoom("Other")];
+    for (const room of [design, ops, hidden]) await star(ada, room.id);
+    await star(grace, other.id);
+    await hide(ada, hidden.id);
+
+    for (const roomIds of [[ops.id], [ops.id, design.id, hidden.id], [ops.id, design.id, other.id], [ops.id, other.id], [other.id], []]) {
+      expect((await reorder(ada, roomIds)).status, JSON.stringify(roomIds)).toBe(403);
+    }
+    expect(await favoritesOf(ada)).toEqual({ rooms: [design.id, ops.id], version: 3 });
+    expect(await storedStars(ada)).toEqual([design.id, ops.id, hidden.id]);
+  });
+
+  it("drops your stars on rooms you can't star now, which the list leaves out", async () => {
+    const ada = await signIn("Ada");
+    const [design, ops, hidden] = [await createRoom("Design"), await createRoom("Ops"), await createRoom("Hidden")];
+    for (const room of [design, hidden, ops]) await star(ada, room.id);
+    await hide(ada, hidden.id);
+
+    expect(await answered(reorder(ada, [ops.id, design.id]))).toEqual({ rooms: [ops.id, design.id], version: 4 });
+    expect(await storedStars(ada)).toEqual([ops.id, design.id]);
+    // Shown again, the room isn't starred, as in ember-rust.
+    await hide(ada, hidden.id, false);
+    expect(await favoritesOf(ada)).toEqual({ rooms: [ops.id, design.id], version: 4 });
+  });
+
+  it("takes an empty list from someone with no stars, and the order of as many stars as anyone can have", async () => {
+    const ada = await signIn("Ada");
+    expect(await answered(reorder(ada, []))).toEqual({ rooms: [], version: 1 });
+
+    const starred = `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${MAX_FAVORITES})`;
+    await workspaceSql(`${starred} INSERT INTO rooms (id, kind, name, created_at, updated_at) SELECT 'many-' || i, 'open', 'Many ' || i, 'now', 'now' FROM n`);
+    await workspaceSql(`${starred} INSERT INTO memberships (room_id, user_id, created_at, updated_at) SELECT 'many-' || i, ?, 'now', 'now' FROM n`, ada.user.id);
+    await workspaceSql(`${starred} INSERT INTO favorites (user_id, room_id, position) SELECT ?, 'many-' || i, i FROM n`, ada.user.id);
+    const reversed = Array.from({ length: MAX_FAVORITES }, (_, i) => `many-${MAX_FAVORITES - i}`);
+    expect(await answered(reorder(ada, reversed))).toEqual({ rooms: reversed, version: 2 });
+  });
+
+  it("answers 400 for a list it can't read, before looking at your stars", async () => {
+    const ada = await signIn("Ada");
+    const design = await createRoom("Design");
+    await star(ada, design.id);
+    const put = (body: string) => api("/api/sidebar/order", { method: "PUT", headers: { Cookie: ada.cookie }, body });
+    const refusals = {
+      "roomIds must be an array": ["{}", JSON.stringify({ roomIds: design.id }), JSON.stringify({ roomIds: null }), JSON.stringify([design.id]), "null", "not JSON"],
+      "too many rooms": [JSON.stringify({ roomIds: Array.from({ length: MAX_FAVORITES + 1 }, (_, i) => `room-${i}`) })],
+      "room IDs must be unique and valid": [[design.id, design.id], [1], [design.id, "Not a room"], [""], [null]].map((roomIds) => JSON.stringify({ roomIds })),
+    };
+    for (const [error, bodies] of Object.entries(refusals)) {
+      for (const body of bodies) {
+        const response = await put(body);
+        expect(response.status, body.slice(0, 80)).toBe(400);
+        expect(await response.json()).toEqual({ error });
+      }
+    }
+    expect(await favoritesOf(ada)).toEqual({ rooms: [design.id], version: 1 });
+  });
+
+  it("answers 401 to someone signed out, whatever they send", async () => {
+    for (const body of [JSON.stringify({ roomIds: [] }), "not JSON"]) {
+      expect((await api("/api/sidebar/order", { method: "PUT", body })).status).toBe(401);
+    }
   });
 });

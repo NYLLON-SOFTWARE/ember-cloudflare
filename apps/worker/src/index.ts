@@ -4,6 +4,7 @@ import {
   isRoomId,
   parseAccountChanges,
   parseCustomStyles,
+  parseFavoriteOrder,
   parseNewRoom,
   parseRoleChange,
   parseRoomChanges,
@@ -325,6 +326,22 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/**
+ * Puts the signed-in person's starred rooms in the order listed, as dragging one in their sidebar does,
+ * answering their stars, where ember-rust's `sidebars#update_order` answers 204 (users/sidebars.rs): 400
+ * for a list it can't read, and 403 for one that isn't exactly the rooms they've starred.
+ */
+async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const roomIds = parseFavoriteOrder(await request.json().catch(() => null));
+  if (typeof roomIds === "string") return problem(400, roomIds);
+  const favorites = await workspace(env).setFavoriteOrder(credentials, roomIds);
+  if (!favorites) return problem(401, "Not signed in");
+  if (favorites === "forbidden") return problem(403, "Those aren't the rooms you've starred");
+  return json({ favorites } satisfies { favorites: Favorites });
+}
+
 /** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
 async function connectToWorkspace(request: Request, env: Env): Promise<Response> {
   // As with a room's, the address is only there for upgrades from the app's own pages.
@@ -382,6 +399,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
+  if (pathname === "/api/sidebar/order" && request.method === "PUT") return setFavoriteOrder(request, env);
   if (pathname === "/api/socket") return connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
