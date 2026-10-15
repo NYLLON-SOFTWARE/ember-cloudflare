@@ -306,6 +306,22 @@ describe(feature("accounts.roles"), () => {
     expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
   });
 
+  it("takes the next connection's welcome again after one that stopped answering", async () => {
+    const [onSessionChanged, update] = [vi.fn(), vi.fn()];
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: ada });
+    const silent = socket();
+
+    // Two heartbeats without a word drop the socket without its closing, and the next one connects.
+    await wait(60_000);
+    expect(socket()).not.toBe(silent);
+    socket().connect(ada);
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
   it("says when the welcome finds the person signed in has changed since the page loaded", async () => {
     const onSessionChanged = vi.fn();
     await showSidebar(onSessionChanged);

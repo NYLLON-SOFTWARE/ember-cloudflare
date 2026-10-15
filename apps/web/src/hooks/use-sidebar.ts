@@ -114,8 +114,10 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     };
 
     // Whether this connection has said the person signed in changed, which can come before its welcome.
-    // The welcome may have read them before that change, so it doesn't undo it.
+    // The welcome may have read them before that change, so it doesn't undo it. Each try starts afresh,
+    // after a close or a socket that stopped answering alike.
     let toldOfChange = false;
+    const onConnecting = () => void (toldOfChange = false);
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);
       switch (frame?.type) {
@@ -142,7 +144,6 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     // A refused upgrade looks like any other failure, so ask whether the session has expired, as when
     // the Workspace says to reconnect, which it does when this browser signs out.
     const onClose = (code: number, opened: boolean) => {
-      toldOfChange = false;
       if (!opened || code === CloseCode.Reconnect) void fetchMe().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
       return true;
     };
@@ -159,7 +160,7 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     };
 
     reload();
-    const workspace = reconnectingSocket({ url: workspaceSocketUrl, onMessage, onClose, deploySpreadMs: DEPLOY_SPREAD_MS });
+    const workspace = reconnectingSocket({ url: workspaceSocketUrl, onMessage, onConnecting, onClose, deploySpreadMs: DEPLOY_SPREAD_MS });
     document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       closed = true;
