@@ -27,6 +27,12 @@ export function byName<T extends { id: string; name: string }>(named: T[]): T[] 
 }
 
 /**
+ * Whether the sidebar marks `room` unread, as rooms_list_controller.js marks its row: never the room
+ * the tab shows, `currentRoomId`, which counts as read while it's open.
+ */
+export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId;
+
+/**
  * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last, as the room made
  * most recently, and read.
  */

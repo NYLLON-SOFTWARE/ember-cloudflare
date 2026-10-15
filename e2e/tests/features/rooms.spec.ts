@@ -71,6 +71,38 @@ test.describe(feature("sidebar.unread"), () => {
   });
 });
 
+test.describe(feature("sidebar.activity-filter"), () => {
+  test("counts the rooms marked unread, shows only them while it's on, and a room's link turns it off", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
+    const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
+    const rows = grace.page.getByRole("region", { name: "Rooms" }).getByRole("link");
+    const caughtUp = grace.page.getByText("You’re all caught up. No unread conversations.");
+    await expect(activity).toHaveAttribute("title", "Show unread conversations");
+
+    await activity.click();
+    await expect(activity).toHaveAttribute("aria-pressed", "true");
+    await expect(rows).toHaveCount(0);
+    await expect(caughtUp).toBeVisible();
+    // The rail marks no page while it's on.
+    await expect(grace.page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current]")).toHaveCount(0);
+
+    await ada.send("Lunch?");
+    await expect(activity).toHaveAccessibleDescription("1 unread");
+    await expect(activity.getByText("1", { exact: true })).toHaveCSS("height", "17px");
+    await expect(rows).toHaveText(["#general"]);
+    await expect(caughtUp).toBeHidden();
+
+    await rows.first().click();
+    await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await expect(activity).toHaveAttribute("aria-pressed", "false");
+    // The room shown counts as read, so the pill goes.
+    await expect(activity).not.toHaveAttribute("aria-description");
+    await expect(activity.getByText("1", { exact: true })).toBeHidden();
+    await expect(rows).toHaveText(["#general", "#random"]);
+  });
+});
+
 test.describe(feature("rooms.show"), () => {
   test("opens the room named in the address", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });

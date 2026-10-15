@@ -933,7 +933,7 @@ export const features = [
     id: "sidebar.activity-filter",
     title: "Activity filter",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The rail's Activity button (titled \"Show unread conversations\", `aria-pressed`) toggles a filter that shows only unread conversations and hides suggestions; with nothing unread it says \"You’re all caught up. No unread conversations.\"",
       "Its badge shows how many rooms and DMs are unread, never counting the room you're viewing. It hides at 0 and updates as messages arrive and rooms are read.",
@@ -942,7 +942,8 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/ember/shell.js", "crates/views/templates/layouts/application.html", "crates/views/templates/users/sidebars/show.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The rail shows Activity, disabled.",
+    notes:
+      "The count is the button's description (\"3 unread\"), so its name stays \"Activity\", where ember-rust's name runs the number on. A link opened in another tab or window, or one you don't follow after all to keep unsaved changes, leaves the filter on, as it leaves the drawer open, where shell.js turns it off. The DMs' placeholder stands where ember-rust's suggestions would and hides with them, so the sidebar always has a row with the filter off and \"No conversations found.\" never shows yet. On phones the rail is in the drawer, as in ember-rust, so Activity is only there to press with the drawer open, which it leaves open.",
   },
   {
     id: "sidebar.favorites",
@@ -2255,7 +2256,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, and nothing on a room's forms. DMs, Activity and Search are disabled buttons, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.",
+    notes: "Home, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, and nothing on a room's forms or while Activity is on. DMs and Search are disabled buttons, the logo is always Ember's until workspaces have logos, and your avatar opens a menu with Log out rather than your profile.",
   },
   {
     id: "ui.room-header",

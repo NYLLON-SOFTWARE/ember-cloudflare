@@ -4,12 +4,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { guardLeaving } from "@/hooks/use-route";
-import { Rail, type RailPage } from "./rail";
+import { Rail, type Activity, type RailPage } from "./rail";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
+const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
 /** The rail for the page `current` names, as `me` sees it. */
-const railAt = (current: RailPage, onSignOut = vi.fn(), me = ada) => <Rail me={me} workspaceName="Analytical Engines" current={current} onSignOut={onSignOut} />;
+const railAt = (current: RailPage, onSignOut = vi.fn(), activity = activityOff, me = ada) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} onSignOut={onSignOut} />
+);
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -33,7 +36,7 @@ describe(feature("ui.rail"), () => {
   });
 
   it("names the settings link Admin for administrators, and Workspace for everyone else", () => {
-    const { rerender } = render(railAt("workspace", vi.fn(), { ...ada, administrator: true }));
+    const { rerender } = render(railAt("workspace", vi.fn(), activityOff, { ...ada, administrator: true }));
     const settings = screen.getByRole("link", { name: "Admin" });
     expect(settings).toHaveAttribute("href", "/account/edit");
     expect(settings).toHaveAttribute("aria-current", "page");
@@ -68,12 +71,46 @@ describe(feature("ui.rail"), () => {
     expect(history.length).toBe(length + 1);
   });
 
+  it("marks no page while Activity is on", () => {
+    render(railAt("home", vi.fn(), { ...activityOff, on: true }));
+    expect(screen.queryAllByRole("link", { current: "page" })).toEqual([]);
+  });
+
   it("disables what isn't built yet, and says so", () => {
     render(railAt("home"));
-    for (const label of ["DMs", "Activity", "Search"]) {
+    for (const label of ["DMs", "Search"]) {
       expect(screen.getByRole("button", { name: label })).toBeDisabled();
       expect(screen.getByRole("button", { name: label })).toHaveAttribute("title", `${label} isn't built yet`);
     }
+  });
+});
+
+describe(feature("sidebar.activity-filter"), () => {
+  it("toggles Activity, titled as ember-rust titles it, and shows it pressed while it's on", async () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(railAt("home", vi.fn(), { ...activityOff, onToggle }));
+    const activity = screen.getByRole("button", { name: "Activity" });
+    expect(activity).toHaveAttribute("title", "Show unread conversations");
+    expect(activity).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(activity);
+    expect(onToggle).toHaveBeenCalledOnce();
+
+    rerender(railAt("home", vi.fn(), { ...activityOff, on: true, onToggle }));
+    expect(activity).toHaveAttribute("aria-pressed", "true");
+    expect(activity).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
+  });
+
+  it("counts unread conversations in a pill at its corner, hidden at none", () => {
+    const { rerender } = render(railAt("room", vi.fn(), { ...activityOff, unread: 3 }));
+    const activity = screen.getByRole("button", { name: "Activity" });
+    expect(activity).toHaveAccessibleDescription("3 unread");
+    const pill = within(activity).getByText("3");
+    expect(pill).toHaveAttribute("aria-hidden", "true");
+    expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", vi.fn(), { ...activityOff, unread: 0 }));
+    expect(activity).not.toHaveAttribute("aria-description");
+    expect(activity).toHaveTextContent(/^Activity$/);
   });
 });
 
