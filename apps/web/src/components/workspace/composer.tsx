@@ -1,9 +1,9 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
 import type { User } from "@ember/protocol";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
-import { hasTouchKeyboard, opensLink, sendsMessage } from "@/lib/keyboard";
+import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
 
@@ -98,6 +98,11 @@ function useEditorShown(deferred: boolean): boolean {
   return shown;
 }
 
+/** Whether `target` is the page itself, as when nothing has focus, rather than anything on it. */
+function isPage(target: EventTarget | null): boolean {
+  return target === document.body || target === document.getElementById("main-content");
+}
+
 /** Whether focus is still on `element`, or on nothing, as when what had it went away. */
 function focusStayedOn(element: Element | null): boolean {
   const focused = document.activeElement;
@@ -120,6 +125,13 @@ interface Props {
   /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
   onSend: (body: string) => boolean;
   onTyping: (active: boolean) => void;
+  /** Opens the editor on your newest message, for Up Arrow. */
+  onEditLastMessage?: () => void;
+  ref?: Ref<ComposerHandle>;
+}
+
+export interface ComposerHandle {
+  focus(): void;
 }
 
 /**
@@ -127,7 +139,7 @@ interface Props {
  * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
  * and a round Send button. What's written is kept as a draft until it's sent.
  */
-export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping }: Props) {
+export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping, onEditLastMessage, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -144,6 +156,26 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   const placeholder = `Message #${roomName}`;
+
+  useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
+
+  // ember-rust's Up Arrow (rooms/show.html, messages_controller.js#editMyLastMessage): with nothing written,
+  // it edits your newest message. ember-rust takes it from anywhere on the page, other fields included,
+  // even the editor of another message; here it's taken only from the composer or the page itself.
+  const editLastMessage = useEffectEvent((event: KeyboardEvent) => {
+    if (!onEditLastMessage || event.defaultPrevented || !pressedAlone(event, "ArrowUp")) return;
+    const fromText = form.current?.querySelector(".lexxy-editor__content")?.contains(event.target as Node) ?? false;
+    // Before the editor shows, what's written is the draft it will show.
+    const blank = editor.current ? editor.current.isBlank() : !draft;
+    if (!(fromText || isPage(event.target)) || !blank) return;
+    event.preventDefault();
+    onEditLastMessage();
+  });
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => editLastMessage(event);
+    document.addEventListener("keydown", keyDown);
+    return () => document.removeEventListener("keydown", keyDown);
+  }, []);
 
   const changed = () => {
     const blank = editor.current!.isBlank();

@@ -1,20 +1,10 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
-import type { Browser, Page } from "@playwright/test";
-import { ADMINISTRATOR, editorField, invitation, logOut, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
+import type { Page } from "@playwright/test";
+import { ADMINISTRATOR, administratorOn, editorField, invitation, logOut, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
-
-/** Opens `room` on a browser of the administrator's own, signing in on the way. Close its context afterwards. */
-async function administratorOn(browser: Browser, baseURL: string, room: TestRoom): Promise<Page> {
-  const page = await (await browser.newContext({ baseURL })).newPage();
-  await useOwnAddress(page);
-  await page.goto(`/rooms/${room.id}`);
-  await signInAsAdministrator(page);
-  await expect(page.getByRole("log", { name: `Messages in ${room.name}` })).toBeVisible();
-  return page;
-}
 
 test.describe(feature("auth.sign-in"), () => {
   test.beforeEach(({ page }) => useOwnAddress(page));

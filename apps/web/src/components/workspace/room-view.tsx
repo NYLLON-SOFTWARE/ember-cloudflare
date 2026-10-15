@@ -1,12 +1,15 @@
-import { useEffect, useEffectEvent } from "react";
-import type { Favorites, Invitation, Me, User } from "@ember/protocol";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import type { Favorites, Invitation, Me } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
 import { useRoom } from "@/hooks/use-room";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
+import { hasTouchKeyboard } from "@/lib/keyboard";
 import { rememberLastRoom } from "@/lib/last-room";
-import { Composer, RoomDeleted } from "./composer";
+import { isPending } from "@/lib/room-state";
+import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import type { MessageEditors } from "./message-item";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 
@@ -14,7 +17,7 @@ interface Props {
   room: Room;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
-  me: User;
+  me: Me;
   /** Whether this person has starred the room. */
   favorite: boolean;
   /** Whether the workspace socket has said the room is gone for this person, as it can before the room's own socket does. */
@@ -40,6 +43,30 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
+  const composer = useRef<ComposerHandle>(null);
+  const [editing, setEditing] = useState<ReadonlySet<string>>(() => new Set());
+
+  const editors = useMemo<MessageEditors>(() => {
+    // As an editor closes, focus goes back to the composer, where ember-rust's is lost, except on touch
+    // screens, where it would bring up the keyboard.
+    const returnFocus = () => {
+      if (!hasTouchKeyboard()) composer.current?.focus();
+    };
+    return {
+      open: (messageId) => setEditing((ids) => (ids.has(messageId) ? ids : new Set(ids).add(messageId))),
+      close: (messageId) => {
+        setEditing((ids) => new Set([...ids].filter((id) => id !== messageId)));
+        returnFocus();
+      },
+      returnFocus,
+    };
+  }, []);
+
+  // ember-rust's Up Arrow edits your newest message, unless it's still on its way.
+  const editLastMessage = () => {
+    const newest = state.messages.findLast((message) => message.creator.id === me.id);
+    if (newest && !isPending(newest)) editors.open(newest.id);
+  };
 
   return (
     <>
@@ -62,11 +89,21 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
             </button>
           </div>
         )}
-        <MessageList roomName={room.name} invitation={invitation} state={state} me={me} actions={deleted ? null : messageActions} onLoadOlder={loadOlder} />
+        <MessageList
+          roomName={room.name}
+          invitation={invitation}
+          state={state}
+          me={me}
+          actions={deleted ? null : messageActions}
+          editing={editing}
+          editors={editors}
+          onLoadOlder={loadOlder}
+        />
         {deleted ? (
           <RoomDeleted />
         ) : (
           <Composer
+            ref={composer}
             roomId={room.id}
             roomName={room.name}
             userId={me.id}
@@ -76,6 +113,7 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
             deferEditor={state.status === "connecting" && !state.offline}
             onSend={postMessage}
             onTyping={typing}
+            onEditLastMessage={editLastMessage}
           />
         )}
       </MainContent>

@@ -1082,7 +1082,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/composer.css"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Only authors can edit, since there are no administrators yet. The editor is Lexxy, as in ember-rust, but until its edit form is ported it has Cancel and Save buttons, Enter saves on a computer (Shift+Enter starts a new line), and its formatting toolbar never shows. Up Arrow does nothing. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text.",
+    notes: "Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: adding mentions (`mentions.autocomplete`), link previews (`unfurl.composer`), file messages (`attachments.upload`), search (`search.messages`) and bots.",
   },
   {
     id: "messages.delete",
@@ -1096,7 +1096,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/db/src/models/message.rs", "crates/views/templates/messages/edit.html"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "reference/test/system/sending_messages_test.rb", "crates/ember/src/controllers/messages/tests.rs"],
-    notes: "Delete is on the action bar and asks \"Delete this message?\". Only authors can delete.",
+    notes: "Delete message is in the editor, as in ember-rust, and the room checks an administrator's role as it does for an edit; the socket refuses anyone else's deletion rather than answering 403. The editor stays until the message goes, and focus goes back to the composer, except on touch screens. Still to come: file messages (`attachments.upload`) and search (`search.messages`).",
   },
   {
     id: "messages.history",
@@ -1180,7 +1180,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "More reactions comes straight after the quick reactions, Edit and Delete follow on your own messages, and there's no Reply or Copy link. With a mouse the bar closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. An open bar stays open when its message scrolls out of view.",
+    notes: "Edit comes after the quick reactions and before More reactions, as in ember-rust, but there's no Reply or Copy link yet. With a mouse the bar closes as soon as the pointer leaves, but stays while one of its buttons has focus, and Escape doesn't close it. An open bar stays open when its message scrolls out of view.",
   },
   {
     id: "messages.reply",

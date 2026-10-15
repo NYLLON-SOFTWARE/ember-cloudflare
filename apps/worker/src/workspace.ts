@@ -885,6 +885,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Whether `userId` is an active administrator now, for a room deciding whether they may edit or
+   * delete someone else's message. Rooms ask, since a role can change while their sockets are open.
+   */
+  async isAdministrator(userId: UserId): Promise<boolean> {
+    return this.store.isAdministrator(userId);
+  }
+
+  /**
    * Who `credentials` signs in, with their session, and whether they're in room `roomId`, as of
    * `authorizedAt`, or null without a valid session.
    */

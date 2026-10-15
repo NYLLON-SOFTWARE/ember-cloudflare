@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Invitation, Message, User } from "@ember/protocol";
+import type { Invitation, Me, Message } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,8 +56,9 @@ const scrollTo = (log: HTMLElement, top: number) => {
   fireEvent.scroll(log);
 };
 
-const ada: User = { id: "u1", name: "Ada" };
+const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
 
 /** A message from Ada, named by its id. */
 const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message => ({
@@ -75,7 +76,7 @@ const message = (id: string, createdAt = "2026-10-12T10:00:00.000Z"): Message =>
 });
 
 const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invitation: Invitation | null = null) => (
-  <MessageList roomName="general" invitation={invitation} state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} onLoadOlder={onLoadOlder} />
+  <MessageList roomName="general" invitation={invitation} state={{ ...initialRoomState, status: "open", ...state }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={onLoadOlder} />
 );
 
 beforeEach(() => {

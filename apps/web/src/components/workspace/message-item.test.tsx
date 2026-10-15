@@ -3,6 +3,7 @@ import type { Boost, Message, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { PendingMessage } from "@/lib/room-state";
@@ -32,11 +33,21 @@ const message = (overrides: Partial<Message> = {}): Message => {
 
 const boost = (id: string, booster: User, content: string): Boost => ({ id, messageId: "m1", booster, content, createdAt: "" });
 
-/** Renders one message. `sent` is what an edit reports: false when there's no connection. */
-function show(m: Message | PendingMessage, { me = ada, threaded = false, sent = true } = {}) {
-  const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn() };
-  const { container } = render(<MessageItem message={m} me={me} threaded={threaded} actions={actions} />);
-  return { actions, user: userEvent.setup(), article: within(container).getByRole("article") };
+/**
+ * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
+ * administrator if `administrator`. `sent` is what an edit or deletion reports: false when there's no connection.
+ */
+function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
+  const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
+  let setEditing: (editing: boolean) => void = () => {};
+  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn() };
+  function Room() {
+    const [editing, set] = useState(false);
+    setEditing = set;
+    return <MessageItem message={m} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />;
+  }
+  const { container } = render(<Room />);
+  return { actions, editors, user: userEvent.setup(), article: within(container).getByRole("article") };
 }
 
 /** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
@@ -115,44 +126,74 @@ describe(feature("messages.grouping"), () => {
 });
 
 describe(feature("messages.edit"), () => {
-  it("offers Edit and Delete on your own messages only", () => {
+  it("offers Edit on your own messages, and on everyone's to administrators", () => {
     show(message(), { me: grace });
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  it("edits in place, starting from the message, and Enter saves", async () => {
-    const { actions, user } = show(message());
+  it("puts Edit before More reactions, as ember-rust does, and Delete in the editor", () => {
+    show(message({ creator: grace }), { administrator: true });
+    const bar = screen.getByRole("group", { name: "Message actions" });
+    expect(within(bar).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Thumbs up",
+      "Clapping",
+      "Waving hand",
+      "Edit",
+      "More reactions",
+    ]);
+  });
+
+  it("edits in place of the message, starting from its text, and Ctrl or Cmd+Enter saves", async () => {
+    const { actions, editors, user, article } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(editors.open).toHaveBeenCalledWith("m1");
     const editor = await editBox();
     expect(editor).toHaveValue("Hello");
     expect(editor).toHaveFocus();
+    // Like ember-rust's, it takes the place of the author, the time and the reactions too.
+    expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
+    expect(article.querySelector("time")).not.toBeInTheDocument();
+    expect(within(article).queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
+    expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+
     await user.clear(editor);
-    await user.type(editor, "Hello again{Enter}");
+    await user.type(editor, "Hello again{Control>}{Enter}{/Control}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello again</p>");
+    expect(editors.close).toHaveBeenCalledWith("m1");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.type(await editBox(), " there{Meta>}{Enter}{/Meta}");
+    expect(actions.edit).toHaveBeenLastCalledWith("m1", "<p>Hello there</p>");
   });
 
-  it("starts a new line on Shift+Enter, and saves from the Save button too", async () => {
+  it("starts a new line on Enter, and saves from Save changes too", async () => {
     const { actions, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.type(await editBox(), "{Shift>}{Enter}{/Shift}again");
+    await user.type(await editBox(), "{Enter}again");
     expect(actions.edit).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello<br>again</p>");
   });
 
-  it("cancels an edit on Escape and ignores unchanged or blank edits", async () => {
-    const { actions, user } = show(message());
+  it("discards an edit on Escape or Close editor and discard changes, and ignores unchanged or blank edits", async () => {
+    const { actions, editors, user } = show(message());
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.type(await editBox(), " more{Escape}");
     expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(editors.close).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.type(await editBox(), "{Enter}");
+    await user.type(await editBox(), " more");
+    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.type(await editBox(), "{Control>}{Enter}{/Control}");
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.clear(await editBox());
-    await user.type(await editBox(), "{Enter}");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(actions.edit).not.toHaveBeenCalled();
   });
 
@@ -163,25 +204,21 @@ describe(feature("messages.edit"), () => {
     expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
   });
 
-  it("doesn't save on the Enter that confirms an input method's word", async () => {
-    const { actions, user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = await editBox();
-    fireEvent.change(editor, { target: { value: "こんにちは" } });
-    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
-    expect(actions.edit).not.toHaveBeenCalled();
-    fireEvent.keyDown(editor, { key: "Enter" });
-    expect(actions.edit).toHaveBeenCalledWith("m1", "<p>こんにちは</p>");
-    expect(editor).not.toBeInTheDocument();
-  });
-
   it("keeps the editor and what's written when the edit can't be sent", async () => {
-    const { actions, user } = show(message(), { sent: false });
+    const { actions, editors, user } = show(message(), { sent: false });
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.clear(await editBox());
-    await user.type(await editBox(), "hello{Enter}");
+    await user.type(await editBox(), "hello{Control>}{Enter}{/Control}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>hello</p>");
     expect(await editBox()).toHaveValue("hello");
+    expect(editors.close).not.toHaveBeenCalled();
+  });
+
+  it("shows the message again, not its editor, once nothing can be done to it", () => {
+    const props = { message: message(), me: { ...ada, administrator: false }, threaded: false, editors: { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() } };
+    render(<MessageItem {...props} editing actions={null} />);
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 });
 
@@ -247,14 +284,28 @@ describe(feature("messages.actions"), () => {
 });
 
 describe(feature("messages.delete"), () => {
-  it("asks before deleting your message", async () => {
+  it("deletes from the editor, after asking, and hands focus back", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    const { actions, user } = show(message());
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const { actions, editors, user } = show(message({ creator: grace }), { administrator: true });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
     expect(actions.remove).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(confirm).toHaveBeenCalledWith("Delete this message?");
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(editors.returnFocus).toHaveBeenCalled();
+    // The editor stays until the message goes, as ember-rust's does.
+    expect(editors.close).not.toHaveBeenCalled();
+    expect(await editBox()).toBeInTheDocument();
+  });
+
+  it("keeps focus in the editor when the deletion can't be sent", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { actions, editors, user } = show(message(), { sent: false });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Delete message" }));
+    expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(editors.returnFocus).not.toHaveBeenCalled();
   });
 });
 
@@ -297,7 +348,8 @@ describe(feature("boosts.add"), () => {
   });
 
   it("offers nothing where nothing can be done, as in a room that's gone", () => {
-    render(<MessageItem message={message({ boosts: [boost("b1", grace, "👍")] })} me={ada} threaded={false} actions={null} />);
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
+    render(<MessageItem message={message({ boosts: [boost("b1", grace, "👍")] })} me={{ ...ada, administrator: true }} threaded={false} editing={false} actions={null} editors={editors} />);
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Reactions" })).getByRole("button", { name: /👍/ })).toBeDisabled();
@@ -334,9 +386,10 @@ describe(feature("users.profile"), () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
     const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn() };
     render(
       <PeopleContext value={new Map([listed(ada, "Ada King"), listed(grace, "Grace Hopper")])}>
-        <MessageItem message={m} me={ada} threaded={false} actions={actions} />
+        <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
       </PeopleContext>,
     );
     expect(screen.getByText("Ada King")).toBeInTheDocument();

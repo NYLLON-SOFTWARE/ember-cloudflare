@@ -28,6 +28,7 @@ globalThis.IntersectionObserver ??= class {
     return [];
   }
 } as unknown as typeof IntersectionObserver;
+Element.prototype.scrollIntoView ??= () => {};
 
 // jsdom's dialogs can't open or close, so these do what browsers do, short of the top layer and
 // moving focus.
