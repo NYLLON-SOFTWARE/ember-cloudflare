@@ -32,9 +32,9 @@ export async function history(server: Server, options: HistoryOptions): Promise<
   const welcomeMs: number[] = [];
   let newestPage: Message[] = [];
   for (let i = 0; i < options.welcomes; i++) {
-    const { client, welcome, ms } = await RoomClient.connect(server.url, room, writer!.session);
+    const { client, opening, ms } = await RoomClient.connect(server.url, room, writer!.session);
     welcomeMs.push(ms);
-    newestPage = welcome.messages;
+    newestPage = opening.messages;
     client.close();
   }
 

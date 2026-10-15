@@ -355,15 +355,27 @@ export type ClientFrame =
   | { type: "presence.visible"; visible: boolean }
   | { type: "ping" };
 
+/**
+ * What a room sends on a socket. The room numbers the changes to its messages, 1 for its first and one
+ * more for each after: the frame that announces a change carries its number as `seq`, and a welcome or
+ * `resumed` the latest. A tab that connects again names the latest it has seen (`since` in
+ * `RoomSocketParams`), so the room can send only what changed after it.
+ */
 export type ServerFrame =
   /** Everything a newcomer needs, including who's here. After it, they only hear who arrives and leaves. */
-  | { type: "welcome"; you: User; messages: Message[]; present: User[]; hasMore: boolean }
+  | { type: "welcome"; you: User; messages: Message[]; present: User[]; hasMore: boolean; seq: number }
+  /**
+   * Sent in place of a welcome to a tab that names the latest change it has seen, if the room still
+   * keeps every change since: the messages changed after it, as they are now, oldest first, the ids of
+   * those deleted, and who's here. A message both made and deleted since is among the deleted alone.
+   */
+  | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number }
   /** A new message. Its author has stopped typing, too. */
-  | { type: "message.created"; message: Message }
-  | { type: "message.updated"; message: Message }
-  | { type: "message.deleted"; messageId: string }
-  | { type: "boost.created"; boost: Boost }
-  | { type: "boost.deleted"; boostId: string; messageId: string }
+  | { type: "message.created"; message: Message; seq: number }
+  | { type: "message.updated"; message: Message; seq: number }
+  | { type: "message.deleted"; messageId: string; seq: number }
+  | { type: "boost.created"; boost: Boost; seq: number }
+  | { type: "boost.deleted"; boostId: string; messageId: string; seq: number }
   /** Someone opened the room who didn't have it open already, in another tab. */
   | { type: "presence.joined"; user: User }
   /** Someone closed the last tab they had the room open in, which stops their typing, too. */
@@ -421,23 +433,33 @@ export const ROOM_PROTOCOL = 2;
 export interface RoomSocketParams {
   /** Whether the tab is shown, which `presence.visible` frames update. */
   visible: boolean;
+  /**
+   * The latest change to the room the tab has seen, by its `seq`, when it has the room's messages from
+   * an earlier socket: the room answers with what changed since (`resumed`) rather than a welcome, if it can.
+   */
+  since?: number;
 }
 
 /** The query that carries `params` on a room socket's address, with the revision of the protocol the tab speaks. */
-export const roomSocketQuery = ({ visible }: RoomSocketParams) => `?visible=${visible ? 1 : 0}&protocol=${ROOM_PROTOCOL}`;
+export const roomSocketQuery = ({ visible, since }: RoomSocketParams) =>
+  `?visible=${visible ? 1 : 0}&protocol=${ROOM_PROTOCOL}${since === undefined ? "" : `&since=${since}`}`;
 
 /** The part of a `URLSearchParams` that reading a socket's address needs, which the protocol, made for every runtime, names itself. */
 interface SearchParams {
   get(name: string): string | null;
 }
 
+/** A change's number as an address writes it, or undefined for anything else. */
+const parseSeq = (value: string | null) => (value !== null && /^\d{1,15}$/.test(value) ? Number(value) : undefined);
+
 /**
  * What a room socket's address says about its tab, as `roomSocketQuery` wrote it, and the revision of the
- * protocol it speaks. A tab that doesn't say counts as shown, and one naming no revision speaks the
- * first, as the app did before it named them.
+ * protocol it speaks. A tab that doesn't say counts as shown and new to the room, and one naming no
+ * revision speaks the first, as the app did before it named them.
  */
 export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & { protocol: number } => ({
   visible: query.get("visible") !== "0",
+  since: parseSeq(query.get("since")),
   protocol: Number(query.get("protocol")) || 1,
 });
 

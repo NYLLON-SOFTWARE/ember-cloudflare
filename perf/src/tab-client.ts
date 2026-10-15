@@ -86,7 +86,10 @@ export class TabClient {
     return this.connect(this.loadListings(), { room: 0, workspace: 0 });
   }
 
-  /** Connects both sockets again once each has waited as long as `delays` says, as the app does once they close. */
+  /**
+   * Connects both sockets again once each has waited as long as `delays` says, as the app does once
+   * they close, the room's naming the latest change the last one heard of.
+   */
   reopen(delays: Delays): Promise<TabTimings> {
     return this.connect(null, delays);
   }
@@ -113,7 +116,7 @@ export class TabClient {
           loads.push(await this.loadListings());
           return { welcome, loads };
         }),
-      sleep(delays.room).then(() => RoomClient.connect(this.baseUrl, this.roomId, this.session)),
+      sleep(delays.room).then(() => RoomClient.connect(this.baseUrl, this.roomId, this.session, this.room?.seq)),
     ]);
     if (room.status === "fulfilled") this.room = room.value.client;
     if (workspace.status === "rejected" || room.status === "rejected") {

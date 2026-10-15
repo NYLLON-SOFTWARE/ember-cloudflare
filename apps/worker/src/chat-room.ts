@@ -107,21 +107,18 @@ export class ChatRoom extends DurableObject<Env> {
     const sessionId = request.headers.get(SESSION_HEADER);
     const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
-    const { visible, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
+    const { visible, since, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId)];
       // Read side by side, so a room that has just woken waits on D1 once.
-      const [refused, { messages, hasMore }] = await Promise.all([
-        this.revocationsFor(roomId).refuse(tags, authorizedAt),
-        this.storeFor(roomId).page(HISTORY_PAGE_SIZE),
-      ]);
+      const [refused, opening] = await Promise.all([this.revocationsFor(roomId).refuse(tags, authorizedAt), this.opening(roomId, since)]);
       if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
       this.ctx.acceptWebSocket(server, tags);
       server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now() } satisfies Attachment);
 
-      this.send(server, { type: "welcome", you: user, messages, present: this.present(), hasMore });
+      this.send(server, { ...opening, you: user, present: this.present() });
       // A tab running an older app hears at once that it has to reload, rather than once it sends something.
       if (protocol < ROOM_PROTOCOL) this.send(server, { type: "error", message: OUTDATED });
       // Everyone else has the list from their own welcome, so they only hear who's new.
@@ -133,6 +130,17 @@ export class ChatRoom extends DurableObject<Env> {
       else if (!this.logChecked) this.deliver(roomId);
       return new Response(null, { status: 101, webSocket: client });
     });
+  }
+
+  /**
+   * What a socket starts with: what changed since `since`, the latest change its tab has seen, if it
+   * names one and the room keeps every change after it, or else a welcome's newest page.
+   */
+  private async opening(roomId: RoomId, since: number | undefined) {
+    const store = this.storeFor(roomId);
+    const changes = since === undefined ? null : await store.changesSince(since);
+    if (changes) return { type: "resumed" as const, ...changes };
+    return { type: "welcome" as const, ...(await store.newest(HISTORY_PAGE_SIZE)) };
   }
 
   /** Resolves once the room's messages can be read. */
@@ -255,8 +263,8 @@ export class ChatRoom extends DurableObject<Env> {
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId: frame.clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
-        const message = await store.create(sortableId(), frame.clientMessageId, user, body, now);
-        this.broadcast({ type: "message.created", message });
+        const { message, seq } = await store.create(sortableId(), frame.clientMessageId, user, body, now);
+        this.broadcast({ type: "message.created", message, seq });
         return this.deliver(store.roomId);
       }
       case "message.update": {
@@ -267,27 +275,28 @@ export class ChatRoom extends DurableObject<Env> {
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
         // Saved as it was, it stays as it was, its update time included, as Rails saves nothing then.
         if (body.html === message.body) return;
-        return this.broadcast({ type: "message.updated", message: await store.updateBody(message, body, now) });
+        const { message: updated, seq } = await store.updateBody(message, body, now);
+        return this.broadcast({ type: "message.updated", message: updated, seq });
       }
       case "message.delete": {
         const message = await store.find(frame.messageId);
         if (!message || message.creator.id !== user.id) return this.refuse(ws, "You can only delete your own messages");
-        await store.delete(message.id);
-        return this.broadcast({ type: "message.deleted", messageId: message.id });
+        const seq = await store.delete(message.id);
+        return this.broadcast({ type: "message.deleted", messageId: message.id, seq });
       }
       case "boost.create": {
         const message = await store.find(frame.messageId);
         if (!message) return this.refuse(ws, "That message no longer exists");
         // Reactions toggle per person, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
-        const boost = await store.addBoost(sortableId(), frame.messageId, user, frame.content, now);
-        return this.broadcast({ type: "boost.created", boost });
+        const { boost, seq } = await store.addBoost(sortableId(), frame.messageId, user, frame.content, now);
+        return this.broadcast({ type: "boost.created", boost, seq });
       }
       case "boost.delete": {
         const boost = await store.findBoost(frame.boostId);
         if (!boost || boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
-        await store.removeBoost(boost.id);
-        return this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId });
+        const seq = await store.removeBoost(boost);
+        return this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
       }
       case "typing.start":
       case "typing.stop":

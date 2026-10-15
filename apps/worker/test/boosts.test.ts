@@ -79,7 +79,7 @@ describe(feature("boosts.remove"), () => {
     const { boost } = await grace.next("boost.created");
 
     grace.send({ type: "boost.delete", boostId: boost.id });
-    expect(await ada.next("boost.deleted")).toEqual({ type: "boost.deleted", boostId: boost.id, messageId: message.id });
+    expect(await ada.next("boost.deleted")).toEqual({ type: "boost.deleted", boostId: boost.id, messageId: message.id, seq: 3 });
     await grace.next("boost.deleted");
     expect((await connect(room, "Linus")).welcome.messages[0]!.boosts).toEqual([]);
   });

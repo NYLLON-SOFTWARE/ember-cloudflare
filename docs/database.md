@@ -6,26 +6,28 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts, recent revocations and the changes the Workspace has yet to hear of
-live in that room's Durable Object SQLite storage, and the account, people, their sessions, rooms,
-memberships and the outbox of revocations in the Workspace object's. With `d1`, all of them live
-in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
-`apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
+each room's messages, boosts, recent revocations and deletions, and the changes the Workspace has yet
+to hear of live in that room's Durable Object SQLite storage, and the account, people, their
+sessions, rooms, memberships and the outbox of revocations in the Workspace object's. With `d1`, all
+of them live in one D1 database. Both backends use the schema in `apps/worker/migrations/` and the
+queries in `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
-`apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations and
-the room's change log, and `workspace` for the workspace-wide tables (the account, people, sessions,
-rooms, memberships, pending revocations and the rooms deleted). On DO SQLite, an object applies only
-its own scope's files, so a room's storage never holds workspace tables. Wrangler applies every file
-to D1, where all the tables share one database and each room's rows carry its `room_id`.
+`apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
+room's change log and its recent deletions, and `workspace` for the workspace-wide tables (the
+account, people, sessions, rooms, memberships, pending revocations and the rooms deleted). On DO
+SQLite, an object applies only its own scope's files, so a room's storage never holds workspace
+tables. Wrangler applies every file to D1, where all the tables share one database and each room's
+rows carry its `room_id`.
 
-So far rooms keep `messages`, `boosts`, `revocations` and `room_events`, and the Workspace keeps
-`accounts`, `users`, `sessions`, `rooms`, `memberships`, `pending_revocations` and `deleted_rooms`.
-A room's id also names its Durable Object, and the Worker asks the Workspace whether someone is a
-member before it wakes the room for their socket. First run creates the account and its
-administrator, who signs in with an email address and password, found through the unique index on
-`users.email_address`, as do the people who join with the join link; where it's allowed, anyone can
-sign in with just a display name instead. Presence and typing live in each room object's memory.
+So far rooms keep `messages`, `boosts`, `revocations`, `room_events` and `message_deletions`, and
+the Workspace keeps `accounts`, `users`, `sessions`, `rooms`, `memberships`, `pending_revocations`
+and `deleted_rooms`. A room's id also names its Durable Object, and the Worker asks the Workspace
+whether someone is a member before it wakes the room for their socket. First run creates the account
+and its administrator, who signs in with an email address and password, found through the unique
+index on `users.email_address`, as do the people who join with the join link; where it's allowed,
+anyone can sign in with just a display name instead. Presence and typing live in each room object's
+memory.
 
 ## Compared with ember-rust
 
@@ -71,6 +73,23 @@ search index. On top of that schema it adds indexes and query changes for speed.
   ([`a8b713a`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/a8b713a) batches inserts under
   SQLite's limit). Our limit is lower: Durable Object SQLite and D1 bind at most 100 values a
   statement, and binding a page's message ids made a 100-message page fail on both.
+- **Tabs that connect again find what changed through an index on messages.** ember-rust's refresh
+  asks for the messages created or updated since a time, through an index on `(room_id, updated_at)`
+  and boosts that touch their message's `updated_at`
+  ([`57a44a9`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/57a44a9)). Ours asks since a
+  number rather than a time, which no clock can skew (room migration 0015): each room numbers the
+  changes to its messages, and the statement that makes a change gives its message the number in
+  `change_seq`, which `(room_id, change_seq)` indexes, a reaction setting its message's. A tab that
+  connects again names the latest number it has heard of, and the room reads the messages changed
+  since through that index, the same few rows however big the room. Unlike ember-rust's, it hears of
+  deletions too: a deleted message leaves its id with the deletion's number in `message_deletions`,
+  and each deletion drops those more than 100 changes old. A tab more than 100 changes behind gets
+  the newest page instead, where ember-rust's refresh stops at 40 new messages. Keeping every change
+  as a row of its own, in a log of the latest 100, cost each new message two more statements and a
+  room 13% of the messages it could take a second, so a new message writes no other row. The room is
+  the only writer of its messages, so it counts from the latest number once it has read it, and reads
+  it again after a batch fails, which D1 may have saved all the same. Our "(edited)" label reads
+  `edited_at`, so a reaction leaves its message's times alone.
 
 ### Already equivalent
 
@@ -92,10 +111,6 @@ search index. On top of that schema it adds indexes and query changes for speed.
   smaller (19.7 MB against 26.2 MB), with about the same write speed and the same rows written per
   insert.
   Switching takes a migration that renumbers stored messages and their boosts.
-- **Catching up after a reconnect:** an index on `(room_id, updated_at)`, and boosts that touch their
-  message's `updated_at`, so a client asks for what changed since it left
-  ([`57a44a9`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/57a44a9)). Our "(edited)" label
-  reads `edited_at`, so a boost can touch `updated_at` without marking its message edited.
 - **Names from the users table.** People have their own table now, but we still copy the sender's
   name into each message and boost. That's fine while names can't change, but renaming someone would
   leave the old name on their messages.

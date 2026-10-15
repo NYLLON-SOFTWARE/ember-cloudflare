@@ -26,7 +26,7 @@ const frame = (state: RoomState, f: Parameters<typeof roomReducer>[1] & { type: 
 describe(feature("messages.optimistic"), () => {
   it("replaces an optimistic message with the stored one", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
-    state = frame(state, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     expect(state.messages).toHaveLength(1);
     expect(isPending(state.messages[0]!)).toBe(false);
     expect(state.messages[0]!.id).toBe("m1");
@@ -36,7 +36,7 @@ describe(feature("messages.optimistic"), () => {
     let state = initialRoomState;
     for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
     for (const id of ["c1", "c2", "c3"]) {
-      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }), seq: 1 }, now: 0 });
     }
     expect(state.messages.map((m) => [m.body, isPending(m)])).toEqual([
       ["c1", false],
@@ -50,7 +50,7 @@ describe(feature("messages.optimistic"), () => {
     let state = initialRoomState;
     for (const id of ["c1", "c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id, body: id }), pending: true } });
     for (const id of ["c3", "c1", "c2"]) {
-      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }) }, now: 0 });
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: `m-${id}`, clientMessageId: id, body: id }), seq: 1 }, now: 0 });
       expect(timeline(state.messages).map((item) => item.threaded)).toEqual([false, true, true]);
     }
     // Each stored copy replaces its own pending one, in the order the room stored them, as everyone else sees them.
@@ -65,8 +65,8 @@ describe(feature("messages.optimistic"), () => {
     const grace: User = { id: "u2", name: "Grace" };
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
     // Grace's message reached the room first, so the room announces it before confirming Ada's.
-    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "g1", clientMessageId: "g1", creator: grace }) }, now: 0 });
-    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "m2" }) }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "g1", clientMessageId: "g1", creator: grace }), seq: 1 }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message({ id: "m2" }), seq: 1 }, now: 0 });
     expect(state.messages.map((m) => [m.creator.name, m.id, isPending(m)])).toEqual([
       ["Grace", "g1", false],
       ["Ada", "m2", false],
@@ -75,13 +75,13 @@ describe(feature("messages.optimistic"), () => {
 
   it("only reconciles a stored message with its own sender's optimistic copy", () => {
     const grace: User = { id: "u2", name: "Grace" };
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2", body: "mine" }), pending: true } });
 
     // Grace reuses the clientMessageIds she can see: neither Ada's stored nor her pending message is replaced.
     for (const clientMessageId of ["c1", "c2"]) {
       const copy = message({ id: `g-${clientMessageId}`, clientMessageId, creator: grace, body: "spoof" });
-      state = frame(state, { type: "frame", frame: { type: "message.created", message: copy }, now: 0 });
+      state = frame(state, { type: "frame", frame: { type: "message.created", message: copy, seq: 1 }, now: 0 });
     }
     expect(state.messages.map((m) => [m.creator.name, m.body])).toEqual([
       ["Ada", "hi"],
@@ -90,7 +90,7 @@ describe(feature("messages.optimistic"), () => {
       ["Grace", "spoof"],
     ]);
 
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: state.messages.filter((m) => !isPending(m)), present: [ada], hasMore: false, seq: 0 }, now: 0 });
     expect(state.messages.find((m) => m.clientMessageId === "c2" && m.creator.id === ada.id)).toMatchObject({ pending: true });
   });
 
@@ -103,10 +103,66 @@ describe(feature("messages.optimistic"), () => {
 });
 
 describe(feature("realtime.reconnect"), () => {
+  /** A room of `ids`, all loaded, oldest first, with older history to page to. */
+  const loaded = (...ids: string[]) =>
+    frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: ids.map((id) => message({ id, clientMessageId: id })), present: [ada], hasMore: true, seq: 1 }, now: 0 });
+  const resumed = (state: RoomState, messages: Message[], deletedIds: string[] = []) =>
+    frame(state, { type: "frame", frame: { type: "resumed", you: ada, messages, deletedIds, present: [ada, grace], seq: 2 }, now: 0 });
+
+  it("catches up on what changed while it was away, keeping the messages loaded, older pages included", () => {
+    let state = loaded("m2", "m3", "m4", "m5");
+    state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
+    const untouched = state.messages[3];
+    state = resumed(state, [message({ id: "m3", clientMessageId: "m3", body: "edited" }), message({ id: "m6", clientMessageId: "m6", creator: grace })], ["m4"]);
+
+    expect(state.messages.map((m) => [m.id, m.body])).toEqual([
+      ["m2", "hi"],
+      ["m3", "edited"],
+      ["m5", "hi"],
+      ["m6", "hi"],
+    ]);
+    // A message that didn't change keeps its object, so its row doesn't render again.
+    expect(state.messages[2]).toBe(untouched);
+    expect(state).toMatchObject({ status: "open", hasMore: true, present: [ada, grace], typing: {}, loadingOlder: false });
+  });
+
+  it("leaves a changed message older than every one loaded for history to bring, and ignores ids it doesn't hold", () => {
+    let state = loaded("m3", "m4");
+    state = resumed(state, [message({ id: "m1", clientMessageId: "m1", body: "edited" }), message({ id: "m5", clientMessageId: "m5" })], ["m2", "gone-before-it-came"]);
+    expect(state.messages.map((m) => m.id)).toEqual(["m3", "m4", "m5"]);
+  });
+
+  it("leaves a changed message older than every one the room sent for history to bring, even once they're all deleted", () => {
+    let state = loaded("m3", "m4");
+    for (const messageId of ["m3", "m4"]) state = frame(state, { type: "frame", frame: { type: "message.deleted", messageId, seq: 1 }, now: 0 });
+    state = resumed(state, [message({ id: "m1", clientMessageId: "m1", body: "edited" }), message({ id: "m5", clientMessageId: "m5" })]);
+    expect(state.messages.map((m) => m.id)).toEqual(["m5"]);
+    expect(state.oldestId).toBe("m3");
+  });
+
+  it("swaps in the room's copies of messages sent before the drop, in their places, keeping the rest as sending until the room says", () => {
+    let state = loaded("m1");
+    for (const id of ["c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
+    state = roomReducer(state, { type: "pending", message: { ...message({ id: "c4", clientMessageId: "c4" }), pending: true, queued: true } });
+    // Grace's message arrived first.
+    state = resumed(state, [message({ id: "m2", clientMessageId: "g1", creator: grace }), message({ id: "m3", clientMessageId: "c2" })]);
+
+    expect(state.messages.map((m) => [m.id, isPending(m) ? (m.failed ? "not sent" : "sending") : "stored"])).toEqual([
+      ["m1", "stored"],
+      ["m2", "stored"],
+      ["m3", "stored"],
+      // The room is asked about it, since a welcome before may have left it out of its page.
+      ["c3", "sending"],
+      // Written while it was away, so it goes now.
+      ["c4", "sending"],
+    ]);
+    expect(state.notice).toBeNull();
+  });
+
   it("keeps unconfirmed messages across a reconnect, the sent ones as sending until the room answers", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c2", clientMessageId: "c2" }), pending: true } });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c3", clientMessageId: "c3" }), pending: true, failed: true } });
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: false }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: false, seq: 0 }, now: 0 });
     expect(state.messages.map((m) => m.clientMessageId)).toEqual(["c1", "c2", "c3"]);
     expect(state.messages[1]).toMatchObject({ pending: true });
     expect(state.messages[1]).not.toHaveProperty("failed");
@@ -119,7 +175,7 @@ describe(feature("realtime.reconnect"), () => {
     for (const id of ["c2", "c3", "c4"]) {
       state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
     }
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true, seq: 0 }, now: 0 });
     // Sent after the reconnect, so the check isn't about it.
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c5", clientMessageId: "c5" }), pending: true } });
 
@@ -137,7 +193,7 @@ describe(feature("realtime.reconnect"), () => {
     for (const id of ["c2", "c3"]) {
       state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
     }
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true, seq: 0 }, now: 0 });
     state = roomReducer(state, { type: "pending", message: { ...message({ id: "c4", clientMessageId: "c4" }), pending: true } });
 
     // c2 and c3 went in separate checks, and only c2's failed.
@@ -197,7 +253,7 @@ describe(feature("realtime.reconnect"), () => {
     // The room stored it, but newer messages pushed it out of the snapshot sent on reconnect, and the
     // room couldn't check it.
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message({ id: "m2", clientMessageId: "c2" })], present: [ada], hasMore: true, seq: 0 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "message.check", clientMessageIds: ["c1"] }, now: 0 });
     expect(state.messages[1]).toMatchObject({ pending: true, failed: true });
 
@@ -211,18 +267,18 @@ describe(feature("realtime.reconnect"), () => {
 
 describe(feature("boosts.add"), () => {
   it("adds and removes boosts", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     const boost = { id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" };
-    state = frame(state, { type: "frame", frame: { type: "boost.created", boost }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "boost.created", boost, seq: 1 }, now: 0 });
     expect(state.messages[0]!.boosts).toEqual([boost]);
-    state = frame(state, { type: "frame", frame: { type: "boost.deleted", boostId: "b1", messageId: "m1" }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "boost.deleted", boostId: "b1", messageId: "m1", seq: 1 }, now: 0 });
     expect(state.messages[0]!.boosts).toEqual([]);
   });
 });
 
 describe(feature("realtime.presence"), () => {
   it("adds who arrives and drops who leaves, listing each person once", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false }, now: 0 });
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "presence.joined", user: grace }, now: 0 });
     expect(state.present).toEqual([ada, grace]);
     expect(frame(state, { type: "frame", frame: { type: "presence.joined", user: grace }, now: 0 })).toBe(state);
@@ -248,7 +304,7 @@ describe(feature("realtime.typing"), () => {
   it("stops showing someone as typing when their message arrives or they leave", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
-    state = frame(state, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     expect(Object.keys(state.typing)).toEqual(["u2"]);
     state = frame(state, { type: "frame", frame: { type: "presence.left", userId: "u2" }, now: 0 });
     expect(state.typing).toEqual({});
@@ -258,7 +314,7 @@ describe(feature("realtime.typing"), () => {
 describe(feature("messages.history"), () => {
   it("stops waiting for older history after a reconnect", () => {
     let state = roomReducer(initialRoomState, { type: "loading-older" });
-    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true }, now: 0 });
+    state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true, seq: 0 }, now: 0 });
     expect(state.loadingOlder).toBe(false);
   });
 
@@ -271,13 +327,24 @@ describe(feature("messages.history"), () => {
   });
 
   it("keeps the same messages after an error about none, so the timeline doesn't ask again for a failed page", () => {
-    const state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message() }, now: 0 });
+    const state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     const failed = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "history.before" }, now: 0 });
     expect(failed.messages).toBe(state.messages);
   });
 
+  it("pages back from the oldest message the room sent, even once it's deleted", () => {
+    const page = [message({ id: "m2", clientMessageId: "c2" }), message({ id: "m3", clientMessageId: "c3" })];
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: page, present: [ada], hasMore: true, seq: 0 }, now: 0 });
+    expect(state.oldestId).toBe("m2");
+    for (const messageId of ["m2", "m3"]) state = frame(state, { type: "frame", frame: { type: "message.deleted", messageId, seq: 1 }, now: 0 });
+    expect(state).toMatchObject({ messages: [], hasMore: true, oldestId: "m2" });
+
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.oldestId).toBe("m1");
+  });
+
   it("prepends older history", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }) }, now: 0 });
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }), seq: 1 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
     expect(state.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
@@ -286,7 +353,7 @@ describe(feature("messages.history"), () => {
 describe(feature("rooms.invitation-card"), () => {
   const page = (count: number) => Array.from({ length: count }, (_, i) => message({ id: `m${i}`, clientMessageId: `c${i}` }));
   const welcome = (state: RoomState, messages: Message[], hasMore = false) =>
-    frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages, present: [ada], hasMore }, now: 0 });
+    frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages, present: [ada], hasMore, seq: 0 }, now: 0 });
 
   it("counts a room as paged once it holds more than a page of ember-rust's", () => {
     expect(initialRoomState.paged).toBeNull();
@@ -304,7 +371,7 @@ describe(feature("rooms.invitation-card"), () => {
 
 describe(feature("rooms.member-only-access"), () => {
   it("shows nobody here, or typing, in a room that's gone, nor that it's offline, and keeps its messages", () => {
-    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada, grace], hasMore: false }, now: 0 });
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada, grace], hasMore: false, seq: 0 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });
     state = roomReducer(state, { type: "offline", offline: true });
     state = roomReducer(state, { type: "status", status: "gone" });

@@ -28,6 +28,11 @@ export interface RoomState {
   /** Who is typing, with when we last heard so stale entries can expire. */
   typing: Record<string, { user: User; at: number }>;
   hasMore: boolean;
+  /**
+   * The oldest message the room has sent this page, which history pages back from. It stays when that
+   * message is deleted, so a timeline whose messages were all deleted can still page back to older ones.
+   */
+  oldestId: string | null;
   loadingOlder: boolean;
   notice: string | null;
   /**
@@ -55,6 +60,7 @@ export const initialRoomState: RoomState = {
   present: [],
   typing: {},
   hasMore: false,
+  oldestId: null,
   loadingOlder: false,
   notice: null,
   paged: null,
@@ -72,6 +78,26 @@ const confirms = (stored: Message, m: Message | PendingMessage) =>
 /** The pending messages whose stored copies aren't in `snapshot`, the newest page a reconnect brings. */
 export const unconfirmed = (messages: RoomState["messages"], snapshot: Message[]) =>
   messages.filter((m): m is PendingMessage => isPending(m) && !snapshot.some((stored) => confirms(stored, m)));
+
+const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * The page's messages caught up with what changed while it was away, as `resumed` says. Deleted messages
+ * go, changed ones are replaced, and new ones take their places by id, except those older than the
+ * oldest the room has sent, which history brings as they are once it's paged to. The messages sent
+ * before the connection dropped that none confirms stay as sending while useRoom asks the room about
+ * them, as after a welcome: one may be older than the page a welcome before brought, which nothing since
+ * names.
+ */
+function caughtUp({ messages, oldestId }: RoomState, { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
+  const deleted = new Set(deletedIds);
+  const updates = new Map(changed.map((m) => [m.id, m]));
+  const stored = messages.filter((m) => !isPending(m));
+  const kept = stored.flatMap((m) => (deleted.has(m.id) ? [] : [updates.get(m.id) ?? m]));
+  const loaded = new Set(stored.map((m) => m.id));
+  const added = changed.filter((m) => !loaded.has(m.id) && (oldestId === null || m.id > oldestId));
+  return [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)];
+}
 
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
@@ -139,12 +165,24 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         messages: [...frame.messages, ...unconfirmed(state.messages, frame.messages)],
         present: frame.present,
         hasMore: frame.hasMore,
+        oldestId: frame.messages[0]?.id ?? null,
         // A history request on the old socket will never be answered.
         loadingOlder: false,
         typing: {},
         paged: state.paged ?? (frame.hasMore || frame.messages.length > WELCOME_CARD_MESSAGES),
       };
     }
+    case "resumed":
+      // The pages already loaded stay, older ones included, where a welcome would replace them.
+      return {
+        ...state,
+        status: "open",
+        messages: caughtUp(state, frame),
+        present: frame.present,
+        // A history request on the old socket will never be answered.
+        loadingOlder: false,
+        typing: {},
+      };
     case "message.created": {
       const { message } = frame;
       // A confirmed message goes where the room put it, at the end, not where its optimistic copy sat:
@@ -191,7 +229,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "history": {
       // A page can hold the stored copy of a message that a reconnect left unconfirmed.
       const messages = state.messages.filter((m) => !frame.messages.some((stored) => confirms(stored, m)));
-      return { ...state, messages: [...frame.messages, ...messages], hasMore: frame.hasMore, loadingOlder: false };
+      return {
+        ...state,
+        messages: [...frame.messages, ...messages],
+        hasMore: frame.hasMore,
+        oldestId: frame.messages[0]?.id ?? state.oldestId,
+        loadingOlder: false,
+      };
     }
     case "error": {
       // A message the room refused shows as not sent, as do the ones it couldn't check. An error about no

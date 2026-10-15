@@ -84,14 +84,19 @@ test.describe(feature("realtime.typing"), () => {
 });
 
 test.describe(feature("realtime.reconnect"), () => {
-  /** Routes Ada's room socket so the test can cut it, and keep it cut, like a network drop. */
+  /**
+   * Routes Ada's room socket so the test can cut it, and keep it cut, like a network drop. `addresses`
+   * lists the addresses it has connected to.
+   */
   async function cuttable(members: Members) {
     let online = true;
     let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+    const addresses: URL[] = [];
     const ada = await members.signIn("Ada", {
       beforeOpen: (page) =>
         page.routeWebSocket(ROOM_SOCKET, (ws) => {
           if (!online) return ws.close();
+          addresses.push(new URL(ws.url()));
           connection = { page: ws, server: ws.connectToServer() };
         }),
     });
@@ -105,7 +110,7 @@ test.describe(feature("realtime.reconnect"), () => {
     const restore = () => {
       online = true;
     };
-    return { ada, cut, restore };
+    return { ada, cut, restore, addresses };
   }
 
   test("reconnects after losing the connection and catches up on what was missed", async ({ members }) => {
@@ -126,6 +131,31 @@ test.describe(feature("realtime.reconnect"), () => {
     await expect(ada.message("Sent while Ada was away")).toBeVisible();
     await expect(ada.composer()).toHaveText("Typed while offline");
     await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeEnabled();
+  });
+
+  test("catches up on edits, deletions and reactions made while it was away, asking for only what changed", async ({ members }) => {
+    const { ada, cut, restore, addresses } = await cuttable(members);
+    const grace = await members.signIn("Grace");
+    for (const text of ["Typo heer", "Gone soon", "React to me"]) await grace.send(text);
+    await expect(ada.message("React to me")).toBeVisible();
+
+    await cut();
+    await (await grace.actions("Typo heer")).getByRole("button", { name: "Edit" }).click();
+    await grace.editor().fill("Typo here");
+    await grace.editor().press("Enter");
+    await expect(grace.message("Typo here")).toContainText("(edited)");
+    grace.page.once("dialog", (dialog) => void dialog.accept());
+    await (await grace.actions("Gone soon")).getByRole("button", { name: "Delete" }).click();
+    await expect(grace.message("Gone soon")).toHaveCount(0);
+    await (await grace.actions("React to me")).getByRole("button", { name: "Thumbs up" }).click();
+    await expect(grace.message("React to me").getByRole("list", { name: "Reactions" })).toContainText("👍1");
+
+    restore();
+    await expect(ada.message("Typo here")).toContainText("(edited)", { timeout: 20_000 });
+    await expect(ada.message("Gone soon")).toHaveCount(0);
+    await expect(ada.message("React to me").getByRole("list", { name: "Reactions" })).toContainText("👍1");
+    // The page named the latest change it had heard of, Grace's third message.
+    expect(addresses.map((address) => address.searchParams.get("since"))).toEqual([null, "3"]);
   });
 
   test("sends a message written during a short drop once the connection is back", async ({ members }) => {

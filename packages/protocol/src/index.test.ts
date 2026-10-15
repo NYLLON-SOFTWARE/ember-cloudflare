@@ -101,6 +101,16 @@ describe(feature("realtime.reconnect"), () => {
       expect(check(clientMessageIds), JSON.stringify(clientMessageIds)).toBeNull();
     }
   });
+
+  it("carries the latest change a tab has seen on its room socket's address, as a whole number", () => {
+    expect(roomSocketQuery({ visible: true, since: 0 })).toBe(`?visible=1&protocol=${ROOM_PROTOCOL}&since=0`);
+    expect(roomSocketQuery({ visible: false, since: 42 })).toBe(`?visible=0&protocol=${ROOM_PROTOCOL}&since=42`);
+    const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null }).since;
+    expect(read({ visible: "1", since: "42" })).toBe(42);
+    expect(read({ since: "0" })).toBe(0);
+    for (const since of ["", "-1", "1.5", "1e3", "0x10", " 42", "9".repeat(16)]) expect(read({ since }), since).toBeUndefined();
+    expect(read({})).toBeUndefined();
+  });
 });
 
 describe(feature("realtime.presence"), () => {

@@ -16,6 +16,8 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 30_000;
 
 type HistoryFrame = Extract<ServerFrame, { type: "history" }>;
+/** What a room opens a socket with: a welcome, or what changed since the change the socket named. */
+type OpeningFrame = Extract<ServerFrame, { type: "welcome" | "resumed" }>;
 
 /** A JSON write as the app's own pages send it: over HTTPS the Worker refuses writes that don't say so. */
 const write = (baseUrl: string, body: unknown, cookie?: string): RequestInit => ({
@@ -45,8 +47,9 @@ export async function createRoom(baseUrl: string, session: Session, name: string
   return ((await response.json()) as { room: { id: string } }).room.id;
 }
 
-export function socketUrl(baseUrl: string, room: string): string {
-  const url = new URL(`/api/rooms/${encodeURIComponent(room)}/socket${roomSocketQuery({ visible: true })}`, baseUrl);
+/** A room socket's address, naming the latest change its client has seen, if it says. */
+export function socketUrl(baseUrl: string, room: string, since?: number): string {
+  const url = new URL(`/api/rooms/${encodeURIComponent(room)}/socket${roomSocketQuery({ visible: true, since })}`, baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
@@ -61,6 +64,8 @@ export class RoomClient {
   boostsCreated = 0;
   errors: string[] = [];
   lastFrameAt = 0;
+  /** The latest change to the room this client has heard of, which a client connecting in its place can name. */
+  seq: number | undefined;
 
   readonly session: Session;
   private readonly ws: WebSocket;
@@ -73,11 +78,14 @@ export class RoomClient {
     this.ws = ws;
   }
 
-  /** Opens a socket and resolves once the room's welcome frame arrives. */
-  static connect(baseUrl: string, room: string, session: Session): Promise<{ client: RoomClient; welcome: Extract<ServerFrame, { type: "welcome" }>; ms: number }> {
+  /**
+   * Opens a socket and resolves once the room's welcome frame arrives, or with `since`, the latest
+   * change a client before it saw, the room's `resumed` in its place, as the app connects again.
+   */
+  static connect(baseUrl: string, room: string, session: Session, since?: number): Promise<{ client: RoomClient; opening: OpeningFrame; ms: number }> {
     const started = performance.now();
     // The room only takes upgrades from the app's own pages, with a session cookie.
-    const ws = new NodeWebSocket(socketUrl(baseUrl, room), { headers: { Cookie: session.cookie, Origin: new URL(baseUrl).origin } });
+    const ws = new NodeWebSocket(socketUrl(baseUrl, room, since), { headers: { Cookie: session.cookie, Origin: new URL(baseUrl).origin } });
     const client = new RoomClient(session, ws);
 
     return new Promise((resolve, reject) => {
@@ -93,14 +101,15 @@ export class RoomClient {
       ws.onclose = (event) => fail(new Error(`Socket to ${room} closed (${event.code}) before its welcome`));
       ws.onmessage = (event) => {
         const frame = JSON.parse(event.data as string) as ServerFrame;
-        if (frame.type !== "welcome") return;
+        if (frame.type !== "welcome" && frame.type !== "resumed") return;
         clearTimeout(timer);
         const ms = performance.now() - started;
         ws.onerror = null;
         ws.onclose = (event) => client.pendingHistory?.(new Error(`Socket to ${room} closed (${event.code}) during a history request`));
         ws.onmessage = (next) => client.receive(next.data as string);
         client.lastMessageId = frame.messages.at(-1)?.id ?? "";
-        resolve({ client, welcome: frame, ms });
+        client.seq = frame.seq;
+        resolve({ client, opening: frame, ms });
       };
     });
   }
@@ -140,6 +149,7 @@ export class RoomClient {
     }
 
     const frame = JSON.parse(data) as ServerFrame;
+    if ("seq" in frame) this.seq = frame.seq;
     switch (frame.type) {
       case "message.created":
         if (frame.message.id < this.lastMessageId) this.outOfOrder++;

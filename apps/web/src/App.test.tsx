@@ -46,7 +46,7 @@ class RoomSocket extends QuietSocket {
   welcome(you: typeof ada) {
     this.readyState = RoomSocket.OPEN;
     this.onopen?.();
-    this.onmessage?.({ data: JSON.stringify({ type: "welcome", you, messages: [], present: [you], hasMore: false }) });
+    this.onmessage?.({ data: JSON.stringify({ type: "welcome", you, messages: [], present: [you], hasMore: false, seq: 0 }) });
   }
 
   /** The room closes the socket, saying why. */

@@ -46,9 +46,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   // ember-rust posts each message over HTTP, and shows it as failed only when that request fails
   // (composer_controller.js). A socket can lose the answer instead: it can close after the room stored a
-  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page.
-  // So ask the room about the sent messages the welcome doesn't confirm, which the reducer keeps as
-  // sending until it answers. Those written while it was away never went, so they aren't asked about.
+  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page,
+  // which a later `resumed` doesn't go back past. So ask the room about the sent messages a reconnect
+  // doesn't confirm, which the reducer keeps as sending until it answers. Those written while it was away
+  // never went, so they aren't asked about.
   const checkUnconfirmed = useEffectEvent((room: ReconnectingSocket, snapshot: Message[]) => {
     const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued ? [] : [m.clientMessageId]));
     for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
@@ -66,6 +67,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   useEffect(() => {
     let closed = false;
+    // The latest change to the room this page has heard of, by its number, which a socket that connects
+    // again names, so the room sends what changed since rather than its newest page. The room numbers its
+    // changes one after another, so a gap is one it never announced, as when D1 saves a batch whose answer
+    // is lost: this stays at the change before it, and connecting again brings what it missed.
+    let seen: number | undefined;
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
     // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
@@ -89,7 +95,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     const onMessage = (data: string) => {
       const frame = parseServerFrame(data);
       if (!frame) return;
-      if (frame.type === "welcome" && isSomeoneElse(frame.you)) {
+      const opening = frame.type === "welcome" || frame.type === "resumed";
+      if (opening && isSomeoneElse(frame.you)) {
         // Another tab signed this browser out and in as someone else, and the cookie went with it. Leave
         // the room rather than show them this person's, or send as them, and hand over to whoever the
         // server says is signed in, which the room only partly knows: by then it may be this person again.
@@ -97,8 +104,11 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         unlessSessionChanged(() => room.retry());
         return;
       }
+      // A room from before rooms numbered their changes opens without a number, which leaves none to name.
+      if (opening) seen = frame.seq;
+      else if ("seq" in frame && seen !== undefined && frame.seq === seen + 1) seen = frame.seq;
       dispatch({ type: "frame", frame, now: Date.now() });
-      if (frame.type !== "welcome") return;
+      if (!opening) return;
       room.connected();
       tellVisibility(visibility.visible);
       checkUnconfirmed(room, frame.messages);
@@ -131,7 +141,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
     dispatch({ type: "reset" });
     const room = reconnectingSocket({
-      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible) }),
+      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen }),
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
       onOffline: (offline) => dispatch({ type: "offline", offline }),
@@ -201,10 +211,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const loadOlder = useCallback(() => {
-    const oldest = state.messages.find((m) => !("pending" in m));
-    if (!oldest || state.loadingOlder) return;
-    if (send({ type: "history.before", before: oldest.id, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
-  }, [send, state.messages, state.loadingOlder]);
+    const before = state.oldestId;
+    if (before === null || state.loadingOlder) return;
+    if (send({ type: "history.before", before, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
+  }, [send, state.oldestId, state.loadingOlder]);
 
   const messageActions = useMemo(() => {
     // Unlike new messages, these aren't kept to send later, so say when one couldn't go.
