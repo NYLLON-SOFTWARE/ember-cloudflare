@@ -277,7 +277,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ac
         )}
 
         {editing && actions ? (
+          // Not validated, as the composer isn't, so the editor's hidden Link field can't stop Save.
           <form
+            noValidate
             className="message-edit rounded-[10px] border bg-surface p-3"
             onSubmit={(event) => {
               event.preventDefault();

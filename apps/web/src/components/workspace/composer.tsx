@@ -177,7 +177,10 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
 
   return (
     <footer className={FOOTER}>
+      {/* Not validated, since Lexxy checks its Link field itself. An address left unfinished there, or the field
+          opened out of sight by Ctrl or Cmd+K, would otherwise stop Send without a word, as it does in ember-rust. */}
       <form
+        noValidate
         className="composer relative min-w-0 [contain:inline-size]"
         data-toolbar={toolbarOpen || undefined}
         onSubmit={(event) => {

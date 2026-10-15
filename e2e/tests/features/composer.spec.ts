@@ -167,6 +167,27 @@ test.describe(feature("composer.send"), () => {
     await expect(toolbar(ada)).toBeHidden();
   });
 
+  test("sends from the Send button with an address left unfinished in Link, or Link opened out of sight", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const send = ada.page.getByRole("button", { name: "Send Message" });
+    await formattingOptions(ada).click();
+    await toolbar(ada).getByRole("button", { name: "Link" }).click();
+    const address = toolbar(ada).getByPlaceholder("Enter a URL…");
+    await address.fill("example.com");
+    await address.press("Escape");
+    // Lexxy keeps what was in the field, which isn't an address.
+    expect(await address.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+    await ada.composer().fill("Never mind the link");
+    await send.click();
+    await expect(ada.message("Never mind the link")).toBeVisible();
+
+    // With the toolbar shut, the shortcut opens Link where it can't be seen, wanting an address.
+    await ada.composer().fill("Linked nowhere");
+    await ada.composer().press("ControlOrMeta+k");
+    await send.click();
+    await expect(ada.message("Linked nowhere")).toBeVisible();
+  });
+
   test("says a message over 10,000 characters is too long instead of sending it, keeping it to be cut down", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await write(ada, `<p>${"x".repeat(10_001)}</p>`);

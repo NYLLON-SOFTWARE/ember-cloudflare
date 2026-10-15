@@ -2179,7 +2179,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/composer_controller.js", "reference/app/javascript/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "There's no mention list yet. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too.",
+    notes: "There's no mention list yet. Touch is judged by the main pointer, so a laptop with a touchscreen sends on Enter, and Cmd or Ctrl+Enter sends on touch screens too. An address left unfinished in Link, or Link opened out of sight by Cmd or Ctrl+K, doesn't stop Send, where in ember-rust it keeps the message from reaching the server.",
   },
   {
     id: "composer.layout",

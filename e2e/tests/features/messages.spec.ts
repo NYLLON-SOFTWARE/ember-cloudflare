@@ -349,6 +349,16 @@ test.describe(feature("messages.edit"), () => {
     await expect(ada.message("A bold claim, revised").locator(".message-content strong")).toHaveText("bold");
   });
 
+  test("saves from the Save button after Ctrl or Cmd+K, which opens the Link field out of sight", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Draft");
+    await (await ada.actions("Draft")).getByRole("button", { name: "Edit" }).click();
+    await ada.editor().fill("Final");
+    await ada.editor().press("ControlOrMeta+k");
+    await ada.page.getByRole("button", { name: "Save" }).click();
+    await expect(ada.message("Final")).toContainText("(edited)");
+  });
+
   test("cancels an edit with Escape", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Unchanged");
