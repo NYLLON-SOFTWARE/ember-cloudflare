@@ -682,6 +682,24 @@ describe(feature("dms.suggestions"), () => {
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 
+  it("stays on a page the person goes to while the DM starts, listing the DM", async () => {
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => new Promise<Response>((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
+    expect(await roomHeading()).toHaveTextContent("random");
+
+    await act(async () => answer(Response.json({ room: withGrace }, { status: 201 })));
+    expect(location.pathname).toBe("/rooms/random");
+    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
+    expect(suggestion()).not.toBeInTheDocument();
+  });
+
   it("says why a DM didn't start, keeping the page and the suggestion", async () => {
     serve({
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),

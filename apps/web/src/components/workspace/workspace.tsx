@@ -11,7 +11,7 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { markedUnread } from "@/lib/room-list";
-import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
+import { afterNavigating, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { CustomStylesPage } from "./custom-styles-page";
 import { DirectSettingsPage } from "./direct-settings-page";
 import { NewDirectDialog } from "./new-direct-dialog";
@@ -302,10 +302,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // ember-rust's posts its form, listing it as the server answers.
   const startDirectWith = async (person: User) => {
     const answered = askForRoom();
+    const mark = pageMark();
     try {
       const room = await startDirect([person.id]);
       answered({ type: "saved", room });
-      if (!mounted.current) return false;
+      // A page the person has gone to meanwhile stays, as a visit stops ember-rust's form going on to the DM.
+      if (!mounted.current || pageMark() !== mark) return false;
       navigate(roomPath(room.id));
       return true;
     } catch (error) {

@@ -218,13 +218,22 @@ describe(feature("sidebar.dm-order"), () => {
     expect(await lastMessageAt(room.id)).toBe(second.at);
   });
 
-  it("keeps the latest message's time when one from a clock behind comes after it", async () => {
-    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    const room = await direct(ada, grace);
-    const apply = (...events: RoomEvent[]) => workspaceStub().applyRoomEvents(room.id, events, []);
-    await apply({ seq: 1, kind: "message", userId: ada.user.id, at: "2099-01-01T12:00:01.000Z" });
-    await apply({ seq: 2, kind: "message", userId: grace.user.id, at: "2099-01-01T12:00:00.000Z" });
-    expect(await lastMessageAt(room.id)).toBe("2099-01-01T12:00:01.000Z");
+  it("keeps the latest message's time when one from a clock behind comes after it, in a later call or the same one", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const [later, together] = [await direct(ada, grace), await direct(ada, linus)];
+    const [ahead, behind] = ["2099-01-01T12:00:01.000Z", "2099-01-01T12:00:00.000Z"];
+    const apply = (room: DirectRoom, ...events: RoomEvent[]) => workspaceStub().applyRoomEvents(room.id, events, []);
+    await apply(later, { seq: 1, kind: "message", userId: ada.user.id, at: ahead });
+    await apply(later, { seq: 2, kind: "message", userId: grace.user.id, at: behind });
+    expect(await lastMessageAt(later.id)).toBe(ahead);
+
+    const tab = await openWorkspaceSocket(linus);
+    await apply(together, { seq: 1, kind: "message", userId: ada.user.id, at: ahead }, { seq: 2, kind: "message", userId: linus.user.id, at: behind });
+    expect(await lastMessageAt(together.id)).toBe(ahead);
+    expect(await heard(tab)).toEqual([
+      { type: "room.unread", roomId: together.id },
+      { type: "room.active", roomId: together.id, at: ahead },
+    ]);
   });
 
   it("tells nobody when a message comes in a room that isn't a DM", async () => {

@@ -897,18 +897,20 @@ export class WorkspaceStore {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast((event) => event.kind === "message");
+    // When the latest message came, which a clock behind can make earlier than one logged before it.
+    const messageAt = message && events.reduce((latest, { kind, at }) => (kind === "message" && at > latest ? at : latest), message.at);
     const results = (await this.db.batch([
       ...events.map(({ seq, kind, userId, at }) =>
         kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq),
       ),
-      ...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, message.at)] : [statement(APPLIED, last, roomId)]),
+      ...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]),
     ])) as Array<Array<{ user_id: UserId }>>;
     const marks = new Map<UserId, boolean>();
     events.forEach(({ kind }, i) => {
       for (const { user_id } of results[i]!) marks.set(user_id, kind === "message");
     });
     const told = message ? userIdsOf(results[events.length]!) : [];
-    return { marks, active: told.length > 0 ? { at: message!.at, userIds: told } : null };
+    return { marks, active: told.length > 0 ? { at: messageAt!, userIds: told } : null };
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
