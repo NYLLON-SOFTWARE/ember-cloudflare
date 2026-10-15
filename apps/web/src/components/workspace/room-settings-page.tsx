@@ -11,7 +11,7 @@ import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
 
 /** Whether `error` says the room isn't there for this person, as ember-rust's `set_room` finds rooms. */
-const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
+export const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 /** What Delete asks first, as ember-rust's `button_to_delete_room` does, in the browser's own dialog as Turbo asks it. */
 export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
@@ -176,7 +176,7 @@ export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissi
       </Panel>
       {settings?.canAdminister && (
         <Panel>
-          <DeleteRoomButton name={settings.room.name} disabled={busy} onClick={remove} />
+          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={remove} />
         </Panel>
       )}
       <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
@@ -185,20 +185,21 @@ export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissi
 }
 
 /**
- * ember-rust's `button_to_delete_room` (crates/views/src/rooms.rs): Campfire's `.btn.btn--negative.max-width`
- * (buttons.css), red with a white trash can in both modes as zz-ember.css makes it, and 36px tall in a panel.
+ * ember-rust's `button_to_delete_room` (crates/views/src/rooms.rs), and a DM's Delete Ping
+ * (rooms/directs/edit.html): Campfire's `.btn.btn--negative` (buttons.css), red with a white trash can in
+ * both modes as zz-ember.css makes it, and 36px tall in a panel.
  */
-function DeleteRoomButton({ name, disabled, onClick }: { name: string; disabled: boolean; onClick: () => void }) {
+export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
-      aria-label={`Delete ${name}`}
+      aria-label={label}
       disabled={disabled}
       onClick={onClick}
       className="inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50"
     >
       <Trash tone="white" width={20} height={20} className="size-[1.3em] shrink-0" />
-      <span className="truncate">{name}</span>
+      <span className="truncate">{text}</span>
     </button>
   );
 }

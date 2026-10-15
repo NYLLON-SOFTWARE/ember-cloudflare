@@ -7,6 +7,7 @@ import {
   type AccountChanges,
   type CustomStyles,
   type DirectoryUser,
+  type DirectRoom,
   type Favorites,
   type HelpContact,
   type Me,
@@ -17,10 +18,10 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
-  type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SharedRoom,
   type Sidebar,
   type User,
   type UserId,
@@ -418,7 +419,7 @@ export class Workspace extends DurableObject<Env> {
     // Ids sort in the order they're made, which makes general the older of two rooms made at once.
     const rooms = FIRST_ROOM_NAMES.map((name) => ({ id: sortableId(), name }));
     const now = new Date(session.lastActiveAt).toISOString();
-    let room: Room;
+    let room: SharedRoom;
     try {
       room = await this.store.createWorkspace(account, { ...administrator, id: session.user.id }, rooms, session.id, tokenDigest, client, now);
     } catch (error) {
@@ -633,13 +634,30 @@ export class Workspace extends DurableObject<Env> {
    * Creates a room as the person `credentials` signs in, or answers null without a valid session.
    * Everyone it puts in sees it in their sidebars at once, and nobody else hears of it.
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<Room | null> {
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const created: Room = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
+    const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
     const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
     this.tell(memberIds, { type: "room.saved", room: created });
     return created;
+  }
+
+  /**
+   * Starts a DM as the person `credentials` signs in, as ember-rust's `directs#create` does
+   * (rooms/directs.rs): the DM between them and the people `userIds` names who exist, whatever their
+   * status, or their DM with themselves when it names nobody else. A group of people has one DM, so
+   * the one they have opens again. Answers it, and whether it's new, or null without a valid session.
+   * Everyone in a new DM sees it in their sidebars at once, and nobody else hears of it.
+   */
+  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const people = userIds.length > 0 ? await this.store.peopleWithIds(userIds) : [];
+    const memberIds = [user.id, ...people.map((person) => person.id)];
+    const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
+    if (direct.started) this.tell(direct.room.members.map((member) => member.id), { type: "room.saved", room: direct.room });
+    return direct;
   }
 
   /** What the New room forms list, everyone active, for the person `credentials` signs in, or null without a valid session. */
@@ -794,14 +812,14 @@ export class Workspace extends DurableObject<Env> {
    * leaves their sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it
    * changed, the people it puts in do.
    */
-  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<Room | "not found" | "forbidden" | null> {
+  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       const found = await this.store.roomToChange(roomId, user.id);
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
-      const changed: Room = {
+      const changed: SharedRoom = {
         ...found.room,
         ...(changes.name && { name: changes.name }),
         ...(changes.kind && { kind: changes.kind }),
@@ -839,18 +857,19 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Deletes room `roomId` as the person `credentials` signs in, as ember-rust's `destroy` does
-   * (rooms.rs): "not found" as for its settings, "forbidden" unless they can change it, or null
-   * without a valid session. Everyone with it open is told it's gone, and its messages go with it. It
-   * leaves the sidebars of the people who were in it, and nobody else hears of it, where ember-rust tells
+   * (rooms.rs): "not found" unless they're in it, "forbidden" unless they can change it, or null
+   * without a valid session. Anyone in a DM can delete it, as at ember-rust's DM address
+   * (rooms/directs.rs). Everyone with it open is told it's gone, and its messages go with it. It leaves
+   * the sidebars of the people who were in it, and nobody else hears of it, where ember-rust tells
    * everyone (broadcasts.rs).
    */
   async deleteRoom(credentials: Credentials, roomId: RoomId): Promise<"deleted" | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
-      const found = await this.store.roomToChange(roomId, user.id);
+      const found = await this.store.roomToDelete(roomId, user.id);
       if (!found) return "not found";
-      if (!found.canAdminister) return "forbidden";
+      if (found.kind !== "direct" && !found.canAdminister) return "forbidden";
       const now = Date.now();
       let memberIds: UserId[];
       try {

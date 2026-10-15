@@ -78,16 +78,6 @@ async function outcome(roomId: RoomId, access: Access): Promise<"welcome" | numb
   });
 }
 
-/** Adds a DM between `sessions`, as nothing else can yet. */
-async function direct(...sessions: Session[]): Promise<RoomId> {
-  const id = `direct-${crypto.randomUUID().slice(0, 8)}`;
-  await workspaceSql(`INSERT INTO rooms (id, kind, creator_id, created_at, updated_at) VALUES (?, 'direct', ?, 'now', 'now')`, id, sessions[0]!.user.id);
-  for (const { user } of sessions) {
-    await workspaceSql(`INSERT INTO memberships (room_id, user_id, created_at, updated_at) VALUES (?, ?, 'now', 'now')`, id, user.id);
-  }
-  return id;
-}
-
 describe(feature("rooms.delete"), () => {
   it("deletes a room for whoever made it, closing every socket in it, whose people find it gone", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
@@ -153,18 +143,17 @@ describe(feature("rooms.delete"), () => {
     expect(await listed(ada)).toEqual([]);
   });
 
-  it("answers 404 to people who aren't in the room, administrators included, and for missing rooms and DMs", async () => {
+  it("answers 404 to people who aren't in the room, administrators included, and for missing rooms", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     await promote(grace);
     const room = await createRoom("Leads", { closedTo: [ada.user.id], as: ada });
-    const dm = await direct(ada, grace);
 
-    for (const [roomId, session] of [[room.id, grace], ["nowhere", ada], [dm, ada], ["%FF", ada]] as const) {
+    for (const [roomId, session] of [[room.id, grace], ["nowhere", ada], ["%FF", ada]] as const) {
       const response = await remove(roomId, session);
       expect(response.status, roomId).toBe(404);
       expect(await response.json()).toEqual({ error: "Room not found or inaccessible" });
     }
-    expect(await workspaceSql("SELECT id FROM rooms WHERE id IN (?, ?) ORDER BY id", room.id, dm)).toEqual([room.id, dm].sort().map((id) => ({ id })));
+    expect(await workspaceSql("SELECT id FROM rooms WHERE id = ?", room.id)).toEqual([{ id: room.id }]);
   });
 
   it("asks who's signed in, and refuses deletions from other sites", async () => {

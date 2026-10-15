@@ -13,6 +13,7 @@ import richText from "../migrations/0012_rich_text.sql";
 import favorites from "../migrations/0013_favorites.sql";
 import roomsByAge from "../migrations/0014_rooms_by_age.sql";
 import numberedChanges from "../migrations/0015_numbered_changes.sql";
+import directKeys from "../migrations/0016_direct_keys.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -48,6 +49,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0013_favorites.sql", scope: "workspace", sql: favorites },
   { name: "0014_rooms_by_age.sql", scope: "workspace", sql: roomsByAge },
   { name: "0015_numbered_changes.sql", scope: "room", sql: numberedChanges },
+  { name: "0016_direct_keys.sql", scope: "workspace", sql: directKeys },
 ];
 
 /**

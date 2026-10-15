@@ -111,7 +111,10 @@ function focusStayedOn(element: Element | null): boolean {
 
 interface Props {
   roomId: string;
+  /** The room's name as the writer reads it, which a DM's names the others in it. */
   roomName: string;
+  /** Whether the room is a DM, whose name goes without a `#`. */
+  direct?: boolean;
   /** Who's writing, whose drafts are their own. */
   userId: string;
   typing: User[];
@@ -141,7 +144,7 @@ export interface ComposerHandle {
  * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
  * and a round Send button. What's written is kept as a draft until it's sent.
  */
-export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping, onEditLastMessage, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, onSend, onTyping, onEditLastMessage, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -159,7 +162,8 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
   const wasBlank = useRef(!draft);
   // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
   const replied = useRef(false);
-  const placeholder = `Message #${roomName}`;
+  // As ember-rust's _composer.html has it.
+  const placeholder = `Message ${direct ? "" : "#"}${roomName}`;
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
   const wrote = (body: string | null) => {

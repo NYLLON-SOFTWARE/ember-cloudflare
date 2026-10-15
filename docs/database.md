@@ -214,6 +214,14 @@ search index. On top of that schema it adds indexes and query changes for speed.
   sorts every room by `created_at` to find it. Every sidebar here asks, so
   `index_rooms_on_created_at_and_id` (workspace migration 0014) finds it at once. Our ids sort by
   time too, but not the old addresses of the rooms `LEGACY_ROOMS` registers.
+- **Each group of people has one DM, found by its key.** ember-rust finds a group's DM by reading
+  every DM's members and comparing them with the group (`find_direct_for`,
+  `crates/db/src/models/room.rs`), each time someone starts one. Ours keeps each DM's members' ids,
+  sorted, as a JSON array in `rooms.direct_key` (workspace migration 0016), under a unique index.
+  Starting a DM is one batch: it adds the room unless the key has one (`ON CONFLICT DO NOTHING`),
+  puts the group in it only if it was added, and reads the DM the key names. So it costs the same
+  however many DMs there are, and two people starting the same DM at once get one between them. A
+  DM's members never change, so its key stays true.
 - **Rooms send the Workspace their change logs.** ember-rust marks a room unread in the transaction
   that creates the message. Ours are in different objects, so a room logs each new message in
   `room_events`, in the batch that stores it, and each time someone opens it in a shown tab, then

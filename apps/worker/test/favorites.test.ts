@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { MAX_FAVORITES, type Favorites, type RoomId, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, createRoom, freshDeploy, openWorkspaceSocket, signIn, workspaceSql, type Session } from "./support";
+import { api, createRoom, direct, freshDeploy, openWorkspaceSocket, signIn, workspaceSql, type Session } from "./support";
 
 /** Stars room `roomId` for `session`'s person, or unstars it, as the star in its header does. */
 const star = (session: Session, roomId: RoomId, favorite = true) =>
@@ -88,12 +88,9 @@ describe(feature("sidebar.favorites"), () => {
     const secret = await createRoom("Secret", { closedTo: [grace.user.id] });
     const hidden = await createRoom("Hidden");
     await hide(ada, hidden.id);
-    // DMs can't be made yet, so this one is written as ember-rust stores them, with no name.
-    const direct = `direct-${crypto.randomUUID()}`;
-    await workspaceSql("INSERT INTO rooms (id, kind, created_at, updated_at) VALUES (?, 'direct', 'now', 'now')", direct);
-    await workspaceSql("INSERT INTO memberships (room_id, user_id, created_at, updated_at) VALUES (?, ?, 'now', 'now')", direct, ada.user.id);
+    const dm = await direct(ada, grace);
 
-    for (const roomId of [direct, hidden.id, secret.id, "no-such-room"]) {
+    for (const roomId of [dm.id, hidden.id, secret.id, "no-such-room"]) {
       for (const favorite of [true, false]) expect((await star(ada, roomId, favorite)).status, `${roomId}, ${favorite}`).toBe(403);
     }
     expect(await favoritesOf(ada)).toEqual({ rooms: [], version: 0 });

@@ -94,6 +94,13 @@ describe(feature("composer.layout"), () => {
   });
 });
 
+describe(feature("dms.naming"), () => {
+  it("asks for a message to the others in a DM by name, as ember-rust's composer does, without the #", async () => {
+    render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => true} onTyping={() => {}} />);
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace and Linus");
+  });
+});
+
 describe(feature("composer.formatting-toolbar"), () => {
   it("shows the toolbar while Formatting options is pressed, keeping focus in the text", async () => {
     const { input, user, view } = await showComposer();
