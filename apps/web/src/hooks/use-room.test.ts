@@ -677,6 +677,18 @@ describe(feature("messages.history"), () => {
     expect(result.current.state.loadingOlder).toBe(false);
     expect(result.current.state.hasMore).toBe(false);
   });
+
+  it("pages back from where its messages began when every one it had was deleted while it was away", () => {
+    const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: ["m1", "m2"], present: [ada], seq: 2 });
+    expect(result.current.state.messages).toEqual([]);
+
+    act(() => result.current.loadOlder());
+    expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 50 }]);
+  });
 });
 
 describe(feature("messages.edit"), () => {

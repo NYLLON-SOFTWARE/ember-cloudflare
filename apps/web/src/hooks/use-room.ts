@@ -181,10 +181,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   );
 
   const loadOlder = useCallback(() => {
-    const oldest = state.messages.find((m) => !("pending" in m));
-    if (!oldest || state.loadingOlder) return;
-    if (send({ type: "history.before", before: oldest.id, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
-  }, [send, state.messages, state.loadingOlder]);
+    const before = state.oldestId;
+    if (before === null || state.loadingOlder) return;
+    if (send({ type: "history.before", before, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
+  }, [send, state.oldestId, state.loadingOlder]);
 
   const messageActions = useMemo(() => {
     // Unlike new messages, these aren't kept to send later, so say when one couldn't go.

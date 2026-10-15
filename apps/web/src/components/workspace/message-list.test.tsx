@@ -100,6 +100,14 @@ describe(feature("ui.empty-room"), () => {
     render(list({ status: "connecting", messages: [] }));
     expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
   });
+
+  it("loads earlier messages instead when every message it had was deleted", () => {
+    FakeIntersectionObserver.topVisible = true;
+    const onLoadOlder = vi.fn();
+    render(list({ messages: [], hasMore: true }, onLoadOlder));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
+  });
 });
 
 describe(feature("realtime.reconnect"), () => {

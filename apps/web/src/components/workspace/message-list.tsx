@@ -98,7 +98,7 @@ export function MessageList({ roomName, invitation, state, me, actions, onLoadOl
 
         {welcomeCard && <InvitationCard joinCode={invitation.joinCode} />}
 
-        {state.status === "open" && items.length === 0 && !welcomeCard && (
+        {state.status === "open" && items.length === 0 && !state.hasMore && !welcomeCard && (
           <div className="p-6 text-center text-muted-foreground">
             <h2 className="mb-1.5 text-xl text-foreground">Welcome to #{roomName}</h2>
             <p>This is the very beginning of the room. Say hello!</p>

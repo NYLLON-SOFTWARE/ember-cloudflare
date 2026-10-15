@@ -132,6 +132,14 @@ describe(feature("realtime.reconnect"), () => {
     expect(state.messages.map((m) => m.id)).toEqual(["m3", "m4", "m5"]);
   });
 
+  it("leaves a changed message older than every one the room sent for history to bring, even once they're all deleted", () => {
+    let state = loaded("m3", "m4");
+    for (const messageId of ["m3", "m4"]) state = frame(state, { type: "frame", frame: { type: "message.deleted", messageId, seq: 1 }, now: 0 });
+    state = resumed(state, [message({ id: "m1", clientMessageId: "m1", body: "edited" }), message({ id: "m5", clientMessageId: "m5" })]);
+    expect(state.messages.map((m) => m.id)).toEqual(["m5"]);
+    expect(state.oldestId).toBe("m3");
+  });
+
   it("swaps in the room's copies of messages sent before the drop, in their places, keeping the rest as sending until the room says", () => {
     let state = loaded("m1");
     for (const id of ["c2", "c3"]) state = roomReducer(state, { type: "pending", message: { ...message({ id, clientMessageId: id }), pending: true } });
@@ -322,6 +330,17 @@ describe(feature("messages.history"), () => {
     const state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     const failed = frame(state, { type: "frame", frame: { type: "error", message: "Something went wrong", failed: "history.before" }, now: 0 });
     expect(failed.messages).toBe(state.messages);
+  });
+
+  it("pages back from the oldest message the room sent, even once it's deleted", () => {
+    const page = [message({ id: "m2", clientMessageId: "c2" }), message({ id: "m3", clientMessageId: "c3" })];
+    let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: page, present: [ada], hasMore: true, seq: 0 }, now: 0 });
+    expect(state.oldestId).toBe("m2");
+    for (const messageId of ["m2", "m3"]) state = frame(state, { type: "frame", frame: { type: "message.deleted", messageId, seq: 1 }, now: 0 });
+    expect(state).toMatchObject({ messages: [], hasMore: true, oldestId: "m2" });
+
+    state = frame(state, { type: "frame", frame: { type: "history", messages: [message()], hasMore: false }, now: 0 });
+    expect(state.oldestId).toBe("m1");
   });
 
   it("prepends older history", () => {
