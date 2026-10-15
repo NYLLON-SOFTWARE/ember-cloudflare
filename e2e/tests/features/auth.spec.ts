@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
 import type { Browser, Page } from "@playwright/test";
-import { ADMINISTRATOR, invitation, logOut, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
+import { ADMINISTRATOR, editorField, invitation, logOut, signInAsAdministrator, useOwnAddress, type TestRoom } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
@@ -182,7 +182,7 @@ test.describe(feature("auth.sign-out"), () => {
       // The room closed the other tab's socket, so it found out without being touched.
       await expect(signInHeading(otherTab)).toBeVisible();
 
-      const composer = phone.getByRole("textbox", { name: "Write a message" });
+      const composer = editorField(phone, "Write a message");
       await composer.fill("Still signed in on the phone");
       await composer.press("Enter");
       await expect(phone.getByRole("article").filter({ hasText: "Still signed in on the phone" })).toBeVisible();

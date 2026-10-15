@@ -1,5 +1,5 @@
 import type { BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, createRoom, createSession, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
+import { test as app, createRoom, createSession, editorField, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
 
@@ -48,7 +48,7 @@ export class Member {
   }
 
   composer(): Locator {
-    return this.page.getByRole("textbox", { name: "Write a message" });
+    return editorField(this.page, "Write a message");
   }
 
   async send(text: string): Promise<void> {
@@ -63,7 +63,7 @@ export class Member {
 
   /** The box for editing a message in place, while one is open. */
   editor(): Locator {
-    return this.page.getByRole("textbox", { name: "Edit message" });
+    return editorField(this.page, "Edit message");
   }
 
   /** Shows a message's action bar by hovering it, and returns the bar. */
