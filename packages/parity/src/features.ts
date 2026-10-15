@@ -120,7 +120,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/db/src/models/session.rs", "reference/app/models/session.rb", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["reference/test/controllers/sessions_controller_test.rb", "reference/test/models/user_test.rb", "crates/db/src/tests/callbacks_test.rs", "crates/db/src/tests/user_test.rs"],
-    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Nobody can be removed or banned or reset a password yet.",
+    notes: "The cookie lasts 400 days, the longest browsers keep one, rather than 20 years, and it's named `__Host-session_token` over HTTPS so no other site on the domain can set it. It's sent again every time the app loads and asks who's signed in, rather than with the hourly refresh, which a room's socket may be the one to make. The Workspace stores an HMAC of the cookie's token, keyed by `SESSION_SECRET`, rather than the token, so its database holds no live sessions and changing the secret signs everyone out, as changing ember-rust's secret key base does. When another tab signs the browser in as someone else, a tab whose room then answers as them switches to that person rather than sending as them under the old name. Resetting a password ends all of the person's sessions (`accounts.reset-password`); nobody can be removed or banned yet.",
   },
   {
     id: "auth.sign-out",
@@ -405,7 +405,7 @@ export const features = [
     id: "accounts.reset-password",
     title: "Reset a password from the server",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`ember reset-password <email>` reads exactly one password from stdin and refuses a terminal: \"Read the new password with a hidden prompt, then pipe it to ember reset-password; passwords are accepted only on stdin\".",
       "One trailing LF or CRLF is stripped and spaces are kept. Any other CR, LF or NUL gives \"provide exactly one password on stdin\", more than 4096 bytes \"password input exceeds 4096 bytes\", invalid UTF-8 \"password must be UTF-8\", and fewer than 8 characters \"password must contain at least 8 characters\".",
@@ -416,6 +416,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/admin.rs", "crates/ember/src/app.rs", "deploy/installer/emberctl.py"],
     upstreamTests: ["crates/ember/src/admin.rs", "deploy/installer/tests/test_installer.py"],
+    notes: "A Worker has no shell beside its data, so `POST /api/recovery/reset-password` does `ember reset-password`'s work behind a secret of its own, `EMBER_RECOVERY_TOKEN`, answering 404 while it's unset or to anything without it, and apps/worker/scripts/reset-password.ts does emberctl's: it prompts on a terminal as emberctl does, and otherwise reads stdin with `ember reset-password`'s rules and messages. Unlike ember-rust, the password must also fit sign-in's 72 characters (\"password must contain at most 72 characters\"), the person's live connections close at once, as emberctl's restart closes them, and a sign-in that checked the old password while it was reset starts no session. Pending migrations and a missing database have no counterpart: each Durable Object migrates itself as it opens, and D1 migrates at deploy.",
   },
 
   // People and profiles

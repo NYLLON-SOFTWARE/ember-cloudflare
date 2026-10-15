@@ -27,6 +27,11 @@ export interface Env {
    * link `/first_run/access#token=<token>`. Unset, the first visitor sets up the workspace.
    */
   EMBER_SETUP_TOKEN?: string;
+  /**
+   * 64 lowercase hex characters (`openssl rand -hex 32`) that let apps/worker/scripts/reset-password.ts
+   * reset anyone's password. Unset, nothing can, so set it only while it's needed.
+   */
+  EMBER_RECOVERY_TOKEN?: string;
   /** What to call this deployment's version, as ember-rust's `APP_VERSION` does. */
   APP_VERSION?: string;
   /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */

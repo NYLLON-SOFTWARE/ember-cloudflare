@@ -161,6 +161,27 @@ storage), that the page loads through the Worker with its headers, that the API 
 and that setup, until it's done, takes the private link. The link is on the run's summary and under
 the repository's Deployments.
 
+### Resetting a password
+
+Someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`, as
+ember-rust's `emberctl reset-password` gives one on its server. The Worker takes recovery requests
+only while its `EMBER_RECOVERY_TOKEN` secret is set, and the script sends the same token from your
+shell's environment, so set one up just for the reset (add `--name ember-preview` to each `wrangler`
+command for the preview):
+
+```sh
+export EMBER_RECOVERY_TOKEN=$(openssl rand -hex 32)
+printf %s "$EMBER_RECOVERY_TOKEN" | pnpm --filter @ember/worker exec wrangler secret put EMBER_RECOVERY_TOKEN
+node apps/worker/scripts/reset-password.ts https://<your Worker> ada@example.com
+pnpm --filter @ember/worker exec wrangler secret delete EMBER_RECOVERY_TOKEN
+```
+
+The script asks for the new password twice without showing it, or reads one line from stdin. All
+the person's sessions end, and their open tabs go to sign in. Their role and status stay as they
+were, so someone deactivated or banned still can't sign in. Whoever has the token can take over any
+account, so delete the secret once you're done; without it, the endpoint answers 404, as any
+address the API doesn't have does.
+
 ## Status
 
 This is the starter. Working now: first-run setup, which creates the administrator and the rooms
