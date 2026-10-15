@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { avatarSvg, type Directory, type DirectoryUser, type UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { avatarTokenUser, directoryOf } from "../src/avatars";
+import { avatarTokenUser, directoryOf } from "../src/avatar-tokens";
 import { DEFAULT_BOT_AVATAR } from "../src/default-bot-avatar";
 import { api, freshDeploy, origin, signIn, workspaceSql, type Session } from "./support";
 

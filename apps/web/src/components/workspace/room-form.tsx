@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { IconPicker } from "./icon-picker";
+import { ListRow, ListSeparator } from "./list-row";
 import { UserAvatar } from "./user-avatar";
 
 // ember-rust's room forms, which New room and a room's settings share (rooms/layouts/_form.html, with
@@ -85,7 +86,7 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
     <menu className="m-0 flex max-h-[50vh] flex-col gap-x-[1ch] gap-y-4 overflow-y-auto px-[1ch] py-4">
       {everyone && (
         <>
-          <Row figure={<Everyone className="size-[4ch] shrink-0" />} name="Everyone">
+          <ListRow figure={<Everyone className="size-[4ch] shrink-0" />} name="Everyone">
             {everyone.onFlip && (
               <Switch
                 checked={everyone.on}
@@ -93,8 +94,8 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
                 aria-label={everyone.on ? "Give only some access to this room" : "Give everyone access to this room"}
               />
             )}
-          </Row>
-          <Separator />
+          </ListRow>
+          <ListSeparator />
         </>
       )}
 
@@ -102,37 +103,16 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
 
       {listed.map((group, index) => (
         <Fragment key={index}>
-          {index > 0 && <Separator />}
+          {index > 0 && <ListSeparator />}
           {group.filter(shown).map((person) => (
-            <Row key={person.id} figure={<UserAvatar user={person} className="size-[4ch]" lazy />} name={person.name}>
+            <ListRow key={person.id} figure={<UserAvatar user={person} className="size-[4ch]" lazy />} name={person.name}>
               {mark(person)}
-            </Row>
+            </ListRow>
           ))}
         </Fragment>
       ))}
     </menu>
   );
-}
-
-/** One row of the list: a picture, the name in a pill, a dashed line, and what follows. */
-function Row({ figure, name, children }: { figure: ReactNode; name: string; children?: ReactNode }) {
-  return (
-    <li className="flex items-center gap-x-[1ch]">
-      {figure}
-      <div className="min-w-0">
-        <div className="truncate rounded-full border bg-surface px-[9px] py-[3px] leading-[1.4]">
-          <strong>{name}</strong>
-        </div>
-      </div>
-      <hr aria-hidden="true" className="min-w-[2ch] grow border-t border-dashed" />
-      {children}
-    </li>
-  );
-}
-
-/** Campfire's `.separator.full-width` with `--border-style: solid`. */
-function Separator() {
-  return <hr className="w-full" />;
 }
 
 /**

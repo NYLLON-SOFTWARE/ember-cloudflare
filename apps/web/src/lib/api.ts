@@ -3,7 +3,9 @@ import {
   type Account,
   type AccountChanges,
   type Bootstrap,
+  type ChangedPerson,
   type Directory,
+  type DirectoryUser,
   type Favorites,
   type Me,
   type NewJoinCode,
@@ -11,6 +13,7 @@ import {
   type NewRoomForm,
   type NewWorkspace,
   type PasswordSignIn,
+  type PersonRole,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -18,6 +21,7 @@ import {
   type RoomSocketParams,
   type Sidebar,
   type SignUp,
+  type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
 
@@ -106,6 +110,14 @@ export async function changeAccount(changes: AccountChanges): Promise<Account> {
 /** Gives the join link a new code, answering it. Fails with a 403 ApiError for anyone but an administrator. */
 export async function regenerateJoinCode(): Promise<string> {
   return (await request<NewJoinCode>("/api/account/join_code", { method: "POST" })).joinCode;
+}
+
+/**
+ * Makes someone an administrator or a member, answering them as the people directory then lists them.
+ * Fails with a 403 ApiError for anyone but an administrator, and for their own role or a bot's.
+ */
+export async function changeRole(userId: UserId, role: PersonRole): Promise<DirectoryUser> {
+  return (await request<ChangedPerson>(`/api/account/users/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) })).user;
 }
 
 /** A copy of someone's sidebar, and the ETag the server sent it with. */
