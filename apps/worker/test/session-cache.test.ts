@@ -14,6 +14,14 @@ describe(feature("auth.sessions"), () => {
     expect(lookUp).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a session it starts, so the next request doesn't look it up", async () => {
+    const cache = new SessionCache<string>(10);
+    expect(await cache.keep("a", async () => "Ada's")).toBe("Ada's");
+    const lookUp = finding(null);
+    expect(await cache.get("a", lookUp)).toBe("Ada's");
+    expect(lookUp).not.toHaveBeenCalled();
+  });
+
   it("looks again for a session it didn't find", async () => {
     const cache = new SessionCache<string>(10);
     const lookUp = finding(null);
@@ -120,6 +128,19 @@ describe(feature("accounts.roles"), () => {
 
     const lookUp = finding("Ada's, read again");
     expect(await cache.get("a", lookUp)).toBe("Ada's, read again");
+    expect(lookUp).toHaveBeenCalledOnce();
+  });
+
+  it("doesn't keep a session started while a change was under way, since it may have read what changed", async () => {
+    const cache = new SessionCache<string>(10);
+    let started!: (session: string) => void;
+    const starting = cache.keep("a", () => new Promise<string | null>((resolve) => (started = resolve)));
+    await cache.change(() => true, async () => {});
+    started("Ada's, as a member");
+    expect(await starting).toBe("Ada's, as a member");
+
+    const lookUp = finding("Ada's, as an administrator");
+    expect(await cache.get("a", lookUp)).toBe("Ada's, as an administrator");
     expect(lookUp).toHaveBeenCalledOnce();
   });
 });

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,15 +67,25 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged }:
   });
 }
 
-const spies = () => ({ onAccountChanged: vi.fn(), onJoinCodeChanged: vi.fn(), reloadPeople: vi.fn(), onPersonChanged: vi.fn(), onFailed: vi.fn() });
+const spies = () => ({
+  onAccountChanged: vi.fn(),
+  onJoinCodeChanged: vi.fn(),
+  reloadPeople: vi.fn(async () => {}),
+  onPersonChanged: vi.fn(),
+  onFailed: vi.fn(),
+});
 type Callbacks = ReturnType<typeof spies>;
 
-/** The page, with the people directory as the workspace keeps it: changed as the page says. */
+/** Changes someone in the people directory the page shows, as the workspace socket does. */
+let socketSays: (person: DirectoryUser) => void;
+
+/** The page, with the people directory as the workspace keeps it: changed as the page or the workspace socket says. */
 function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; callbacks: Callbacks }) {
   const [people, setPeople] = useState(() => new Map(listed.map((person) => [person.id, person])));
+  socketSays = (person) => setPeople((people) => new Map(people).set(person.id, person));
   const personChanged = (person: DirectoryUser) => {
     callbacks.onPersonChanged(person);
-    setPeople((people) => new Map(people).set(person.id, person));
+    socketSays(person);
   };
   return (
     <PeopleContext value={people}>
@@ -88,8 +98,7 @@ function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; call
   );
 }
 
-function showPage(me = asAda, people = everyone) {
-  const callbacks = spies();
+function showPage(me = asAda, people = everyone, callbacks = spies()) {
   history.replaceState(null, "", "/account/edit");
   const { rerender } = render(<Page me={me} listed={people} callbacks={callbacks} />);
   return { ...callbacks, rerender: (me: Me) => rerender(<Page me={me} listed={people} callbacks={callbacks} />), user: userEvent.setup() };
@@ -316,6 +325,14 @@ describe(feature("accounts.people"), () => {
     await peopleList();
     expect(reloadPeople).toHaveBeenCalledOnce();
   });
+
+  it("says why the people didn't load", async () => {
+    const callbacks = spies();
+    const error = new TypeError("Failed to fetch");
+    callbacks.reloadPeople.mockRejectedValueOnce(error);
+    showPage(asAda, everyone, callbacks);
+    await waitFor(() => expect(callbacks.onFailed).toHaveBeenCalledWith(error));
+  });
 });
 
 describe(feature("accounts.roles"), () => {
@@ -370,6 +387,37 @@ describe(feature("accounts.roles"), () => {
     expect(roleChanges()).toEqual([["u3", "administrator"]]);
     answer(Response.json({ user: { ...linus, role: "administrator" } }));
     await waitFor(async () => expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "linus Torvalds", "—", "Mallory"]));
+  });
+
+  it("leaves out an answer the workspace socket has overtaken, loading the people again to see who's right", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { roleChanged: () => new Promise((resolve) => (answer = resolve)) });
+    const { onPersonChanged, reloadPeople, user } = showPage();
+    await user.click(await crownOf("linus Torvalds"));
+    // Ada's change comes by the socket before its answer does, and then Grace's, making Linus a member again.
+    act(() => socketSays({ ...linus, role: "administrator" }));
+    act(() => socketSays({ ...linus, role: "member" }));
+    answer(Response.json({ user: { ...linus, role: "administrator" } }));
+    await waitFor(async () => expect(await crownOf("linus Torvalds")).not.toBeChecked());
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory"]);
+    expect(onPersonChanged).not.toHaveBeenCalled();
+    expect(reloadPeople).toHaveBeenCalledTimes(2);
+  });
+
+  it("doesn't load the people again for an answer the workspace socket has already brought", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { roleChanged: () => new Promise((resolve) => (answer = resolve)) });
+    const { onPersonChanged, reloadPeople, user } = showPage();
+    await user.click(await crownOf("linus Torvalds"));
+    act(() => socketSays({ ...linus, role: "administrator" }));
+    answer(Response.json({ user: { ...linus, role: "administrator" } }));
+    // Answered after Linus's, a change to Grace shows his answer has been heard.
+    serve(asAdministrator);
+    await user.click(await crownOf("Grace Hopper"));
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...grace, role: "member" }));
+    expect(onPersonChanged).toHaveBeenCalledOnce();
+    expect(reloadPeople).toHaveBeenCalledOnce();
+    expect(await crownOf("linus Torvalds")).toBeChecked();
   });
 
   it("says why a change was refused, and puts the crown back", async () => {

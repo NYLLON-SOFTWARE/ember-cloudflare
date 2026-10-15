@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { MAX_ACCOUNT_NAME_LENGTH, type Account, type DirectoryUser, type Me, type PersonRole, type WorkspaceSettings } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -29,8 +29,8 @@ interface Props {
   onAccountChanged: (account: Account) => void;
   /** Called with the join link's code as the page loads or regenerates it, for the welcome card to show. */
   onJoinCodeChanged: (joinCode: string) => void;
-  /** Loads the people directory again, which the page lists people from, as the page loads. */
-  reloadPeople: () => void;
+  /** Loads the people directory again, which the page lists people from, settling once it has or failed. */
+  reloadPeople: () => Promise<void>;
   /** Called with someone as the page changes them, for the people directory to show. */
   onPersonChanged: (person: DirectoryUser) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -49,12 +49,23 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const people = useContext(PeopleContext);
+  // The people as they are now, for answers that come later.
+  const peopleNow = useRef(people);
+  useLayoutEffect(() => {
+    peopleNow.current = people;
+  }, [people]);
   const flash = useFlash();
   const mounted = useMounted();
   useTitle("Account settings");
 
+  // A page that has gone only reports a session that's ended, which goes to sign in.
+  const listPeople = useCallback(
+    () => void reloadPeople().catch((error: unknown) => (mounted.current || isSignedOut(error)) && onFailed(error)),
+    [reloadPeople, onFailed, mounted],
+  );
+
   // As ember-rust lists everyone as the page loads, rather than as the directory last loaded.
-  useEffect(() => void reloadPeople(), [reloadPeople]);
+  useEffect(() => listPeople(), [listPeople]);
 
   // Loaded again when someone makes them an administrator or a member, which changes what they can do here.
   const administrator = me.administrator;
@@ -113,13 +124,22 @@ export function WorkspaceSettingsPage({ me, back, version, onAccountChanged, onJ
     );
   };
 
-  // As ember-rust's crowns do: no notice after.
+  // As ember-rust's crowns do: no notice after. Once the workspace socket or a load has said the person
+  // changed while the answer was on its way, the answer may be older than that, so it's left out, and the
+  // directory loads again unless they already have the role it gives them.
   const changeRoleOf = useCallback(
     (person: DirectoryUser, role: PersonRole) =>
-      changeRole(person.id, role).then(onPersonChanged, (error: unknown) => {
-        if (mounted.current || isSignedOut(error)) onFailed(error);
-      }),
-    [onPersonChanged, onFailed, mounted],
+      changeRole(person.id, role).then(
+        (changed) => {
+          const listed = peopleNow.current.get(person.id);
+          if (listed === person) onPersonChanged(changed);
+          else if (listed?.role !== changed.role) listPeople();
+        },
+        (error: unknown) => {
+          if (mounted.current || isSignedOut(error)) onFailed(error);
+        },
+      ),
+    [onPersonChanged, onFailed, mounted, listPeople],
   );
 
   return (

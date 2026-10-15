@@ -1,7 +1,13 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap, ChangedPerson, Directory, DirectoryUser, NewWorkspace, UserId } from "@ember/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
-import { api, cookieOf, freshDeploy, openWorkspaceSocket, shown, signIn, workspaceSql, type Session } from "./support";
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { credentialsFor, newSessionToken } from "../src/auth";
+import type { Env } from "../src/env";
+import type { Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
+import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
@@ -63,6 +69,37 @@ describe(feature("accounts.roles"), () => {
     await changeRole(administrator, grace.user.id, { role: "member" });
     expect((await me(grace)).user.administrator).toBe(false);
     expect((await openWorkspaceSocket(grace)).welcome).toEqual({ type: "welcome", you: { ...grace.user, administrator: false } });
+  });
+
+  it("doesn't remember a sign-in that read someone's role before it changed", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const [ada, laptop] = await Promise.all(
+      [administrator.cookie.split("=")[1]!, newSessionToken()].map((token) => credentialsFor(token, new Request(origin), env as unknown as Env)),
+    );
+    const [signedIn, signedInNow] = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+      const store = (workspace as unknown as { store: WorkspaceStore }).store;
+      const startSession = store.startSession.bind(store);
+      let read!: () => void;
+      const reading = new Promise<void>((resolve) => (read = resolve));
+      let answer!: () => void;
+      const answering = new Promise<void>((resolve) => (answer = resolve));
+      // On D1 a sign-in can read Grace as a member, and answer only once she's an administrator.
+      vi.spyOn(store, "startSession").mockImplementationOnce(async (...args) => {
+        const session = await startSession(...args);
+        read();
+        await answering;
+        return session;
+      });
+
+      const signingIn = workspace.startSession(grace.user.id, laptop!.tokenDigest, laptop!.client);
+      await reading;
+      await workspace.changeRole(ada!, grace.user.id, "administrator");
+      answer();
+      return [await signingIn, await workspace.me(laptop!)];
+    });
+    expect(signedIn).toMatchObject({ administrator: false });
+    expect(signedInNow).toMatchObject({ administrator: true });
   });
 
   it("tells everyone's workspace sockets who changed, as the directory now lists them", async () => {

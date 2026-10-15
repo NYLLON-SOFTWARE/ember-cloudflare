@@ -391,8 +391,10 @@ export class Workspace extends DurableObject<Env> {
 
   /** Signs in someone whose password checked out, unless they've stopped being active since. */
   async startSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
-    const session = await this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString());
-    if (session) this.sessions.remember(tokenDigest, session);
+    // On D1 a role change can overlap it, so it's remembered only if none did.
+    const session = await this.sessions.keep(tokenDigest, () =>
+      this.store.startSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+    );
     return session && meOf(session);
   }
 

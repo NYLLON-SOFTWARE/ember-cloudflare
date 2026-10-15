@@ -55,12 +55,12 @@ describe(feature("users.avatars"), () => {
     expect(requests()).toEqual([null, 'W/"1"', 'W/"1"']);
   });
 
-  it("keeps the people it has when a load fails", async () => {
+  it("keeps the people it has when a load fails, and says so", async () => {
     const { result } = renderHook(() => useDirectory());
     await reload(result);
     const people = result.current.people;
     server.down = true;
-    await reload(result);
+    await expect(reload(result)).rejects.toThrow("Failed to fetch");
     expect(result.current.people).toBe(people);
   });
 });

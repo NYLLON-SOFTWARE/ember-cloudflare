@@ -194,8 +194,8 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
 
-  it("says each time it loads again by itself, for the people directory to load again too", async () => {
-    const onReload = vi.fn();
+  it("says each time it loads again by itself, for the people directory to load again too, failing or not", async () => {
+    const onReload = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
     const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
     await settle();
     expect(onReload).toHaveBeenCalledOnce();
@@ -252,7 +252,7 @@ describe(feature("accounts.roles"), () => {
   /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
   async function connected() {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
-    renderHook(() => useSidebar(ada, onSessionChanged, { reload: () => {}, update }));
+    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
     await settle();
     socket().connect();
     await settle();

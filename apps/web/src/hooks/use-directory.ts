@@ -18,8 +18,9 @@ function withChanges(people: People, changed: DirectoryUser[]): People {
 
 /**
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
- * since has come, and `update` changes someone in, as the workspace socket or a change made here says
- * they are now. The people stay as they were when a load fails or the server says they haven't changed.
+ * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
+ * here says they are now. The people stay as they were when a load fails or the server says they
+ * haven't changed.
  */
 export function useDirectory(): { people: People; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
@@ -43,8 +44,7 @@ export function useDirectory(): { people: People; reload: () => Promise<void>; u
       changedSince?.push(user);
       setPeople((people) => withChanges(people, [user]));
     };
-    // A failed load leaves the avatars as they are until the next.
-    return { reload: () => load().catch(() => {}), update };
+    return { reload: load, update };
   });
   return { people, ...directory };
 }

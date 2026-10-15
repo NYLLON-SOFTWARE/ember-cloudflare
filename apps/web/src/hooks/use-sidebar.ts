@@ -42,13 +42,13 @@ export function oneAtATime(task: () => Promise<void>): () => Promise<void> {
 
 /** The people directory, as far as the workspace socket keeps it current. */
 interface Directory {
-  /** Loads it again, as the sidebar does by itself. */
-  reload: () => void;
+  /** Loads it again, as the sidebar does by itself, settling once it has or failed. */
+  reload: () => Promise<void>;
   /** Changes someone in it, as the socket says they are now. */
   update: (user: DirectoryUser) => void;
 }
 
-const NO_DIRECTORY: Directory = { reload: () => {}, update: () => {} };
+const NO_DIRECTORY: Directory = { reload: async () => {}, update: () => {} };
 
 /** Whether `you` and `me` are the same person, as they are now. */
 const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && you.administrator === me.administrator;
@@ -83,7 +83,8 @@ export function useSidebar(me: Me, onSessionChanged: (me: Me | null) => void, di
     });
   });
   const sessionChanged = useEffectEvent(onSessionChanged);
-  const reloadPeople = useEffectEvent(() => directory.reload());
+  // A failed load leaves the avatars as they are until the next.
+  const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Who the session signs in, as the socket says each time it connects and whenever they change.
   const signsIn = useEffectEvent((you: Me) => {
