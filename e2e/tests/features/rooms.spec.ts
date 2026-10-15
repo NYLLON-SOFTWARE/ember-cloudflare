@@ -143,6 +143,8 @@ test.describe(feature("sidebar.favorites"), () => {
     const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." });
     await expect(note).toBeVisible();
     await expect(note).toHaveCSS("width", "200px");
+    // From the star's left edge, as ember-rust's, where there's room for it.
+    expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
     await expect(star).toHaveAttribute("aria-pressed", "false");
     await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(["#general", "#random"]);
   });

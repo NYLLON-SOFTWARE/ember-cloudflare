@@ -70,6 +70,17 @@ test("the room's star, and a starred room's row in the drawer, fit the phone", a
   await screenIsFine();
 });
 
+test("a star that can't be saved says so on the phone, however long the room's name", async ({ page, room, screenIsFine }) => {
+  // A long name pushes the star to the end of its row, where a note hung from its left edge runs off.
+  const named = { ...room, name: "quarterly-planning-and-retrospective-for-the-platform-team" };
+  await isolateRoom(page, named);
+  await page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
+  await openRoom(page, named);
+  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" }).tap();
+  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+  await screenIsFine();
+});
+
 test("long room names are truncated, not overflowing", async ({ page, room, screenIsFine }) => {
   const name = "quarterly-planning-and-retrospective-for-the-platform-team";
   await isolateRoom(page, { ...room, name });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Favorites, Me, RoomId } from "@ember/protocol";
 import { Star } from "@/components/icons/lucide";
 import { useMounted } from "@/hooks/use-mounted";
@@ -27,6 +27,18 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const mounted = useMounted();
+  const note = useRef<HTMLSpanElement>(null);
+
+  // ember-rust's note hangs from the star's left edge, so once a long name has pushed the star to the
+  // end of the top bar, the note runs off the screen, or under a phone's rounded corner. This keeps it
+  // inside the bar's padding, which clears them.
+  useLayoutEffect(() => {
+    const bar = note.current?.closest("nav");
+    if (!note.current || !bar) return;
+    const end = bar.getBoundingClientRect().right - parseFloat(getComputedStyle(bar).paddingRight);
+    const overflow = note.current.getBoundingClientRect().right - end;
+    if (overflow > 0) note.current.style.left = `${-overflow}px`;
+  }, [failed]);
 
   const save = async () => {
     if (saving) return;
@@ -62,7 +74,7 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
         <Star className={cn("size-[18px]", favorite && "fill-current")} />
       </button>
       {failed && (
-        <span role="status" className="absolute top-full left-0 z-30 w-[200px] rounded-[8px] border bg-background p-2.5 text-[13px] shadow-[0_4px_12px_var(--color-dialog-shadow-faint)]">
+        <span ref={note} role="status" className="absolute top-full left-0 z-30 w-[200px] rounded-[8px] border bg-background p-2.5 text-[13px] shadow-[0_4px_12px_var(--color-dialog-shadow-faint)]">
           Couldn’t save your favorite. Please try again.
         </span>
       )}
