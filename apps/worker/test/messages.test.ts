@@ -1,8 +1,12 @@
 import { feature } from "@ember/parity";
-import { MAX_MESSAGE_LENGTH } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH } from "@ember/protocol";
+import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
 import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 import { connect, freshRoom, post, roomSql, settle, signIn } from "./support";
+
+/** A mention of `userId`, as Lexxy writes one. */
+const mention = (userId: string) => `<action-text-attachment sgid="${mentionSgid(userId)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
 describe(feature("messages.create"), () => {
   it("delivers a message to everyone in the room, attributed to its sender", async () => {
@@ -10,13 +14,16 @@ describe(feature("messages.create"), () => {
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
 
-    ada.send({ type: "message.create", clientMessageId: "c1", body: "  Hello, Grace  " });
+    ada.send({ type: "message.create", clientMessageId: "c1", body: "<p>Hello, Grace</p>" });
     const { message } = await grace.next("message.created");
     expect(message).toMatchObject({
       clientMessageId: "c1",
       roomId: room,
-      body: "Hello, Grace",
+      body: "<p>Hello, Grace</p>",
+      plainText: "Hello, Grace",
+      mentions: [],
       creator: ada.me,
+      editedAt: null,
       boosts: [],
     });
     expect(message.updatedAt).toBe(message.createdAt);
@@ -52,17 +59,33 @@ describe(feature("messages.create"), () => {
     expect((await connect(second, "Linus")).welcome.messages).toEqual([]);
   });
 
-  it(`refuses blank messages and messages over ${MAX_MESSAGE_LENGTH} characters`, async () => {
+  it(`refuses blank messages and messages over ${MAX_MESSAGE_LENGTH} characters, saying which message it refused`, async () => {
     const room = await freshRoom("refused");
     const ada = await connect(room, "Ada");
-    ada.send({ type: "message.create", clientMessageId: "blank", body: " \n " });
-    expect((await ada.next("error")).message).toBe("Unrecognized frame");
-    ada.send({ type: "message.create", clientMessageId: "long", body: "x".repeat(MAX_MESSAGE_LENGTH + 1) });
+    for (const [clientMessageId, body] of [["blank", " \n "], ["empty", "<p><br></p>"], ["no text", "<p><img src='x.png'></p>"]] as const) {
+      ada.send({ type: "message.create", clientMessageId, body });
+      expect(await ada.next("error"), body).toEqual({ type: "error", message: "Your message is empty.", clientMessageId, failed: "message.create" });
+    }
+    ada.send({ type: "message.create", clientMessageId: "long", body: bodyFromPlainText("x".repeat(MAX_MESSAGE_LENGTH + 1)) });
+    expect(await ada.next("error")).toMatchObject({ message: "Messages can be up to 10,000 characters.", clientMessageId: "long" });
+    ada.send({ type: "message.create", clientMessageId: "huge", body: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) });
     expect((await ada.next("error")).message).toBe("Unrecognized frame");
 
-    await post(ada, "x".repeat(MAX_MESSAGE_LENGTH));
+    // Its markup can be longer, as long as its text isn't.
+    const formatted = await post(ada, `<p>${"<b>x</b>".repeat(MAX_MESSAGE_LENGTH)}</p>`);
+    expect(formatted.plainText).toHaveLength(MAX_MESSAGE_LENGTH);
     const later = await connect(room, "Grace");
-    expect(later.welcome.messages).toHaveLength(1);
+    expect(later.welcome.messages).toEqual([formatted]);
+  });
+
+  it("refuses a message it couldn't show, saying which", async () => {
+    const ada = await connect(await freshRoom("unreadable"), "Ada");
+    for (const body of ["<b>".repeat(401) + "deep", "<action-text-attachment></action-text-attachment>"]) {
+      ada.send({ type: "message.create", clientMessageId: "c1", body });
+      expect(await ada.next("error")).toEqual({ type: "error", message: "That message couldn't be saved.", clientMessageId: "c1", failed: "message.create" });
+    }
+    await settle(ada);
+    expect(ada.pending("message.created")).toEqual([]);
   });
 
   it("answers frames it can't read with an error, and keeps the socket open", async () => {
@@ -75,6 +98,44 @@ describe(feature("messages.create"), () => {
     expect((await ada.next("error")).message).toBe("Unrecognized frame");
     await post(ada, "Still connected");
   });
+
+  it("tells a tab running the app from before rich text to reload, and refuses its messages and edits", async () => {
+    const room = await freshRoom("outdated");
+    const ada = await connect(room, "Ada");
+    const original = await post(ada, "<p>Mine</p>");
+    const old = await connect(room, ada.session, "outdated");
+    const reload = { type: "error", message: "Ember has been updated. Reload the page to keep chatting." };
+    expect(await old.next("error")).toEqual(reload);
+
+    // It sends what was typed as it was typed, which the room would read as markup.
+    old.send({ type: "message.create", clientMessageId: "old", body: "<b>1</b> < 2 &amp; 3" });
+    expect(await old.next("error")).toEqual({ ...reload, clientMessageId: "old", failed: "message.create" });
+    old.send({ type: "message.update", messageId: original.id, body: "Changed" });
+    expect(await old.next("error")).toEqual({ ...reload, failed: "message.update" });
+    await settle(old, ada);
+    expect(ada.pending("message.created")).toEqual([]);
+    expect(ada.pending("message.updated")).toEqual([]);
+    expect((await connect(room, "Grace")).welcome.messages).toEqual([original]);
+  });
+});
+
+describe(feature("messages.plain-text"), () => {
+  it("keeps each message's plain text, as Action Text writes it", async () => {
+    const ada = await connect(await freshRoom("plain-text"), "Ada");
+    expect((await post(ada, "<p>One</p><ul><li>Two</li><li>Three</li></ul>")).plainText).toBe("One\n\n• Two\n• Three");
+  });
+});
+
+describe(feature("mentions.render"), () => {
+  it("keeps whom a message mentions, named as they are now, and a mention of no one as ☒", async () => {
+    const room = await freshRoom("mentions");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const nobody = "0000000000000000";
+    const message = await post(ada, `<p>Hi ${mention(grace.me.id)}, ${mention(nobody)} and ${mention(grace.me.id)}</p>`);
+    const stored = `<action-text-attachment content-type="${MENTION_CONTENT_TYPE}" sgid="${grace.me.id}"></action-text-attachment>`;
+    expect(message).toMatchObject({ body: `<p>Hi ${stored}, ☒ and ${stored}</p>`, plainText: "Hi @Grace, ☒ and @Grace", mentions: [grace.me.id] });
+  });
 });
 
 describe(feature("messages.edit"), () => {
@@ -82,16 +143,30 @@ describe(feature("messages.edit"), () => {
     const room = await freshRoom("edit");
     const ada = await connect(room, "Ada");
     const grace = await connect(room, "Grace");
-    const original = await post(ada, "Helo");
+    const original = await post(ada, "<p>Helo</p>");
 
-    ada.send({ type: "message.update", messageId: original.id, body: " Hello " });
+    ada.send({ type: "message.update", messageId: original.id, body: "<p>Hello <em>all</em></p>" });
     const { message } = await grace.next("message.updated");
-    expect(message).toMatchObject({ id: original.id, body: "Hello", creator: ada.me, createdAt: original.createdAt });
+    expect(message).toMatchObject({ id: original.id, body: "<p>Hello <em>all</em></p>", plainText: "Hello all", creator: ada.me, createdAt: original.createdAt });
     expect(message.updatedAt >= original.createdAt).toBe(true);
+    expect(message.editedAt).toBe(message.updatedAt);
     expect((await ada.next("message.updated")).message).toEqual(message);
 
     const later = await connect(room, "Linus");
     expect(later.welcome.messages).toEqual([message]);
+  });
+
+  it("leaves a message saved as it was as it was, its update time included", async () => {
+    const room = await freshRoom("edit-unchanged");
+    const ada = await connect(room, "Ada");
+    const original = await post(ada, "<p>Same</p>");
+
+    // Sent as the editor writes it, which isn't quite how the room keeps it.
+    ada.send({ type: "message.update", messageId: original.id, body: '<p class="x">Same</p>' });
+    await settle(ada);
+    expect(ada.pending("message.updated")).toEqual([]);
+    expect(ada.pending("error")).toEqual([]);
+    expect((await connect(room, "Grace")).welcome.messages).toEqual([original]);
   });
 
   it("refuses edits to someone else's message, telling only the person who tried", async () => {
@@ -108,13 +183,21 @@ describe(feature("messages.edit"), () => {
     expect((await connect(room, "Linus")).welcome.messages[0]!.body).toBe("Mine");
   });
 
-  it("refuses edits to messages that don't exist and blank edits", async () => {
-    const ada = await connect(await freshRoom("edit-missing"), "Ada");
+  it("refuses edits to messages that don't exist, and edits it wouldn't keep as a new message", async () => {
+    const room = await freshRoom("edit-missing");
+    const ada = await connect(room, "Ada");
     const original = await post(ada, "Here");
     ada.send({ type: "message.update", messageId: "missing", body: "Hello" });
     expect((await ada.next("error")).message).toBe("You can only edit your own messages");
-    ada.send({ type: "message.update", messageId: original.id, body: "   " });
-    expect((await ada.next("error")).message).toBe("Unrecognized frame");
+    for (const [body, message] of [
+      ["   ", "Your message is empty."],
+      [bodyFromPlainText("x".repeat(MAX_MESSAGE_LENGTH + 1)), "Messages can be up to 10,000 characters."],
+      ["<b>".repeat(401), "That message couldn't be saved."],
+    ]) {
+      ada.send({ type: "message.update", messageId: original.id, body });
+      expect(await ada.next("error")).toEqual({ type: "error", message, failed: "message.update" });
+    }
+    expect((await connect(room, "Grace")).welcome.messages).toEqual([original]);
   });
 
   it("keeps reactions that land while a message is being edited", async () => {

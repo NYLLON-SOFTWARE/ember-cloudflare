@@ -9,8 +9,11 @@ const at = (iso: string, creatorId = "u1"): Message => ({
   roomId: "general",
   creator: { id: creatorId, name: creatorId },
   body: "",
+  plainText: "",
+  mentions: [],
   createdAt: iso,
   updatedAt: iso,
+  editedAt: null,
   boosts: [],
 });
 

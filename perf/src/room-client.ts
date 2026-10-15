@@ -1,4 +1,4 @@
-import type { ClientFrame, Message, ServerFrame, User } from "@ember/protocol";
+import { roomSocketQuery, type ClientFrame, type Message, type ServerFrame, type User } from "@ember/protocol";
 
 // A lightweight room participant for load tests: one WebSocket to a ChatRoom, the same frames the
 // web app sends, and just enough bookkeeping to measure latency without becoming the bottleneck.
@@ -46,7 +46,7 @@ export async function createRoom(baseUrl: string, session: Session, name: string
 }
 
 export function socketUrl(baseUrl: string, room: string): string {
-  const url = new URL(`/api/rooms/${encodeURIComponent(room)}/socket`, baseUrl);
+  const url = new URL(`/api/rooms/${encodeURIComponent(room)}/socket${roomSocketQuery({ visible: true })}`, baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

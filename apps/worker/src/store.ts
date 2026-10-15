@@ -1,4 +1,5 @@
-import type { Boost, Message, RoomId, User } from "@ember/protocol";
+import type { Boost, Message, RoomId, User, UserId } from "@ember/protocol";
+import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db } from "./db";
 import { logEvent } from "./room-log";
 
@@ -10,8 +11,12 @@ interface MessageRow {
   creator_id: string;
   creator_name: string;
   body: string;
+  plain_text: string;
+  /** A JSON array of the mentioned users' ids. */
+  mentions: string;
   created_at: string;
   updated_at: string;
+  edited_at: string | null;
   /** The message's boosts, a JSON array of `BoostRow`s. */
   boosts: string;
 }
@@ -77,23 +82,37 @@ export class MessageStore {
   }
 
   /** Stores a new message, logging it in the same transaction for the Workspace to mark the room unread by. */
-  async create(id: string, clientMessageId: string, creator: User, body: string, now: string): Promise<Message> {
+  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string): Promise<Message> {
     await this.db.batch([
       statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         this.roomId,
         clientMessageId,
         creator.id,
         creator.name,
-        body,
+        body.html,
+        body.plainText,
+        JSON.stringify(body.mentions),
         now,
         now,
       ),
       logEvent(this.roomId, "message", creator.id, now),
     ]);
-    return { id, clientMessageId, roomId: this.roomId, creator, body, createdAt: now, updatedAt: now, boosts: [] };
+    return {
+      id,
+      clientMessageId,
+      roomId: this.roomId,
+      creator,
+      body: body.html,
+      plainText: body.plainText,
+      mentions: body.mentions,
+      createdAt: now,
+      updatedAt: now,
+      editedAt: null,
+      boosts: [],
+    };
   }
 
   /** Which of `clientMessageIds` the room has stored from `creator`. */
@@ -117,8 +136,19 @@ export class MessageStore {
     );
   }
 
-  async updateBody(id: string, body: string, now: string): Promise<void> {
-    await this.db.run(`UPDATE messages SET body = ?, updated_at = ? WHERE room_id = ? AND id = ?`, body, now, this.roomId, id);
+  /** Replaces a message's text, which marks it edited, and answers the message as it is now. */
+  async updateBody(message: Message, body: PreparedBody, now: string): Promise<Message> {
+    await this.db.run(
+      `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ? WHERE room_id = ? AND id = ?`,
+      body.html,
+      body.plainText,
+      JSON.stringify(body.mentions),
+      now,
+      now,
+      this.roomId,
+      message.id,
+    );
+    return { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now };
   }
 
   /** Its boosts go in the same statement, through ON DELETE CASCADE, so a failure keeps both. */
@@ -161,8 +191,11 @@ export class MessageStore {
       roomId: this.roomId,
       creator: { id: row.creator_id, name: row.creator_name },
       body: row.body,
+      plainText: row.plain_text,
+      mentions: JSON.parse(row.mentions) as UserId[],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      editedAt: row.edited_at,
       // json_group_array doesn't promise an order, so sort here rather than in the subquery.
       boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
     };
