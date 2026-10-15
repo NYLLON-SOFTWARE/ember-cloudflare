@@ -13,9 +13,9 @@ const rooms: SharedRoom[] = [
   { id: "random", name: "random", kind: "open", icon: null },
 ];
 /** Ada's DM with Grace. */
-const withGrace: DirectRoom = { id: "d1", kind: "direct", members: [{ id: ada.id, name: ada.name }, { id: "u2", name: "Grace" }] };
+const withGrace: DirectRoom = { id: "d1", kind: "direct", members: [{ id: ada.id, name: ada.name }, { id: "u2", name: "Grace" }], activeAt: "2026-10-15T12:00:00.000Z" };
 /** The sidebar's list of `listed`, with the rooms starred in `favorites`. */
-const roomList = (listed: Room[], favorites: RoomId[] = []) => ({ rooms: listed, favorites: { rooms: favorites, version: 0 }, invitation: null });
+const roomList = (listed: Room[], favorites: RoomId[] = []) => ({ rooms: listed, favorites: { rooms: favorites, version: 0 }, invitation: null, suggestions: [] });
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
 const workspaceSettings: WorkspaceSettings = {
   account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" },
@@ -661,6 +661,42 @@ describe(feature("dms.picker"), () => {
   });
 });
 
+describe(feature("dms.suggestions"), () => {
+  const grace = withGrace.members[1]!;
+  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+
+  it("starts a DM with someone suggested and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/d1");
+    expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
+    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(suggestion()).not.toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
+  });
+
+  it("says why a DM didn't start, keeping the page and the suggestion", async () => {
+    serve({
+      "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
+      "POST /api/directs": () => Promise.reject(new TypeError("Failed to fetch")),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(suggestion()!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
+    expect(location.pathname).toBe("/rooms/general");
+    expect(suggestion()).toBeInTheDocument();
+    expect(suggestion()).not.toHaveAttribute("aria-disabled");
+  });
+});
+
 describe(feature("accounts.name"), () => {
   it("passes on the workspace's name as its settings load it, which another administrator may have changed", async () => {
     serve({ "GET /api/account": () => Response.json({ ...workspaceSettings, account: { name: "Difference Engines" } }) });
@@ -878,6 +914,13 @@ describe(feature("sidebar.rooms"), () => {
     await user.click(within(sidebar).getByRole("link", { name: /random/ }));
     expect(await roomHeading()).toHaveTextContent("random");
     expect(location.pathname).toBe("/rooms/random");
+  });
+
+  it("marks the room a link to one of its messages opens", async () => {
+    showWorkspace("/rooms/random/@m1");
+    expect(await roomHeading()).toHaveTextContent("random");
+    const sidebar = screen.getAllByRole("region", { name: "Rooms" })[0]!;
+    expect(within(sidebar).getByRole("link", { name: /random/ })).toHaveAttribute("aria-current", "page");
   });
 });
 

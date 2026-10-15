@@ -571,15 +571,15 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The sidebar of the person `credentials` signs in: the rooms they're in and the ones they've starred,
-   * with the welcome card's invitation if they're in the workspace's first room. Null without a valid
-   * session.
+   * with the welcome card's invitation if they're in the workspace's first room, and the people it
+   * suggests for DMs. Null without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, suggestions, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
     const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
-    return { rooms, favorites, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null };
+    return { rooms, favorites, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null, suggestions };
   }
 
   /**
@@ -899,12 +899,15 @@ export class Workspace extends DurableObject<Env> {
    * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing
    * the room as it sends them: a new message marks the room unread for its members who aren't, and
    * someone opening it clears their mark. Each event is applied once, however often it's sent. Whoever's
-   * mark changes hears of it on their workspace sockets, and nobody else does.
+   * mark changes hears of it on their workspace sockets, and nobody else does. A new message in a DM
+   * moves it to the top of everyone's DMs there, its author's too, as in ember-rust every member's
+   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<void> {
     if (events.length === 0) return;
-    const marks = await this.store.applyRoomEvents(roomId, events, viewerIds);
+    const { marks, active } = await this.store.applyRoomEvents(roomId, events, viewerIds);
     for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
+    if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
   }
 
   /**

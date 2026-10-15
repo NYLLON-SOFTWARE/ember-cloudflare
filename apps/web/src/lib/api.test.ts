@@ -73,7 +73,7 @@ describe(feature("platform.live-socket"), () => {
 });
 
 describe(feature("sidebar.live-updates"), () => {
-  const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation: null };
+  const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation: null, suggestions: [] };
 
   it("keeps the sidebar's ETag, and names it to keep the copy while it's current", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(sidebar, { headers: { ETag: 'W/"abc"' } }));

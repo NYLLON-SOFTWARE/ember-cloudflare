@@ -12,8 +12,9 @@ import { CONFIRM_DELETE_DIRECT, DirectSettingsPage } from "./direct-settings-pag
 const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
 const linus = { id: "u3", name: "Linus Torvalds" };
-const withGraceAndLinus: DirectRoom = { id: "d1", kind: "direct", members: [ada, grace, linus] };
-const alone: DirectRoom = { id: "d2", kind: "direct", members: [ada] };
+const activeAt = "2026-10-15T12:00:00.000Z";
+const withGraceAndLinus: DirectRoom = { id: "d1", kind: "direct", members: [ada, grace, linus], activeAt };
+const alone: DirectRoom = { id: "d2", kind: "direct", members: [ada], activeAt };
 
 /** The page for `room` as Ada, at its address, with general the last room she visited. */
 function showPage(room: DirectRoom, people: People = new Map()) {

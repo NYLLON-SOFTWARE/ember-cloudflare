@@ -1,13 +1,32 @@
 import { feature } from "@ember/parity";
-import type { Favorites, Room, Sidebar, SidebarRoom } from "@ember/protocol";
+import type { Favorites, Room, Sidebar, SidebarRoom, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { apart, inSidebarOrder, markedUnread, NO_ROOM_LIST, roomListReducer, withRoom, type DirectSidebarRoom, type SharedSidebarRoom } from "./room-list";
+import {
+  apart,
+  inDirectOrder,
+  inSidebarOrder,
+  markedUnread,
+  NO_ROOM_LIST,
+  roomListReducer,
+  suggestedPeople,
+  withRoom,
+  type DirectSidebarRoom,
+  type SharedSidebarRoom,
+} from "./room-list";
 
+const NOON = "2026-10-15T12:00:00.000Z";
 const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread });
-const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({ id, kind: "direct", members: names.map((name) => ({ id: name.toLowerCase(), name })), unread: false });
+/** A DM between the people `names` names, as active as it started, at noon. */
+const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
+  id,
+  kind: "direct",
+  members: names.map((name) => ({ id: name.toLowerCase(), name })),
+  activeAt: NOON,
+  unread: false,
+});
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
-const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, invitation: null });
+const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, invitation: null, suggestions: [] });
 
 describe(feature("rooms.create-open"), () => {
   it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
@@ -183,9 +202,63 @@ describe(feature("sidebar.rooms"), () => {
 
 describe(feature("dms.create"), () => {
   it("lists a new DM last, as the room made most recently, and keeps a DM's mark as it's saved again", () => {
-    const rooms = withRoom([room("r1", "Design")], { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }] });
+    const rooms = withRoom([room("r1", "Design")], { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }], activeAt: NOON });
     expect(rooms).toEqual([room("r1", "Design"), direct("d1", "Ada")]);
     const marked = rooms.map((r) => ({ ...r, unread: true }));
-    expect(withRoom(marked, { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }] }).at(-1)).toEqual({ ...direct("d1", "Ada"), unread: true });
+    expect(withRoom(marked, { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }], activeAt: NOON }).at(-1)).toEqual({ ...direct("d1", "Ada"), unread: true });
+  });
+});
+
+describe(feature("sidebar.dm-order"), () => {
+  /** `minutes` past noon. */
+  const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
+  /** `dm`, last active `minutes` past noon. */
+  const activeAt = (dm: DirectSidebarRoom, minutes: number): DirectSidebarRoom => ({ ...dm, activeAt: at(minutes) });
+  const list = sidebar([room("r1", "Design"), activeAt(direct("d1", "Ada"), 1), activeAt(direct("d2", "Ada", "Grace"), 2)]);
+  const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
+
+  it("lists the DM active latest first, and of two active at once, the one made later", () => {
+    const directs = [activeAt(direct("d1", "Ada"), 1), activeAt(direct("d2", "Grace"), 3), activeAt(direct("d3", "Linus"), 2), activeAt(direct("d4", "Alan"), 3)];
+    expect(inDirectOrder(directs).map((dm) => dm.id)).toEqual(["d4", "d2", "d3", "d1"]);
+    expect(directs.map((dm) => dm.id)).toEqual(["d1", "d2", "d3", "d4"]);
+  });
+
+  it("moves a DM as a message comes in it, but never back to an earlier time", () => {
+    const moved = roomListReducer(loaded, { type: "active", roomId: "d1", at: at(5) });
+    expect(moved.list!.rooms).toEqual([room("r1", "Design"), activeAt(direct("d1", "Ada"), 5), activeAt(direct("d2", "Ada", "Grace"), 2)]);
+    expect(roomListReducer(moved, { type: "active", roomId: "d1", at: at(4) }).list!.rooms).toEqual(moved.list!.rooms);
+    // Only a DM moves, and only one listed.
+    expect(roomListReducer(moved, { type: "active", roomId: "r1", at: at(6) }).list!.rooms).toEqual(moved.list!.rooms);
+    expect(roomListReducer(moved, { type: "active", roomId: "d9", at: at(6) }).list!.rooms).toEqual(moved.list!.rooms);
+  });
+
+  it("keeps a message heard while a list is on its way over the time the list has, unless the list's is later", () => {
+    const heard = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "active", roomId: "d1", at: at(5) });
+    expect(roomListReducer(heard, { type: "loaded", list }).list!.rooms[1]).toEqual(activeAt(direct("d1", "Ada"), 5));
+    const later = sidebar([room("r1", "Design"), activeAt(direct("d1", "Ada"), 7), activeAt(direct("d2", "Ada", "Grace"), 2)]);
+    expect(roomListReducer(heard, { type: "loaded", list: later }).list!.rooms[1]).toEqual(activeAt(direct("d1", "Ada"), 7));
+  });
+
+  it("keeps the later of the times a DM was last active when it's saved again", () => {
+    const listed = [activeAt(direct("d1", "Ada"), 5)];
+    const saved = (minutes: number): Room => ({ id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }], activeAt: at(minutes) });
+    expect(withRoom(listed, saved(1))).toEqual(listed);
+    expect(withRoom(listed, saved(7))).toEqual([activeAt(direct("d1", "Ada"), 7)]);
+  });
+});
+
+describe(feature("dms.suggestions"), () => {
+  const people: User[] = ["Grace", "Linus", "Alan"].map((name) => ({ id: name.toLowerCase(), name }));
+  const many: User[] = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `Person ${i}` }));
+
+  it("suggests the people listed but those in your DMs", () => {
+    expect(suggestedPeople(people, [room("r1", "Design")])).toEqual(people);
+    expect(suggestedPeople(people, [room("r1", "Design"), direct("d1", "Ada", "Linus")])).toEqual([people[0], people[2]]);
+  });
+
+  it("suggests as many as there's room for beside the people in your DMs, you included", () => {
+    expect(suggestedPeople(many, [])).toHaveLength(19);
+    expect(suggestedPeople(many, [direct("d1", "Ada")])).toHaveLength(18);
+    expect(suggestedPeople(many, [direct("d1", "Ada", "Grace"), direct("d2", "Ada", "Grace", "Linus")])).toHaveLength(16);
   });
 });

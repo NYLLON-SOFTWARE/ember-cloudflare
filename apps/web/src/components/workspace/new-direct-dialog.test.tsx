@@ -67,7 +67,12 @@ const chips = () => within(screen.queryByRole("group", { name: "Selected people"
 const start = () => screen.getByRole("button", { name: "Start conversation" });
 
 /** A DM between Ada and `others`, as the server answers it. */
-const directWith = (id: string, others: DirectoryUser[]): DirectRoom => ({ id, kind: "direct", members: [ada, ...others].map(({ id, name }) => ({ id, name })) });
+const directWith = (id: string, others: DirectoryUser[]): DirectRoom => ({
+  id,
+  kind: "direct",
+  members: [ada, ...others].map(({ id, name }) => ({ id, name })),
+  activeAt: "2026-10-15T12:00:00.000Z",
+});
 
 /** Goes Back, as far as the page can tell. */
 const goBack = () => act(() => window.dispatchEvent(new PopStateEvent("popstate", { state: null })));

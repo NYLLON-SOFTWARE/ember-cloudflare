@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, DirectRoom, Favorites, Me, Room, RoomId, SidebarRoom } from "@ember/protocol";
+import type { Account, DirectRoom, Favorites, Me, Room, RoomId, SidebarRoom, User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -8,7 +8,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { ApiError, isSignedOut } from "@/lib/api";
+import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, roomPath, useRoute, type Route } from "@/hooks/use-route";
@@ -54,6 +54,7 @@ interface Redirect {
 /** The rooms, and stars, of someone whose rooms haven't loaded yet. */
 const NO_ROOMS: SidebarRoom[] = [];
 const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
+const NO_PEOPLE: User[] = [];
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
@@ -297,6 +298,21 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
+  // A suggestion starts the DM with its person, or opens the one they have, and goes there, as
+  // ember-rust's posts its form, listing it as the server answers.
+  const startDirectWith = async (person: User) => {
+    const answered = askForRoom();
+    try {
+      const room = await startDirect([person.id]);
+      answered({ type: "saved", room });
+      if (!mounted.current) return false;
+      navigate(roomPath(room.id));
+      return true;
+    } catch (error) {
+      failed(error);
+      return false;
+    }
+  };
   // Following a link in the drawer closes it, as ember-rust's shell.js does: one to another page once
   // that page shows, which unsaved changes hold off while they're asked about, and one to the page
   // shown at once. One the browser opens somewhere else, such as in a new tab, leaves this page as it
@@ -325,11 +341,14 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       workspaceName={workspaceName}
       meId={me.id}
       rooms={rooms ?? NO_ROOMS}
+      loaded={rooms !== null}
+      suggestions={list?.suggestions ?? NO_PEOPLE}
       favorites={favorites}
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
       onNewDirect={openNewDirect}
+      onStartDirect={startDirectWith}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />

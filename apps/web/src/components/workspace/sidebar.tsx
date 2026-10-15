@@ -1,13 +1,14 @@
-import { useId, useMemo, type MouseEvent } from "react";
-import type { Favorites, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
+import { useId, useMemo, useState, type MouseEvent } from "react";
+import type { Favorites, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { MessagesAdd } from "@/components/icons/campfire";
 import { GripVertical } from "@/components/icons/lucide";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useNameOf } from "@/hooks/use-directory";
-import { NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { useMounted } from "@/hooks/use-mounted";
+import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { membersShown } from "@/lib/directs";
-import { apart, inSidebarOrder, markedUnread, type DirectSidebarRoom } from "@/lib/room-list";
+import { apart, inDirectOrder, inSidebarOrder, markedUnread, suggestedPeople, type DirectSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { opensNewDirect } from "./new-direct-dialog";
 import { UserAvatar } from "./user-avatar";
@@ -26,6 +27,10 @@ interface Props {
   meId: UserId;
   /** Someone's rooms and DMs, in any order. */
   rooms: SidebarRoom[];
+  /** Whether their list has come, before which nothing says there's nothing in it. */
+  loaded: boolean;
+  /** The people suggested for DMs, as the server last listed them. */
+  suggestions: User[];
   /** The rooms they've starred, whose rows come first, end with a star, and can be moved among themselves. */
   favorites: Favorites;
   currentRoomId: string | null;
@@ -34,6 +39,8 @@ interface Props {
   onSelect: (roomId: string) => void;
   /** Opens New direct message, which the DMs heading's link does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
+  /** Starts the DM with someone suggested, or opens the one they have, and goes there, settling with whether it did. */
+  onStartDirect: (person: User) => Promise<boolean>;
   /** Called with this person's stars as the server answers them, once a new order for them is saved. */
   onStarred: (favorites: Favorites) => void;
   /** Called with null when the session has expired. */
@@ -44,14 +51,28 @@ interface Props {
  * The conversation list: rooms, then DMs, under the workspace name. The starred rooms come first, then
  * the rest by name, and a starred room's row ends with a grip and a star, as channel_order_controller.js
  * marks it (`.mb-room-drag-handle`, `.mb-room-favorite-marker`): held, it can be dragged among the other
- * starred rows, or moved with Alt and an arrow (`useStarOrder`). A DM's row shows who else is in it, as
- * ember-rust's `_direct.html` does. A room or DM marked unread is bold with a dot at the end of its row,
- * as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css). With Activity on, only those rows
- * show, as shell.js's `filterRooms` leaves them, and with none it says everything's read. With no DMs,
- * a placeholder stands where ember-rust's suggestions would, which the filter hides too, so "No
- * conversations found.", for a sidebar with no rows at all, never shows yet.
+ * starred rows, or moved with Alt and an arrow (`useStarOrder`). The DMs come latest active first, and
+ * a DM's row shows who else is in it, as ember-rust's `_direct.html` does. People suggested for DMs
+ * follow, as ember-rust's `_direct_placeholder.html` lists them. A room or DM marked unread is bold with
+ * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css). With
+ * Activity on, only those rows show, as shell.js's `filterRooms` leaves them, and with none it says
+ * everything's read; with it off and nothing to list, it says it found nothing.
  */
-export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, unreadOnly, onSelect, onNewDirect, onStarred, onSessionChanged }: Props) {
+export function Sidebar({
+  workspaceName,
+  meId,
+  rooms,
+  loaded,
+  suggestions,
+  favorites,
+  currentRoomId,
+  unreadOnly,
+  onSelect,
+  onNewDirect,
+  onStartDirect,
+  onStarred,
+  onSessionChanged,
+}: Props) {
   const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
@@ -61,9 +82,28 @@ export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, 
   const { order, moving, status, listRef, scrollerRef, listProps } = useStarOrder({ favorites, shown, nameOf, onSaved: onStarred, onSessionChanged });
   const listed = useMemo(() => inSidebarOrder(shared, order), [shared, order]);
   const starred = useMemo(() => new Set(order), [order]);
-  const hasDirects = useMemo(() => rooms.some((room) => room.kind === "direct"), [rooms]);
+  const directsListed = useMemo(() => inDirectOrder(directs), [directs]);
+  // Activity hides the suggestions, as shell.js's `filterRooms` hides their forms.
+  const suggested = useMemo(() => (unreadOnly ? [] : suggestedPeople(suggestions, rooms)), [unreadOnly, suggestions, rooms]);
+  const empty = loaded && listed.length === 0 && directsListed.length === 0 && suggested.length === 0;
   const helpId = useId();
   const unreadId = useId();
+  const mounted = useMounted();
+  // Who's suggested whose DM is starting, which another click doesn't start again.
+  const [starting, setStarting] = useState<UserId | null>(null);
+  // A suggestion starts its DM once the page's guard lets it, as settings.js asks before ember-rust's
+  // suggestion posts its form from a page with changes to lose.
+  const startWith = (person: User) => {
+    if (starting) return;
+    leave(async () => {
+      setStarting(person.id);
+      try {
+        return await onStartDirect(person);
+      } finally {
+        if (mounted.current) setStarting(null);
+      }
+    });
+  };
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
   const select = (event: MouseEvent, roomId: RoomId) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -145,7 +185,7 @@ export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, 
             <MessagesAdd className="size-[15px]" />
           </a>
         </div>
-        {directs.map((room) => (
+        {directsListed.map((room) => (
           <DirectRow
             key={room.id}
             room={room}
@@ -155,10 +195,12 @@ export function Sidebar({ workspaceName, meId, rooms, favorites, currentRoomId, 
             onClick={(event) => select(event, room.id)}
           />
         ))}
-        {!unreadOnly && !hasDirects && <p className="px-[9px] text-[13px] text-muted-foreground">No direct messages yet.</p>}
+        {suggested.map((person) => (
+          <SuggestionRow key={person.id} person={person} starting={person.id === starting} onClick={() => startWith(person)} />
+        ))}
       </section>
-      {unreadOnly && listed.length === 0 && directs.length === 0 && (
-        <p className="px-[9px] text-[13px] text-muted-foreground">You’re all caught up. No unread conversations.</p>
+      {empty && (
+        <p className="px-[9px] text-[13px] text-muted-foreground">{unreadOnly ? "You’re all caught up. No unread conversations." : "No conversations found."}</p>
       )}
     </div>
   );
@@ -206,5 +248,29 @@ function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
       </span>
       {unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
     </a>
+  );
+}
+
+interface SuggestionRowProps {
+  person: User;
+  /** Whether the DM with them is starting, which another click doesn't start again. */
+  starting: boolean;
+  onClick: () => void;
+}
+
+/**
+ * Someone suggested for a DM, as ember-rust's `_direct_placeholder.html` draws them: a button in a DM
+ * row's style with their avatar and name, which starts the DM with them.
+ */
+function SuggestionRow({ person, starting, onClick }: SuggestionRowProps) {
+  const nameOf = useNameOf();
+  return (
+    <button type="button" aria-disabled={starting || undefined} onClick={onClick} className={cn(ROW, "w-full cursor-pointer text-start aria-disabled:cursor-default")}>
+      <UserAvatar user={person} className="size-6" />
+      {/* The space after the hidden words starts the visible line, where it doesn't show. */}
+      <span className="min-w-0 flex-1 truncate">
+        <span className="sr-only">Start a direct message with</span> {nameOf(person)}
+      </span>
+    </button>
   );
 }
