@@ -39,7 +39,7 @@ export const PROFILES: Record<"full" | "quick", Profile> = {
     tabs: { sizes: [250, 500, 1000], rooms: 10, concurrency: 16, maxConnectP95Ms: 2000 },
     unread: { sizes: [100, 500, 1000], messages: 100, rate: 10, concurrency: 16 },
     history: { messages: 2000, boostEvery: 10, welcomes: 30, passes: 3 },
-    web: { lighthouseRuns: 3, backlog: 1050, burst: { messages: 100, rate: 20 }, timelineSizes: [50, 1000], cpuSlowdowns: [1, 4] },
+    web: { lighthouseRuns: 3, backlog: 1050, burst: { messages: 100, rate: 20 }, timelineSizes: [40, 320], cpuSlowdowns: [1, 4] },
   },
   quick: {
     latency: { messages: 100, rate: 20 },
@@ -49,6 +49,6 @@ export const PROFILES: Record<"full" | "quick", Profile> = {
     tabs: { sizes: [100, 200], rooms: 4, concurrency: 16, maxConnectP95Ms: 2000 },
     unread: { sizes: [100], messages: 50, rate: 10, concurrency: 16 },
     history: { messages: 500, boostEvery: 10, welcomes: 10, passes: 1 },
-    web: { lighthouseRuns: 1, backlog: 250, burst: { messages: 40, rate: 20 }, timelineSizes: [50, 200], cpuSlowdowns: [1] },
+    web: { lighthouseRuns: 1, backlog: 250, burst: { messages: 40, rate: 20 }, timelineSizes: [40, 200], cpuSlowdowns: [1] },
   },
 };

@@ -80,8 +80,9 @@ order" means writes finished in a different order than they started.
 - **Live rendering**: headless Chrome sits at the bottom of `#general` while another member posts
   bursts of messages. For each message it times the WebSocket frame landing, its row entering the
   DOM, and the next paint, and it reads Chrome's main-thread time per message (split into script,
-  style and layout), long tasks, idle main-thread time and heap size. It does this with the newest 50 messages loaded and again after
-  scrolling back to 1,000, at normal speed and with the CPU slowed 4x like a mid-range phone.
+  style and layout), long tasks, idle main-thread time and heap size. It does this with the newest
+  page of 40 messages loaded and again after scrolling back to 320, the most the timeline holds, at
+  normal speed and with the CPU slowed 4x like a mid-range phone.
 
 ## Reading the numbers
 

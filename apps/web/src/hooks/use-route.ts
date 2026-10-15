@@ -90,6 +90,9 @@ function shownPath(): string {
 // Each page asked for is numbered, so what's to follow the last one asked for runs only if the app goes
 // there: not while the page's guard holds it, nor if the person stays or another page is asked for.
 let asked = 0;
+// And each time the app goes to a page, the page it shows included, as a link to the page Turbo shows
+// renders it afresh, so following a permalink again goes to its message again.
+let visits = 0;
 let gone = 0;
 let followUp: (() => void) | null = null;
 
@@ -119,6 +122,7 @@ window.addEventListener("popstate", (event) => {
   proceeding = false;
   if (next !== null) position = next;
   followUp = null;
+  visits++;
   notify();
 });
 
@@ -131,6 +135,8 @@ export function navigate(path: string, { replace = false } = {}): void {
   followUp = null;
   if (shownPath() === path) {
     gone = navigation;
+    visits++;
+    notify();
     return;
   }
   const go = () => {
@@ -138,6 +144,7 @@ export function navigate(path: string, { replace = false } = {}): void {
     if (replace) history.replaceState({ position, from: openedFrom(history.state) }, "", path);
     else history.pushState({ position: ++position, from: shownPath() }, "", path);
     gone = navigation;
+    visits++;
     if (navigation === asked) {
       followUp?.();
       followUp = null;
@@ -177,6 +184,11 @@ export function useBackPath(): string {
   const from = useSyncExternalStore(subscribe, () => openedFrom(history.state));
   const here = useSyncExternalStore(subscribe, shownPath);
   return from !== null && from !== here ? from : "/";
+}
+
+/** How many times the app has gone to a page, re-rendering each time, even when it's the page shown. */
+export function useVisit(): number {
+  return useSyncExternalStore(subscribe, () => visits);
 }
 
 /** The page the address shows, re-rendering when it changes. */

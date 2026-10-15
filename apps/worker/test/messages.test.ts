@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type NewWorkspace, type PersonRole, type UserId } from "@ember/protocol";
 import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
-import { MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
+import { MESSAGES_AFTER, MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 import { api, connect, cookieOf, freshDeploy, freshRoom, post, roomSql, settle, shown, signIn, workspaceSql, type Session } from "./support";
 
 /** Sets Ember up afresh, with Ada as its administrator, signed in. */
@@ -339,16 +339,16 @@ describe(feature("messages.delete"), () => {
 });
 
 describe(feature("messages.history"), () => {
-  it("opens a room on its newest 50 messages, oldest first, and says when there are more", async () => {
+  it("opens a room on its newest 40 messages, oldest first, and says when there are more", async () => {
     const room = await freshRoom("page");
     const ada = await connect(room, "Ada");
-    for (let i = 1; i <= 52; i++) await post(ada, `message ${i}`);
+    for (let i = 1; i <= 42; i++) await post(ada, `message ${i}`);
 
     const grace = await connect(room, "Grace");
-    expect(grace.welcome.messages).toHaveLength(50);
+    expect(grace.welcome.messages).toHaveLength(40);
     expect(grace.welcome.messages[0]!.body).toBe("message 3");
-    expect(grace.welcome.messages.at(-1)!.body).toBe("message 52");
-    expect(grace.welcome.hasMore).toBe(true);
+    expect(grace.welcome.messages.at(-1)!.body).toBe("message 42");
+    expect(grace.welcome).toMatchObject({ hasMore: true, hasNewer: false, around: null });
   });
 
   it("pages backwards from the oldest message shown until there's nothing left", async () => {
@@ -360,6 +360,7 @@ describe(feature("messages.history"), () => {
 
     ada.send({ type: "history.before", before: posted[4]!.id, limit: 3 });
     const middle = await ada.next("history");
+    expect(middle.before).toBe(posted[4]!.id);
     expect(middle.messages.map((m) => m.body)).toEqual(["message 2", "message 3", "message 4"]);
     expect(middle.hasMore).toBe(true);
 
@@ -370,6 +371,32 @@ describe(feature("messages.history"), () => {
 
     await settle(ada, grace);
     expect(grace.pending("history")).toEqual([]);
+  });
+
+  it("pages forwards from the newest message shown until there's nothing newer", async () => {
+    const room = await freshRoom("forward");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const posted = [];
+    for (let i = 1; i <= 5; i++) posted.push(await post(ada, `message ${i}`));
+
+    ada.send({ type: "history.after", after: posted[0]!.id, limit: 3 });
+    const middle = await ada.next("history.after");
+    expect(middle.after).toBe(posted[0]!.id);
+    expect(middle.messages.map((m) => m.body)).toEqual(["message 2", "message 3", "message 4"]);
+    expect(middle.hasNewer).toBe(true);
+
+    ada.send({ type: "history.after", after: middle.messages.at(-1)!.id });
+    const last = await ada.next("history.after");
+    expect(last.messages.map((m) => m.body)).toEqual(["message 5"]);
+    expect(last.hasNewer).toBe(false);
+
+    // Past the newest message, a page is empty, where ember-rust answers 204.
+    ada.send({ type: "history.after", after: posted[4]!.id });
+    expect(await ada.next("history.after")).toMatchObject({ messages: [], hasNewer: false });
+
+    await settle(ada, grace);
+    expect(grace.pending("history.after")).toEqual([]);
   });
 
   it("hands out the largest history page a client may ask for", async () => {
@@ -398,12 +425,14 @@ describe(feature("messages.history"), () => {
     const plan = async (query: string, ...params: Array<string | number>) =>
       (await roomSql(room, `EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const before = await plan(MESSAGES_BEFORE, room, "cursor", 51);
-    const newest = await plan(NEWEST_MESSAGES, room, 51);
+    const before = await plan(MESSAGES_BEFORE, room, "cursor", 41);
+    const after = await plan(MESSAGES_AFTER, room, "cursor", 41);
+    const newest = await plan(NEWEST_MESSAGES, room, 41);
 
     // Seeking (room_id=?) alone would walk the room from its newest message down to the cursor.
     expect(before).toContain("index_messages_on_room_id_and_id (room_id=? AND id<?)");
-    expect(`${before}; ${newest}`).not.toContain("TEMP B-TREE");
+    expect(after).toContain("index_messages_on_room_id_and_id (room_id=? AND id>?)");
+    expect(`${before}; ${after}; ${newest}`).not.toContain("TEMP B-TREE");
   });
 
   it("gives someone joining mid-conversation every message exactly once, snapshot first", async () => {
@@ -437,5 +466,65 @@ describe(feature("messages.history"), () => {
 
     const grace = await connect(room, "Grace");
     expect(grace.welcome.messages[0]!.boosts).toEqual([boost]);
+  });
+});
+
+describe(feature("messages.permalink"), () => {
+  it("opens a socket at a permalink on the page around its message: up to 40 before it, it, and up to 40 after", async () => {
+    const room = await freshRoom("around");
+    const ada = await connect(room, "Ada");
+    const posted = [];
+    for (let i = 1; i <= 90; i++) posted.push(await post(ada, `message ${i}`));
+
+    const grace = await connect(room, "Grace", { visible: true, around: posted[44]!.id });
+    expect(grace.welcome.messages.map((m) => m.body)).toEqual(posted.slice(4, 85).map((m) => m.body));
+    expect(grace.welcome).toMatchObject({ around: posted[44]!.id, hasMore: true, hasNewer: true });
+  });
+
+  it("ends the page where the room's messages do", async () => {
+    const room = await freshRoom("around-ends");
+    const ada = await connect(room, "Ada");
+    const posted = [];
+    for (let i = 1; i <= 5; i++) posted.push(await post(ada, `message ${i}`));
+
+    for (const message of [posted[0]!, posted[4]!]) {
+      const grace = await connect(room, "Grace", { visible: true, around: message.id });
+      expect(grace.welcome).toMatchObject({ around: message.id, hasMore: false, hasNewer: false });
+      expect(grace.welcome.messages.map((m) => m.body)).toEqual(posted.map((m) => m.body));
+    }
+  });
+
+  it("opens on the newest page for a message the room doesn't have", async () => {
+    const room = await freshRoom("around-missing");
+    const ada = await connect(room, "Ada");
+    const elsewhere = await post(await connect(await freshRoom("around-elsewhere"), ada.session), "Not in this room");
+    await post(ada, "Here");
+
+    for (const around of [elsewhere.id, "no-such-message"]) {
+      const grace = await connect(room, "Grace", { visible: true, around });
+      expect(grace.welcome).toMatchObject({ around: null, hasMore: false, hasNewer: false });
+      expect(grace.welcome.messages.map((m) => m.body)).toEqual(["Here"]);
+    }
+  });
+
+  it("answers history.around with the page around a message, or the newest page when it names none", async () => {
+    const room = await freshRoom("around-frame");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const posted = [];
+    for (let i = 1; i <= 45; i++) posted.push(await post(ada, `message ${i}`));
+
+    ada.send({ type: "history.around", messageId: posted[1]!.id });
+    const around = await ada.next("history.around");
+    expect(around).toMatchObject({ around: posted[1]!.id, hasMore: false, hasNewer: true });
+    expect(around.messages.map((m) => m.body)).toEqual(posted.slice(0, 42).map((m) => m.body));
+
+    ada.send({ type: "history.around" });
+    const newest = await ada.next("history.around");
+    expect(newest).toMatchObject({ around: null, hasMore: true, hasNewer: false });
+    expect(newest.messages.map((m) => m.body)).toEqual(posted.slice(5).map((m) => m.body));
+
+    await settle(ada, grace);
+    expect(grace.pending("history.around")).toEqual([]);
   });
 });

@@ -68,7 +68,7 @@ const visibility = (state: DocumentVisibilityState) =>
     vi.spyOn(document, "visibilityState", "get").mockReturnValue(state);
     document.dispatchEvent(new Event("visibilitychange"));
   });
-const welcome = (): ServerFrame => ({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+const welcome = (): ServerFrame => ({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
 
 const message = (id: string, overrides: Partial<Message> = {}): Message => ({
   id,
@@ -86,11 +86,11 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
 });
 
 /** Ada in #general, connected unless asked not to be. */
-function joinGeneral({ connect = true, messages = [] as Message[], hasMore = false, onSessionChanged = () => {} } = {}) {
+function joinGeneral({ connect = true, messages = [] as Message[], hasMore = false, hasNewer = false, onSessionChanged = () => {} } = {}) {
   const hook = renderHook(() => useRoom("general", ada, onSessionChanged));
   if (connect) {
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages, present: [ada], hasMore, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages, present: [ada], hasMore, hasNewer, around: null, seq: 0 });
   }
   return hook;
 }
@@ -122,7 +122,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.status).toBe("connecting");
     socket().open();
     expect(result.current.state.status).toBe("connecting");
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(result.current.state.status).toBe("open");
   });
 
@@ -147,7 +147,7 @@ describe(feature("realtime.reconnect"), () => {
     socket().drop();
     wait(1000);
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     socket().drop();
     wait(500);
     expect(FakeSocket.all).toHaveLength(4);
@@ -172,7 +172,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.messages[1]).toMatchObject({ body: "Written while away", pending: true, queued: true });
     wait(500);
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [message("m1"), message("m2")], present: [ada, grace], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [message("m1"), message("m2")], present: [ada, grace], hasMore: false, hasNewer: false, around: null, seq: 0 });
 
     expect(result.current.state.status).toBe("open");
     expect(result.current.state.messages.map((m) => m.body)).toEqual(["m1", "m2", "Written while away"]);
@@ -191,7 +191,7 @@ describe(feature("realtime.reconnect"), () => {
     act(() => result.current.postMessage("second"));
     socket().open();
     expect(socket().sentOfType("message.create")).toEqual([]);
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["first", "second"]);
   });
 
@@ -204,7 +204,7 @@ describe(feature("realtime.reconnect"), () => {
     act(() => result.current.postMessage("Written while connecting"));
     expect(socket().sentOfType("message.create")).toEqual([]);
     expect(result.current.state.messages).toMatchObject([{ body: "Written while away", queued: true }, { body: "Written while connecting", queued: true }]);
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["Written while away", "Written while connecting"]);
   });
 
@@ -217,7 +217,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state).toMatchObject({ status: "reconnecting", offline: true });
     socket().open();
     expect(result.current.state.offline).toBe(true);
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(result.current.state).toMatchObject({ status: "open", offline: false });
   });
 
@@ -237,7 +237,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
 
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(socket().sent).toEqual([]);
   });
 
@@ -251,7 +251,7 @@ describe(feature("realtime.reconnect"), () => {
     act(() => result.current.postMessage("hello?"));
     wait(500);
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     const [unconfirmed, waited] = result.current.state.messages;
     expect(socket().sent).toEqual([
       { type: "message.check", clientMessageIds: [clientMessageId] },
@@ -274,7 +274,7 @@ describe(feature("realtime.reconnect"), () => {
     socket().drop();
     wait(500);
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     const checks = socket().sentOfType("message.check").map((frame) => (frame.clientMessageIds as string[]).length);
     expect(checks).toEqual([MAX_CHECKED_MESSAGES, 1]);
   });
@@ -310,7 +310,7 @@ describe(feature("realtime.reconnect"), () => {
     wait(500);
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 7 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 7 });
 
     rerender({ roomId: "random" });
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=3");
@@ -349,7 +349,7 @@ describe(feature("realtime.reconnect"), () => {
     socket().drop();
     wait(500);
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [message("m60")], present: [ada], hasMore: true, seq: 120 });
+    socket().receive({ type: "welcome", you: ada, messages: [message("m60")], present: [ada], hasMore: true, hasNewer: false, around: null, seq: 120 });
     expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: [clientMessageId] }]);
 
     // Nothing has changed since the welcome when the room's answer is lost with the connection.
@@ -383,7 +383,7 @@ describe(feature("realtime.reconnect"), () => {
     expect(result.current.state.notice).toMatch(/not connected/i);
 
     socket().open();
-    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
     act(() => {
       sent = result.current.messageActions.edit("m1", "hello");
     });
@@ -517,7 +517,7 @@ describe(feature("realtime.connection"), () => {
     const onSessionChanged = vi.fn();
     const { result } = joinGeneral({ connect: false, onSessionChanged });
     socket().open();
-    socket().receive({ type: "welcome", you: grace, messages: [message("m1", { creator: grace })], present: [grace], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: grace, messages: [message("m1", { creator: grace })], present: [grace], hasMore: false, hasNewer: false, around: null, seq: 0 });
 
     expect(result.current.state).toMatchObject({ status: "reconnecting", messages: [], present: [] });
     expect(socket().closedWith).toBe(1000);
@@ -546,7 +546,7 @@ describe(feature("realtime.connection"), () => {
     const onSessionChanged = vi.fn();
     joinGeneral({ connect: false, onSessionChanged });
     socket().open();
-    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false, hasNewer: false, around: null, seq: 0 });
     await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
@@ -561,7 +561,7 @@ describe(feature("realtime.connection"), () => {
     const onSessionChanged = vi.fn();
     joinGeneral({ connect: false, onSessionChanged });
     socket().open();
-    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false, seq: 0 });
+    socket().receive({ type: "welcome", you: grace, messages: [], present: [grace], hasMore: false, hasNewer: false, around: null, seq: 0 });
     expect(socket().closedWith).toBe(1000);
     await act(async () => {});
     expect(fetch).toHaveBeenCalledOnce();
@@ -712,10 +712,10 @@ describe(feature("messages.history"), () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
     act(() => result.current.loadOlder());
     act(() => result.current.loadOlder());
-    expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 50 }]);
+    expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 40 }]);
     expect(result.current.state.loadingOlder).toBe(true);
 
-    socket().receive({ type: "history", messages: [message("m0")], hasMore: false });
+    socket().receive({ type: "history", before: "m1", messages: [message("m0")], hasMore: false });
     expect(result.current.state.messages.map((m) => m.id)).toEqual(["m0", "m1", "m2"]);
     expect(result.current.state.loadingOlder).toBe(false);
     expect(result.current.state.hasMore).toBe(false);
@@ -730,7 +730,87 @@ describe(feature("messages.history"), () => {
     expect(result.current.state.messages).toEqual([]);
 
     act(() => result.current.loadOlder());
-    expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 50 }]);
+    expect(socket().sentOfType("history.before")).toEqual([{ type: "history.before", before: "m1", limit: 40 }]);
+  });
+
+  it("asks for the page after the newest message while the room has newer ones, once at a time", () => {
+    const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasNewer: true });
+    act(() => result.current.loadNewer());
+    act(() => result.current.loadNewer());
+    expect(socket().sentOfType("history.after")).toEqual([{ type: "history.after", after: "m2", limit: 40 }]);
+
+    socket().receive({ type: "history.after", after: "m2", messages: [message("m3")], hasNewer: false });
+    expect(result.current.state.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    act(() => result.current.loadNewer());
+    expect(socket().sentOfType("history.after")).toHaveLength(1);
+  });
+
+  it("doesn't page either way while a page is coming to take the timeline's place", () => {
+    const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true, hasNewer: true });
+    act(() => result.current.jump(null));
+    act(() => result.current.loadOlder());
+    act(() => result.current.loadNewer());
+    expect(socket().sentOfType("history.before")).toEqual([]);
+    expect(socket().sentOfType("history.after")).toEqual([]);
+  });
+});
+
+describe(feature("messages.permalink"), () => {
+  it("opens the room around the message its permalink names, and connects again without it once in", () => {
+    renderHook(() => useRoom("general", ada, () => {}, "m 5"));
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m%205");
+    // Until the room lets the page in, connecting again still asks for it.
+    socket().drop();
+    wait(500);
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m%205");
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [message("m 5")], present: [ada], hasMore: false, hasNewer: true, around: "m 5", seq: 4 });
+    socket().drop();
+    wait(500);
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=4");
+  });
+
+  it("goes to a message it holds without asking the room, and asks for the page around one it doesn't", () => {
+    const { result } = joinGeneral({ messages: [message("m1"), message("m2")] });
+    act(() => result.current.jump("m1"));
+    expect(result.current.state.focus).toEqual({ messageId: "m1" });
+    expect(socket().sentOfType("history.around")).toEqual([]);
+
+    act(() => result.current.jump("m0"));
+    expect(socket().sentOfType("history.around")).toEqual([{ type: "history.around", messageId: "m0" }]);
+    expect(result.current.state.loadingPage).toBe(true);
+    socket().receive({ type: "history.around", messages: [message("m0"), message("m1")], hasMore: false, hasNewer: true, around: "m0" });
+    expect(result.current.state).toMatchObject({ focus: { messageId: "m0" }, hasNewer: true, loadingPage: false });
+  });
+});
+
+describe(feature("ui.scroll"), () => {
+  it("jumps to the newest message where it is when the timeline holds it, or else on the newest page the room sends", () => {
+    const { result } = joinGeneral({ messages: [message("m1")], hasNewer: true });
+    act(() => result.current.jump(null));
+    expect(socket().sentOfType("history.around")).toEqual([{ type: "history.around" }]);
+    socket().receive({ type: "history.around", messages: [message("m9")], hasMore: true, hasNewer: false, around: null });
+    expect(result.current.state).toMatchObject({ focus: { messageId: null }, hasNewer: false });
+
+    const focus = result.current.state.focus;
+    act(() => result.current.jump(null));
+    expect(socket().sentOfType("history.around")).toHaveLength(1);
+    expect(result.current.state.focus).toEqual({ messageId: null });
+    expect(result.current.state.focus).not.toBe(focus);
+  });
+
+  it("asks for the newest page before sending from older history, as before what it sends that was written away", () => {
+    const { result } = joinGeneral({ messages: [message("m1")], hasNewer: true });
+    const sentInOrder = () => socket().sent.filter((f) => f.type === "history.around" || f.type === "message.create").map((f) => f.type);
+    act(() => result.current.postMessage("From older history"));
+    expect(sentInOrder()).toEqual(["history.around", "message.create"]);
+
+    socket().drop();
+    act(() => result.current.postMessage("Written while away"));
+    wait(500);
+    socket().open();
+    socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 0 });
+    expect(sentInOrder()).toEqual(["history.around", "message.create"]);
   });
 });
 

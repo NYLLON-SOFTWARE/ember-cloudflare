@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
+import { createContext, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState } from "react";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
@@ -15,7 +15,7 @@ import {
 import { writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
-import { initialRoomState, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { settledVisibility } from "@/lib/visibility";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
@@ -38,10 +38,12 @@ const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body
 /**
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
  * `onSessionChanged` hears when the browser's session stops signing in `me`: null once it has expired,
- * or whoever another tab signed in as.
+ * or whoever another tab signed in as. `openedAt` is the message whose permalink opened the room, which
+ * the timeline starts around.
  */
-export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void) {
+export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string) {
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
+  const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
@@ -60,10 +62,12 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     }
   });
 
-  // Sends the messages written while the room was away, in the order they were written.
+  // Sends the messages written while the room was away, in the order they were written, at the end of a
+  // timeline that holds the newest page, which one reading older history asks for first.
   const sendQueued = useEffectEvent((room: ReconnectingSocket) => {
     const queued = state.messages.filter(isQueued);
     if (queued.length === 0) return;
+    if (state.hasNewer && room.send({ type: "history.around" })) dispatch({ type: "loading-page" });
     for (const { clientMessageId, body } of queued) room.send({ type: "message.create", clientMessageId, body });
     dispatch({ type: "sent", clientMessageIds: queued.map((m) => m.clientMessageId) });
   });
@@ -75,6 +79,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     // changes one after another, so a gap is one it never announced, as when D1 saves a batch whose answer
     // is lost: this stays at the change before it, and connecting again brings what it missed.
     let seen: number | undefined;
+    // The permalink's message, until the room has opened the timeline: a socket that connects again keeps it as it is.
+    let openingAround = around;
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
     // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
@@ -110,6 +116,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       // A room from before rooms numbered their changes opens without a number, which leaves none to name.
       if (opening) seen = frame.seq;
       else if ("seq" in frame && seen !== undefined && frame.seq === seen + 1) seen = frame.seq;
+      if (opening) openingAround = undefined;
       dispatch({ type: "frame", frame, now: Date.now() });
       if (!opening) return;
       room.connected();
@@ -144,7 +151,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
     dispatch({ type: "reset" });
     const room = reconnectingSocket({
-      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen }),
+      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen, around: openingAround }),
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
       onOffline: (offline) => dispatch({ type: "offline", offline }),
@@ -160,7 +167,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       room.close();
       socket.current = null;
     };
-  }, [roomId]);
+  }, [roomId, around]);
 
   const send = useCallback((frame: ClientFrame) => socket.current?.send(frame) ?? false, []);
   // Says why something written didn't go, as the room says why it refused something.
@@ -190,13 +197,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         boosts: [],
         pending: true,
       };
-      // Until the room has let a connection in, it waits, behind any already waiting, and shows as not sent
-      // once the page is offline.
+      // It goes at the end of the newest page, which a timeline reading older history asks for first, as
+      // ember-rust's insertPendingMessage does. Until the room has let a connection in, it waits, behind
+      // any already waiting, and shows as not sent once the page is offline.
+      if ((state.hasNewer || state.loadingPage) && send({ type: "history.around" })) dispatch({ type: "loading-page" });
       if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;
       dispatch({ type: "pending", message });
       return true;
     },
-    [me, roomId, send, warn],
+    [me, roomId, send, warn, state.hasNewer, state.loadingPage],
   );
 
   // Starting is throttled, and stopping isn't, as in ember-rust: a start within a second of the last
@@ -213,11 +222,31 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [send],
   );
 
+  // A page asked for while another takes the timeline's place would page from the timeline being replaced.
   const loadOlder = useCallback(() => {
     const before = state.oldestId;
-    if (before === null || state.loadingOlder) return;
+    if (before === null || state.loadingOlder || state.loadingPage) return;
     if (send({ type: "history.before", before, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
-  }, [send, state.oldestId, state.loadingOlder]);
+  }, [send, state.oldestId, state.loadingOlder, state.loadingPage]);
+
+  const loadNewer = useCallback(() => {
+    const after = state.newestId;
+    if (after === null || !state.hasNewer || state.loadingNewer || state.loadingPage) return;
+    if (send({ type: "history.after", after, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-newer" });
+  }, [send, state.newestId, state.hasNewer, state.loadingNewer, state.loadingPage]);
+
+  /**
+   * Goes to a message, as its permalink does, or to the newest when `messageId` is null, as Jump to newest
+   * message does: in the timeline, when it holds them, or else on the page the room sends around them.
+   */
+  const jump = useCallback(
+    (messageId: string | null) => {
+      const holds = messageId === null ? !state.hasNewer : state.messages.some((m) => !isPending(m) && m.id === messageId);
+      if (holds && !state.loadingPage) dispatch({ type: "focus", messageId });
+      else if (send({ type: "history.around", messageId: messageId ?? undefined })) dispatch({ type: "loading-page" });
+    },
+    [send, state.messages, state.hasNewer, state.loadingPage],
+  );
 
   const messageActions = useMemo(() => {
     // Unlike new messages, these aren't kept to send later, so say when one couldn't go.
@@ -241,5 +270,5 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
-  return { state, postMessage, typing, loadOlder, messageActions, dismissNotice };
+  return { state, postMessage, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
 }

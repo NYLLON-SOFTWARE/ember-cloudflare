@@ -4,6 +4,7 @@ import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useRoom } from "@/hooks/use-room";
+import { useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
@@ -18,6 +19,8 @@ import { RoomHeader } from "./room-header";
 
 interface Props {
   room: Room;
+  /** The message whose permalink the address is, which the timeline goes to. */
+  messageId?: string;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   me: Me;
@@ -38,8 +41,8 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone, ref }: Props) {
-  const { state, postMessage, typing, loadOlder, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged);
+export function RoomView({ room, messageId, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone, ref }: Props) {
+  const { state, postMessage, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -52,6 +55,18 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
     if (foundGone) roomGone();
   }, [foundGone]);
   const deleted = gone || foundGone;
+
+  // The room opens at the message its address names. Following its permalink, or one to another message
+  // in it, or the room's own link, goes there, or to the newest, as Turbo renders ember-rust's page
+  // afresh, even when it's the page shown.
+  const visit = useVisit();
+  const visited = useRef({ messageId, visit });
+  const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
+  useEffect(() => {
+    if (visited.current.messageId === messageId && visited.current.visit === visit) return;
+    visited.current = { messageId, visit };
+    goTo(messageId ?? null);
+  }, [messageId, visit]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
@@ -87,8 +102,10 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
   }, []);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
 
-  // ember-rust's Up Arrow edits your newest message, unless it's still on its way.
+  // ember-rust's Up Arrow edits your newest message, unless it's still on its way, or the timeline is
+  // reading older history and may not hold it.
   const editLastMessage = () => {
+    if (state.hasNewer) return;
     const newest = state.messages.findLast((message) => message.creator.id === me.id);
     if (newest && !isPending(newest)) editors.open(newest.id);
   };
@@ -106,7 +123,7 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
         onSessionChanged={onSessionChanged}
       />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
-      <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+      <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         {state.notice && (
           <div role="alert" className="mx-auto mt-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-[10px] bg-foreground py-2 pr-1 pl-3 text-sm text-background touch:py-0.5">
             {state.notice}
@@ -125,6 +142,8 @@ export function RoomView({ room, invitation, me, favorite, gone, onStarred, onSe
           editing={editing}
           editors={editors}
           onLoadOlder={loadOlder}
+          onLoadNewer={loadNewer}
+          onJumpToNewest={() => jump(null)}
         />
         {deleted ? (
           <RoomDeleted />

@@ -89,6 +89,31 @@ describe(feature("messages.history"), () => {
     expect(parse({ type: "history.before", before: "m1", limit: 5000 })).toEqual({ type: "history.before", before: "m1", limit: 100 });
     expect(parse({ type: "history.before", before: "m1", limit: 0 })).toEqual({ type: "history.before", before: "m1", limit: 1 });
     expect(parse({ type: "history.before", before: "m1" })).toEqual({ type: "history.before", before: "m1", limit: undefined });
+    expect(parse({ type: "history.after", after: "m1", limit: 5000 })).toEqual({ type: "history.after", after: "m1", limit: 100 });
+    expect(parse({ type: "history.after", after: "m1", limit: 2.5 })).toEqual({ type: "history.after", after: "m1", limit: 2 });
+  });
+
+  it("pages from a message's id, which history can't do without", () => {
+    for (const cursor of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ type: "history.before", before: cursor }), String(cursor)).toBeNull();
+      expect(parse({ type: "history.after", after: cursor }), String(cursor)).toBeNull();
+    }
+  });
+});
+
+describe(feature("messages.permalink"), () => {
+  it("asks for the page around a message, or the newest page when it names none", () => {
+    expect(parse({ type: "history.around", messageId: "m1" })).toEqual({ type: "history.around", messageId: "m1" });
+    expect(parse({ type: "history.around" })).toEqual({ type: "history.around", messageId: undefined });
+    for (const messageId of ["", 42, null, "x".repeat(65)]) expect(parse({ type: "history.around", messageId }), String(messageId)).toBeNull();
+  });
+
+  it("carries the message a permalink names on the room socket's address", () => {
+    expect(roomSocketQuery({ visible: true, around: "01J9 Z/3" })).toBe(`?visible=1&protocol=${ROOM_PROTOCOL}&around=01J9%20Z%2F3`);
+    const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null }).around;
+    expect(read({ around: "01J9Z3" })).toBe("01J9Z3");
+    for (const around of ["", "x".repeat(65)]) expect(read({ around }), around).toBeUndefined();
+    expect(read({})).toBeUndefined();
   });
 });
 

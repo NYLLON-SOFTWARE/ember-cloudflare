@@ -39,12 +39,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
 
 ### Adopted
 
-- **History pages seek an index from the cursor.** The newest page and the page before a message are
-  separate statements, as ember-rust's `last_page` and `page_before` are
-  ([`aa3b894`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/aa3b894)). Our single statement
-  with `? IS NULL OR id < ?` walked the room from its newest message down to the cursor. In a
-  100,000-message room, a page near the start took 8.1 ms and now takes 0.27 ms, the same as the
-  newest page.
+- **History pages seek an index from the cursor.** The newest page and the pages before and after a
+  message are separate statements, as ember-rust's `last_page`, `page_before` and `page_after` are
+  ([`aa3b894`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/aa3b894)), and the page around a
+  message, which its permalink opens, is the message and the pages either side of it, read side by
+  side, as its `page_around` is. Our single statement with `? IS NULL OR id < ?` walked the room from
+  its newest message down to the cursor. In a 100,000-message room, a page near the start took
+  8.1 ms and now takes 0.27 ms, the same as the newest page.
 - **One round trip where there were two**
   ([`6bfee19`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/6bfee19)). A page's boosts come
   from a subquery in the same statement, so a page or a message lookup is one D1 round trip, not two.
