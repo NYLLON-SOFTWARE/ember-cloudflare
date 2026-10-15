@@ -24,6 +24,7 @@ import {
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { mentionPromptItem } from "@ember/richtext";
 import {
   clientOf,
   credentialsFor,
@@ -281,6 +282,28 @@ async function directory(request: Request, env: Env): Promise<Response> {
   return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
 }
 
+/**
+ * Whom the mentions prompt offers, as ember-rust's `Autocompletable::UsersController` answers Lexxy: the
+ * first 20 by name of the active people in `room_id`, or anywhere without one, whose names contain
+ * `filter` (or `query`), as `<lexxy-prompt-item>`s. A room someone isn't in is 404.
+ */
+async function mentionable(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const params = new URL(request.url).searchParams;
+  const roomId = present(params.get("room_id"));
+  if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
+  const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
+  const people = await workspace(env).mentionable(credentials, roomId ?? null, query);
+  if (!people) return problem(401, "Not signed in");
+  if (people === "not found") return problem(404, ROOM_NOT_FOUND);
+  const items = (await directoryOf(people, env.SESSION_SECRET)).map(mentionPromptItem);
+  return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+/** A parameter's value unless it's blank, as Rails' `presence` reads it. */
+const present = (value: string | null) => (value === null || value.trim() === "" ? undefined : value);
+
 /** Creates an open room, or a closed one for the people it names, as New room's forms do. */
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -427,6 +450,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
+  if (pathname === "/api/autocompletable/users" && request.method === "GET") return mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return changeProfile(request, env);

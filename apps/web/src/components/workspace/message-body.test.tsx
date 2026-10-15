@@ -1,16 +1,18 @@
 import { feature } from "@ember/parity";
+import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
 import { displayBody } from "@ember/richtext/dom";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { MessageBody } from "./message-body";
 
 afterEach(() => history.replaceState(null, "", "/"));
 
 /** Shows a stored body as a message shows it, returning its content. */
 function show(html: string, trailing?: ReactNode) {
-  const { container } = render(<MessageBody nodes={displayBody(html)} trailing={trailing} />);
+  const { container } = render(<MessageBody nodes={displayBody(html)} mentions={[]} trailing={trailing} />);
   return container.querySelector(".message-content")!;
 }
 
@@ -50,7 +52,7 @@ describe(feature("messages.rich-text"), () => {
   it("builds the message itself rather than setting markup on the page", () => {
     const nodes = displayBody('<p>Hi <img src="x" onerror="alert(1)"> <a href="https://example.com">there</a></p><pre>puts 1</pre>');
     const setInnerHtml = vi.spyOn(Element.prototype, "innerHTML", "set");
-    render(<MessageBody nodes={nodes} />);
+    render(<MessageBody nodes={nodes} mentions={[]} />);
     expect(setInnerHtml.mock.contexts.filter((element) => (element as Element).ownerDocument === document)).toEqual([]);
     expect(document.querySelector("img")).toBeNull();
   });
@@ -86,6 +88,40 @@ describe(feature("messages.rich-text"), () => {
   it("puts what follows a message in its last paragraph", () => {
     expect(show("<p>One</p><p>Two</p>", <span>(edited)</span>).innerHTML).toBe("<p>One</p><p>Two <span>(edited)</span></p>");
     expect(show("<ul><li>One</li></ul>", <span>(edited)</span>).innerHTML).toBe("<ul><li>One</li></ul><span>(edited)</span>");
+  });
+});
+
+describe(feature("mentions.render"), () => {
+  const grace: DirectoryUser = { id: "0123456789abcdef", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/g.abc/avatar?v=1" };
+  const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${grace.id}"></action-text-attachment>!</p>`;
+
+  /** Shows `body` with the directory listing `people`, the message having named whom it mentions as `mentions` does. */
+  function mention(people: People, mentions: User[]) {
+    const { container } = render(
+      <PeopleContext value={people}>
+        <MessageBody nodes={displayBody(body)} mentions={mentions} />
+      </PeopleContext>,
+    );
+    return container.querySelector(".message-content")!;
+  }
+
+  it("shows the person's avatar, hidden from screen readers, then their name as the directory lists them now", () => {
+    const content = mention(new Map([[grace.id, grace]]), [{ id: grace.id, name: "Grace" }]);
+    expect(content).toHaveTextContent("Hi Grace Hopper!");
+    const avatar = content.querySelector("p > span > img")!;
+    expect(avatar).toHaveAttribute("src", grace.avatarUrl);
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("names someone the directory doesn't list yet as the message did, by their initials", () => {
+    const content = mention(new Map(), [{ id: grace.id, name: "Grace" }]);
+    expect(content).toHaveTextContent("Hi Grace!");
+    expect(content.querySelector("img")).toHaveAttribute("src", `data:image/svg+xml;base64,${btoa(avatarSvg(grace.id, "Grace"))}`);
+  });
+
+  it("shows ☒ for someone no one knows, as a message from before messages named the people they mention doesn't", () => {
+    expect(mention(new Map(), []).innerHTML).toBe("<p>Hi ☒!</p>");
+    expect(mention(new Map(), [{ id: grace.id, name: "" }]).innerHTML).toBe("<p>Hi ☒!</p>");
   });
 });
 

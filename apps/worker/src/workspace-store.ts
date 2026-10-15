@@ -394,6 +394,23 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
 /** The people with the ids in a JSON array, whatever their status. */
 export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
+/** How many people the mentions prompt offers: ember-rust's first page of them, the only one Lexxy asks for. */
+export const MENTIONABLE_PAGE = 20;
+
+/**
+ * Active people whose names contain ?1, by name, as ember-rust offers them to mention outside a room
+ * (`User.active.filtered_by(query).ordered`, autocompletable.rs). It's `LIKE`, so only ASCII letters
+ * ignore case, `%` and `_` match anything, and "" matches everyone.
+ */
+const MENTIONABLE_PEOPLE = `SELECT id, name, bio, role, status, updated_at FROM users
+  WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ORDER BY lower(name), id LIMIT ${MENTIONABLE_PAGE}`;
+
+/** The same of room ?2's members (`Current.user.rooms.find(room_id).users`). */
+const MENTIONABLE_MEMBERS = `SELECT users.id, users.name, users.bio, users.role, users.status, users.updated_at
+  FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
+  ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
+
 /**
  * A room someone is in, unless it's a DM, and whether they can change it: administrators and the
  * room's creator can, as ember-rust's `can_administer` says (user.rs).
@@ -781,6 +798,15 @@ export class WorkspaceStore {
   /** The people with `ids` who exist, active or not. */
   async peopleWithIds(ids: UserId[]): Promise<User[]> {
     return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
+  }
+
+  /**
+   * The first page of the active people whose names contain `query`, by name: room `roomId`'s members,
+   * or anyone's when it's null.
+   */
+  async mentionable(query: string, roomId: RoomId | null): Promise<DirectoryEntry[]> {
+    const rows = roomId === null ? await this.db.all<DirectoryRow>(MENTIONABLE_PEOPLE, query) : await this.db.all<DirectoryRow>(MENTIONABLE_MEMBERS, query, roomId);
+    return rows.map(directoryEntry);
   }
 
   /** Everyone, whatever their status, for the people directory. */

@@ -329,8 +329,11 @@ export interface Message {
   body: string;
   /** Its plain text, as Action Text writes it, read from `body` when it was written. */
   plainText: string;
-  /** The users it mentions, once each, in order. */
-  mentions: UserId[];
+  /**
+   * The people it mentions, once each, in order, named as they were when its text was last written. A
+   * mention shows someone by the name they have now, which the people directory knows.
+   */
+  mentions: User[];
   createdAt: string;
   updatedAt: string;
   /** When its text last changed, or null if it never has. */
@@ -425,9 +428,10 @@ export type WorkspaceServerFrame =
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
- * tabs sent a message's text rather than its markup, which the room would now read as markup.
+ * tabs sent a message's text rather than its markup, which the room would now read as markup, and
+ * before revision 3, an edit dropped the message's mentions.
  */
-export const ROOM_PROTOCOL = 2;
+export const ROOM_PROTOCOL = 3;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {

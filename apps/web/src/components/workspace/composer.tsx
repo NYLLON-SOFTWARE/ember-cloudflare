@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import type { User } from "@ember/protocol";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
+import { mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
@@ -139,7 +140,8 @@ export interface ComposerHandle {
 /**
  * ember-rust's composer (rooms/show/_composer.html, composer_controller.js and zz-ember.css): a card
  * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
- * and a round Send button. What's written is kept as a draft until it's sent.
+ * and a round Send button. @ offers the room's people to mention. What's written is kept as a draft
+ * until it's sent.
  */
 export function Composer({ roomId, roomName, userId, typing, disabled, deferEditor = false, onSend, onTyping, onEditLastMessage, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
@@ -277,6 +279,9 @@ export function Composer({ roomId, roomName, userId, typing, disabled, deferEdit
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
+                  mentionsFrom={mentionPromptSrc(roomId)}
+                  // Under the text on touch screens are the keyboard and the home indicator.
+                  mentionsAbove={hasTouchKeyboard()}
                   autoFocus={() => replied.current || (focusOnOpen && focusStayedOn(focusAtOpen))}
                   onChange={changed}
                   onKeyDown={keyDown}

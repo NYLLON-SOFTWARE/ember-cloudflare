@@ -1,6 +1,6 @@
 import { useContext, useState } from "react";
 import { avatarSvg, type User } from "@ember/protocol";
-import { PeopleContext } from "@/hooks/use-directory";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 
 /** How many drawings are kept: more people than a page shows at once, so a tab left open doesn't keep everyone it has shown. */
@@ -21,6 +21,9 @@ function drawn({ id, name }: User): string {
   if (drawings.size > DRAWINGS_KEPT) drawings.delete(drawings.keys().next().value!);
   return url;
 }
+
+/** The address of someone's avatar: the image the people directory gives, or their initials until it lists them. */
+export const avatarUrlOf = (people: People, user: User) => people.get(user.id)?.avatarUrl ?? drawn(user);
 
 interface Props {
   user: User;

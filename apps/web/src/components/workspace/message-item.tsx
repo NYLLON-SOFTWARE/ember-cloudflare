@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import type { Me, Message, User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { useNameOf } from "@/hooks/use-directory";
-import { mentions, timeLabel } from "@/lib/messages";
+import { timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
@@ -97,7 +97,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   if (customizing && (editing || !actions)) setCustomizing(false);
   const mine = message.creator.id === me.id;
   const created = new Date(message.createdAt);
-  const mentioned = !mine && mentions(message.plainText, me.name);
+  // Any message that mentions you, yours too, as Campfire's message_formatter.js means to mark them. It looks
+  // for an avatar address that mentions don't have, so ember-rust never does.
+  const mentioned = message.mentions.some((person) => person.id === me.id);
   const shown = useMemo(() => shownBody(message.body), [message.body]);
   const allEmoji = isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
@@ -146,7 +148,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
             "min-w-0",
             allEmoji ? "py-0" : "py-1",
             threaded && "touch:pr-8",
-            mentioned && "border-l-2 border-mention bg-mention/10 pl-2",
+            // zz-ember.css's `.message--mentioned`, which wiggles as it shows, as Campfire's messages.css has it.
+            mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
           )}
         >
           {!threaded && (
@@ -160,7 +163,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           )}
 
           {/* A grouped message has no header, so its mark follows the text. */}
-          <MessageBody nodes={shown} emoji={allEmoji} trailing={(threaded && edited) || undefined} />
+          <MessageBody nodes={shown} mentions={message.mentions} emoji={allEmoji} trailing={(threaded && edited) || undefined} />
 
           {pending && message.failed && <p className="text-xs text-destructive">Not sent</p>}
 
