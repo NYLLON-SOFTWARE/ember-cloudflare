@@ -29,6 +29,7 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { directoryOf } from "./avatar-tokens";
+import { banProblem, type BanProblem } from "./bans";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
@@ -65,12 +66,15 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
 /**
- * How many revocations the outbox delivers in one run of its alarm, at most. Each room it calls may
- * count as a subrequest, of which an invocation on the Free plan can make 50, its queries included.
+ * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
+ * first and then purges. Each room it calls may count as a subrequest, of which an invocation on the
+ * Free plan can make 50, its queries included.
  */
-const REVOCATIONS_PER_RUN = 40;
+const DELIVERIES_PER_RUN = 40;
 /** How many rooms the outbox calls at once: as many outgoing connections as an invocation can have open. */
 const ROOMS_AT_ONCE = 6;
+/** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
+const MESSAGES_PER_PURGE = 100;
 
 /** The account as every page shows it, without its join code, which only the people in it see. */
 const accountOf = ({ name, hideTranslationButtons, customStyles }: JoinableAccount): Account => ({ name, hideTranslationButtons, customStyles });
@@ -194,6 +198,11 @@ export class Workspace extends DurableObject<Env> {
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
+  /**
+   * When each ban lifted since the outbox last read its purges was first lifted, so the rooms it goes on
+   * to ask delete only what was written before, which the purges it read can't say.
+   */
+  private readonly liftedBans = new Map<UserId, string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -824,6 +833,78 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Bans `userId`, whatever their status, as the person `credentials` signs in, as ember-rust's
+   * `users/bans#create` does (`User#ban`, user.rs), answering them as the people directory then lists
+   * them: "forbidden" unless that's an administrator, "not found" if nobody has the id, or null without
+   * a valid session. Unlike ember-rust, which leaves it to the page, nobody can ban themselves
+   * ("yourself"), so there's always an administrator. If any IP address recorded on their sessions is
+   * one a ban can't block, it answers what's wrong with it and changes nothing. Otherwise it blocks
+   * them all, all their sessions end, their sockets close for good, here at once and in every room
+   * they're in through the outbox, and the outbox has every room they can have written in delete their
+   * messages. Everyone's workspace sockets hear of it.
+   */
+  async banPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | BanProblem | "forbidden" | "not found" | "yourself" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const person = await this.store.person(userId);
+      if (!person) return "not found";
+      if (userId === user.id) return "yourself";
+      const ipAddresses = await this.store.sessionIpAddresses(userId);
+      const problem = ipAddresses.map(banProblem).find((problem) => problem !== null);
+      if (problem) return problem;
+
+      const now = Date.now();
+      const bannedAt = new Date(now).toISOString();
+      // As ember-rust's `User#update` writes only what differs (user.rs), someone banned stays as they are.
+      const banned = person.status === "banned" ? null : { ...person, status: "banned" as const, updatedAt: bannedAt };
+      // As when removing someone, until the database says it queued nothing.
+      let queued = true;
+      try {
+        queued = await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.banPerson(userId, ipAddresses, CloseCode.Revoked, now, bannedAt),
+        );
+      } finally {
+        this.closeSockets(userId, CloseCode.Revoked);
+        if (queued) await this.wakeAt(now);
+      }
+      const listed = await this.directoryUser(banned ?? person);
+      if (banned) this.broadcast({ type: "user.updated", user: listed });
+      return listed;
+    });
+  }
+
+  /**
+   * Lifts the ban on `userId` as the person `credentials` signs in, as ember-rust's `users/bans#destroy`
+   * does (`User#unban`, user.rs), unblocking their IP addresses and making them active, whatever their
+   * status was, removed included, without bringing back their messages, though rooms yet to delete
+   * theirs keep what they write from then on. Answers them as the people directory then lists them, or
+   * why not, as `banPerson` does. Everyone's workspace sockets hear of it.
+   */
+  async unbanPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const person = await this.store.person(userId);
+      if (!person) return "not found";
+
+      const now = new Date().toISOString();
+      // Someone active stays as they are, as when banning someone banned.
+      const unbanned = person.status === "active" ? null : { ...person, status: "active" as const, updatedAt: now };
+      await this.store.unbanPerson(userId, now);
+      // Once saved, as the outbox could otherwise forget it and then read their purges from before. Lifting
+      // it again keeps the first time, as their purges do.
+      if (!this.liftedBans.has(userId)) this.liftedBans.set(userId, now);
+      const listed = await this.directoryUser(unbanned ?? person);
+      if (unbanned) this.broadcast({ type: "user.updated", user: listed });
+      return listed;
+    });
+  }
+
   /** Someone as the people directory lists them, with their avatar's address. */
   private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
     return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;
@@ -1024,18 +1105,22 @@ export class Workspace extends DurableObject<Env> {
     return session && { user: session.user, sessionId: session.id, member: await this.store.isMember(roomId, session.user.id), authorizedAt };
   }
 
-  /** Delivers the revocations that are due, the outbox's work. */
+  /**
+   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, and sets
+   * the alarm for whatever is due next.
+   */
   override async alarm(): Promise<void> {
-    await this.deliverRevocations();
+    const revocations = await this.deliverRevocations(DELIVERIES_PER_RUN);
+    await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+    await this.scheduleDelivery();
   }
 
   /**
-   * Sends rooms the revocations due now, at most `REVOCATIONS_PER_RUN` of them, each room its own in
-   * one call. Those a room doesn't take are tried again later, and the alarm is set for whichever is
-   * due next.
+   * Sends rooms the revocations due now, up to `limit` of them, each room its own in one call. Those a
+   * room doesn't take are tried again later. Answers how many it read.
    */
-  private async deliverRevocations(): Promise<void> {
-    const due = await this.store.dueRevocations(Date.now(), REVOCATIONS_PER_RUN);
+  private async deliverRevocations(limit: number): Promise<number> {
+    const due = await this.store.dueRevocations(Date.now(), limit);
     // Read after the rows, so it's later than every change that queued them, and so later than any
     // check that saw what came before one of those changes.
     const revokedAt = Date.now();
@@ -1054,12 +1139,42 @@ export class Workspace extends DurableObject<Env> {
     for (const { roomId, tag } of await this.store.settleRevocations(delivered, failed, Date.now())) {
       console.error(`Gave up closing the sockets tagged ${tag} in room ${roomId}`);
     }
-    await this.scheduleDelivery();
+    return due.length;
   }
 
-  /** Sets the alarm for the next revocation due, if any is waiting. */
+  /**
+   * Asks rooms to delete the messages of the people banned since, up to `limit` rooms, each
+   * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been,
+   * even while it's asking. A room that has more of theirs left is asked again at once, and one that
+   * can't be reached later, as a revocation is. A room is asked only once the sockets queued to close
+   * there have closed, as those delivered just before may have, so a banned person can't write through
+   * one after it's done.
+   */
+  private async deliverPurges(limit: number): Promise<void> {
+    if (limit <= 0) return;
+    // The purges it reads know of every ban lifted before.
+    this.liftedBans.clear();
+    const due = await this.store.duePurges(Date.now(), limit);
+    if (due.length === 0) return;
+    const finished: number[] = [];
+    const unfinished: number[] = [];
+    const failed: number[] = [];
+    await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId, liftedAt }) => {
+      try {
+        const until = liftedAt ?? this.liftedBans.get(userId) ?? null;
+        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, until);
+        (more ? unfinished : finished).push(id);
+      } catch (error) {
+        console.error(`Could not delete messages in room ${roomId}; trying again later`, error);
+        failed.push(id);
+      }
+    });
+    await this.store.settlePurges(finished, unfinished, failed, Date.now());
+  }
+
+  /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
   private async scheduleDelivery(): Promise<void> {
-    const next = await this.store.nextRevocationDue();
+    const next = await this.store.nextDeliveryDue();
     if (next !== null) await this.wakeAt(next);
   }
 

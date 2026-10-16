@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import cancel from "@/components/icons/campfire/cancel.svg";
@@ -8,7 +8,7 @@ import messages from "@/components/icons/campfire/messages.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate } from "@/hooks/use-route";
-import { PersonPage } from "./person-page";
+import { CONFIRM_BAN, CONFIRM_UNBAN, PersonPage } from "./person-page";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace: Person = { id: "u2", name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
@@ -33,11 +33,21 @@ function showPage(person: Person | string, { me = ada, people = new Map(), start
   const userId = typeof person === "string" ? person : person.id;
   const [onMissing, onFailed] = [vi.fn(), vi.fn()];
   const onStartDirect = vi.fn<(person: User) => Promise<boolean>>(started);
+  const onPersonChanged = vi.fn<(person: DirectoryUser) => void>();
+  const reloadPeople = vi.fn(async () => {});
   let shown = { me, people };
   const view = () => (
     <PeopleContext value={shown.people}>
       <Sheet>
-        <PersonPage userId={userId} me={shown.me} onStartDirect={onStartDirect} onMissing={onMissing} onFailed={onFailed} />
+        <PersonPage
+          userId={userId}
+          me={shown.me}
+          onStartDirect={onStartDirect}
+          onPersonChanged={onPersonChanged}
+          reloadPeople={reloadPeople}
+          onMissing={onMissing}
+          onFailed={onFailed}
+        />
       </Sheet>
     </PeopleContext>
   );
@@ -46,7 +56,16 @@ function showPage(person: Person | string, { me = ada, people = new Map(), start
     shown = { ...shown, ...changes };
     rerender(view());
   };
-  return { onStartDirect, onMissing, onFailed, list: (people: People) => show({ people }), become: (me: Me) => show({ me }), user: userEvent.setup() };
+  return {
+    onStartDirect,
+    onPersonChanged,
+    reloadPeople,
+    onMissing,
+    onFailed,
+    list: (people: People) => show({ people }),
+    become: (me: Me) => show({ me }),
+    user: userEvent.setup(),
+  };
 }
 
 const heading = () => screen.findByRole("heading", { level: 1 });
@@ -289,5 +308,168 @@ describe(feature("auth.sign-in-link"), () => {
     showPage(grace, { me: administrator });
     await heading();
     expect(signInLink()).toBeNull();
+  });
+});
+
+describe(feature("accounts.ban"), () => {
+  const administrator: Me = { ...ada, administrator: true };
+  const banned: DirectoryUser = { ...grace, status: "banned", avatarUrl: "/users/t2/avatar?v=2" };
+  const active: DirectoryUser = { ...grace, avatarUrl: "/users/t2/avatar?v=3" };
+  const banButton = () => screen.queryByRole("button", { name: "Ban Grace Hopper" });
+  const unbanButton = () => screen.queryByRole("button", { name: "Remove ban" });
+
+  /** Answers the page's loads with `person` as each finds them, and a ban or its lifting with `changed` once the returned function is called. */
+  function serveBans(person: () => Person, changed: () => Response | Promise<Response>) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+      init?.method === "POST" || init?.method === "DELETE" ? changed() : Response.json({ person: person() }),
+    );
+  }
+
+  it("shows administrators Ban for someone else active, below the sign-in link, with a cancel mark", async () => {
+    serve(() => Response.json({ person: grace, transferId: "u2.mgk3x2a9.signature" } satisfies PersonAnswer));
+    showPage(grace, { me: administrator });
+    await heading();
+    const button = banButton()!;
+    expect(button).toHaveClass("bg-background");
+    expect(button.querySelector("img")).toHaveAttribute("src", cancel);
+    expect(screen.getByRole("textbox").compareDocumentPosition(button)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(unbanButton()).toBeNull();
+  });
+
+  it("shows administrators a red Remove ban for someone banned", async () => {
+    serve(found(banned));
+    showPage(grace, { me: administrator });
+    await heading();
+    expect(unbanButton()).toHaveClass("bg-negative-button", "text-white");
+    expect(banButton()).toBeNull();
+  });
+
+  it("shows neither to members, on your own page, or for removed people and bots", async () => {
+    serve(found(grace));
+    const { become } = showPage(grace);
+    await heading();
+    expect(banButton()).toBeNull();
+    become(administrator);
+    expect(banButton()).toBeVisible();
+    cleanup();
+
+    for (const [person, me] of [
+      [{ ...grace, id: ada.id, name: ada.name }, administrator],
+      [{ ...grace, status: "deactivated" }, administrator],
+      [bender, administrator],
+      [{ ...bender, status: "banned" }, administrator],
+    ] as const) {
+      serve(found(person));
+      showPage(person, { me });
+      await avatar();
+      expect(screen.queryByRole("button", { name: /\bban\b/i }), JSON.stringify(person)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("bans them once you've said you're sure, and loads the page again, with no notice", async () => {
+    let stored: Person = grace;
+    const fetch = serveBans(
+      () => stored,
+      () => {
+        stored = banned;
+        return Response.json({ user: banned });
+      },
+    );
+    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
+    await heading();
+    await user.click(banButton()!);
+    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_BAN);
+    expect(fetch).toHaveBeenCalledOnce();
+
+    sure.mockReturnValueOnce(true);
+    await user.click(banButton()!);
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(banned));
+    expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "POST" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    expect(fetch).toHaveBeenLastCalledWith("/api/users/u2", expect.anything());
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("lifts a ban once you've said you're sure", async () => {
+    const fetch = serveBans(
+      () => banned,
+      () => Response.json({ user: active }),
+    );
+    const sure = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onPersonChanged, user } = showPage(grace, { me: administrator });
+    await heading();
+    await user.click(unbanButton()!);
+    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_UNBAN);
+    await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(active));
+    expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("waits for the answer before another click, and says why it failed", async () => {
+    let fail = () => {};
+    serveBans(
+      () => grace,
+      () => new Promise<Response>((resolve) => (fail = () => resolve(Response.json({ error: "They signed in from a private or internal IP address, which a ban can't block" }, { status: 422 })))),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator });
+    await heading();
+    const button = banButton()!;
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await user.click(button);
+    expect(window.confirm).toHaveBeenCalledOnce();
+
+    await act(async () => fail());
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(onFailed.mock.calls[0]![0]).toMatchObject({ status: 422, message: "They signed in from a private or internal IP address, which a ban can't block" });
+    expect(onPersonChanged).not.toHaveBeenCalled();
+    expect(button).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("leaves out an answer older than what the directory has heard since, loading the directory again unless it agrees", async () => {
+    let answer = (_: DirectoryUser) => {};
+    serveBans(
+      () => grace,
+      () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onPersonChanged, reloadPeople, list, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
+    await heading();
+    await user.click(banButton()!);
+    // The workspace socket says she's banned before the answer does, from this ban.
+    list(new Map([[grace.id, banned]]));
+    await act(async () => answer(banned));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    expect(onPersonChanged).not.toHaveBeenCalled();
+    expect(reloadPeople).not.toHaveBeenCalled();
+
+    // When it disagrees, as when another administrator banned her again once this lifted it, it can't
+    // tell which is newer.
+    await user.click(unbanButton()!);
+    list(new Map([[grace.id, { ...banned, avatarUrl: "/users/t2/avatar?v=4" }]]));
+    await act(async () => answer(active));
+    await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(5));
+    expect(onPersonChanged).not.toHaveBeenCalled();
+  });
+
+  it("loads the directory again for an answer that comes once the page has gone, which no longer hears what it has", async () => {
+    let answer = (_: DirectoryUser) => {};
+    serveBans(
+      () => grace,
+      () => new Promise<Response>((resolve) => (answer = (user) => resolve(Response.json({ user })))),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onPersonChanged, reloadPeople, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
+    await heading();
+    await user.click(banButton()!);
+    // Gone before the answer, as when you open another page, while the directory may since have heard
+    // she was banned and then let back in.
+    cleanup();
+    await act(async () => answer(banned));
+    await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
+    expect(onPersonChanged).not.toHaveBeenCalled();
   });
 });

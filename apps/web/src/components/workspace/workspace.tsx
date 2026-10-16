@@ -405,7 +405,18 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       case "profile":
         return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
       case "person":
-        return <PersonPage key={route.userId} userId={route.userId} me={me} onStartDirect={startDirectWith} onMissing={showNotFound} onFailed={failed} />;
+        return (
+          <PersonPage
+            key={route.userId}
+            userId={route.userId}
+            me={me}
+            onStartDirect={startDirectWith}
+            onPersonChanged={directory.update}
+            reloadPeople={directory.reload}
+            onMissing={showNotFound}
+            onFailed={failed}
+          />
+        );
       default:
         if (direct)
           return <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />;

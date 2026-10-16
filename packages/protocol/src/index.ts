@@ -236,8 +236,9 @@ export interface RoleChange {
 }
 
 /**
- * What `PATCH /api/account/users/<id>` answers, and `DELETE`, which removes them from the workspace: the
- * person as the people directory now lists them.
+ * What `PATCH /api/account/users/<id>` answers, and `DELETE`, which removes them from the workspace, and
+ * `POST` and `DELETE /api/users/<id>/ban`, which ban them and lift it: the person as the people
+ * directory now lists them.
  */
 export interface ChangedPerson {
   user: DirectoryUser;
@@ -516,7 +517,10 @@ export type WorkspaceServerFrame =
   | { type: "room.unread"; roomId: RoomId }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
-  /** Someone changed, as the people directory now lists them: an administrator gave them another role. Sent to everyone. */
+  /**
+   * Someone changed, as the people directory now lists them: they changed their profile, or an
+   * administrator gave them another role, removed them, banned them or lifted their ban. Sent to everyone.
+   */
   | { type: "user.updated"; user: DirectoryUser }
   /**
    * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
