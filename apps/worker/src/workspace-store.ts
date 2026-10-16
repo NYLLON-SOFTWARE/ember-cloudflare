@@ -11,6 +11,7 @@ import {
   type PersonRole,
   type Profile,
   type Role,
+  type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
@@ -267,11 +268,12 @@ const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ra
 /** A DM's people, as the app has them, from the rows naming them. */
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
 
-/** A room as someone's sidebar lists it, with the people in it if it's a DM, whom `members` reads. */
-const sidebarRoom = ({ id, kind, name, icon, active_at, unread }: SidebarRow, members: DirectMemberRow[] = []): SidebarRoom =>
-  kind === "direct"
-    ? { id, kind, members: membersOf(members), activeAt: active_at, unread: unread === 1 }
-    : { id, kind, name: name ?? "", icon, unread: unread === 1 };
+/** A room someone is in, with the people in it if it's a DM, whom `members` reads. */
+const roomOf = ({ id, kind, name, icon, active_at }: SidebarRow, members: DirectMemberRow[] = []): Room =>
+  kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon };
+
+/** A room as someone's sidebar lists it, with whether it's marked unread for them. */
+const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({ ...roomOf(row, members), unread: row.unread === 1 });
 
 const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
@@ -1090,16 +1092,49 @@ export class WorkspaceStore {
     return abandoned;
   }
 
+  /** Up to `limit` of the rooms due by `now` to have the search index take all their messages, those due longest first. */
+  async dueReindexes(now: number, limit: number): Promise<RoomId[]> {
+    const rows = await this.db.all<{ room_id: RoomId }>(`SELECT room_id FROM pending_reindexes WHERE due_at <= ? ORDER BY due_at, room_id LIMIT ?`, now, limit);
+    return rows.map((row) => row.room_id);
+  }
+
   /**
-   * When the outbox's next revocation or purge is due, if any is waiting, leaving out the purges waiting
-   * on their rooms' revocations, which are due no sooner.
+   * Forgets the reindexes `delivered` names, and puts off the ones `failed` names, each for twice as
+   * long as the time before, up to the longest wait. It never gives one up, which would leave the room's
+   * messages out of searches.
+   */
+  async settleReindexes(delivered: RoomId[], failed: RoomId[], now: number): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM pending_reindexes WHERE room_id IN (SELECT value FROM json_each(?))`, JSON.stringify(delivered)),
+      // As a purge's wait.
+      statement(
+        `UPDATE pending_reindexes SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE room_id IN (SELECT value FROM json_each(?))`,
+        now,
+        LONGEST_RETRY_MS,
+        FIRST_RETRY_MS,
+        DELIVERY_ATTEMPTS,
+        JSON.stringify(failed),
+      ),
+    ]);
+  }
+
+  /**
+   * When the outbox's next revocation, purge or reindex is due, if any is waiting, leaving out the purges
+   * waiting on their rooms' revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null }>(
-      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge`,
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null }>(
+      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex`,
     );
-    const due = [row?.revocation, row?.purge].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
+  }
+
+  /** The rooms someone is in, with the people in their DMs, as their sidebar lists them. */
+  async roomsOf(userId: UserId): Promise<Room[]> {
+    const [rows, members] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(DIRECT_MEMBERS_FOR_USER, userId)])) as [SidebarRow[], DirectMemberRow[]];
+    const membersByRoom = Map.groupBy(members, (member) => member.room_id);
+    return rows.map((row) => roomOf(row, membersByRoom.get(row.id)));
   }
 
   /**
@@ -1358,8 +1393,9 @@ export class WorkspaceStore {
       statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
       statement(`DELETE FROM pending_revocations WHERE room_id = ? AND tag <> ?`, roomId, EVERYONE),
       statement(`DELETE FROM memberships WHERE room_id = ? RETURNING user_id`, roomId),
-      // Its messages all go, a banned person's with them.
+      // Its messages all go, a banned person's with them, and the search index forgets them.
       statement(`DELETE FROM pending_purges WHERE room_id = ?`, roomId),
+      statement(`DELETE FROM pending_reindexes WHERE room_id = ?`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
     ])) as UserIdRow[][];
@@ -1411,13 +1447,15 @@ export class WorkspaceStore {
 
   /**
    * Registers a room from before the Workspace kept a list as an open room everyone is in, named for
-   * its old address, and keeps the people who wrote or reacted in it as deactivated guests.
+   * its old address, keeps the people who wrote or reacted in it as deactivated guests, and queues having
+   * the search index take its messages.
    */
   async registerLegacyRoom(id: RoomId, authors: User[], now: string): Promise<void> {
     await this.db.batch([
       statement(INSERT_FORMER_GUESTS, now, now, JSON.stringify(authors)),
       statement(`INSERT INTO rooms (id, kind, name, created_at, updated_at) VALUES (?, 'open', ?, ?, ?) ON CONFLICT DO NOTHING`, id, id, now, now),
       statement(GRANT_ROOM_TO_ACTIVE_USERS, id, now, now),
+      statement(`INSERT INTO pending_reindexes (room_id, due_at) VALUES (?, 0) ON CONFLICT DO NOTHING`, id),
     ]);
   }
 }

@@ -18,13 +18,17 @@ import directActivity from "../migrations/0017_direct_activity.sql";
 import bans from "../migrations/0018_bans.sql";
 import messagesByCreator from "../migrations/0019_messages_by_creator.sql";
 import sharedRoomOrder from "../migrations/0020_shared_room_order.sql";
+import unindexedMessages from "../migrations/0021_unindexed_messages.sql";
+import pendingReindexes from "../migrations/0022_pending_reindexes.sql";
+import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
  * applies only its own kind's migrations, so a room's storage never holds the workspace's tables;
- * D1 holds every kind's.
+ * D1 holds every kind's. The search index keeps its tables in its own storage on either backend
+ * (`SEARCH_MIGRATIONS`).
  */
-export type Scope = "room" | "workspace";
+export type Scope = "room" | "workspace" | "search";
 
 export interface Migration {
   name: string;
@@ -58,7 +62,17 @@ export const MIGRATIONS: Migration[] = [
   { name: "0018_bans.sql", scope: "workspace", sql: bans },
   { name: "0019_messages_by_creator.sql", scope: "room", sql: messagesByCreator },
   { name: "0020_shared_room_order.sql", scope: "workspace", sql: sharedRoomOrder },
+  { name: "0021_unindexed_messages.sql", scope: "room", sql: unindexedMessages },
+  { name: "0022_pending_reindexes.sql", scope: "workspace", sql: pendingReindexes },
 ];
+
+/**
+ * Every file in search-migrations/, oldest first: the search index's, which it applies to its own
+ * storage when it opens, whatever `STORAGE_BACKEND` says, so wrangler never puts them in D1. Its tables
+ * hold nothing the rooms can't send it again, and D1 can't export a database that holds a virtual table,
+ * as FTS5's are. A test checks this list against the directory.
+ */
+export const SEARCH_MIGRATIONS: Migration[] = [{ name: "0001_search_index.sql", scope: "search", sql: searchIndex }];
 
 /**
  * Applies the migrations for `scope` that a Durable Object's storage is missing, recording each in
@@ -72,7 +86,7 @@ export function migrate(storage: DurableObjectStorage, scope: Scope): void {
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`);
   const applied = new Set(storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations").toArray().map((row) => row.name));
-  for (const migration of MIGRATIONS) {
+  for (const migration of scope === "search" ? SEARCH_MIGRATIONS : MIGRATIONS) {
     if (migration.scope !== scope || applied.has(migration.name)) continue;
     storage.transactionSync(() => {
       storage.sql.exec(migration.sql);

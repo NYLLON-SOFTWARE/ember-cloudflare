@@ -21,6 +21,7 @@ export {
   type RoomAccess,
   type WorkspacePage,
 } from "./pages.ts";
+export { isSearchable, MAX_SEARCH_LENGTH, sanitizeSearch, SEARCH_LIMIT, SEARCH_TOO_LONG, searchTerms, type SearchResults } from "./search.ts";
 
 export type UserId = string;
 export type RoomId = string;

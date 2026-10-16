@@ -18,8 +18,10 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   and D1; a write that has to be atomic is one `batch`. Schema changes go in a new file under
   `apps/worker/migrations/`, listed in `MIGRATIONS` in `apps/worker/src/migrations.ts` with the kind
   of object whose tables it changes: wrangler applies every file to D1, and each Durable Object
-  applies its own kind's that it's missing when it opens. The worker tests run against both
-  backends, so keep them green on both.
+  applies its own kind's that it's missing when it opens. The search index keeps its FTS5 tables in
+  its own storage on either backend, since D1 can't export a database holding a virtual table, so
+  its changes go in `apps/worker/search-migrations/`, listed in `SEARCH_MIGRATIONS`. The worker tests
+  run against both backends, so keep them green on both.
 - Both backends bind at most 100 values a statement, so never bind a list whose length depends on
   the data. Write one statement per query shape, too: SQLite can't use an index through
   `? IS NULL OR id < ?`. `docs/database.md` compares our schema with ember-rust's and lists which of

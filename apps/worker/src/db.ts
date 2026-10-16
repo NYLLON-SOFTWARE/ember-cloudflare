@@ -58,16 +58,22 @@ function d1Db(db: D1Database): Db {
   };
 }
 
+/** The D1 database every object keeps its tables in when STORAGE_BACKEND is "d1", or null when each keeps its own. */
+export function sharedDb(env: Env): Db | null {
+  if (env.STORAGE_BACKEND !== "d1") return null;
+  if (!env.DB) throw new Error('STORAGE_BACKEND is "d1" but no D1 database is bound as DB in wrangler.jsonc.');
+  return d1Db(env.DB);
+}
+
 /**
  * The database that a Durable Object of `scope`'s kind keeps its tables in. On DO SQLite that's the
  * object's own storage, which first gets whichever of the scope's migrations it's missing; wrangler
- * applies every migration to D1.
+ * applies every migration to D1. The search index keeps its tables in its own storage whatever the
+ * backend (`SEARCH_MIGRATIONS`), so it has no scope here.
  */
-export function openDb(env: Env, storage: DurableObjectStorage, scope: Scope): Db {
-  if (env.STORAGE_BACKEND === "d1") {
-    if (!env.DB) throw new Error('STORAGE_BACKEND is "d1" but no D1 database is bound as DB in wrangler.jsonc.');
-    return d1Db(env.DB);
-  }
+export function openDb(env: Env, storage: DurableObjectStorage, scope: Exclude<Scope, "search">): Db {
+  const shared = sharedDb(env);
+  if (shared) return shared;
   migrate(storage, scope);
   return durableObjectDb(storage);
 }

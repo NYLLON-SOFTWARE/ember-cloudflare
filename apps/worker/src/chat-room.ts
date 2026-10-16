@@ -15,11 +15,13 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
+import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
@@ -48,7 +50,7 @@ export const BANNED_HEADER = "X-Ember-Banned";
 
 /** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
 const DELETED_ROOM = "deletedRoom";
-/** What a room's object keeps in its own storage while its alarm is to send the Workspace its log: the room's id. */
+/** What a room's object keeps in its own storage while its alarm is to send its logs: the room's id. */
 const UNDELIVERED_ROOM = "undeliveredRoom";
 
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
@@ -66,17 +68,13 @@ const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update"
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
-/** How many events of its log a room sends the Workspace in one call, at most. */
-const EVENTS_PER_CALL = 50;
-/**
- * How long a room waits after a call before the next, gathering the events logged meanwhile, unless
- * the call was full or a full call's worth is logged sooner. So a busy room sends many in each call,
- * and makes at most four calls a second until they fill.
- */
-const GATHER_MS = 250;
-/** How long a room waits to send its log again after a call fails, doubling each time up to the longest wait. */
-const FIRST_RETRY_MS = 1_000;
-const LONGEST_RETRY_MS = 5 * 60 * 1000;
+/** What sends each of a room's logs (see `couriersFor`). */
+interface Couriers {
+  /** Sends the Workspace the room's events, which it marks the room unread and read by. */
+  workspace: Courier;
+  /** Sends the search index the messages written, edited and deleted. */
+  index: Courier;
+}
 
 /**
  * One chat room: its WebSockets, who is present and typing, and its messages.
@@ -88,23 +86,7 @@ export class ChatRoom extends DurableObject<Env> {
   private revocations: Revocations | null = null;
   private log: RoomLog | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  /** The call sending the Workspace the room's log, while one is out. */
-  private delivering: Promise<void> | null = null;
-  /** Whether the log has had events since the call out now read it, so another call goes once it's done. */
-  private undelivered = false;
-  /** Roughly how many events the room has logged since the call out read the log. */
-  private logged = 0;
-  /** Ends the wait after a call, while there is one, once a full call's worth of events is logged. */
-  private stopGathering: (() => void) | null = null;
-  /** How many calls in a row have failed, which puts the next try off longer. */
-  private failedDeliveries = 0;
-  /** When the room may call the Workspace again after a call failed, which its alarm is set for. */
-  private retryAt = 0;
-  /**
-   * Whether the object has sent the Workspace its log since it started. A restart in the middle of a
-   * call, as a deploy can make, leaves the call's events in the log with no alarm set to send them.
-   */
-  private logChecked = false;
+  private couriers: Couriers | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -139,11 +121,14 @@ export class ChatRoom extends DurableObject<Env> {
       if (protocol < ROOM_PROTOCOL) this.send(server, { type: "error", message: OUTDATED });
       // Everyone else has the list from their own welcome, so they only hear who's new.
       if (!this.isPresent(user.id, server)) this.broadcast({ type: "presence.joined", user }, server);
+      const couriers = this.couriersFor(roomId);
       // Opening the room in a shown tab reads it, which sends the Workspace the log. Logged next,
       // rather than before the socket is let in, so the welcome doesn't wait on it.
       if (visible) void this.serially(() => this.read(roomId, user.id)).catch((error) => console.error("Could not log a read", error));
       // Otherwise the first socket since the object started sends whatever a restart left in the log.
-      else if (!this.logChecked) this.deliver(roomId);
+      else if (!couriers.workspace.checked) couriers.workspace.deliver();
+      // And the search index's, which nothing else here sends.
+      if (!couriers.index.checked) couriers.index.deliver();
       return new Response(null, { status: 101, webSocket: client });
     });
   }
@@ -193,14 +178,16 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, as
-   * ember-rust's `Room::destroy` does (room.rs). Nobody is left to hear who leaves. The record that
-   * the room was deleted stays, turning away sockets let through before then, until none of those
-   * could still arrive, when the alarm erases it.
+   * ember-rust's `Room::destroy` does (room.rs), and has the search index forget them. Nobody is left
+   * to hear who leaves. The record that the room was deleted stays, turning away sockets let through
+   * before then, until none of those could still arrive, when the alarm erases it. A failure has the
+   * Workspace ask again.
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
     await this.storeFor(roomId).deleteAllMessages();
     await this.logFor(roomId).forget();
+    await searchIndex(this.env).forget(roomId);
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
   }
@@ -208,7 +195,7 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Erases what's left of a deleted room: its revocations, and the object's own storage, which on DO
    * SQLite is everything it kept. An object with nothing stored ceases to exist. Otherwise, sends the
-   * Workspace the room's log, which a call that failed left.
+   * room's logs, which a call that failed left, or which `reindex` filled.
    */
   override async alarm(): Promise<void> {
     const undelivered = await this.serially(async () => {
@@ -221,10 +208,11 @@ export class ChatRoom extends DurableObject<Env> {
       return undefined;
     });
     if (undelivered === undefined) return;
-    await this.ctx.storage.delete(UNDELIVERED_ROOM);
-    this.retryAt = 0;
-    this.deliver(undelivered);
-    while (this.delivering) await this.delivering;
+    const couriers = this.couriersFor(undelivered);
+    await Promise.all([couriers.workspace.retry(), couriers.index.retry()]);
+    // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
+    // retried. A courier whose last call failed has set the alarm again, for its next try.
+    if (!couriers.workspace.failing && !couriers.index.failing) await this.ctx.storage.delete(UNDELIVERED_ROOM);
   }
 
   /**
@@ -241,8 +229,27 @@ export class ChatRoom extends DurableObject<Env> {
       if (removed.length === 0) return false;
       const seq = await store.delete(removed);
       removed.forEach((messageId, index) => this.broadcast({ type: "message.deleted", messageId, seq: seq + index }));
+      this.couriersFor(roomId).index.deliver();
       return ids.length > limit;
     });
+  }
+
+  /**
+   * Has the search index take every message the room has afresh, as the Workspace asks of each room
+   * once the index is new: logs them all for it, and has the alarm send them, which a restart can't
+   * stop.
+   */
+  async reindex(roomId: RoomId): Promise<void> {
+    await this.serially(() => this.logFor(roomId).reindex());
+    await this.wakeAt(roomId, Date.now());
+  }
+
+  /**
+   * The messages `ids` names, for search results, leaving out any the room no longer has: the search
+   * index can name one deleted since it last heard from the room.
+   */
+  async messagesWithIds(roomId: RoomId, ids: string[]): Promise<Message[]> {
+    return this.serially(() => this.storeFor(roomId).withIds(ids));
   }
 
   /** Everyone who wrote or reacted in the room, for the Workspace to keep when it registers a legacy room. */
@@ -304,7 +311,9 @@ export class ChatRoom extends DurableObject<Env> {
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
         const { message, seq } = await store.create(sortableId(), frame.clientMessageId, user, body, now);
         this.broadcast({ type: "message.created", message, seq });
-        return this.deliver(store.roomId);
+        const couriers = this.couriersFor(store.roomId);
+        couriers.workspace.deliver();
+        return couriers.index.deliver();
       }
       case "message.update": {
         const message = await store.find(frame.messageId);
@@ -315,13 +324,15 @@ export class ChatRoom extends DurableObject<Env> {
         // Saved as it was, it stays as it was, its update time included, as Rails saves nothing then.
         if (body.html === message.body) return;
         const { message: updated, seq } = await store.updateBody(message, body, now);
-        return this.broadcast({ type: "message.updated", message: updated, seq });
+        this.broadcast({ type: "message.updated", message: updated, seq });
+        return this.couriersFor(store.roomId).index.deliver();
       }
       case "message.delete": {
         const message = await store.find(frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only delete your own messages");
         const seq = await store.delete([message.id]);
-        return this.broadcast({ type: "message.deleted", messageId: message.id, seq });
+        this.broadcast({ type: "message.deleted", messageId: message.id, seq });
+        return this.couriersFor(store.roomId).index.deliver();
       }
       case "boost.create": {
         const message = await store.find(frame.messageId);
@@ -408,77 +419,67 @@ export class ChatRoom extends DurableObject<Env> {
   /** Logs that `userId` has read the room, for the Workspace to clear their mark, and sends it the log. */
   private async read(roomId: RoomId, userId: UserId): Promise<void> {
     await this.logFor(roomId).read(userId, new Date().toISOString());
-    this.deliver(roomId);
+    this.couriersFor(roomId).workspace.deliver();
   }
 
   /**
-   * Sends the Workspace the room's log, with who is viewing the room now, for it to mark the room
-   * unread for the members who aren't and read for those who've opened it. One call is out at a
-   * time, and the events logged meanwhile go in the next, a moment after it, or at once if the call
-   * left some behind or a full call's worth comes first. When a call fails, the next waits for the
-   * alarm, which tries again later, from the first event the Workspace hasn't taken.
+   * What sends each of the room's logs. Each has a call of its own out at a time, and waits on its own
+   * failures. The search index's is patient, since a search can find a message a moment late: its call
+   * doesn't go with the Workspace's as a message is written, so the unread marks the Workspace sends
+   * everyone away don't wait behind its queries, as on D1 they would.
    */
-  private deliver(roomId: RoomId): void {
-    this.undelivered = true;
-    if (++this.logged >= EVENTS_PER_CALL) this.stopGathering?.();
-    if (this.delivering || Date.now() < this.retryAt) return;
-    this.undelivered = false;
-    this.delivering = this.deliverBatch(roomId)
-      .then((full) => (full ? undefined : this.gather()))
-      .finally(() => {
-        this.delivering = null;
-        if (this.undelivered) this.deliver(roomId);
-      });
-  }
-
-  /** Waits after a call for the events logged meanwhile, until a full call's worth is or `GATHER_MS` passes. */
-  private async gather(): Promise<void> {
-    if (this.logged >= EVENTS_PER_CALL) return;
-    await new Promise<void>((resolve) => {
-      this.stopGathering = resolve;
-      void scheduler.wait(GATHER_MS).then(resolve);
+  private couriersFor(roomId: RoomId): Couriers {
+    return (this.couriers ??= {
+      workspace: new Courier(() => this.sendEvents(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s log to the Workspace`),
+      index: new Courier(() => this.sendMessages(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s messages to the search index`, true),
     });
-    this.stopGathering = null;
   }
 
   /**
-   * Sends the Workspace the oldest events it hasn't taken, as many as one call takes, and forgets them
-   * once it has. Answers whether the call was full, which may have left more behind.
+   * Sends the Workspace the oldest events it hasn't taken, as many as one call takes, with who is viewing
+   * the room now, for it to mark the room unread for the members who aren't and read for those who've
+   * opened it, and forgets them once it has. Answers how many it sent.
    */
-  private async deliverBatch(roomId: RoomId): Promise<boolean> {
-    this.logChecked = true;
-    this.logged = 0;
-    try {
-      const log = this.logFor(roomId);
-      const events = await log.undelivered(EVENTS_PER_CALL);
-      if (events.length === 0) return false;
-      await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
-      await log.delivered(events.at(-1)!.seq);
-      this.failedDeliveries = 0;
-      if (events.length < EVENTS_PER_CALL) return false;
-      this.undelivered = true;
-      return true;
-    } catch (error) {
-      console.error(`Could not send room ${roomId}'s log to the Workspace; trying again later`, error);
-      this.failedDeliveries++;
-      await this.serially(() => this.deliverLater(roomId)).catch((error) => console.error("Could not set the alarm to send the log", error));
-      return false;
-    }
+  private async sendEvents(roomId: RoomId): Promise<number> {
+    const log = this.logFor(roomId);
+    const events = await log.undelivered(ENTRIES_PER_CALL);
+    if (events.length === 0) return 0;
+    await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    await log.delivered(events.at(-1)!.seq);
+    return events.length;
   }
 
   /**
-   * Sets the alarm to send the room's log, a second after the first failure and twice as long after
-   * each one since, up to the longest wait, and makes no calls until then, however much the room logs.
-   * A deleted room's alarm is for erasing it, so it's left as it is; this runs one event at a time
+   * Sends the search index the messages written, edited or deleted longest ago that it hasn't taken, as
+   * many as one call takes, as they are now, and forgets them once it has. Answers how many it sent.
+   */
+  private async sendMessages(roomId: RoomId): Promise<number> {
+    const log = this.logFor(roomId);
+    const logged = await log.unindexed(ENTRIES_PER_CALL);
+    if (logged.length === 0) return 0;
+    // Read after the log, so each is as new as the change that logged it, or newer.
+    const ids = [...new Set(logged.map(({ messageId }) => messageId))];
+    const messages = await this.storeFor(roomId).indexable(ids);
+    const kept = new Set(messages.map(({ id }) => id));
+    const seq = logged.at(-1)!.seq;
+    await searchIndex(this.env).apply(roomId, seq, messages, ids.filter((id) => !kept.has(id)));
+    await log.indexed(seq);
+    return logged.length;
+  }
+
+  /**
+   * Sets the alarm to send the room's logs at `time`, unless it's set for sooner, and answers whether it
+   * did. A deleted room's alarm is for erasing it, so it's left as it is; this runs one event at a time
    * with deleting it, so the deletion's alarm can't be overtaken.
    */
-  private async deliverLater(roomId: RoomId): Promise<void> {
-    if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return;
-    await this.ctx.storage.put(UNDELIVERED_ROOM, roomId);
-    const at = Date.now() + Math.min(LONGEST_RETRY_MS, FIRST_RETRY_MS * 2 ** (this.failedDeliveries - 1));
-    const alarm = await this.ctx.storage.getAlarm();
-    if (alarm === null || alarm > at) await this.ctx.storage.setAlarm(at);
-    this.retryAt = at;
+  private wakeAt(roomId: RoomId, time: number): Promise<boolean> {
+    return this.serially(async () => {
+      if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return false;
+      await this.ctx.storage.put(UNDELIVERED_ROOM, roomId);
+      const alarm = await this.ctx.storage.getAlarm();
+      if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
+      return true;
+    });
   }
 
   /** Everyone with at least one open socket, once each. */

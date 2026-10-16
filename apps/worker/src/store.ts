@@ -1,7 +1,8 @@
 import type { Boost, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
-import { logEvent } from "./room-log";
+import { logEvent, logIndexing, logIndexingEach } from "./room-log";
+import type { IndexedMessage } from "./search-index";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
 // with the number of its latest change, and the deletions a tab that connects again may yet need to
@@ -9,6 +10,7 @@ import { logEvent } from "./room-log";
 
 interface MessageRow {
   id: string;
+  room_id: RoomId;
   client_message_id: string;
   creator_id: string;
   creator_name: string;
@@ -55,6 +57,21 @@ const toBoost = (row: BoostRow): Boost => ({
 
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+const toMessage = (row: MessageRow): Message => ({
+  id: row.id,
+  clientMessageId: row.client_message_id,
+  roomId: row.room_id,
+  creator: { id: row.creator_id, name: row.creator_name },
+  body: row.body,
+  plainText: row.plain_text,
+  mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  editedAt: row.edited_at,
+  // json_group_array doesn't promise an order, so sort here rather than in the subquery.
+  boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
+});
+
 /**
  * Messages with their boosts gathered by a subquery, so a page is one statement: one round trip to
  * D1, and no list of message ids to bind (both backends bind at most 100 values a statement).
@@ -91,6 +108,15 @@ export const MESSAGES_CHANGED_SINCE = `${SELECT_MESSAGES} WHERE room_id = ? AND 
 /** The messages deleted after a change. */
 export const MESSAGES_DELETED_SINCE = `SELECT message_id FROM message_deletions WHERE room_id = ? AND seq > ? ORDER BY seq`;
 
+/** The messages whose ids a JSON array lists. */
+const MESSAGES_WITH_IDS = `${SELECT_MESSAGES} WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
+
+/** The same in every room, which D1 alone can read at once. */
+const MESSAGES_ANYWHERE_WITH_IDS = `${SELECT_MESSAGES} WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** What the search index keeps of the messages whose ids a JSON array lists. */
+const INDEXABLE_MESSAGES = `SELECT id, created_at AS createdAt, plain_text AS text FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
+
 /** What changed in a room after a change a tab has seen, and the latest change. */
 export interface Changes {
   /** The messages changed since, as they are now, oldest first. */
@@ -124,7 +150,7 @@ export class MessageStore {
   /** The oldest `limit` messages newer than `after`, oldest first, and whether there are newer ones still. */
   async after(limit: number, after: string): Promise<{ messages: Message[]; hasNewer: boolean }> {
     const rows = await this.db.all<MessageRow>(MESSAGES_AFTER, this.roomId, after, limit + 1);
-    return { messages: rows.slice(0, limit).map((row) => this.toMessage(row)), hasNewer: rows.length > limit };
+    return { messages: rows.slice(0, limit).map(toMessage), hasNewer: rows.length > limit };
   }
 
   /**
@@ -166,17 +192,28 @@ export class MessageStore {
       this.db.all<MessageRow>(MESSAGES_CHANGED_SINCE, this.roomId, since),
       this.db.all<{ message_id: string }>(MESSAGES_DELETED_SINCE, this.roomId, since),
     ]);
-    return { messages: rows.map((row) => this.toMessage(row)).sort(byId), deletedIds: deleted.map((row) => row.message_id), seq };
+    return { messages: rows.map(toMessage).sort(byId), deletedIds: deleted.map((row) => row.message_id), seq };
+  }
+
+  /** The messages `ids` names that the room has, in no particular order, for search results. */
+  async withIds(ids: string[]): Promise<Message[]> {
+    const rows = await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids));
+    return rows.map(toMessage);
+  }
+
+  /** What the search index keeps of the messages `ids` names that the room has. */
+  async indexable(ids: string[]): Promise<IndexedMessage[]> {
+    return this.db.all<IndexedMessage>(INDEXABLE_MESSAGES, this.roomId, JSON.stringify(ids));
   }
 
   async find(id: string): Promise<Message | null> {
     const [row] = await this.db.all<MessageRow>(`${SELECT_MESSAGES} WHERE room_id = ? AND id = ?`, this.roomId, id);
-    return row ? this.toMessage(row) : null;
+    return row ? toMessage(row) : null;
   }
 
   /**
    * Stores a new message, logging it in the same transaction for the Workspace to mark the room unread
-   * by, and answers it with the change's number.
+   * by and for the search index, and answers it with the change's number.
    */
   async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -196,6 +233,7 @@ export class MessageStore {
         seq,
       ),
       logEvent(this.roomId, "message", creator.id, now),
+      logIndexing(this.roomId, id),
     ]);
     return {
       message: {
@@ -237,8 +275,9 @@ export class MessageStore {
   }
 
   /**
-   * Replaces a message's text, which marks it edited, and answers the message as it is now with the
-   * change's number, as the methods below that change a message answer theirs.
+   * Replaces a message's text, which marks it edited, logging it for the search index, and answers the
+   * message as it is now with the change's number, as the methods below that change a message answer
+   * theirs.
    */
   async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -253,6 +292,7 @@ export class MessageStore {
         this.roomId,
         message.id,
       ),
+      logIndexing(this.roomId, message.id),
     ]);
     return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
@@ -270,7 +310,8 @@ export class MessageStore {
    * Deletes the messages `ids` names, each a change of its own, numbered in the order they're named,
    * and answers the first's number. Their boosts go in the same statement, through ON DELETE CASCADE,
    * so a failure keeps both. Their ids stay with their deletions' numbers, and the deletions that fall
-   * out of the latest `CHANGES_KEPT` go. The ids go as one JSON value, which a page of them can fill.
+   * out of the latest `CHANGES_KEPT` go, and they're logged for the search index. The ids go as one
+   * JSON value, which a page of them can fill.
    */
   async delete(ids: string[]): Promise<number> {
     const listed = JSON.stringify(ids);
@@ -279,6 +320,7 @@ export class MessageStore {
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
         statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, listed),
         statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + ids.length - 1 - CHANGES_KEPT),
+        logIndexingEach(this.roomId, listed),
       ],
       ids.length,
     );
@@ -347,23 +389,15 @@ export class MessageStore {
 
   /** Rows read newest first, one more than `limit` if there are more, as a page oldest first. */
   private toPage(rows: MessageRow[], limit: number): { messages: Message[]; hasMore: boolean } {
-    return { messages: rows.slice(0, limit).reverse().map((row) => this.toMessage(row)), hasMore: rows.length > limit };
+    return { messages: rows.slice(0, limit).reverse().map(toMessage), hasMore: rows.length > limit };
   }
 
-  private toMessage(row: MessageRow): Message {
-    return {
-      id: row.id,
-      clientMessageId: row.client_message_id,
-      roomId: this.roomId,
-      creator: { id: row.creator_id, name: row.creator_name },
-      body: row.body,
-      plainText: row.plain_text,
-      mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      editedAt: row.edited_at,
-      // json_group_array doesn't promise an order, so sort here rather than in the subquery.
-      boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
-    };
-  }
+}
+
+/**
+ * The messages `ids` names in any room, in no particular order, for search results: one query, where
+ * every room keeps its messages in D1.
+ */
+export async function messagesAnywhereWithIds(db: Db, ids: string[]): Promise<Message[]> {
+  return (await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids))).map(toMessage);
 }
