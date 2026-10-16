@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
-import { RoomConnection } from "@/hooks/use-room";
+import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
@@ -226,16 +226,18 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
           )}
 
           <RoomConnection value={state.connections}>
-            {items.map(({ message, firstOfDay, threaded }) => {
-              // Stable from optimistic copy to stored message, and distinct across senders.
-              const key = `${message.creator.id}:${message.clientMessageId}`;
-              return (
-                <div key={key} data-row={key} data-message-id={message.id}>
-                  {firstOfDay && <DaySeparator at={message.createdAt} />}
-                  <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
-                </div>
-              );
-            })}
+            <RefusedUnboosts value={state.refusedUnboosts}>
+              {items.map(({ message, firstOfDay, threaded }) => {
+                // Stable from optimistic copy to stored message, and distinct across senders.
+                const key = `${message.creator.id}:${message.clientMessageId}`;
+                return (
+                  <div key={key} data-row={key} data-message-id={message.id}>
+                    {firstOfDay && <DaySeparator at={message.createdAt} />}
+                    <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+                  </div>
+                );
+              })}
+            </RefusedUnboosts>
           </RoomConnection>
           <div ref={bottom} aria-hidden className="h-px" />
         </div>

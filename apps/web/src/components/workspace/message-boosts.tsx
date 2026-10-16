@@ -3,7 +3,7 @@ import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/prot
 import { isAllEmoji } from "@ember/richtext/dom";
 import { Boost as BoostIcon, Minus } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
-import { RoomConnection } from "@/hooks/use-room";
+import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
@@ -112,11 +112,13 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
 function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDelete: (() => boolean) | null }) {
   const nameOf = useNameOf();
   const [expanded, setExpanded] = useState(false);
-  // The connection the deletion went on. The reaction comes back if the page reconnects before it goes,
-  // since the deletion may have been lost with the connection it went on.
+  // The connection the deletion went on, and the room's refusals to delete a reaction by then. The reaction
+  // comes back if the page reconnects before it goes, since the deletion may have been lost with the
+  // connection it went on, or if the room refuses to delete one, since it doesn't say which.
   const connection = useContext(RoomConnection);
-  const [deletedOn, setDeletedOn] = useState<number | null>(null);
-  const deleting = deletedOn === connection;
+  const refusals = useContext(RefusedUnboosts);
+  const [deletedAt, setDeletedAt] = useState<{ connection: number; refusals: number } | null>(null);
+  const deleting = deletedAt?.connection === connection && deletedAt.refusals === refusals;
   const remove = useRef<HTMLButtonElement>(null);
   const content = cn("min-w-0 leading-normal", isAllEmoji(boost.content) ? "text-base" : "text-[0.8rem]");
 
@@ -166,7 +168,7 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
           type="button"
           className="relative ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.55rem] touch:size-11 hover:not-active:brightness-70"
           onClick={() => {
-            if (onDelete()) setDeletedOn(connection);
+            if (onDelete()) setDeletedAt({ connection, refusals });
           }}
         >
           <Minus tone="white" className="h-5 w-[1.3em]" />

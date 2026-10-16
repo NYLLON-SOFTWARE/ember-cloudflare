@@ -6,7 +6,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
-import { RoomConnection } from "@/hooks/use-room";
+import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import type { PendingMessage } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
 
@@ -38,31 +38,37 @@ const boost = (id: string, booster: User, content: string): Boost => ({ id, mess
  * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
  * administrator if `administrator`. `sent` is what a reaction, edit or deletion reports: false when there's
  * no connection. `update` hands it a new copy of the message, as the room does when the message changes,
- * and `reconnect` lets the page into the room again.
+ * `reconnect` lets the page into the room again, and `refuse` has the room refuse to delete a reaction.
  */
 function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
   let setConnections: (update: (connections: number) => number) => void = () => {};
+  let setRefusals: (update: (refusals: number) => number) => void = () => {};
   const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     const [shown, setShown] = useState(m);
     const [connections, setConnected] = useState(1);
+    const [refusals, setRefused] = useState(0);
     setEditing = set;
     setMessage = setShown;
     setConnections = setConnected;
+    setRefusals = setRefused;
     return (
       <RoomConnection value={connections}>
-        <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
+        <RefusedUnboosts value={refusals}>
+          <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
+        </RefusedUnboosts>
       </RoomConnection>
     );
   }
   const { container } = render(<Room />);
   const update = (next: Message | PendingMessage) => act(() => setMessage(next));
   const reconnect = () => act(() => setConnections((connections) => connections + 1));
-  return { actions, editors, update, reconnect, user: userEvent.setup(), article: within(container).getByRole("article") };
+  const refuse = () => act(() => setRefusals((refusals) => refusals + 1));
+  return { actions, editors, update, reconnect, refuse, user: userEvent.setup(), article: within(container).getByRole("article") };
 }
 
 /** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
@@ -746,6 +752,23 @@ describe(feature("boosts.remove"), () => {
     reconnect();
     expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
     expect(reactions().getByRole("button", { name: "Delete this boost" })).toBeInTheDocument();
+  });
+
+  it("brings your reactions back when the room refuses to delete one, as it doesn't say which", async () => {
+    const { refuse, user } = show(message({ boosts: [boost("b1", ada, "👍"), boost("b2", ada, "🎉")] }));
+    const going = () => reactions().getAllByRole("listitem").map((pill) => pill.classList.contains("animate-scale-fade-out"));
+    for (const pill of reactions().getAllByRole("listitem")) {
+      await user.click(within(pill).getByRole("button", { name: pill.textContent! }));
+      await user.click(within(pill).getByRole("button", { name: "Delete this boost" }));
+    }
+    expect(going()).toEqual([true, true]);
+    // As a room does from a banned address.
+    refuse();
+    expect(going()).toEqual([false, false]);
+
+    // A deletion sent after it shows as going, as the room hasn't answered it yet.
+    await user.click(reactions().getAllByRole("button", { name: "Delete this boost" })[0]!);
+    expect(going()).toEqual([true, false]);
   });
 });
 

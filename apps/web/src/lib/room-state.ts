@@ -71,6 +71,11 @@ export interface RoomState {
    * latest may never have reached the room.
    */
   connections: number;
+  /**
+   * How many times the room has answered a reaction's deletion with an error, as it does from a banned
+   * address. It doesn't say which reaction, so a deletion sent before the latest may not happen.
+   */
+  refusedUnboosts: number;
 }
 
 export type RoomAction =
@@ -106,6 +111,7 @@ export const initialRoomState: RoomState = {
   notice: null,
   paged: null,
   connections: 0,
+  refusedUnboosts: 0,
 };
 
 export const isPending = (m: Message | PendingMessage): m is PendingMessage => "pending" in m;
@@ -376,6 +382,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         loadingOlder: frame.failed === "history.before" ? false : state.loadingOlder,
         loadingNewer: frame.failed === "history.after" ? false : state.loadingNewer,
         loadingPage: frame.failed === "history.around" ? false : state.loadingPage,
+        refusedUnboosts: frame.failed === "boost.delete" ? state.refusedUnboosts + 1 : state.refusedUnboosts,
       };
     }
     case "pong":
