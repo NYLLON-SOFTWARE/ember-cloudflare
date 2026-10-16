@@ -89,6 +89,16 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
+describe(feature("bots.membership"), () => {
+  it("finds active bots with everyone else, but not deleted ones", async () => {
+    const bots = [{ ...person("b1", "Build Bot"), role: "bot" as const }, { ...person("b2", "Old Bot", "deactivated"), role: "bot" as const }];
+    const { user } = showDialog({ people: [...everyone, ...bots] });
+    await waitFor(() => expect(listed()).toEqual(["Ada Byron", "alan Turing", "Barbara Liskov", "Build Bot", "Grace Hopper", "Linus Torvalds"]));
+    await user.type(search(), "bot");
+    expect(listed()).toEqual(["Build Bot"]);
+  });
+});
+
 describe(feature("dms.picker"), () => {
   it("opens titled as ember-rust's, focused on the search, listing everyone else active by name", async () => {
     showDialog();
