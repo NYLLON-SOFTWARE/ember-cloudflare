@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { botMessagesPath, type Bot, type BotRoom } from "@ember/protocol";
 import { PRIMARY_BUTTON } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -6,6 +6,7 @@ import { Add, Attachment, MessagesOutlined, Pencil } from "@/components/icons/ca
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
+import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { botSettingsPath, navigate, NEW_BOT_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, fetchBots, isSignedOut } from "@/lib/api";
@@ -43,10 +44,12 @@ export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
 /**
  * ember-rust's Chat bots page (accounts/bots/index.html and _bot.html): Add a chat bot, then each active
  * bot by name, with a link to its settings and, for each room it's in, the commands that post to the
- * room as it, which their buttons copy. Go Back returns to workspace settings.
+ * room as it, which their buttons copy. Go Back returns to workspace settings. Unlike ember-rust's, a bot
+ * deleted or renamed elsewhere leaves or is renamed here as soon as the people directory hears of it.
  */
 export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   const [bots, setBots] = useState<Bot[] | null>(null);
+  const people = useContext(PeopleContext);
   const { failed } = useAdministratorsOnly(onFailed);
   useTitle("Chat bots");
 
@@ -82,9 +85,11 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
         </header>
         <div className="px-[1ch] pt-4">
           <menu className="m-0 flex flex-col gap-4 px-[1ch] py-4">
-            {bots?.map((bot) => (
-              <BotItem key={bot.id} bot={bot} />
-            ))}
+            {bots
+              ?.filter((bot) => people.get(bot.id)?.status !== "deactivated")
+              .map((bot) => (
+                <BotItem key={bot.id} bot={bot} />
+              ))}
           </menu>
         </div>
       </Panel>
@@ -94,18 +99,19 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
 
 /** ember-rust's accounts/bots/_bot.html: the bot, with its avatar, name and edit link, then its rooms' commands. */
 function BotItem({ bot }: { bot: Bot }) {
+  const name = useNameOf()(bot);
   return (
     <li className="flex flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4">
       <div className="flex items-center gap-x-[1ch]">
         <AvatarLink user={bot} lazy className="size-[2.65em]" />
         <div className="min-w-0">
           <div className="truncate text-[17px]">
-            <strong>{bot.name}</strong>
+            <strong>{name}</strong>
           </div>
         </div>
         <PageLink href={botSettingsPath(bot.id)} className={cn(ROUND_BUTTON, "ml-auto")}>
           <Pencil width={20} height={20} className="size-[1.3em]" />
-          <span className="sr-only">Edit {bot.name}</span>
+          <span className="sr-only">Edit {name}</span>
         </PageLink>
       </div>
       {bot.rooms.map((room) => (

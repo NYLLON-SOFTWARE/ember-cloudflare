@@ -2,10 +2,11 @@ import { feature } from "@ember/parity";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Bot, Bots } from "@ember/protocol";
+import type { Account, Bot, Bots, DirectoryUser, UserId } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { BotsPage } from "./bots-page";
 
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
@@ -34,20 +35,27 @@ function serve(loaded = () => Response.json({ bots: [BUILD_BOT, DEPLOY_BOT] } sa
   });
 }
 
+/** Shows the page, whose people directory `showPeople` changes. */
 function showPage(shown = account) {
   const onFailed = vi.fn();
   history.replaceState(null, "", "/account/bots");
-  render(
+  const page = (people: People) => (
     <AccountContext value={shown}>
-      <FlashProvider workspace>
-        <Sheet>
-          <BotsPage onFailed={onFailed} />
-        </Sheet>
-      </FlashProvider>
-    </AccountContext>,
+      <PeopleContext value={people}>
+        <FlashProvider workspace>
+          <Sheet>
+            <BotsPage onFailed={onFailed} />
+          </Sheet>
+        </FlashProvider>
+      </PeopleContext>
+    </AccountContext>
   );
-  return { onFailed };
+  const { rerender } = render(page(new Map()));
+  return { onFailed, showPeople: (people: People) => rerender(page(people)) };
 }
+
+/** A bot as the people directory lists it. */
+const listedAs = ({ id, name, bio, role, status, avatarUrl }: Bot, changes: Partial<DirectoryUser> = {}): [UserId, DirectoryUser] => [id, { id, name, bio, role, status, avatarUrl, ...changes }];
 
 /** Each bot the page lists, once they've loaded. */
 async function listed(count: number): Promise<HTMLElement[]> {
@@ -127,6 +135,15 @@ describe(feature("bots.list"), () => {
     await userEvent.click(within(general!).getByRole("button", { name: "Copy attachment command" }));
     const url = `http://localhost:3000/rooms/${BUILD_BOT.rooms[0]!.id}/${BUILD_BOT.key}/messages`;
     expect(writeText.mock.calls).toEqual([[`curl -d 'Hello!' ${url}`], [`curl -F "attachment=@/path/to/file" ${url}`]]);
+  });
+
+  it("drops a bot deleted elsewhere and follows a rename, as the people directory hears of them", async () => {
+    const { showPeople } = showPage();
+    await listed(2);
+    showPeople(new Map([listedAs(BUILD_BOT, { name: "CI Bot" }), listedAs(DEPLOY_BOT, { status: "deactivated" })]));
+    const [build] = await listed(1);
+    expect(within(build!).getByText("CI Bot").tagName).toBe("STRONG");
+    expect(within(build!).getByRole("link", { name: "Edit CI Bot" })).toHaveAttribute("href", `/account/bots/${BUILD_BOT.id}/edit`);
   });
 
   it("lists nothing while there are no bots", async () => {
