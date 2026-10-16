@@ -198,6 +198,11 @@ export class Workspace extends DurableObject<Env> {
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
+  /**
+   * When each ban lifted since the outbox last read its purges was lifted, so the rooms it goes on to ask
+   * delete only what was written before, which the purges it read can't say.
+   */
+  private readonly liftedBans = new Map<UserId, string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -891,6 +896,8 @@ export class Workspace extends DurableObject<Env> {
       // Someone active stays as they are, as when banning someone banned.
       const unbanned = person.status === "active" ? null : { ...person, status: "active" as const, updatedAt: now };
       await this.store.unbanPerson(userId, now);
+      // Once saved, as the outbox could otherwise forget it and then read their purges from before.
+      this.liftedBans.set(userId, now);
       const listed = await this.directoryUser(unbanned ?? person);
       if (unbanned) this.broadcast({ type: "user.updated", user: listed });
       return listed;
@@ -1136,13 +1143,16 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Asks rooms to delete the messages of the people banned since, up to `limit` rooms, each
-   * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been. A
-   * room that has more of theirs left is asked again at once, and one that can't be reached later, as a
-   * revocation is. A room is asked only once the sockets queued to close there have closed, as those
-   * delivered just before may have, so a banned person can't write through one after it's done.
+   * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been,
+   * even while it's asking. A room that has more of theirs left is asked again at once, and one that
+   * can't be reached later, as a revocation is. A room is asked only once the sockets queued to close
+   * there have closed, as those delivered just before may have, so a banned person can't write through
+   * one after it's done.
    */
   private async deliverPurges(limit: number): Promise<void> {
     if (limit <= 0) return;
+    // The purges it reads know of every ban lifted before.
+    this.liftedBans.clear();
     const due = await this.store.duePurges(Date.now(), limit);
     if (due.length === 0) return;
     const finished: number[] = [];
@@ -1150,7 +1160,8 @@ export class Workspace extends DurableObject<Env> {
     const failed: number[] = [];
     await eachAtMost(due, ROOMS_AT_ONCE, async ({ id, roomId, userId, liftedAt }) => {
       try {
-        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, liftedAt);
+        const until = liftedAt ?? this.liftedBans.get(userId) ?? null;
+        const more = await this.env.CHAT_ROOM.getByName(roomId).removeMessagesBy(roomId, userId, MESSAGES_PER_PURGE, until);
         (more ? unfinished : finished).push(id);
       } catch (error) {
         console.error(`Could not delete messages in room ${roomId}; trying again later`, error);

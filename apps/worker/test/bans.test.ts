@@ -469,6 +469,36 @@ describe(feature("accounts.ban"), () => {
     expect(await workspaceSql("SELECT * FROM pending_purges")).toEqual([]);
   });
 
+  it("keeps what they write once the ban is lifted while it's asking rooms to delete theirs, in the rooms it asks after", async () => {
+    const administrator = await setUp();
+    const member = await join(grace);
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    expect((await ban(administrator, member.user.id)).status).toBe(200);
+    // More rooms than it asks at once, so it asks the last only once the first have answered.
+    for (const room of ["r1", "r2", "r3", "r4", "r5", "r6"]) await queuePurge(room, member.user.id, LATER);
+    const queued = (await purges()).length;
+    let lift!: () => void;
+    const lifted = new Promise<void>((resolve) => (lift = resolve));
+    const cutoffs: Array<string | null> = [];
+    const rooms: Rooms = {
+      revoke: async () => {},
+      removeMessagesBy: async (_roomId, _userId, _limit, liftedAt) => {
+        cutoffs.push(liftedAt);
+        if (cutoffs.length === 1) {
+          vi.setSystemTime(LATER + 2_000);
+          expect((await unban(administrator, member.user.id)).status).toBe(200);
+          lift();
+        }
+        await lifted;
+        return false;
+      },
+    };
+
+    await runAlarm(rooms);
+    expect(cutoffs).toEqual([...Array(6).fill(null), ...Array(queued - 6).fill(new Date(LATER + 2_000).toISOString())]);
+    expect(await purges()).toEqual([]);
+  });
+
   it("leaves someone active as they are, telling nobody", async () => {
     const administrator = await setUp();
     const member = await join(grace);
