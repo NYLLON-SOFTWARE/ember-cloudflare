@@ -245,9 +245,10 @@ export class MessageStore {
 
   /**
    * Stores a new message, logging it in the same transaction for the Workspace to mark the room unread
-   * by and for the search index, and answers it with the change's number.
+   * by, as a reply to a webhook delivery when it's one, and for the search index, and answers it with the
+   * change's number.
    */
-  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string, kind: "message" | "reply" = "message"): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
         `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq)
@@ -264,7 +265,7 @@ export class MessageStore {
         now,
         seq,
       ),
-      logEvent(this.roomId, "message", creator.id, now, id),
+      logEvent(this.roomId, kind, creator.id, now, id),
       logIndexing(this.roomId, id),
     ]);
     return {

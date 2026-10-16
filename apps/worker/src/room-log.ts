@@ -10,8 +10,11 @@ import { statement, type Db, type Statement } from "./db";
 export interface RoomEvent {
   /** Its place in the room's log, whose numbers only grow. */
   seq: number;
-  /** A new message, or someone opening the room in a shown tab. */
-  kind: "message" | "read";
+  /**
+   * A new message, a bot's reply to a webhook delivery, which is a new message that's never delivered to
+   * bots' webhooks in turn, or someone opening the room in a shown tab.
+   */
+  kind: "message" | "reply" | "read";
   /** Who wrote the message, or read the room. */
   userId: UserId;
   /** When, as an ISO time: a message's is its `createdAt`. */

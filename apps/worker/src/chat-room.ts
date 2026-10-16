@@ -500,11 +500,12 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Stores a message from `user`, tells everyone in the room, and sends the Workspace and the search
-   * index their logs, which the message is in, answering it.
+   * Stores a message from `user`, a bot's reply to a webhook delivery when `kind` says so, tells everyone
+   * in the room, and sends the Workspace and the search index their logs, which the message is in,
+   * answering it.
    */
-  private async create(store: MessageStore, user: User, clientMessageId: string, body: PreparedBody, now: string): Promise<Message> {
-    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now);
+  private async create(store: MessageStore, user: User, clientMessageId: string, body: PreparedBody, now: string, kind?: "reply"): Promise<Message> {
+    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind);
     this.broadcast({ type: "message.created", message, seq });
     const couriers = this.couriersFor(store.roomId);
     couriers.workspace.deliver();
@@ -634,8 +635,8 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Delivers a new message to a bot's webhook in its turn, as ember-rust's `Bot::WebhookJob` does
    * (integrations/jobs.rs): the message as it is by then, and nothing once it's gone, to the bot and
-   * webhook the Workspace found for it. Each delivery is logged, without its URL or the bot's key, and
-   * one the queue has no room for is dropped.
+   * webhook the Workspace found for it, and posts what the bot says back. Each delivery is logged,
+   * without its URL or the bot's key, and one the queue has no room for is dropped.
    */
   private async deliver(roomId: RoomId, webhook: MessageWebhook): Promise<void> {
     const job = `Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.bot.id}`;
@@ -643,13 +644,31 @@ export class ChatRoom extends DurableObject<Env> {
       try {
         const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(webhook.messageId);
         if (!message) throw new WebhookError("the message is gone");
-        const delivered = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message));
-        console.log(`${job} performed: ${"status" in delivered ? delivered.status : `no answer within ${delivered.timedOutAfter} seconds`}`);
+        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message));
+        if (reply && "file" in reply) throw new WebhookError(`its reply, ${reply.file.filename} (${reply.file.contentType}), is a file, which bots can't post yet`);
+        const refused = reply && (await this.reply(roomId, webhook.bot, reply.text));
+        if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
+        console.log(`${job} performed: ${status ?? "no answer in time"}`);
       } catch (error) {
         console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
       }
     });
     if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
+  }
+
+  /**
+   * Posts `text` as the bot `bot`'s reply to a delivery, as Campfire's `receive_text_reply_to` does: as
+   * the bot's message, even once it has left the room, which reaches the room as any message does but is
+   * delivered to no webhook. Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async reply(roomId: RoomId, bot: User, text: string): Promise<string | null> {
+    return this.serially(async () => {
+      if (await this.isDeleted()) return "the room is gone";
+      const body = await this.prepare(text);
+      if (typeof body === "string") return body;
+      await this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, new Date().toISOString(), "reply");
+      return null;
+    });
   }
 
   /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */
