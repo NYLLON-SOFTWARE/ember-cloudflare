@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_SEARCH_LENGTH, SEARCH_TOO_LONG, searchTerms, type Message, type RoomId, type SearchResults } from "@ember/protocol";
+import { MAX_SEARCH_LENGTH, SEARCH_TOO_LONG, searchTerms, type Me, type Message, type NewWorkspace, type RoomId, type SearchResults, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
@@ -9,6 +9,7 @@ import type { Workspace } from "../src/workspace";
 import {
   api,
   connect,
+  cookieOf,
   createRoom,
   direct,
   freshDeploy,
@@ -18,6 +19,7 @@ import {
   roomStub,
   searchIndexStub,
   searchSql,
+  shown,
   signIn,
   workspaceSql,
   workspaceStub,
@@ -35,6 +37,13 @@ async function indexed(room: RoomId): Promise<void> {
 /** What `GET /api/searches` answers `session` for `q`. */
 const searchAs = (session: Session | null, q: string) => api(`/api/searches?q=${encodeURIComponent(q)}`, { headers: session ? { Cookie: session.cookie } : {} });
 
+/** What `POST /api/searches` answers `session` for `body`, sent as JSON unless it's a string. */
+const record = (session: Session | null, body: unknown) =>
+  api("/api/searches", { method: "POST", headers: session ? { Cookie: session.cookie } : {}, body: typeof body === "string" ? body : JSON.stringify(body) });
+
+/** What `DELETE /api/searches` answers `session`. */
+const clear = (session: Session | null) => api("/api/searches", { method: "DELETE", headers: session ? { Cookie: session.cookie } : {} });
+
 /** What `session` finds searching for `q`. */
 async function resultsFor(session: Session, q: string): Promise<SearchResults> {
   const response = await searchAs(session, q);
@@ -44,6 +53,13 @@ async function resultsFor(session: Session, q: string): Promise<SearchResults> {
 
 /** The ids of the messages `session` finds searching for `q`, in order. */
 const found = async (session: Session, q: string) => (await resultsFor(session, q)).messages.map(({ id }) => id);
+
+/** `session`'s recent searches, as the search page lists them. */
+const recentOf = async (session: Session) => (await resultsFor(session, "")).recent;
+
+/** The searches stored for `userId`, newest first. */
+const storedSearches = async (userId: UserId) =>
+  ((await workspaceSql("SELECT query FROM searches WHERE user_id = ? ORDER BY position DESC", userId)) as Array<{ query: string }>).map(({ query }) => query);
 
 /** Edits `message` as `client`. */
 async function edit(client: Socket, message: Message, body: string): Promise<void> {
@@ -132,8 +148,8 @@ describe(feature("search.messages"), () => {
     const message = await post(ada, "hello world");
     await indexed(room);
     expect(await resultsFor(ada.session, "hello, world!")).toMatchObject({ query: "hello  world ", messages: [{ id: message.id }] });
-    for (const q of ["", "   ", "!!!", "😀 ❤"]) expect(await resultsFor(ada.session, q), JSON.stringify(q)).toEqual({ query: null, messages: [], rooms: [] });
-    expect(await resultsFor(ada.session, "dolphin")).toEqual({ query: "dolphin", messages: [], rooms: [] });
+    for (const q of ["", "   ", "!!!", "😀 ❤"]) expect(await resultsFor(ada.session, q), JSON.stringify(q)).toEqual({ query: null, messages: [], rooms: [], recent: [] });
+    expect(await resultsFor(ada.session, "dolphin")).toEqual({ query: "dolphin", messages: [], rooms: [], recent: [] });
   });
 
   it("finds a message by its plain text, not its markup", async () => {
@@ -227,7 +243,7 @@ describe(feature("search.messages"), () => {
     await searchSql("INSERT INTO search_messages (id, message_id, room_id) VALUES ((SELECT max(id) + 1 FROM search_messages), 'gone', ?)", room);
     await searchSql("INSERT INTO search_index (rowid, body) SELECT id, 'quince tart' FROM search_messages WHERE message_id = 'gone'");
     expect(await resultsFor(ada.session, "quince")).toMatchObject({ messages: [{ id: message.id }], rooms: [{ id: room }] });
-    expect(await resultsFor(ada.session, "tart")).toEqual({ query: "tart", messages: [], rooms: [] });
+    expect(await resultsFor(ada.session, "tart")).toEqual({ query: "tart", messages: [], rooms: [], recent: [] });
   });
 
   it("takes each room's changes in order, so a call that arrives late changes nothing, and numbers messages by when they were written", async () => {
@@ -365,5 +381,96 @@ describe(feature("search.messages"), () => {
     expect(tooLong.status).toBe(422);
     expect(await tooLong.json()).toEqual({ error: SEARCH_TOO_LONG });
     expect((await searchAs(ada, "eel")).headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+describe(feature("search.recent"), () => {
+  it("records a search, punctuation turned to spaces, and answers what it finds with your recent searches, newest first", async () => {
+    const room = await freshRoom("greetings");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "hello world");
+    await indexed(room);
+    const response = await record(ada.session, { q: "hello, world" });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ query: "hello  world", messages: [{ id: message.id }], rooms: [{ id: room }], recent: ["hello  world"] });
+    expect(await (await record(ada.session, { q: "dolphin" })).json()).toEqual({ query: "dolphin", messages: [], rooms: [], recent: ["dolphin", "hello  world"] });
+    // Searching other than with the search page's form, as following a recent search does, records nothing.
+    expect(await resultsFor(ada.session, "hello  world")).toMatchObject({ messages: [{ id: message.id }], recent: ["dolphin", "hello  world"] });
+  });
+
+  it("keeps your newest 10, moving a search made again to the front, and tells searches that differ in case apart", async () => {
+    const ada = await signIn("Ada");
+    for (let n = 1; n <= 12; n++) expect((await record(ada, { q: `search ${n}` })).status).toBe(200);
+    const newest = Array.from({ length: 10 }, (_, i) => `search ${12 - i}`);
+    expect(await recentOf(ada)).toEqual(newest);
+    expect(await storedSearches(ada.user.id)).toEqual(newest);
+
+    await record(ada, { q: "search 5" });
+    expect(await recentOf(ada)).toEqual(["search 5", ...newest.filter((q) => q !== "search 5")]);
+    await record(ada, { q: "Search 5" });
+    expect(await recentOf(ada)).toEqual(["Search 5", "search 5", ...newest.filter((q) => q !== "search 5").slice(0, 8)]);
+    expect(await storedSearches(ada.user.id)).toHaveLength(10);
+  });
+
+  it("doesn't record a search with no words, nor one it refuses", async () => {
+    const ada = await signIn("Ada");
+    for (const q of ["", "   ", "!!!"]) expect(await (await record(ada, { q })).json(), JSON.stringify(q)).toEqual({ query: null, messages: [], rooms: [], recent: [] });
+    for (const body of [{ q: 5 }, { q: null }, { q: ["eel"] }, {}, [], "eel", "{"]) {
+      const response = await record(ada, body);
+      expect(response.status, JSON.stringify(body)).toBe(422);
+      expect(await response.json()).toEqual({ error: "Searches have to be text" });
+    }
+    const tooLong = await record(ada, { q: "e".repeat(MAX_SEARCH_LENGTH + 1) });
+    expect(tooLong.status).toBe(422);
+    expect(await tooLong.json()).toEqual({ error: SEARCH_TOO_LONG });
+    expect(await storedSearches(ada.user.id)).toEqual([]);
+    expect((await record(ada, { q: "e".repeat(MAX_SEARCH_LENGTH) })).status).toBe(200);
+    expect(await recentOf(ada)).toEqual(["e".repeat(MAX_SEARCH_LENGTH)]);
+  });
+
+  it("keeps each person's own, and clears them", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    await record(ada, { q: "eels" });
+    await record(grace, { q: "sharks" });
+    expect(await recentOf(ada)).toEqual(["eels"]);
+    expect(await recentOf(grace)).toEqual(["sharks"]);
+
+    const cleared = await clear(ada);
+    expect(cleared.status).toBe(204);
+    expect(await cleared.text()).toBe("");
+    expect(await recentOf(ada)).toEqual([]);
+    expect(await recentOf(grace)).toEqual(["sharks"]);
+    expect((await clear(ada)).status).toBe(204);
+  });
+
+  it("is only for people signed in, which it checks first", async () => {
+    expect((await record(null, { q: "eels" })).status).toBe(401);
+    expect((await record(null, { q: 5 })).status).toBe(401);
+    expect((await record(null, { q: "e".repeat(MAX_SEARCH_LENGTH + 1) })).status).toBe(401);
+    expect((await clear(null)).status).toBe(401);
+    expect(await workspaceSql("SELECT count(*) AS n FROM searches")).toEqual([{ n: 0 }]);
+  });
+
+  it("forgets a removed person's searches, and keeps a banned person's", async () => {
+    const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    expect(setUp.status).toBe(201);
+    const administrator = { user: shown(((await setUp.json()) as NewWorkspace).user), cookie: cookieOf(setUp) };
+    const [{ join_code: joinCode }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
+    const join = async (name: string) => {
+      const response = await api(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify({ name, emailAddress: `${name}@example.com`, password: "compiler design" }) });
+      expect(response.status, await response.clone().text()).toBe(201);
+      return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
+    };
+    const grace = await join("grace");
+    const linus = await join("linus");
+    for (const session of [administrator, grace, linus]) await record(session, { q: "eels" });
+
+    expect((await api(`/api/account/users/${grace.user.id}`, { method: "DELETE", headers: { Cookie: administrator.cookie } })).status).toBe(200);
+    expect((await api(`/api/users/${linus.user.id}/ban`, { method: "POST", headers: { Cookie: administrator.cookie } })).status).toBe(200);
+    expect(await storedSearches(grace.user.id)).toEqual([]);
+    expect(await storedSearches(linus.user.id)).toEqual(["eels"]);
+    expect(await recentOf(administrator)).toEqual(["eels"]);
   });
 });

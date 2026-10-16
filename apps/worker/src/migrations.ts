@@ -20,6 +20,7 @@ import messagesByCreator from "../migrations/0019_messages_by_creator.sql";
 import sharedRoomOrder from "../migrations/0020_shared_room_order.sql";
 import unindexedMessages from "../migrations/0021_unindexed_messages.sql";
 import pendingReindexes from "../migrations/0022_pending_reindexes.sql";
+import recentSearches from "../migrations/0023_recent_searches.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
@@ -64,6 +65,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0020_shared_room_order.sql", scope: "workspace", sql: sharedRoomOrder },
   { name: "0021_unindexed_messages.sql", scope: "room", sql: unindexedMessages },
   { name: "0022_pending_reindexes.sql", scope: "workspace", sql: pendingReindexes },
+  { name: "0023_recent_searches.sql", scope: "workspace", sql: recentSearches },
 ];
 
 /**

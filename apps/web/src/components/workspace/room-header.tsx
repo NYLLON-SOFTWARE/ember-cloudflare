@@ -1,9 +1,9 @@
 import type { Favorites, Me, Room, User } from "@ember/protocol";
-import { MenuDotsHorizontal, MessagesOutlined } from "@/components/icons/campfire";
+import { MenuDotsHorizontal, MessagesOutlined, Search } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
-import { roomSettingsPath } from "@/hooks/use-route";
+import { roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { FavoriteButton } from "./favorite-button";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
@@ -27,8 +27,8 @@ interface Props {
 }
 
 /**
- * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, and its
- * settings. A DM's has Campfire's `messages-outlined` in place of the room's icon, and no star.
+ * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search and
+ * its settings. A DM's has Campfire's `messages-outlined` in place of the room's icon, and no star.
  */
 export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, onSessionChanged }: Props) {
   const nameOf = useNameOf();
@@ -69,10 +69,17 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         {present.length > MAX_FACES && <span className="text-xs text-muted-foreground">+{present.length - MAX_FACES}</span>}
       </div>
 
-      <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
-        <MenuDotsHorizontal className="size-5" />
-        <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
-      </PageLink>
+      {/* ember-rust's `.mb-room-actions` (zz-ember.css), 6px apart, and touching at 900px and below. */}
+      <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">
+        <PageLink href={SEARCHES_PATH} title="Search messages" className={HEADER_BUTTON}>
+          <Search className="size-5" />
+          <span className="sr-only">Search messages</span>
+        </PageLink>
+        <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
+          <MenuDotsHorizontal className="size-5" />
+          <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
+        </PageLink>
+      </div>
     </PageHeader>
   );
 }

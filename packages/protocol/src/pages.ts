@@ -35,7 +35,9 @@ export type WorkspacePage =
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
   | { page: "profile" }
   /** Someone's page, at `/users/<id>`, whatever their status. */
-  | { page: "person"; userId: UserId };
+  | { page: "person"; userId: UserId }
+  /** Search, at `/searches`, whose query string holds what's searched for. */
+  | { page: "search" };
 
 /** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -45,6 +47,7 @@ export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
+export const SEARCHES_PATH = "/searches";
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
 function decoded(segment: string): string | null {
@@ -65,6 +68,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
+  if (pathname === SEARCHES_PATH) return { page: "search" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   const person = pathname.match(/^\/users\/([^/]+)$/);
   const personId = person && decoded(person[1]!);

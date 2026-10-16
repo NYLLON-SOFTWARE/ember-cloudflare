@@ -26,6 +26,7 @@ import {
   type RoomId,
   type RoomSettings,
   type RoomSocketParams,
+  type SearchResults,
   type SharedRoom,
   type Sidebar,
   type SignUp,
@@ -283,6 +284,21 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
 export async function fetchLinkPreview(url: string, signal: AbortSignal): Promise<LinkPreview | null> {
   const preview = await request<Partial<LinkPreview>>("/api/unfurl", { method: "POST", body: JSON.stringify({ url }), signal });
   return preview.title && preview.url ? (preview as LinkPreview) : null;
+}
+
+/** What a search for `q` finds, as it was typed, with your recent searches; all you have of them without one. */
+export async function fetchSearch(q: string | null): Promise<SearchResults> {
+  return request<SearchResults>(q === null ? "/api/searches" : `/api/searches?q=${encodeURIComponent(q)}`);
+}
+
+/** Searches for `q`, as it was typed, recording it as your newest recent search, as the search page's form does. */
+export async function recordSearch(q: string): Promise<SearchResults> {
+  return request<SearchResults>("/api/searches", { method: "POST", body: JSON.stringify({ q }) });
+}
+
+/** Forgets your recent searches. */
+export async function clearSearches(): Promise<void> {
+  await request("/api/searches", { method: "DELETE" });
 }
 
 /**

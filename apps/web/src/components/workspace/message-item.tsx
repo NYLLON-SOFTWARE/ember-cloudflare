@@ -50,6 +50,8 @@ interface Props {
   /** What can be done to the message, or null where nothing can, as in a room that's gone. */
   actions: MessageActions | null;
   editors: MessageEditors;
+  /** The name of the message's room, which search results show it with. */
+  roomName?: string;
 }
 
 /**
@@ -97,7 +99,7 @@ function Author({ user }: { user: User }) {
 }
 
 /** One message, laid out like ember-rust's: a 36px avatar gutter, author and time, then the body. */
-export const MessageItem = memo(function MessageItem({ message, me, threaded, editing: editorOpen, actions, editors }: Props) {
+export const MessageItem = memo(function MessageItem({ message, me, threaded, editing: editorOpen, actions, editors, roomName }: Props) {
   const article = useRef<HTMLElement>(null);
   const menu = useRef<MessageActionsHandle>(null);
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
@@ -184,6 +186,15 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
             <h3 className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
               <Author user={message.creator} />
               {permalink}
+              {/* ember-rust's `.message__room` in search results (_message.html, sidebar.css, zz-ember.css): a dot,
+                  and the room's name, linking to the message as its time does, cut short rather than wrapped. */}
+              {roomName !== undefined && (
+                <span className="min-w-0 truncate text-[0.8rem] font-normal text-message-ink">
+                  · <PageLink href={messagePath(message.roomId, message.id)} className="text-link underline hover:not-active:brightness-130">
+                    {roomName}
+                  </PageLink>
+                </span>
+              )}
               {edited}
             </h3>
           )}

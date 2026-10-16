@@ -121,6 +121,16 @@ export interface ShownPerson {
   transferable: boolean;
 }
 
+/**
+ * What a search needs from the Workspace: the rooms whose messages the searcher can search, the ones
+ * they've hidden and DMs too, as ember-rust's `reachable_messages` reach them (message.rs), and their
+ * recent searches, newest first.
+ */
+export interface Searcher {
+  rooms: Room[];
+  recent: string[];
+}
+
 /** What the Workspace says about opening a room's socket. */
 export interface RoomAccess {
   user: User;
@@ -1158,13 +1168,20 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The rooms the person `credentials` signs in is in, the ones they've hidden and DMs too, whose
-   * messages they can search, as ember-rust's `reachable_messages` reach them (message.rs), or null
+   * What a search by the person `credentials` signs in needs, having first recorded `recording` as their
+   * newest search, when it's given, as ember-rust's search page's form records one (searches.rs), or null
    * without a valid session.
    */
-  async searchableRooms(credentials: Credentials): Promise<Room[] | null> {
+  async searcher(credentials: Credentials, recording: string | null): Promise<Searcher | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.roomsOf(user.id);
+    return user && this.store.searcherOf(user.id, recording);
+  }
+
+  /** Forgets the recent searches of the person `credentials` signs in, answering false without a valid session. */
+  async clearSearches(credentials: Credentials): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (user) await this.store.clearSearches(user.id);
+    return user !== null;
   }
 
   /**

@@ -87,3 +87,11 @@ describe(feature("auth.sign-in-link"), () => {
     expect(isAppPage(transferPath("a.b.c"))).toBe(false);
   });
 });
+
+describe(feature("search.page"), () => {
+  it("shows search at `/searches`, whatever its query string, which the path leaves out", () => {
+    expect(workspacePageOf("/searches")).toEqual({ page: "search" });
+    expect(isAppPage("/searches")).toBe(true);
+    for (const path of ["/searches/", "/searches/clear", "/search"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});

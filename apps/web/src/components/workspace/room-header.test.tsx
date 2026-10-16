@@ -108,6 +108,22 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
+describe(feature("search.page"), () => {
+  it("links to search before the room's settings, in rooms and DMs alike, showing it in place", async () => {
+    for (const [room, name] of [[general, "general"], [adaDirect, "Ada"]] as const) {
+      const { unmount } = renderHeader({ room, name });
+      const search = screen.getByRole("link", { name: "Search messages" });
+      expect(search).toHaveAttribute("title", "Search messages");
+      expect(search).toHaveAttribute("href", "/searches");
+      expect(search.compareDocumentPosition(screen.getByRole("link", { name: /^Settings for this/ })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      unmount();
+    }
+    renderHeader();
+    await userEvent.click(screen.getByRole("link", { name: "Search messages" }));
+    expect(location.pathname).toBe("/searches");
+  });
+});
+
 describe(feature("realtime.reconnect"), () => {
   it.each([
     ["connecting", "Connecting…"],

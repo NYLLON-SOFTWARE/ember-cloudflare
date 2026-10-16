@@ -843,6 +843,25 @@ describe(feature("ui.rail"), () => {
   });
 });
 
+describe(feature("search.page"), () => {
+  it("opens from the rail, marking Search, and from a room's header, with Exit back to the room visited last", async () => {
+    serve({ "GET /api/searches": () => Response.json({ query: null, messages: [], rooms: [], recent: [] }) });
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    await user.click(screen.getByRole("link", { name: "Search" }));
+    expect(location.pathname).toBe("/searches");
+    expect(railCurrent()).toEqual(["Search"]);
+    expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeVisible();
+    expect(document.title).toBe("Search");
+
+    await user.click(screen.getByRole("link", { name: "Exit search" }));
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(railCurrent()).toEqual(["Home"]);
+    await user.click(screen.getByRole("link", { name: "Search messages" }));
+    expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeVisible();
+  });
+});
+
 describe(feature("users.profile"), () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
     serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });

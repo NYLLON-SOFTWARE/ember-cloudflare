@@ -7,6 +7,7 @@ import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
 import art from "./campfire/art.svg";
 import boost from "./campfire/boost.svg";
+import broom from "./campfire/broom.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
 import copyPaste from "./campfire/copy-paste.svg";
@@ -29,6 +30,7 @@ import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
 import refresh from "./campfire/refresh.svg";
 import remove from "./campfire/remove.svg";
+import search from "./campfire/search.svg";
 import share from "./campfire/share.svg";
 import textOptions from "./campfire/text-options.svg";
 import transfer from "./campfire/transfer.svg";
@@ -81,6 +83,10 @@ export function Art(props: CampfireIconProps) {
 
 export function Boost(props: CampfireIconProps) {
   return <CampfireIcon src={boost} {...props} />;
+}
+
+export function Broom(props: CampfireIconProps) {
+  return <CampfireIcon src={broom} {...props} />;
 }
 
 export function Cancel(props: CampfireIconProps) {
@@ -169,6 +175,10 @@ export function Refresh(props: CampfireIconProps) {
 
 export function Remove(props: CampfireIconProps) {
   return <CampfireIcon src={remove} {...props} />;
+}
+
+export function Search(props: CampfireIconProps) {
+  return <CampfireIcon src={search} {...props} />;
 }
 
 export function Share(props: CampfireIconProps) {

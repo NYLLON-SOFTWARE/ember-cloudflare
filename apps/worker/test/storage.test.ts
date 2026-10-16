@@ -21,6 +21,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "pending_reindexes",
     "pending_revocations",
     "rooms",
+    "searches",
     "sessions",
     "users",
   ],

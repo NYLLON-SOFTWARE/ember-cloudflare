@@ -1369,14 +1369,14 @@ export const features = [
     id: "mentions.highlight",
     title: "Highlight mentions of you",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Messages that mention you get a 2px left border and a light tint, in rooms and in search results.",
       "Only a mention picked from the list counts; \"@Name\" typed out by hand is plain text.",
     ],
     sources: ["reference/app/models/message/mentionee.rb", "reference/app/javascript/models/message_formatter.js", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["reference/test/models/message_test.rb", "reference/test/system/composer_test.rb"],
-    notes: "Unlike ember-rust, this port shows the highlight, on any message that mentions you, your own included, wiggling as it shows unless motion is reduced, as Campfire's message_formatter.js and messages.css mean it to: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches. Search results come with the search page (`search.page`).",
+    notes: "Unlike ember-rust, this port shows the highlight, on any message that mentions you, your own included, wiggling as it shows unless motion is reduced, as Campfire's message_formatter.js and messages.css mean it to: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches. Search results highlight them as rooms do.",
   },
   {
     id: "mentions.render",
@@ -1639,13 +1639,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/searches.rs", "crates/db/src/models/message.rs", "crates/ember/src/integrations/search.rs", "crates/views/templates/searches/index.html", "reference/app/controllers/searches_controller.rb", "reference/app/models/message/searchable.rb", "reference/app/javascript/controllers/search_results_controller.js"],
     upstreamTests: ["reference/test/controllers/searches_controller_test.rb", "reference/test/models/message/searchable_test.rb", "crates/ember/src/controllers/searches.rs", "crates/ember/src/integrations/search.rs", "crates/db/src/tests/message_test.rs"],
-    notes: "`GET /api/searches?q=` answers the query as searched, the newest 100 matches, oldest first, in the rooms you're in, hidden rooms and DMs included, and those rooms; the page that shows them comes with `search.page`, and until then the rail shows Search, disabled. Every room's messages are in one FTS5 table with the porter tokenizer, searched with ember-rust's two queries, in a `SearchIndex` object of its own (`docs/database.md`). Each room sends it the messages it writes, edits and deletes through a log, so a search finds a message about a quarter of a second after it's sent rather than once its transaction commits; the messages from before the index were sent once, by the Workspace. Results are read from their rooms, so one deleted since the index heard of it drops out. A search longer than 1,000 characters is refused (422), where ember-rust searches any. A mention is searched by the name its person had when the message was written or last edited: unlike ember-rust, a reaction doesn't index the message again. Files' names come with files (`attachments.upload`).",
+    notes: "`GET /api/searches?q=` answers the query as searched, the newest 100 matches, oldest first, in the rooms you're in, hidden rooms and DMs included, and those rooms, which the search page shows (`search.page`). Every room's messages are in one FTS5 table with the porter tokenizer, searched with ember-rust's two queries, in a `SearchIndex` object of its own (`docs/database.md`). Each room sends it the messages it writes, edits and deletes through a log, so a search finds a message about a quarter of a second after it's sent rather than once its transaction commits; the messages from before the index were sent once, by the Workspace. Results are read from their rooms, so one deleted since the index heard of it drops out. A search longer than 1,000 characters is refused (422), where ember-rust searches any. A mention is searched by the name its person had when the message was written or last edited: unlike ember-rust, a reaction doesn't index the message again. Results that mention you are highlighted, as they are in rooms (`mentions.highlight`). Files' names come with files (`attachments.upload`).",
   },
   {
     id: "search.page",
     title: "Search page",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The rail's Search and the room header's Search messages, placed before the notification bell, open `/searches`, titled \"Search\" and headed \"Search messages\", with Search marked current on the rail.",
       "Before searching it says \"Find a conversation\" / \"Search messages across your rooms and direct messages.\", and with no results \"No messages found\" / \"Try a different word or phrase.\"",
@@ -1656,12 +1656,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/searches/index.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/templates/layouts/application.html", "crates/ember/src/controllers/searches.rs", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "reference/app/javascript/controllers/form_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml", "crates/views/tests/searches_views.rs"],
+    notes: "The room header's notification bell comes with `notifications.levels`, so Search messages sits just before the settings link for now. As ember-rust draws each page afresh, every visit to `/searches`, Back and Forward included, asks for its search again, but for the one a search goes to, which shows what the search answered. Unlike ember-rust, the field's × is 44px for fingers, as the buttons beside it are, the field takes taps across its whole height, the footer clears a phone's home indicator as the composer does, and the results are a region named \"Search results\".",
   },
   {
     id: "search.recent",
     title: "Recent searches",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Submitting a search remembers its query as searched (punctuation turned to spaces), and your latest 10 show newest first above the results, as links reading “<query>” in a strip labeled \"Recent searches\".",
       "Searching for a remembered query again moves it to the top, and queries that differ only in case are kept apart. Following a recent search's link doesn't move it.",
@@ -1670,6 +1671,7 @@ export const features = [
     ],
     sources: ["crates/db/src/models/search.rs", "crates/views/templates/searches/_recents.html", "crates/ember/src/controllers/searches.rs", "reference/app/models/search.rb"],
     upstreamTests: ["crates/ember/src/controllers/searches.rs", "reference/test/controllers/searches_controller_test.rb"],
+    notes: "The Workspace keeps them in its `searches` table, one row for each person's search (`docs/database.md`). `POST /api/searches` remembers one and keeps the newest 10 in one batch, then answers what it finds, and `DELETE /api/searches` forgets them. Unlike ember-rust, a search with no words left once it's sanitized isn't remembered, since it searches nothing, where ember-rust remembers it as blank; a search that isn't text is refused with 422, where ember-rust answers 500; and the links are 44px tall for fingers.",
   },
 
   // Presence, typing and live updates

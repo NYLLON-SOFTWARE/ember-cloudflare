@@ -1,4 +1,5 @@
 import { feature } from "@ember/parity";
+import { searchPath } from "@ember/protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,8 +13,10 @@ import {
   roomPath,
   roomSettingsPath,
   routeOf,
+  SEARCHES_PATH,
   useBackPath,
   useJoinRoute,
+  useQueryParam,
   useRoute,
   useVisit,
   type LeaveGuard,
@@ -177,6 +180,51 @@ describe(feature("users.profile"), () => {
     expect(result.current).toBe("/");
     act(() => history.replaceState({ position: 0, from: "/users/me/profile" }, "", "/users/me/profile"));
     expect(renderHook(() => useBackPath()).result.current).toBe("/");
+  });
+});
+
+describe(feature("search.page"), () => {
+  it("has search at /searches, reading what's searched for from its query string as the address changes", async () => {
+    history.replaceState(null, "", "/searches?q=hello++world");
+    const { result } = renderHook(() => ({ route: useRoute(), q: useQueryParam("q") }));
+    expect(result.current).toEqual({ route: { page: "search" }, q: "hello  world" });
+    act(() => navigate("/searches?q=eel"));
+    expect(result.current.q).toBe("eel");
+    expect(location.search).toBe("?q=eel");
+    act(() => navigate(SEARCHES_PATH));
+    expect(result.current).toEqual({ route: { page: "search" }, q: null });
+
+    act(() => history.back());
+    await waitFor(() => expect(result.current.q).toBe("eel"));
+  });
+
+  it("reads any search back from its address as it was searched for", () => {
+    for (const query of ["hello  world", "café_1 日本", " eel ", "\u{200d}", ""]) {
+      history.replaceState(null, "", searchPath(query));
+      const { result, unmount } = renderHook(() => useQueryParam("q"));
+      expect(result.current, query).toBe(query);
+      unmount();
+    }
+  });
+
+  it("goes to another search as another page, which Back leaves, but not to the search shown", async () => {
+    history.replaceState(null, "", "/searches?q=eel");
+    const { result } = renderHook(() => useQueryParam("q"));
+    act(() => navigate("/searches?q=eel"));
+    expect(history.state).toBeNull();
+    act(() => navigate(SEARCHES_PATH));
+    expect(result.current).toBeNull();
+    expect(history.state).toMatchObject({ from: "/searches?q=eel" });
+
+    act(() => history.back());
+    await waitFor(() => expect(result.current).toBe("eel"));
+  });
+
+  it("goes back to a search with its query string", () => {
+    history.replaceState(null, "", "/searches?q=eel");
+    const { result } = renderHook(() => useBackPath());
+    act(() => navigate("/users/me/profile"));
+    expect(result.current).toBe("/searches?q=eel");
   });
 });
 
