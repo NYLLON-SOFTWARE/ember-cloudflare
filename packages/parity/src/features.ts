@@ -782,7 +782,7 @@ export const features = [
       "First run makes no general or random where one of these rooms has that name, and opens the old general instead. A fresh deploy leaves `LEGACY_ROOMS` unset.",
     ],
     sources: [],
-    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before, so they're its general and random, and general its first room. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
+    notes: "The old preview Worker, `ember-preview`, was deployed with `LEGACY_ROOMS` set to general and random, which hold its messages from before, so they're its general and random, and general its first room. Nothing sets it now: the Preview workflow's `ember-production` started fresh. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
   },
 
   // Direct messages

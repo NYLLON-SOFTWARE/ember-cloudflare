@@ -777,7 +777,7 @@ ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github
 - They count from when they were listed, so the first listed before setup is the workspace's first room, where the welcome card shows.
 - First run makes no general or random where one of these rooms has that name, and opens the old general instead. A fresh deploy leaves `LEGACY_ROOMS` unset.
 
-Note: The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before, so they're its general and random, and general its first room. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.
+Note: The old preview Worker, `ember-preview`, was deployed with `LEGACY_ROOMS` set to general and random, which hold its messages from before, so they're its general and random, and general its first room. Nothing sets it now: the Preview workflow's `ember-production` started fresh. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.
 
 </details>
 
