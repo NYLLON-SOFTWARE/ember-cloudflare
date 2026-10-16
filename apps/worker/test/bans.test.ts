@@ -469,7 +469,7 @@ describe(feature("accounts.ban"), () => {
     expect(await workspaceSql("SELECT * FROM pending_purges")).toEqual([]);
   });
 
-  it("keeps what they write once the ban is lifted while it's asking rooms to delete theirs, in the rooms it asks after", async () => {
+  it("keeps what they write once the ban is lifted while it's asking rooms to delete theirs, in the rooms it asks after, however often it's lifted", async () => {
     const administrator = await setUp();
     const member = await join(grace);
     vi.useFakeTimers({ toFake: ["Date"], now: LATER });
@@ -486,6 +486,9 @@ describe(feature("accounts.ban"), () => {
         cutoffs.push(liftedAt);
         if (cutoffs.length === 1) {
           vi.setSystemTime(LATER + 2_000);
+          expect((await unban(administrator, member.user.id)).status).toBe(200);
+          // Their purges keep the time it was first lifted, and so do the rooms it asks after.
+          vi.setSystemTime(LATER + 4_000);
           expect((await unban(administrator, member.user.id)).status).toBe(200);
           lift();
         }

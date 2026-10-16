@@ -199,8 +199,8 @@ export class Workspace extends DurableObject<Env> {
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
   /**
-   * When each ban lifted since the outbox last read its purges was lifted, so the rooms it goes on to ask
-   * delete only what was written before, which the purges it read can't say.
+   * When each ban lifted since the outbox last read its purges was first lifted, so the rooms it goes on
+   * to ask delete only what was written before, which the purges it read can't say.
    */
   private readonly liftedBans = new Map<UserId, string>();
 
@@ -896,8 +896,9 @@ export class Workspace extends DurableObject<Env> {
       // Someone active stays as they are, as when banning someone banned.
       const unbanned = person.status === "active" ? null : { ...person, status: "active" as const, updatedAt: now };
       await this.store.unbanPerson(userId, now);
-      // Once saved, as the outbox could otherwise forget it and then read their purges from before.
-      this.liftedBans.set(userId, now);
+      // Once saved, as the outbox could otherwise forget it and then read their purges from before. Lifting
+      // it again keeps the first time, as their purges do.
+      if (!this.liftedBans.has(userId)) this.liftedBans.set(userId, now);
       const listed = await this.directoryUser(unbanned ?? person);
       if (unbanned) this.broadcast({ type: "user.updated", user: listed });
       return listed;
