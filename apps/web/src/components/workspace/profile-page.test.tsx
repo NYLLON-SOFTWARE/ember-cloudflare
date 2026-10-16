@@ -41,18 +41,18 @@ function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK
 
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null) {
-  const [onSignOut, onFailed, onInvolved] = [vi.fn(), vi.fn(), vi.fn()];
+  const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
   const page = (listed: SidebarRoom[] | null) => (
     <AccountContext value={shown}>
       <FlashProvider workspace>
         <Sheet>
-          <ProfilePage me={ada} rooms={listed} onInvolved={onInvolved} onSignOut={onSignOut} onFailed={onFailed} />
+          <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
         </Sheet>
       </FlashProvider>
     </AccountContext>
   );
   const { rerender } = render(page(rooms));
-  return { onSignOut, onFailed, onInvolved, user: userEvent.setup(), showRooms: (listed: SidebarRoom[]) => rerender(page(listed)) };
+  return { onSignOut, onFailed, answered, user: userEvent.setup(), showRooms: (listed: SidebarRoom[]) => rerender(page(listed)) };
 }
 
 const field = (label: string) => screen.getByLabelText(label);
@@ -285,10 +285,10 @@ describe(feature("notifications.profile-list"), () => {
         ? Response.json({ error: "Something went wrong" }, { status: 500 })
         : Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer),
     );
-    const { onInvolved, onFailed, user } = showPage(account, [design]);
+    const { answered, onFailed, user } = showPage(account, [design]);
     await loaded();
     await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
     expect(onFailed).toHaveBeenCalledOnce();
-    expect(onInvolved).not.toHaveBeenCalled();
+    expect(answered).not.toHaveBeenCalled();
   });
 });

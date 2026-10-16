@@ -24,13 +24,13 @@ const direct = (id: string, members: User[], involvement: SidebarRoom["involveme
 });
 
 function renderList(rooms: SidebarRoom[], people: People = new Map()) {
-  const [onInvolved, onFailed] = [vi.fn(), vi.fn()];
+  const [answered, onFailed] = [vi.fn(), vi.fn()];
   const view = render(
     <PeopleContext value={people}>
-      <ConversationNotifications me={ada} rooms={rooms} onInvolved={onInvolved} onFailed={onFailed} />
+      <ConversationNotifications me={ada} rooms={rooms} askForRoom={() => answered} onFailed={onFailed} />
     </PeopleContext>,
   );
-  return { ...view, onInvolved, onFailed };
+  return { ...view, answered, onFailed };
 }
 
 const list = () => screen.getByRole("list", { name: "Conversation notifications" });
@@ -100,10 +100,10 @@ describe(feature("notifications.profile-list"), () => {
 
   it("hands on the level a bell saves, and why it couldn't", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "nothing" }));
-    const { onInvolved, onFailed } = renderList([room("r1", "design"), direct("d1", [grace!])]);
+    const { answered, onFailed } = renderList([room("r1", "design"), direct("d1", [grace!])]);
     await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about all messages" }));
     expect(vi.mocked(fetch).mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([["/api/rooms/d1/involvement", "PUT", JSON.stringify({ involvement: "nothing" })]]);
-    expect(onInvolved).toHaveBeenCalledWith("d1", "nothing");
+    expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "d1", involvement: "nothing" });
 
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));

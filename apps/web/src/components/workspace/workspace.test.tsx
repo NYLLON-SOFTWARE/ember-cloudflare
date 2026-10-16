@@ -1434,6 +1434,24 @@ describe(feature("ui.accessibility"), () => {
   });
 });
 
+describe(feature("notifications.levels"), () => {
+  it("keeps a level another tab saves while the bell's answer is on its way", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList(rooms)),
+      "PUT /api/rooms/general/involvement": () => new Promise<Response>((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await user.click(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" }));
+    // The socket brings the level this tab saved, then the next, which another tab saved before the answer.
+    await workspaceSends({ type: "room.involvement", roomId: "general", involvement: "everything" });
+    await workspaceSends({ type: "room.involvement", roomId: "general", involvement: "nothing" });
+    await act(async () => answer(Response.json({ involvement: "everything" })));
+    expect(screen.getByRole("checkbox", { name: "Notifications are off" })).not.toHaveAttribute("aria-disabled");
+  });
+});
+
 describe(feature("notifications.hide-room"), () => {
   const activity = () => screen.getByRole("button", { name: "Activity" });
 

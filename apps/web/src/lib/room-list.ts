@@ -134,8 +134,8 @@ export type RoomChange =
   | { type: "starred"; favorites: Favorites }
   | { type: "reordered"; sharedOrder: RoomId[] };
 
-/** What the server answers a change to a room with: the room as saved, or gone for this person. */
-export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" }>;
+/** What the server answers a change to a room with: the room as saved, gone for this person, or their level in it. */
+export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" | "involved" }>;
 
 /** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
 export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };

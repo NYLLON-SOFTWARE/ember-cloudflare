@@ -1,10 +1,11 @@
 import { useMemo } from "react";
-import type { Involvement, Me, RoomId, SidebarRoom } from "@ember/protocol";
+import type { Me, SidebarRoom } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomPath } from "@/hooks/use-route";
 import { roomName } from "@/lib/directs";
 import { isHidden, profileOrder } from "@/lib/involvement";
+import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { InvolvementButton } from "./involvement-button";
 import { ROUND_BUTTON } from "./link-buttons";
@@ -21,8 +22,8 @@ interface Props {
   me: Me;
   /** Your rooms and DMs, as the sidebar's list has them. */
   rooms: SidebarRoom[];
-  /** Called with a room and your level in it once its bell saves one. */
-  onInvolved: (roomId: RoomId, involvement: Involvement) => void;
+  /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   /** Says why a bell couldn't save a level, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -33,7 +34,7 @@ interface Props {
  * its bell, which goes round your levels there. A room you've hidden is listed too, dimmed, as Campfire's
  * `.membership-item:has(.btn.invisible)` is (base.css), for you to show it again.
  */
-export function ConversationNotifications({ me, rooms, onInvolved, onFailed }: Props) {
+export function ConversationNotifications({ me, rooms, askForRoom, onFailed }: Props) {
   const nameOf = useNameOf();
   const { shared, directs } = useMemo(() => profileOrder(rooms), [rooms]);
 
@@ -44,7 +45,7 @@ export function ConversationNotifications({ me, rooms, onInvolved, onFailed }: P
       </PageLink>
       <hr aria-hidden="true" className="min-w-[2ch] grow border-t border-dashed" />
       <span className="text-[0.8rem]">
-        <InvolvementButton room={room} involvement={room.involvement} onSaved={onInvolved} onFailed={onFailed} className={ROUND_BUTTON} />
+        <InvolvementButton room={room} involvement={room.involvement} askForRoom={askForRoom} onFailed={onFailed} className={ROUND_BUTTON} />
       </span>
     </li>
   );

@@ -13,10 +13,14 @@ const general: Room = { id: "general", name: "general", kind: "open", icon: null
 const direct: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "grace", name: "Grace" }], activeAt: "2026-10-16T12:00:00.000Z" };
 
 function renderBell(involvement: Involvement, room = general) {
-  const [onSaved, onFailed] = [vi.fn(), vi.fn()];
-  const view = render(<InvolvementButton room={room} involvement={involvement} onSaved={onSaved} onFailed={onFailed} />);
-  return { ...view, onSaved, onFailed, bell: screen.getByRole("checkbox") };
+  const [answered, onFailed] = [vi.fn(), vi.fn()];
+  const askForRoom = vi.fn(() => answered);
+  const view = render(<InvolvementButton room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} />);
+  return { ...view, askForRoom, answered, onFailed, bell: screen.getByRole("checkbox") };
 }
+
+/** What gives room `roomId` level `involvement` in the sidebar's list. */
+const involved = (roomId: string, involvement: Involvement) => ({ type: "involved", roomId, involvement });
 
 /** The levels the bell has sent, in order. */
 const sent = () => vi.mocked(fetch).mock.calls.map(([input, init]) => [String(input), init?.method, JSON.parse(String(init?.body))]);
@@ -46,16 +50,16 @@ describe(feature("notifications.levels"), () => {
 
   it("goes round a room's levels, @mentions, all messages, off, then hidden, saving the next", async () => {
     answerAsAsked();
-    const { bell, onSaved, rerender } = renderBell("mentions");
+    const { bell, askForRoom, answered, rerender } = renderBell("mentions");
     for (const [involvement, next] of [
       ["mentions", "everything"],
       ["everything", "nothing"],
       ["nothing", "invisible"],
       ["invisible", "mentions"],
     ] as const) {
-      rerender(<InvolvementButton room={general} involvement={involvement} onSaved={onSaved} onFailed={vi.fn()} />);
+      rerender(<InvolvementButton room={general} involvement={involvement} askForRoom={askForRoom} onFailed={vi.fn()} />);
       await userEvent.click(bell);
-      expect(onSaved).toHaveBeenLastCalledWith("general", next);
+      expect(answered).toHaveBeenLastCalledWith(involved("general", next));
     }
     expect(sent().map(([url, method, body]) => [url, method, body.involvement])).toEqual([
       ["/api/rooms/general/involvement", "PUT", "everything"],
@@ -73,24 +77,36 @@ describe(feature("notifications.levels"), () => {
       ["mentions", "everything"],
       ["invisible", "everything"],
     ] as const) {
-      const { bell, onSaved, unmount } = renderBell(involvement, direct);
+      const { bell, answered, unmount } = renderBell(involvement, direct);
       await userEvent.click(bell);
-      expect(onSaved).toHaveBeenCalledWith("direct-1", next);
+      expect(answered).toHaveBeenCalledWith(involved("direct-1", next));
       unmount();
     }
   });
 
   it("hands on the level the server answers, rather than the one it asked for", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ involvement: "invisible" }));
-    const { bell, onSaved } = renderBell("mentions");
+    const { bell, answered } = renderBell("mentions");
     await userEvent.click(bell);
-    expect(onSaved).toHaveBeenCalledWith("general", "invisible");
+    expect(answered).toHaveBeenCalledWith(involved("general", "invisible"));
+  });
+
+  it("asks for the room's place in the list as it's pressed, so a level another tab saves before the answer comes can overtake it", async () => {
+    let answer!: (response: Response) => void;
+    vi.mocked(fetch).mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const { bell, askForRoom, answered } = renderBell("mentions");
+    await userEvent.click(bell);
+    expect(askForRoom).toHaveBeenCalledOnce();
+    expect(answered).not.toHaveBeenCalled();
+
+    await act(async () => answer(Response.json({ involvement: "everything" })));
+    expect(answered).toHaveBeenCalledExactlyOnceWith(involved("general", "everything"));
   });
 
   it("is dimmed while it saves, keeping the keyboard's focus and ignoring presses", async () => {
     let answer!: (response: Response) => void;
     vi.mocked(fetch).mockReturnValue(new Promise((resolve) => (answer = resolve)));
-    const { bell, onSaved } = renderBell("mentions");
+    const { bell, answered } = renderBell("mentions");
     const user = userEvent.setup();
 
     bell.focus();
@@ -102,7 +118,7 @@ describe(feature("notifications.levels"), () => {
     expect(bell).toHaveFocus();
 
     await act(async () => answer(Response.json({ involvement: "everything" })));
-    expect(onSaved).toHaveBeenCalledOnce();
+    expect(answered).toHaveBeenCalledOnce();
     expect(bell).not.toHaveAttribute("aria-disabled");
   });
 
@@ -111,7 +127,7 @@ describe(feature("notifications.levels"), () => {
     const shown = renderBell("mentions");
     await userEvent.click(shown.bell);
     expect(shown.onFailed).toHaveBeenCalledOnce();
-    expect(shown.onSaved).not.toHaveBeenCalled();
+    expect(shown.answered).not.toHaveBeenCalled();
     expect(shown.bell).not.toHaveAttribute("aria-disabled");
     shown.unmount();
 

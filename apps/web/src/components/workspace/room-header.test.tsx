@@ -29,7 +29,7 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
         favorite={false}
         onStarred={vi.fn()}
         involvement="mentions"
-        onInvolved={vi.fn()}
+        askForRoom={() => vi.fn()}
         onSessionChanged={vi.fn()}
         onFailed={vi.fn()}
         {...props}
@@ -62,7 +62,7 @@ describe(feature("realtime.who-is-here"), () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
-            onInvolved={vi.fn()}
+            askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
           />
@@ -218,10 +218,10 @@ describe(feature("notifications.levels"), () => {
 
   it("hands on the level its bell saves, and why it couldn't", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "everything" }));
-    const [onInvolved, onFailed] = [vi.fn(), vi.fn()];
-    renderHeader({ onInvolved, onFailed });
+    const [answered, onFailed] = [vi.fn(), vi.fn()];
+    renderHeader({ askForRoom: () => answered, onFailed });
     await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
-    expect(onInvolved).toHaveBeenCalledWith("general", "everything");
+    expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "general", involvement: "everything" });
 
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Something went wrong" }, { status: 500 }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));

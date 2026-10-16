@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Involvement, type Me, type Profile, type ProfileChanges, type RoomId, type SidebarRoom } from "@ember/protocol";
+import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -9,6 +9,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeProfile, fetchProfile, isSignedOut } from "@/lib/api";
+import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { ConversationNotifications } from "./conversation-notifications";
 import { HEADER_TEXT_BUTTON } from "./page-header";
@@ -19,8 +20,8 @@ interface Props {
   me: Me;
   /** Your rooms and DMs, as the sidebar's list has them, or null until it has loaded. */
   rooms: SidebarRoom[] | null;
-  /** Called with a room and your level in it once its bell saves one. */
-  onInvolved: (roomId: RoomId, involvement: Involvement) => void;
+  /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -66,7 +67,7 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * everyone's open pages at once, through the workspace socket, as your new name reaches the rail.
  * There's no photo picker until photos are stored, and no install instructions until those are built.
  */
-export function ProfilePage({ me, rooms, onInvolved, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -190,7 +191,7 @@ export function ProfilePage({ me, rooms, onInvolved, onSignOut, onFailed }: Prop
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
-        {rooms && <ConversationNotifications me={me} rooms={rooms} onInvolved={onInvolved} onFailed={onFailed} />}
+        {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>

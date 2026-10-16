@@ -1,5 +1,5 @@
 import { useId, useState, type ComponentType } from "react";
-import type { Involvement, Room, RoomId } from "@ember/protocol";
+import type { Involvement, Room } from "@ember/protocol";
 import {
   NotificationBellEverything,
   NotificationBellInvisible,
@@ -10,6 +10,7 @@ import {
 import { useMounted } from "@/hooks/use-mounted";
 import { isSignedOut, setInvolvement } from "@/lib/api";
 import { INVOLVEMENT_LABELS, nextInvolvement } from "@/lib/involvement";
+import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 
 /** Campfire's bell for each level (notification-bell-*.svg). */
@@ -24,8 +25,8 @@ interface Props {
   room: Room;
   /** Your level in the room, as the sidebar's list says. */
   involvement: Involvement;
-  /** Called with the room and the level the server answers, once a press has saved it. */
-  onSaved: (roomId: RoomId, involvement: Involvement) => void;
+  /** Called as a press saves a level, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   /** Says why a save failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
   className?: string;
@@ -34,10 +35,11 @@ interface Props {
 /**
  * ember-rust's notification bell (`button_to_change_involvement`, helpers/rooms.rs): Campfire's bell for
  * your level in a room, as a checkbox that's always checked, named for what the level does, which a
- * press moves on to the next level. It shows what the server answers rather than what was asked. While
- * it saves it's dimmed and ignores presses, as the star does.
+ * press moves on to the next level. It shows what the server answers rather than what was asked, unless
+ * another tab saves a newer level before the answer comes. While it saves it's dimmed and ignores presses,
+ * as the star does.
  */
-export function InvolvementButton({ room, involvement, onSaved, onFailed, className }: Props) {
+export function InvolvementButton({ room, involvement, askForRoom, onFailed, className }: Props) {
   const label = useId();
   const [saving, setSaving] = useState(false);
   const mounted = useMounted();
@@ -46,8 +48,9 @@ export function InvolvementButton({ room, involvement, onSaved, onFailed, classN
   const save = async () => {
     if (saving) return;
     setSaving(true);
+    const answered = askForRoom();
     try {
-      onSaved(room.id, await setInvolvement(room.id, nextInvolvement(room, involvement)));
+      answered({ type: "involved", roomId: room.id, involvement: await setInvolvement(room.id, nextInvolvement(room, involvement)) });
     } catch (error) {
       if (mounted.current || isSignedOut(error)) onFailed(error);
     } finally {

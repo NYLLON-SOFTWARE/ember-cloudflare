@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Involvement, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
+import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -239,7 +239,6 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
-  const involvedIn = useCallback((roomId: RoomId, involvement: Involvement) => changeRooms({ type: "involved", roomId, involvement }), []);
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
   const reorderedRooms = useCallback(
     (sharedOrder: RoomId[]) => {
@@ -421,7 +420,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       case "custom-styles":
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       case "profile":
-        return <ProfilePage me={me} rooms={rooms} onInvolved={involvedIn} onSignOut={onSignOut} onFailed={failed} />;
+        return <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />;
       case "search":
         return <SearchPage me={me} back={back} onFailed={failed} />;
       case "person":
@@ -454,7 +453,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               onStarred={starredRooms}
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
-              onInvolved={involvedIn}
+              askForRoom={askForRoom}
               onSessionChanged={onSessionChanged}
               onFailed={failed}
               onGone={roomGone}

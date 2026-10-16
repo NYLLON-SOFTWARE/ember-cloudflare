@@ -331,6 +331,27 @@ describe(feature("notifications.levels"), () => {
     socket().receive({ type: "room.involvement", roomId: design.id, involvement: "everything" });
     expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "everything" }]);
   });
+
+  it("gives a room the level the server answers, unless the workspace socket has said what became of it since", async () => {
+    server.change(unstarred([design, general]));
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    const levels = () => result.current.list?.rooms.map((room) => room.involvement);
+
+    // Ada's bell saves all messages in Design, and the socket brings her turning it off in another tab
+    // just after, before her answer.
+    const involved = result.current.askForRoom();
+    socket().receive({ type: "room.involvement", roomId: design.id, involvement: "nothing" });
+    act(() => involved({ type: "involved", roomId: design.id, involvement: "everything" }));
+    expect(levels()).toEqual(["nothing", "mentions"]);
+
+    // What the socket says of another room leaves an answer to take its place.
+    const answered = result.current.askForRoom();
+    socket().receive({ type: "room.involvement", roomId: design.id, involvement: "invisible" });
+    act(() => answered({ type: "involved", roomId: general.id, involvement: "everything" }));
+    expect(levels()).toEqual(["invisible", "everything"]);
+  });
 });
 
 describe(feature("sidebar.dm-order"), () => {

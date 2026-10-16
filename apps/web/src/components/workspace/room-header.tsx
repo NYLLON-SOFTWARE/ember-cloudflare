@@ -1,9 +1,10 @@
-import type { Favorites, Involvement, Me, Room, RoomId, User } from "@ember/protocol";
+import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
 import { MenuDotsHorizontal, MessagesOutlined, Search } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
+import type { RoomAnswer } from "@/lib/room-list";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "./favorite-button";
@@ -27,8 +28,8 @@ interface Props {
   onStarred: (favorites: Favorites) => void;
   /** This person's notification level in the room. */
   involvement: Involvement;
-  /** Called with the room and this person's level in it once its bell saves one. */
-  onInvolved: (roomId: RoomId, involvement: Involvement) => void;
+  /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
   /** Says why its bell couldn't save a level, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
@@ -40,7 +41,7 @@ interface Props {
  * room's icon, and no star. ember-rust's bell offers to turn notifications on until they're on, then
  * loads the level's; there are no notifications to turn on yet, so this one is the level's from the start.
  */
-export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, onInvolved, onSessionChanged, onFailed }: Props) {
+export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
   const direct = room.kind === "direct";
   return (
@@ -85,7 +86,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
-        <InvolvementButton room={room} involvement={involvement} onSaved={onInvolved} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
+        <InvolvementButton room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MenuDotsHorizontal className="size-5" />
           <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
