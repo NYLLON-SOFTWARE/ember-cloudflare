@@ -25,6 +25,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "searches",
     "sessions",
     "users",
+    "webhooks",
   ],
 };
 

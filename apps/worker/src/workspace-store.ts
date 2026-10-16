@@ -5,6 +5,8 @@ import {
   SUGGESTED_PEOPLE,
   suggestedCount,
   type Account,
+  type BotChanges,
+  type BotRoom,
   type CloseCode,
   type DirectRoom,
   type Favorites,
@@ -45,6 +47,8 @@ const DEACTIVATED = 1;
 const BANNED = 2;
 /** ember-rust's role for the people who run the workspace (user.rs). */
 const ADMINISTRATOR = 1;
+/** ember-rust's role for bots (user.rs). */
+const BOT = 2;
 /** ember-rust's roles and statuses (user.rs), each at the number it stores. */
 const ROLES: readonly Role[] = ["member", "administrator", "bot"];
 const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
@@ -101,6 +105,26 @@ export interface DirectoryEntry extends User {
 /** Someone as the people directory lists them, with their email address, which their profile shows too. */
 export interface ProfileEntry extends DirectoryEntry {
   emailAddress: string | null;
+}
+
+/** A bot as the bots page lists it, with its token, which its key is made from, and the rooms it's in but its DMs. */
+export interface StoredBot extends DirectoryEntry {
+  /** Null for a bot from before bots had tokens, which no key works for. */
+  token: string | null;
+  rooms: BotRoom[];
+}
+
+/** The same, with where its webhook delivers, or null for nowhere, as its edit page shows it. */
+export interface StoredBotSettings extends StoredBot {
+  webhookUrl: string | null;
+}
+
+/** A bot to add: its id, name and token, and where its webhook delivers, or null for nowhere. */
+export interface NewStoredBot {
+  id: UserId;
+  name: string;
+  token: string;
+  webhookUrl: string | null;
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
@@ -223,6 +247,12 @@ const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   status: STATUSES[row.status] ?? "active",
   updatedAt: row.updated_at,
 });
+
+interface BotRow extends DirectoryRow {
+  bot_token: string | null;
+}
+
+const storedBot = (row: BotRow, rooms: BotRoom[]): StoredBot => ({ ...directoryEntry(row), token: row.bot_token, rooms });
 
 /** Whether a value is `present?`, as ember-rust reads a setting (account.rs): not null, false, blank, or empty. */
 function isPresent(value: unknown): boolean {
@@ -724,6 +754,45 @@ const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORD
 
 /** Someone active, as the directory lists them, as ember-rust finds whom to change (`User.active.find`, accounts/users.rs). */
 const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status = ${ACTIVE}`;
+
+/** The active bots, by name, with their tokens, as ember-rust's bots page lists them (`User.active_bots.ordered`, user.rs). */
+const ACTIVE_BOTS = `SELECT id, name, bio, role, status, updated_at, bot_token FROM users
+  WHERE status = ${ACTIVE} AND role = ${BOT} ORDER BY lower(name), id`;
+
+/**
+ * The rooms the active bots are in but their DMs, by name, as the bots page lists each bot's
+ * (`bot.rooms.without_directs.ordered`, presenters/accounts.rs).
+ */
+const ACTIVE_BOTS_ROOMS = `SELECT memberships.user_id, rooms.id, rooms.name
+  FROM users JOIN memberships ON memberships.user_id = users.id JOIN rooms ON rooms.id = memberships.room_id
+  WHERE users.status = ${ACTIVE} AND users.role = ${BOT} AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+
+/**
+ * An active bot, with its token and where its webhook delivers, as ember-rust finds the bot to change
+ * (`User.active_bots.find`, accounts/bots.rs).
+ */
+const ACTIVE_BOT = `SELECT users.id, users.name, users.bio, users.role, users.status, users.updated_at, users.bot_token, webhooks.url AS webhook_url
+  FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT}`;
+
+/** The rooms a bot is in but its DMs, by name. */
+const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+
+/** Adds a bot, as ember-rust's `User.create_bot!` does (user.rs). */
+const INSERT_BOT = `INSERT INTO users (id, name, role, bot_token, created_at, updated_at) VALUES (?, ?, ${BOT}, ?, ?, ?)`;
+
+/**
+ * Has a bot's webhook deliver to ?2, adding one if it has none, and records when, unless it delivers
+ * there already, as ember-rust's `Webhook#update_url` then does nothing (webhook.rs).
+ */
+const SAVE_WEBHOOK = `INSERT INTO webhooks (user_id, url, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
+  ON CONFLICT (user_id) DO UPDATE SET url = excluded.url, updated_at = excluded.updated_at WHERE url <> excluded.url`;
+
+/** Renames a bot and records when, unless that's its name already, as ember-rust's `User#update` writes only what differs. */
+const RENAME_BOT = `UPDATE users SET name = ?1, updated_at = ?2 WHERE id = ?3 AND name <> ?1`;
+
+/** Gives a bot a new token, and records when. */
+const CHANGE_BOT_TOKEN = `UPDATE users SET bot_token = ?, updated_at = ? WHERE id = ?`;
 
 /**
  * Records a search as someone's newest, as ember-rust's `Search::record` does (search.rs): a search they
@@ -1532,6 +1601,51 @@ export class WorkspaceStore {
   /** Gives someone `role`, recording when. */
   async changeRole(userId: UserId, role: PersonRole, now: string): Promise<void> {
     await this.db.run(CHANGE_ROLE, ROLES.indexOf(role), now, userId);
+  }
+
+  /** The active bots, by name, each with its token and its rooms but DMs, read together. */
+  async activeBots(): Promise<StoredBot[]> {
+    const [bots, rooms] = (await this.db.batch([statement(ACTIVE_BOTS), statement(ACTIVE_BOTS_ROOMS)])) as [BotRow[], Array<BotRoom & { user_id: UserId }>];
+    const roomsOf = new Map<UserId, BotRoom[]>();
+    for (const { user_id, id, name } of rooms) roomsOf.set(user_id, [...(roomsOf.get(user_id) ?? []), { id, name }]);
+    return bots.map((row) => storedBot(row, roomsOf.get(row.id) ?? []));
+  }
+
+  /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
+  async activeBot(botId: UserId): Promise<StoredBotSettings | null> {
+    const [[row], rooms] = (await this.db.batch([statement(ACTIVE_BOT, botId), statement(BOT_ROOMS, botId)])) as [
+      Array<BotRow & { webhook_url: string | null }>,
+      BotRoom[],
+    ];
+    return row ? { ...storedBot(row, rooms), webhookUrl: row.webhook_url } : null;
+  }
+
+  /**
+   * Adds a bot, with its webhook if it has somewhere to deliver, in every open room, as ember-rust's
+   * `User.create_bot!` does (user.rs), in one batch.
+   */
+  async createBot({ id, name, token, webhookUrl }: NewStoredBot, now: string): Promise<void> {
+    await this.db.batch([
+      statement(INSERT_BOT, id, name, token, now, now),
+      ...(webhookUrl === null ? [] : [statement(SAVE_WEBHOOK, id, webhookUrl, now)]),
+      statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now),
+    ]);
+  }
+
+  /**
+   * Changes a bot as ember-rust's `update_bot!` does (user.rs), in one batch: its webhook first, which
+   * delivers to `webhookUrl`, or goes when that's "", then its name. What's left out stays as it is.
+   */
+  async changeBot(botId: UserId, { name, webhookUrl }: BotChanges, now: string): Promise<void> {
+    await this.db.batch([
+      ...(webhookUrl === undefined ? [] : [webhookUrl ? statement(SAVE_WEBHOOK, botId, webhookUrl, now) : statement(`DELETE FROM webhooks WHERE user_id = ?`, botId)]),
+      ...(name === undefined ? [] : [statement(RENAME_BOT, name, now, botId)]),
+    ]);
+  }
+
+  /** Gives a bot a new token, recording when, so its old key no longer works. */
+  async changeBotToken(botId: UserId, token: string, now: string): Promise<void> {
+    await this.db.run(CHANGE_BOT_TOKEN, token, now, botId);
   }
 
   /** Someone with their email address, whatever their status, or null if nobody has id `userId`. */

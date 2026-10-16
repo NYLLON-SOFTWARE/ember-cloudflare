@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 93 ported and 48 partial of 172 features; 25 not started, 6 not applicable.
+**Overall:** 93 ported and 52 partial of 172 features; 21 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 0 | 4 | 11 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **93** | **48** | **25** | **6** | **172** |
+| **Total** | **93** | **52** | **21** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -551,7 +551,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 - Deactivated people are never added, and deactivating someone takes them out of every room but their DMs.
 - A room's messages stay in that room.
 
-Note: People join every open room when they first sign in, at `mentions`, and a new open room takes in everyone active. There are no bots, nobody can be deactivated, and a private room can't be made open yet.
+Note: People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs. A private room can't be made open yet.
 
 Sources: [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
 
@@ -1939,10 +1939,10 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Chat bots page | `bots.list` | Campfire | ⬜ Not started |  |
-| Add and edit a bot | `bots.create-edit` | Campfire | ⬜ Not started |  |
-| Delete a bot | `bots.delete` | Campfire | ⬜ Not started |  |
-| Generate a new bot key | `bots.reset-key` | Campfire | ⬜ Not started |  |
+| Chat bots page | `bots.list` | Campfire | 🟡 Partial | Worker: [bots](apps/worker/test/bots.test.ts) |
+| Add and edit a bot | `bots.create-edit` | Campfire | 🟡 Partial | Protocol: [bots](packages/protocol/src/bots.test.ts)<br>Worker: [bots](apps/worker/test/bots.test.ts) |
+| Delete a bot | `bots.delete` | Campfire | 🟡 Partial | Worker: [bots](apps/worker/test/bots.test.ts) |
+| Generate a new bot key | `bots.reset-key` | Campfire | 🟡 Partial | Worker: [bots](apps/worker/test/bots.test.ts) |
 | Bot keys | `bots.api-auth` | Campfire | ⬜ Not started |  |
 | Bots post messages | `bots.api-post` | Campfire | ⬜ Not started |  |
 | Bots read messages | `bots.api-list` | Campfire | ⬜ Not started |  |
@@ -1958,7 +1958,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 <details>
 <summary>Behaviors and sources</summary>
 
-**Chat bots page** (`bots.list`) ⬜
+**Chat bots page** (`bots.list`) 🟡
 
 - Administrators open `/account/bots` (titled "Chat bots") from the "Chat bots" button in Workspace settings, and its back link returns there. Members get 403.
 - The page shows "Chat bots" and "With Chat bots, other sites and services can post updates directly to Ember." with a translation globe, and "Add a chat bot", which opens `/account/bots/new`.
@@ -1967,11 +1967,13 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 - `<url>` is absolute, on the host the page was requested from: `<origin>/rooms/<room id>/<bot key>/messages`.
 - "Copy message command" and "Copy attachment command" copy their line to the clipboard and flash the button for a second; if the clipboard refuses, nothing shows.
 
+Note: `GET /api/account/bots` lists the active bots, as the people directory lists people, by name ignoring case, each with its key (`<id>-<token>`) and every room it's in but its DMs, by name ignoring case; members get 403. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. The page, its commands and their copy buttons come with plan 10.2.
+
 Sources: [`crates/views/templates/accounts/bots/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/index.html) · [`crates/views/templates/accounts/bots/_bot.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_bot.html) · [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/views/accounts/bots/index.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/index.html.erb) · [`reference/app/views/accounts/bots/_bot.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/_bot.html.erb)
 
 ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Add and edit a bot** (`bots.create-edit`) ⬜
+**Add and edit a bot** (`bots.create-edit`) 🟡
 
 - `/account/bots/new` ("New chat bot") and `/account/bots/<id>/edit` ("Edit bot") show "Chat bot setup" and "Connect a bot to your workspace and choose where updates are delivered." above the bot form, and link back to the bots page.
 - The form has an avatar picker ("Upload bot avatar", images only), Bot name (placeholder "Name the bot", required, autofocused) and Webhook URL (placeholder "Webhook URL", a URL field), each label with a translation globe, and Save changes.
@@ -1981,11 +1983,13 @@ ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`
 - Creating a bot with Webhook URL left empty still saves an empty webhook, whose deliveries fail without a reply. When editing, a blank URL removes the webhook, and a filled one adds or changes it.
 - Unknown or deleted bots are 404, and members get 403.
 
+Note: `POST /api/account/bots` adds a bot from JSON `{name, webhookUrl}`, answering 201 with it, and `GET` and `PATCH /api/account/bots/<id>` show and change one, where ember-rust answers pages and redirects. A field left out of a change stays as it is, where ember-rust's form always sends both and a missing URL removes the webhook. A new bot gets a token of 12 random letters and digits and joins every open room. Unlike ember-rust, a name must have more than spaces (422 "Name can't be blank"), and a webhook URL is trimmed and must be an http or https URL with a host, at most 2,048 characters (422 "Webhook URL must be an http or https URL"); a bot has a webhook only while it has somewhere to deliver, so adding one without a URL saves none, and a blank URL removes it. A new name reaches every open page at once (`user.updated`), never with the key. The pages come with plan 10.2, and the avatar with profile photos (`users.avatar-upload`).
+
 Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_form.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`crates/views/templates/accounts/bots/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/new.html) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/webhook.rs) · [`reference/app/controllers/accounts/bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots_controller.rb)
 
 ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`reference/test/models/user/bot_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user/bot_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Delete a bot** (`bots.delete`) ⬜
+**Delete a bot** (`bots.delete`) 🟡
 
 - The edit page's red "Delete bot" button ("Delete this chat bot") asks "Are you sure you want to permanently remove this bot from the account? This can’t be undone." and then returns to the bots page.
 - Deleting deactivates the bot: it leaves the bots page and every room but its DMs, and its key stops working at once.
@@ -1993,16 +1997,20 @@ ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`
 - Its token and webhook are kept, so deliveries already queued still go out and their replies still post.
 - Members get 403, and unknown or already deleted bots 404.
 
+Note: `DELETE /api/account/bots/<id>` answers 204, where ember-rust redirects to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves every room but its DMs, and every open page hears so (`user.updated`). Its token and webhook are kept. The button comes with the edit page (plan 10.2), and there's no bot API for its key to stop working in until `bots.api-auth`.
+
 Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
 ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
-**Generate a new bot key** (`bots.reset-key`) ⬜
+**Generate a new bot key** (`bots.reset-key`) 🟡
 
 - The edit page's red "Generate a new key" button asks "Are you sure you want to change the bot key? All usage of this bot must be updated." and gives the bot a new token of 12 random letters and digits.
 - The old key stops working at once, and the bots page it returns to shows the new key in its commands.
 - Webhook deliveries made after the reset carry the new key in `room.path`.
 - Members get 403, and unknown or deleted bots 404.
+
+Note: `PUT /api/account/bots/<id>/key` gives the bot a new token of 12 random letters and digits and answers the bot with its new key, where ember-rust redirects to the bots page. The button comes with the edit page (plan 10.2), and the bot API and webhooks that carry the key with `bots.api-auth` and `bots.webhook-delivery`.
 
 Sources: [`crates/ember/src/controllers/accounts/bots/keys.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots/keys.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/accounts/bots/keys_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots/keys_controller.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 

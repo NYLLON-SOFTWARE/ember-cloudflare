@@ -522,7 +522,7 @@ export const features = [
     ],
     sources: ["crates/db/src/models/user.rs", "crates/db/src/models/room.rs", "reference/app/models/rooms/open.rb", "reference/app/models/user.rb"],
     upstreamTests: ["reference/test/models/user_test.rb", "reference/test/models/rooms/open_test.rb"],
-    notes: "People join every open room when they first sign in, at `mentions`, and a new open room takes in everyone active. There are no bots, nobody can be deactivated, and a private room can't be made open yet.",
+    notes: "People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs. A private room can't be made open yet.",
   },
   {
     id: "rooms.create-open",
@@ -1976,7 +1976,7 @@ export const features = [
     id: "bots.list",
     title: "Chat bots page",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Administrators open `/account/bots` (titled \"Chat bots\") from the \"Chat bots\" button in Workspace settings, and its back link returns there. Members get 403.",
       "The page shows \"Chat bots\" and \"With Chat bots, other sites and services can post updates directly to Ember.\" with a translation globe, and \"Add a chat bot\", which opens `/account/bots/new`.",
@@ -1987,12 +1987,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/bots/index.html", "crates/views/templates/accounts/bots/_bot.html", "crates/ember/src/controllers/accounts/bots.rs", "crates/views/src/helpers/users.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/assets/overrides/controllers/copy_to_clipboard_controller.js", "crates/views/templates/accounts/edit.html", "reference/app/views/accounts/bots/index.html.erb", "reference/app/views/accounts/bots/_bot.html.erb"],
     upstreamTests: ["reference/test/controllers/accounts/bots_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/screens.yml"],
+    notes: "`GET /api/account/bots` lists the active bots, as the people directory lists people, by name ignoring case, each with its key (`<id>-<token>`) and every room it's in but its DMs, by name ignoring case; members get 403. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. The page, its commands and their copy buttons come with plan 10.2.",
   },
   {
     id: "bots.create-edit",
     title: "Add and edit a bot",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`/account/bots/new` (\"New chat bot\") and `/account/bots/<id>/edit` (\"Edit bot\") show \"Chat bot setup\" and \"Connect a bot to your workspace and choose where updates are delivered.\" above the bot form, and link back to the bots page.",
       "The form has an avatar picker (\"Upload bot avatar\", images only), Bot name (placeholder \"Name the bot\", required, autofocused) and Webhook URL (placeholder \"Webhook URL\", a URL field), each label with a translation globe, and Save changes.",
@@ -2004,12 +2005,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/bots.rs", "crates/views/templates/accounts/bots/_form.html", "reference/app/models/user/bot.rb", "crates/views/templates/accounts/bots/new.html", "crates/views/templates/accounts/bots/edit.html", "crates/views/src/accounts.rs", "crates/db/src/models/user.rs", "crates/db/src/models/webhook.rs", "reference/app/controllers/accounts/bots_controller.rb"],
     upstreamTests: ["reference/test/controllers/accounts/bots_controller_test.rb", "reference/test/models/user/bot_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/screens.yml"],
+    notes: "`POST /api/account/bots` adds a bot from JSON `{name, webhookUrl}`, answering 201 with it, and `GET` and `PATCH /api/account/bots/<id>` show and change one, where ember-rust answers pages and redirects. A field left out of a change stays as it is, where ember-rust's form always sends both and a missing URL removes the webhook. A new bot gets a token of 12 random letters and digits and joins every open room. Unlike ember-rust, a name must have more than spaces (422 \"Name can't be blank\"), and a webhook URL is trimmed and must be an http or https URL with a host, at most 2,048 characters (422 \"Webhook URL must be an http or https URL\"); a bot has a webhook only while it has somewhere to deliver, so adding one without a URL saves none, and a blank URL removes it. A new name reaches every open page at once (`user.updated`), never with the key. The pages come with plan 10.2, and the avatar with profile photos (`users.avatar-upload`).",
   },
   {
     id: "bots.delete",
     title: "Delete a bot",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The edit page's red \"Delete bot\" button (\"Delete this chat bot\") asks \"Are you sure you want to permanently remove this bot from the account? This can’t be undone.\" and then returns to the bots page.",
       "Deleting deactivates the bot: it leaves the bots page and every room but its DMs, and its key stops working at once.",
@@ -2019,12 +2021,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/bots.rs", "crates/views/templates/accounts/bots/edit.html", "crates/db/src/models/user.rs", "reference/app/models/user.rb", "crates/ember/src/integrations/jobs.rs"],
     upstreamTests: ["reference/test/controllers/accounts/bots_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    notes: "`DELETE /api/account/bots/<id>` answers 204, where ember-rust redirects to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves every room but its DMs, and every open page hears so (`user.updated`). Its token and webhook are kept. The button comes with the edit page (plan 10.2), and there's no bot API for its key to stop working in until `bots.api-auth`.",
   },
   {
     id: "bots.reset-key",
     title: "Generate a new bot key",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "The edit page's red \"Generate a new key\" button asks \"Are you sure you want to change the bot key? All usage of this bot must be updated.\" and gives the bot a new token of 12 random letters and digits.",
       "The old key stops working at once, and the bots page it returns to shows the new key in its commands.",
@@ -2033,6 +2036,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/bots/keys.rs", "crates/views/templates/accounts/bots/edit.html", "reference/app/models/user/bot.rb", "reference/app/controllers/accounts/bots/keys_controller.rb", "crates/ember/src/integrations/jobs.rs"],
     upstreamTests: ["reference/test/models/user/bot_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/bots/keys_controller_test.rb"],
+    notes: "`PUT /api/account/bots/<id>/key` gives the bot a new token of 12 random letters and digits and answers the bot with its new key, where ember-rust redirects to the bots page. The button comes with the edit page (plan 10.2), and the bot API and webhooks that carry the key with `bots.api-auth` and `bots.webhook-delivery`.",
   },
   {
     id: "bots.api-auth",
