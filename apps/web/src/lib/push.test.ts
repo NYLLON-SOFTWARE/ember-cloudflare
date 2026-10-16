@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isPushOn, turnOnPush, unsubscribeFromPush } from "./push";
+import { isPushOn, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -33,6 +33,23 @@ describe(feature("notifications.subscriptions"), () => {
   it("answers the endpoint even when the browser can't end the subscription, so the server forgets it", async () => {
     registered(subscribed(vi.fn(() => Promise.reject(new DOMException("Failed", "AbortError")))).registration);
     expect(await unsubscribeFromPush()).toBe(ENDPOINT);
+  });
+
+  it("says when it has ended the subscription, so the bell can turn notifications on again, but not when the browser couldn't", async () => {
+    const ended = vi.fn();
+    const stop = subscribeToPushEnding(ended);
+    registered(subscribed().registration);
+    await unsubscribeFromPush();
+    expect(ended).toHaveBeenCalledOnce();
+
+    registered(subscribed(vi.fn(async () => false)).registration);
+    await unsubscribeFromPush();
+    registered(subscribed(vi.fn(() => Promise.reject(new DOMException("Failed", "AbortError")))).registration);
+    await unsubscribeFromPush();
+    stop();
+    registered(subscribed().registration);
+    await unsubscribeFromPush();
+    expect(ended).toHaveBeenCalledOnce();
   });
 
   it.each([

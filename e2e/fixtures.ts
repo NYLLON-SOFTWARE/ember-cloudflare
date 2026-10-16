@@ -109,6 +109,9 @@ export async function allowNotifications(context: BrowserContext, { endpoint = u
 /** The push service `allowNotifications` stands in, for each page before the app loads. */
 function standInPushService({ endpoint, on, keys }: { endpoint: string; on: boolean; keys: typeof PUSH_KEYS }) {
   if (!("PushManager" in window)) return;
+  // The headless shell CI runs keeps notifications denied whatever the context grants.
+  Object.defineProperty(Notification, "permission", { get: () => "granted" });
+  Notification.requestPermission = async () => "granted";
   let subscription: PushSubscription | null = null;
   const subscribe = (options: PushSubscriptionOptionsInit = {}) => {
     const made = { endpoint, options, toJSON: () => ({ endpoint, expirationTime: null, keys }), unsubscribe: async () => ((subscription = null), true) };

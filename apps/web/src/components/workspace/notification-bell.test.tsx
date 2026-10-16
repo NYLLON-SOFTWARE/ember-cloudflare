@@ -4,11 +4,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PushProvider } from "@/hooks/use-push";
-import { isPushOn, turnOnPush, type PushNotice } from "@/lib/push";
+import { isPushOn, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { CHROME_MAC } from "@/test-platforms";
 import { NotificationBell } from "./notification-bell";
 
-vi.mock("@/lib/push", () => ({ isPushOn: vi.fn(async () => false), turnOnPush: vi.fn(async () => null) }));
+vi.mock("@/lib/push", () => ({ isPushOn: vi.fn(async () => false), turnOnPush: vi.fn(async () => null), subscribeToPushEnding: vi.fn(() => () => {}) }));
 
 const KEY = "BP79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eDf3t3c29rZ2NfW1dTT0tHQz87NzMvKycjHxsXEw8LBwL8";
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -53,6 +53,16 @@ describe(feature("notifications.enable"), () => {
     expect(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enable notifications" })).not.toBeInTheDocument();
     expect(turnOnPush).not.toHaveBeenCalled();
+  });
+
+  it("offers to turn them on again once logging out has ended the subscription, should signing out then fail", async () => {
+    vi.mocked(isPushOn).mockResolvedValueOnce(true);
+    renderBell();
+    expect(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" })).toBeInTheDocument();
+    const ended = vi.mocked(subscribeToPushEnding).mock.calls[0]![0];
+    act(() => ended());
+    expect(enableButton()).toBeInTheDocument();
+    expect(levelBell()).not.toBeInTheDocument();
   });
 
   it("turns them on with a press, ignoring more while it's busy, then hands focus to your level's bell", async () => {

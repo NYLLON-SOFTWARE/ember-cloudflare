@@ -98,6 +98,14 @@ function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(standard.padEnd(Math.ceil(standard.length / 4) * 4, "=")), (character) => character.charCodeAt(0));
 }
 
+const endingListeners = new Set<() => void>();
+
+/** Calls `listener` whenever `unsubscribeFromPush` ends this browser's push subscription. */
+export function subscribeToPushEnding(listener: () => void): () => void {
+  endingListeners.add(listener);
+  return () => endingListeners.delete(listener);
+}
+
 /**
  * Ends this browser's push subscription, as ember-rust's Log out does before it signs out, answering its
  * endpoint so that signing out forgets it on the server too. Null when there's none, or the browser has
@@ -107,7 +115,7 @@ export async function unsubscribeFromPush(): Promise<string | null> {
   const subscription = await pushSubscription().catch(() => null);
   if (!subscription) return null;
   // The server forgets it even if the browser can't end it, where ember-rust doesn't sign out at all.
-  await subscription.unsubscribe().catch(() => false);
+  if (await subscription.unsubscribe().catch(() => false)) for (const listener of endingListeners) listener();
   return subscription.endpoint;
 }
 

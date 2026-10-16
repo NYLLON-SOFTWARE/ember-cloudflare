@@ -1,6 +1,15 @@
+import type { Platform } from "@ember/protocol";
+
 // A browser's offer to install Ember as an app, which Campfire's pwa_install_controller.js keeps for
 // Install now, and ember-rust with it. The browser makes it once a page load, perhaps before anything
 // with Install now has shown, so the app listens for it from the start.
+
+/**
+ * Whether ember-rust gives this browser the steps to install Ember, and Install now with them: not
+ * Chrome, which is what Chromium Edge and Brave are too by their user agents, nor Firefox but on Android
+ * (`pwa/_install_instructions.html`).
+ */
+export const givesInstallSteps = ({ chrome, firefox, android }: Platform) => !(chrome || (firefox && !android));
 
 /** Chromium's `beforeinstallprompt`, which TypeScript's DOM types leave out. */
 interface InstallPromptEvent extends Event {
@@ -9,6 +18,8 @@ interface InstallPromptEvent extends Event {
 
 let offer: InstallPromptEvent | null = null;
 const listeners = new Set<() => void>();
+/** Whether Install now stands in for the browser's own offer, which waits on knowing which browser this is. */
+let replacing = false;
 
 function setOffer(event: InstallPromptEvent | null) {
   offer = event;
@@ -16,16 +27,26 @@ function setOffer(event: InstallPromptEvent | null) {
 }
 
 /**
- * Keeps the browser's offer for Install now, in place of the browser's own, such as Chrome's banner on
- * Android, as Campfire does wherever there are service workers and Ember isn't installed already.
+ * Keeps the browser's offer for Install now, as Campfire does wherever there are service workers and
+ * Ember isn't installed already. It takes the place of the browser's own, such as its banner on Android,
+ * once `replaceInstallPromptsFor` says to.
  */
 export function listenForInstallPrompt(): void {
   if (!("serviceWorker" in navigator) || matchMedia("(display-mode: standalone)").matches) return;
   addEventListener("beforeinstallprompt", (event) => {
-    event.preventDefault();
+    if (replacing) event.preventDefault();
     setOffer(event as InstallPromptEvent);
   });
   addEventListener("appinstalled", () => setOffer(null));
+}
+
+/**
+ * Has Install now take the place of the browser's own offer from now on where `platform` is given the
+ * steps to install Ember, as Campfire's controller does on the pages that show them, which in ember-rust
+ * are every room's and your profile. Any other browser keeps its own, as there.
+ */
+export function replaceInstallPromptsFor(platform: Platform): void {
+  replacing = givesInstallSteps(platform);
 }
 
 /** Calls `listener` whenever the browser offers to install Ember, or stops offering. */

@@ -15,7 +15,7 @@ import {
   type CampfireIconProps,
 } from "@/components/icons/campfire";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { canInstall, promptInstall, subscribeToInstallPrompt } from "@/lib/install-prompt";
+import { canInstall, givesInstallSteps, promptInstall, subscribeToInstallPrompt } from "@/lib/install-prompt";
 
 // ember-rust's help with turning notifications on (crates/views/templates/pwa/_browser_settings.html,
 // _system_settings.html and _install_instructions.html), styled as Campfire's base.css styles
@@ -39,7 +39,7 @@ function useSections(platform: Platform) {
   return {
     browser: !((platform.safari || platform.chrome) && platform.ios),
     system: !inBrowser,
-    install: !(platform.chrome || (platform.firefox && !platform.android)) && !installed,
+    install: givesInstallSteps(platform) && !installed,
   };
 }
 
@@ -69,7 +69,7 @@ const siteAddress = () => new URL("/", location.href).href;
 
 function BrowserSettings({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
-  const { firefox, chrome, safari, edge, android, desktop, windows } = platform;
+  const { firefox, chrome, safari, edge, android, desktop } = platform;
   return (
     <HelpSection icon={ExternalWeb} title={`Check your ${browser} settings`} open={open}>
       {firefox && android ? (
@@ -93,7 +93,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
             </li>
           </Steps>
           <Heading>Turn on notifications for {browser}.</Heading>
-          <SystemSteps windows={windows} app={browser} windowsSwitch="the switch" macSwitch="the switch" />
+          <SystemSteps platform={platform} app={browser} windowsSwitch="the switch" macSwitch="the switch" />
         </>
       ) : firefox && desktop ? (
         <>
@@ -119,7 +119,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
             </li>
           </Steps>
           <Heading>Turn on notifications for {browser}.</Heading>
-          <SystemSteps windows={windows} app={browser} windowsSwitch="the toggle button" macSwitch="the switch" />
+          <SystemSteps platform={platform} app={browser} windowsSwitch="the toggle button" macSwitch="the switch" />
         </>
       ) : chrome && desktop ? (
         <>
@@ -136,7 +136,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
             </li>
           </Steps>
           <Heading>Turn on notifications for {browser}.</Heading>
-          <SystemSteps windows={windows} app={browser} windowsSwitch="the switch" macSwitch="the switch" />
+          <SystemSteps platform={platform} app={browser} windowsSwitch="the switch" macSwitch="the switch" />
         </>
       ) : chrome && android ? (
         <Steps>
@@ -191,7 +191,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
 
 function SystemSettings({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
-  const { firefox, chrome, safari, edge, android, ios, desktop, windows } = platform;
+  const { firefox, chrome, safari, edge, android, ios, desktop } = platform;
   return (
     <HelpSection icon={ExternalGear} title={`Check your ${platform.operatingSystem} settings`} open={open}>
       {firefox && android ? (
@@ -210,11 +210,11 @@ function SystemSettings({ platform, open }: SectionProps) {
           </li>
         </Steps>
       ) : edge && desktop ? (
-        <SystemSteps windows app="Ember" windowsSwitch="the toggle button" />
+        <SystemSteps platform={platform} app="Ember" windowsSwitch="the toggle button" macSwitch="the allow notifications switch" />
       ) : (firefox || chrome) && desktop ? (
-        <SystemSteps windows={windows} app="Ember" windowsSwitch="the toggle button" macSwitch="the allow notifications switch" />
+        <SystemSteps platform={platform} app="Ember" windowsSwitch="the toggle button" macSwitch="the allow notifications switch" />
       ) : safari && desktop ? (
-        <SystemSteps windows={false} app="Ember" macSwitch="the allow notifications switch" />
+        <SystemSteps platform={platform} app="Ember" windowsSwitch="the toggle button" macSwitch="the allow notifications switch" />
       ) : (safari || chrome) && ios ? (
         <Steps>
           <li>
@@ -337,24 +337,38 @@ function InstallNow() {
   );
 }
 
+interface SystemStepsProps {
+  platform: Platform;
+  /** Whose notifications to allow. */
+  app: string;
+  /** What ember-rust names the switch for them in Windows Settings, and in macOS's System Settings. */
+  windowsSwitch: string;
+  macSwitch: string;
+}
+
 /**
- * The steps to allow `app`'s notifications in Windows Settings or in macOS's System Settings, whose
- * switch for it ember-rust names `windowsSwitch` or `macSwitch`.
+ * The steps to allow `app`'s notifications in Windows Settings or in macOS's System Settings. Other
+ * systems, such as Linux and ChromeOS, get ember-rust's sentence for a system it has no steps for, where
+ * ember-rust gives every desktop but Windows macOS's steps.
  */
-function SystemSteps({ windows, app, windowsSwitch = "", macSwitch = "" }: { windows: boolean; app: string; windowsSwitch?: string; macSwitch?: string }) {
-  return windows ? (
-    <Steps>
-      <li>
-        Click <em>Start</em>, then <em>Settings</em>.
-      </li>
-      <li>
-        Go to <em>System &gt; Notification</em>.
-      </li>
-      <li>
-        Click <Pictured icon={ExternalSwitch} alt={windowsSwitch} size={22} /> <em>ON</em> for {app}.
-      </li>
-    </Steps>
-  ) : (
+function SystemSteps({ platform, app, windowsSwitch, macSwitch }: SystemStepsProps) {
+  if (platform.windows)
+    return (
+      <Steps>
+        <li>
+          Click <em>Start</em>, then <em>Settings</em>.
+        </li>
+        <li>
+          Go to <em>System &gt; Notification</em>.
+        </li>
+        <li>
+          Click <Pictured icon={ExternalSwitch} alt={windowsSwitch} size={22} /> <em>ON</em> for {app}.
+        </li>
+      </Steps>
+    );
+  if (platform.operatingSystem !== "macOS")
+    return <Paragraph>Ensure notifications are allowed for {capitalize(platform.browser)} in your system settings.</Paragraph>;
+  return (
     <Steps>
       <li>
         {/* The Apple logo, in the private-use character Apple's fonts draw it as. ember-rust labels the `em`,

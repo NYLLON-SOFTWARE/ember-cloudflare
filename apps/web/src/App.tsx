@@ -13,6 +13,7 @@ import { joinCodeFromPath, navigate, useIsAt, useJoinRoute, useTransferRoute } f
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
+import { replaceInstallPromptsFor } from "@/lib/install-prompt";
 import { loadPage } from "@/lib/page";
 import { unsubscribeFromPush } from "@/lib/push";
 import { forgetReturnPath, rememberThisPage, takeReturnPath } from "@/lib/return-path";
@@ -51,6 +52,7 @@ export function App() {
       fetchBootstrap().then(
         ({ user, ...workspace }) => {
           if (stopped) return;
+          replaceInstallPromptsFor(workspace.platform);
           const atSetup = location.pathname === SETUP_PATH;
           // Until Ember is set up, every page is setup's, which the Worker serves or keeps locked.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);

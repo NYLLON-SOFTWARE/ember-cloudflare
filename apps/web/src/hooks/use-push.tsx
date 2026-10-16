@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
-import { isPushOn, turnOnPush, type PushNotice } from "@/lib/push";
+import { isPushOn, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 
 export interface Push {
   /** Whether this browser has notifications on. */
@@ -59,6 +59,8 @@ export function PushProvider({ vapidPublicKey, platform, children }: Props) {
     });
     return () => void (stopped = true);
   }, [vapidPublicKey]);
+  // Logging out ends the subscription before it signs out, which may then fail and leave you here.
+  useEffect(() => subscribeToPushEnding(() => setOn(false)), []);
 
   const turnOn = useCallback(async () => {
     // One at a time, as ember-rust's bell ignores presses while it's turning them on.

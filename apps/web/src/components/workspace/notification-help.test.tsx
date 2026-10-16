@@ -2,8 +2,8 @@ import { feature } from "@ember/parity";
 import type { Platform } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { listenForInstallPrompt } from "@/lib/install-prompt";
-import { CHROME_MAC, SAFARI_IPHONE, SAFARI_MAC } from "@/test-platforms";
+import { listenForInstallPrompt, replaceInstallPromptsFor } from "@/lib/install-prompt";
+import { CHROME_LINUX, CHROME_MAC, SAFARI_IPHONE, SAFARI_MAC } from "@/test-platforms";
 import facts from "./golden/platforms.json";
 import { InstallInstructions, NotificationHelp } from "./notification-help";
 
@@ -106,6 +106,16 @@ describe(feature("notifications.setup-help"), () => {
     expect([...container.querySelectorAll("details")].map((details) => details.open)).toEqual([false, false]);
   });
 
+  it("gives a system it has no steps for, such as Linux, ember-rust's sentence for one, where ember-rust gives macOS's steps", () => {
+    shownIn("standalone");
+    render(<NotificationHelp platform={CHROME_LINUX} />);
+    expect(screen.getByText("Check your Linux settings")).toBeInTheDocument();
+    // Once for Chrome's own notifications, under its settings, and once for the system's.
+    expect(screen.getAllByText("Ensure notifications are allowed for Chrome in your system settings.")).toHaveLength(2);
+    expect(screen.queryByRole("img", { name: "the Apple menu" })).not.toBeInTheDocument();
+    expect(screen.queryByText("System Settings…")).not.toBeInTheDocument();
+  });
+
   it("names the Apple menu's logo as a picture, which ember-rust leaves unread", () => {
     shownIn("browser");
     render(<NotificationHelp platform={CHROME_MAC} />);
@@ -130,6 +140,7 @@ describe(feature("notifications.install-instructions"), () => {
       // Pages only have service workers where they're secure, which jsdom's aren't.
       Object.defineProperty(navigator, "serviceWorker", { value: {}, configurable: true });
       listenForInstallPrompt();
+      replaceInstallPromptsFor(SAFARI_MAC);
       Reflect.deleteProperty(navigator, "serviceWorker");
     });
 

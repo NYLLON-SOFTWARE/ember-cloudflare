@@ -1796,7 +1796,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/notifications_controller.js", "crates/views/templates/rooms/involvements/_bell.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), and checks whether this browser has notifications on once as the workspace opens, where ember-rust's bell checks on every page, so a room never opens showing Enable notifications first. While it turns them on the bell is `aria-disabled` rather than disabled, so it keeps focus, and once they're on the level's bell takes focus from it if it had it. Campfire pulses the bell until it's first pressed, which ember-rust's styles turn off (zz-ember.css), so the cookies that remember the press aren't ported.",
+    notes: "The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), and checks whether this browser has notifications on once as the workspace opens, where ember-rust's bell checks on every page, so a room never opens showing Enable notifications first. While it turns them on the bell is `aria-disabled` rather than disabled, so it keeps focus, and once they're on the level's bell takes focus from it if it had it. Should signing out fail once Log out has ended the subscription, the bell offers Enable notifications again, as ember-rust's next page would. Campfire pulses the bell until it's first pressed, which ember-rust's styles turn off (zz-ember.css), so the cookies that remember the press aren't ported.",
   },
   {
     id: "notifications.hide-room",
@@ -1930,7 +1930,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/_install_instructions.html", "crates/ember/src/concerns/platform.rs", "crates/ember/src/concerns/user_agent.rs", "reference/app/javascript/controllers/pwa_install_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/views/tests/parity_a.rs"],
-    notes: "Install now is the ink button wherever it shows, where ember-rust's header styles leave the dialog's clear, its icon white on white, and it goes once pressed, since a browser prompts only once for each offer, where Campfire's stays and does nothing. Edge's step keeps its button apart from the next word, which ember-rust runs together. ember-rust's steps for Chrome on Android never show, since Chrome gets no install steps, so they aren't ported.",
+    notes: "Install now is the ink button wherever it shows, where ember-rust's header styles leave the dialog's clear, its icon white on white, and it goes once pressed, since a browser prompts only once for each offer, where Campfire's stays and does nothing. Edge's step keeps its button apart from the next word, which ember-rust runs together. ember-rust's steps for Chrome on Android never show, since Chrome gets no install steps, so they aren't ported. Install now takes the place of the browser's own offer only in the browsers given the steps, as Campfire's controller does, but on every page once `/api/bootstrap` has said which browser this is, where the controller does on the pages that show the steps (every room's and your profile); an offer that comes before then is kept for Install now and left to the browser too.",
   },
   {
     id: "notifications.setup-help",
@@ -1946,7 +1946,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/_browser_settings.html", "crates/views/templates/pwa/_system_settings.html", "crates/assets/overrides/controllers/notifications_controller.js", "crates/ember/src/concerns/platform.rs", "crates/ember/src/concerns/user_agent.rs", "reference/app/views/pwa/_browser_settings.html.erb", "reference/app/views/pwa/_system_settings.html.erb"],
     upstreamTests: ["crates/views/tests/parity_a.rs", "crates/ember/src/concerns/platform.rs", "parity/screens.yml"],
-    notes: "The Worker reads the platform from the user agent as ember-rust does, checked against Rails' answers for ember-rust's 385 user agents, and gives it to the app with `/api/bootstrap` (`platform`). The help is checked against ember-rust's goldens of its partials for ten browsers (`apps/web/src/components/workspace/golden/`). The Apple menu's logo is named as a picture (`role=\"img\"`), since screen readers don't read the label ember-rust gives its `em`.",
+    notes: "The Worker reads the platform from the user agent as ember-rust does, checked against Rails' answers for ember-rust's 385 user agents, and gives it to the app with `/api/bootstrap` (`platform`). The help is checked against ember-rust's goldens of its partials for ten browsers (`apps/web/src/components/workspace/golden/`). The Apple menu's logo is named as a picture (`role=\"img\"`), since screen readers don't read the label ember-rust gives its `em`. Desktops other than Windows and macOS, such as Linux and ChromeOS, get ember-rust's sentence for a system it has no steps for (\"Ensure notifications are allowed for <browser> in your system settings.\") where ember-rust gives them macOS's steps.",
   },
   {
     id: "notifications.web-push-keys",
