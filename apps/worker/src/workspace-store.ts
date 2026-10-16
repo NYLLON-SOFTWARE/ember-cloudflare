@@ -308,7 +308,7 @@ const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
 /**
  * The workspace's first room, where the welcome card shows: its oldest, of any kind, as ember-rust's
  * `Room::original` finds it (room.rs). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`)
- * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the preview's is its general.
+ * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the old preview's is its general.
  */
 export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
 
@@ -699,7 +699,7 @@ const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, c
 
 /**
  * Adds one of first run's open rooms, made by ?3, unless the workspace has an open room of its name
- * already, as the preview has its general and random from before the Workspace kept a list.
+ * already, as the old preview has its general and random from before the Workspace kept a list.
  */
 const INSERT_FIRST_ROOM = `INSERT INTO rooms (id, kind, name, creator_id, created_at, updated_at)
   SELECT ?1, 'open', ?2, ?3, ?4, ?4 WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE kind = 'open' AND name = ?2)`;

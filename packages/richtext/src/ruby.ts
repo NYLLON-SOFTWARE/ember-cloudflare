@@ -49,3 +49,13 @@ export function chomp(value: string): string {
   if (value.endsWith("\r\n")) return value.slice(0, -2);
   return value.endsWith("\n") || value.endsWith("\r") ? value.slice(0, -1) : value;
 }
+
+/**
+ * Active Support's `String#truncate(length, omission: "…")`, in characters: a string longer than
+ * `length` keeps as many as fit before the omission.
+ */
+export function truncate(value: string, length: number, omission = "…"): string {
+  const characters = Array.from(value);
+  if (characters.length <= length) return value;
+  return characters.slice(0, length - Array.from(omission).length).join("") + omission;
+}

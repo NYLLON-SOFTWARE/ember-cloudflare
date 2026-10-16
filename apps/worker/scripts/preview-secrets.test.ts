@@ -36,7 +36,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 function deploy(listing: Listing, setupToken = "") {
   const file = path.join(dir, "secrets.json");
   const LISTING = Array.isArray(listing) ? JSON.stringify(listing.map((name) => ({ name, type: "secret_text" }))) : listing;
-  const run = spawnSync("bash", [SCRIPT, "ember-preview", file], {
+  const run = spawnSync("bash", [SCRIPT, "ember-production", file], {
     env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, LISTING, EMBER_SETUP_TOKEN: setupToken },
     encoding: "utf8",
   });

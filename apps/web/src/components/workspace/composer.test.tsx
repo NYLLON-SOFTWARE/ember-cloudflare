@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
-import type { User } from "@ember/protocol";
+import type { LinkPreview, User } from "@ember/protocol";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -262,6 +263,71 @@ describe(feature("messages.reply"), () => {
     const input = await screen.findByRole("textbox", { name: "Write a message" });
     expect(input).toHaveValue("“Third time's a charm.”\n\nAda");
     expect(input).toHaveFocus();
+  });
+});
+
+describe(feature("unfurl.composer"), () => {
+  const basecamp: LinkPreview = { title: "Basecamp", url: "https://basecamp.com/", image: "https://basecamp.com/og.png", description: "Calm & organized" };
+
+  /** Answers each ask for a link's preview with what `answer` gives for its address. */
+  function previews(answer: (url: string) => Response | Promise<Response>) {
+    const fetch = vi.fn(async (_path: string, init: RequestInit) => answer(JSON.parse(init.body as string).url));
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  /** The link previews the composer shows. */
+  const shownPreviews = (view: ReturnType<typeof render>) => view.container.querySelectorAll(`action-text-attachment[content-type="${OPENGRAPH_EMBED_CONTENT_TYPE}"]`);
+
+  it("adds the preview of a pasted link's page below it, which goes with the message", async () => {
+    const fetch = previews(() => Response.json(basecamp));
+    const { onSend, user } = await showComposer();
+    await user.paste("https://basecamp.com");
+    expect(await screen.findByRole("link", { name: "Basecamp" })).toHaveAttribute("href", "https://basecamp.com/");
+    expect(fetch).toHaveBeenCalledWith("/api/unfurl", expect.objectContaining({ method: "POST", body: JSON.stringify({ url: "https://basecamp.com" }) }));
+
+    await user.keyboard("{Enter}");
+    const sent = new DOMParser().parseFromString(onSend.mock.calls[0]![0], "text/html").body;
+    expect(sent.querySelector("p")!.textContent).toBe("https://basecamp.com");
+    const attachment = sent.querySelector("action-text-attachment")!;
+    expect(attachment.getAttribute("content-type")).toBe(OPENGRAPH_EMBED_CONTENT_TYPE);
+    expect(attachment.getAttribute("content")).toBe(
+      previewContent({ href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm & organized" }),
+    );
+  });
+
+  it("adds nothing for a page without a preview, or a preview that can't be had", async () => {
+    const answers: Record<string, Response> = {
+      "https://example.com/none": new Response(null, { status: 204 }),
+      "https://example.com/limited": Response.json({ error: "Too many link previews. Try again in a minute." }, { status: 429 }),
+      "https://example.com/untitled": Response.json({ ...basecamp, title: "" }),
+    };
+    const fetch = previews((url) => answers[url]!);
+    const { user, view } = await showComposer();
+    for (const url of Object.keys(answers)) await user.paste(url);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await act(async () => {});
+    expect(shownPreviews(view)).toHaveLength(0);
+  });
+
+  it("forgets the preview of a link once another is pasted, or the composer goes", async () => {
+    let answerFirst!: () => void;
+    const firstAnswered = new Promise<void>((resolve) => (answerFirst = resolve));
+    const fetch = previews(async (url) => {
+      if (url.endsWith("first")) await firstAnswered;
+      return Response.json({ ...basecamp, title: url });
+    });
+    const { user, view } = await showComposer();
+    await user.paste("https://example.com/first");
+    await user.paste("https://example.com/second");
+    expect(await screen.findByRole("link", { name: "https://example.com/second" })).toBeInTheDocument();
+    expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true);
+    await act(async () => answerFirst());
+    expect(shownPreviews(view)).toHaveLength(1);
+
+    await user.paste("https://example.com/third");
+    view.unmount();
+    expect(fetch.mock.calls[2]![1].signal!.aborted).toBe(true);
   });
 });
 

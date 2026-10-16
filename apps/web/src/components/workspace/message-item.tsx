@@ -52,10 +52,13 @@ interface Props {
   editors: MessageEditors;
 }
 
-/** What a stored body shows, or null when it can't be shown. */
-function shownBody(body: string): DisplayNode[] | null {
+/**
+ * What a stored body shows, or null when it can't be shown. `plainText` is the body's, which tells when a
+ * message is only the link its preview is of, and a preview can't link to the page's own host.
+ */
+function shownBody(body: string, plainText: string): DisplayNode[] | null {
   try {
-    return displayBody(body);
+    return displayBody(body, plainText, location.hostname);
   } catch (error) {
     console.error("Could not show a message", error);
     return null;
@@ -110,7 +113,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // Any message that mentions you, yours too, as Campfire's message_formatter.js means to mark them. It looks
   // for an avatar address that mentions don't have, so ember-rust never does.
   const mentioned = message.mentions.some((person) => person.id === me.id);
-  const shown = useMemo(() => shownBody(message.body), [message.body]);
+  const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
   const allEmoji = isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;

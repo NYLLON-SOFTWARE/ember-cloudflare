@@ -42,15 +42,20 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
-  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now. It drops a
-  // mention of no one, and a message from before messages named the people they mention knows them only from the
-  // directory, so for such a message the editor waits for the directory to load, when it lists everyone.
+  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now, and its
+  // link previews as the message shows them here. It drops a mention of no one, and a message from before messages
+  // named the people they mention knows them only from the directory, so for such a message the editor waits for
+  // the directory to load, when it lists everyone.
   const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
   const editableNow = () =>
-    editableBody(message.body, (userId) => {
-      const person = mentionedPerson(people, message.mentions, userId);
-      return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
-    });
+    editableBody(
+      message.body,
+      (userId) => {
+        const person = mentionedPerson(people, message.mentions, userId);
+        return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
+      },
+      location.hostname,
+    );
   const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
   if (editable === null && knowsMentions) setEditable(editableNow());
 

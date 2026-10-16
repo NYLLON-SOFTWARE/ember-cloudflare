@@ -782,7 +782,7 @@ export const features = [
       "First run makes no general or random where one of these rooms has that name, and opens the old general instead. A fresh deploy leaves `LEGACY_ROOMS` unset.",
     ],
     sources: [],
-    notes: "The preview sets `LEGACY_ROOMS` to general and random, which hold its messages from before, so they're its general and random, and general its first room. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
+    notes: "The old preview Worker, `ember-preview`, was deployed with `LEGACY_ROOMS` set to general and random, which hold its messages from before, so they're its general and random, and general its first room. Nothing sets it now: the Preview workflow's `ember-production` started fresh. One that's deleted stays deleted: the Workspace remembers it, and registers it no more.",
   },
 
   // Direct messages
@@ -1061,7 +1061,7 @@ export const features = [
     ],
     sources: ["reference/app/helpers/content_filters.rb", "reference/app/helpers/messages_helper.rb", "crates/richtext/src/sanitizer.rs", "crates/richtext/src/filters.rs", "crates/ember/src/controllers/presenters.rs", "reference/app/javascript/models/message_formatter.js", "reference/app/javascript/initializers/highlight.js"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "reference/test/helpers/content_filters_test.rb", "reference/test/system/composer_test.rb", "crates/richtext/tests/corpus.rs"],
-    notes: "What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.",
+    notes: "What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.",
   },
   {
     id: "messages.optimistic",
@@ -1093,7 +1093,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages.rs", "crates/views/templates/messages/edit.html", "reference/app/controllers/messages_controller.rb", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/composer.css"],
     upstreamTests: ["reference/test/controllers/messages_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "reference/test/system/composer_test.rb"],
-    notes: "Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: link previews (`unfurl.composer`), file messages (`attachments.upload`), search (`search.messages`) and bots.",
+    notes: "Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say \"(edited)\", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: file messages (`attachments.upload`), search (`search.messages`) and bots.",
   },
   {
     id: "messages.delete",
@@ -1201,7 +1201,7 @@ export const features = [
     ],
     sources: ["reference/app/javascript/controllers/reply_controller.js", "crates/assets/overrides/controllers/composer_controller.js", "crates/views/templates/messages/_actions.html"],
     upstreamTests: ["reference/test/system/composer_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting link previews (`unfurl.render`) and files (`attachments.upload`).",
+    notes: "A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting files (`attachments.upload`).",
   },
   {
     id: "messages.copy-link",
@@ -1270,7 +1270,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it, and /play needn't, since its sounds are left out (`messages.sounds`). Nothing searches, pushes or sends it to bots yet.",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it, and /play needn't, since its sounds are left out (`messages.sounds`). Nothing searches, pushes or sends it to bots yet.",
   },
   {
     id: "messages.autolink",
@@ -1555,7 +1555,7 @@ export const features = [
     id: "unfurl.composer",
     title: "Link previews while writing",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Pasting a lone URL (`<scheme>://…` or `www.…`) with nothing selected asks for its preview, and so does pasting a single link whose text is its own URL. Pasting over selected text links the selection instead, typed links never preview, and nothing previews inside a code block.",
       "When a preview comes back with a title and a URL, a card with a \"Remove\" button is added below the link's paragraph. `www.` and non-http(s) links are asked about but never get one, and failures add nothing.",
@@ -1566,6 +1566,7 @@ export const features = [
     ],
     sources: ["reference/app/javascript/controllers/unfurl_controller.js", "crates/views/templates/rooms/show/_composer.html", "crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "reference/app/javascript/helpers/string_helpers.js", "crates/views/templates/messages/edit.html"],
     upstreamTests: ["reference/test/system/unfurling_links_test.rb", "reference/test/system/composer_test.rb"],
+    notes: "Previews come from `POST /api/unfurl` (`unfurl.endpoint`), whose titles and descriptions are plain text, so \"&\" shows as written. The card is written as the room stores it, its title and description cut by characters, as Rails cuts them when it shows them, where Campfire's composer counts UTF-16 code units, so a title of emoji keeps up to twice as many. A preview that comes back after the composer has gone, as when you've moved to another room, is dropped.",
   },
   {
     id: "unfurl.endpoint",
@@ -1608,7 +1609,7 @@ export const features = [
     id: "unfurl.render",
     title: "Link previews in messages",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A preview shows as a card: the title linking to the page in a new tab (the link itself when there's no title, plain text when there's no link), the description, and the image kept 16:9 and contained. Titles over 280 characters and descriptions over 560 are cut with \"…\", and a Twitter avatar is drawn round.",
       "The card is redrawn from the stored preview each time it renders, and its link and image must be absolute http(s) URLs on a named host other than this Ember's (one with a dot, whose last label has a letter), or they're left out.",
@@ -1618,6 +1619,7 @@ export const features = [
     ],
     sources: ["reference/lib/rails_ext/actiontext_opengraph_embeds.rb", "reference/app/helpers/content_filters/remove_solo_unfurled_link_text.rb", "crates/richtext/src/attachables.rs", "crates/richtext/src/filters.rs", "reference/app/assets/stylesheets/embeds.css"],
     upstreamTests: ["reference/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb", "reference/test/helpers/content_filters_test.rb", "crates/richtext/src/filters.rs"],
+    notes: "`packages/richtext` reads previews as Rails does, with a port of uri 1.1's parser, Campfire's, checked against Ruby on 800,000 generated addresses, and shows the 31 previews of ember-rust's corpus as Rails rendered them. The room stores each preview as the composer writes one, Trix's included, so storing it again gives the same, and refuses one Rails raises on reading, such as a `mailto:` address that doesn't parse, as it refuses other bodies Rails can't render. The browser leaves out links and images on the host it's served from, in the editor as in the message, and compares a message with its preview's link as it shows it; a message Rails raises on comparing, such as one reading `mailto:x.com`, shows as written, where Rails shows nothing of it. An x.com address loses its userinfo as it's read as twitter.com, as in uri 1.1, where ember-rust keeps it. The card is drawn by the app with embeds.css's styles, and its image loads as it nears the screen, as a room can hold a lot of them.",
   },
 
   // Search
@@ -2252,7 +2254,7 @@ export const features = [
     ],
     sources: ["crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb"],
-    notes: "Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`), and an address's preview waits for `unfurl.composer`.",
+    notes: "Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`).",
   },
 
   // Workspace interface

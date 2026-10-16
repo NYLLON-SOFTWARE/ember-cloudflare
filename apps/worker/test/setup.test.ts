@@ -175,7 +175,7 @@ describe(feature("rooms.legacy-rooms"), () => {
     ]);
     expect(await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ? ORDER BY room_id", user.id)).toEqual([{ room_id: "general" }, { room_id: "random" }]);
 
-    // The old general, registered first, is the first room, as the preview's is.
+    // The old general, registered first, is the first room, as the old preview's is.
     const sidebar = (await (await api("/api/sidebar", { headers: { Cookie: cookieOf(response) } })).json()) as Sidebar;
     expect(sidebar.rooms.map(({ id }) => id)).toEqual(["general", "random"]);
     expect(sidebar.invitation?.roomId).toBe("general");
