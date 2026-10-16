@@ -46,6 +46,12 @@ async function offCentre(member: Member, n: number): Promise<number> {
 /** The sidebar's link to the room the messages were posted in. */
 const roomLink = (member: Member) => member.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" });
 
+/** The day separator just above the message that says `text`, if it has one. */
+const separatorAbove = (member: Member, text: string) => member.message(text).locator("xpath=preceding-sibling::h2");
+
+/** The days `messages` were written on, in UTC, as their separators date them. */
+const daysOf = (messages: Message[]) => [...new Set(messages.map((m) => new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" }).format(new Date(m.createdAt))))];
+
 const scrollToTop = (member: Member) => member.timeline().evaluate((el) => el.scrollTo({ top: 0 }));
 const scrollToBottom = (member: Member) => member.timeline().evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
 
@@ -112,9 +118,17 @@ test.describe(feature("messages.history"), () => {
 });
 
 test.describe(feature("messages.day-separators"), () => {
-  test("starts today's messages under a Today separator", async ({ members }) => {
-    const ada = await members.signIn("Ada");
-    await expect(ada.page.getByRole("log").getByRole("separator").last()).toHaveText("Today");
+  test("dates the first message loaded, and then the day's first as earlier pages load", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { timezoneId: "UTC", locale: "en-US" } });
+    const separators = ada.timeline().getByRole("heading", { level: 2 });
+    const firstLoaded = COUNT - HISTORY_PAGE_SIZE + 1;
+    await expect(separators).toHaveText(daysOf(posted.slice(firstLoaded - 1)));
+    await expect(separatorAbove(ada, body(firstLoaded))).toHaveCount(1);
+
+    await scrollToTop(ada);
+    await expect(ada.message(body(1))).toBeAttached();
+    await expect(separators).toHaveText(daysOf(posted));
+    await expect(separatorAbove(ada, body(1))).toHaveCount(1);
   });
 });
 

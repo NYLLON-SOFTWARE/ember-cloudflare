@@ -144,6 +144,9 @@ test("Jump to newest message appears as one comes while you're scrolled back, an
   await expect(page.getByText("Message 30", { exact: true })).toBeVisible();
 
   await page.getByRole("log").evaluate((log) => log.scrollTo({ top: 0 }));
+  // The timeline hears of a scroll by script with the next frame, as an IntersectionObserver does, so a
+  // message that came sooner would find the reader still at the end, and take them back there.
+  await expect(page.getByText("Message 30", { exact: true })).not.toBeInViewport();
   await ada.say("Message 31");
   const jump = page.getByRole("button", { name: "Jump to newest message" });
   await expect(jump).toBeVisible();

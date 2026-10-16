@@ -76,6 +76,8 @@
   --menu-shadow: #00000012;
   /* The shadow under a starred room's row while it's dragged, `.mb-channel-dragging`, in both modes. */
   --drag-shadow: #0002;
+  /* Campfire's scrollbar thumb (base.css), the gray a Mac's are, in both modes. */
+  --scrollbar: #c1c1c1;
   color-scheme: light;
 }
 
@@ -389,6 +391,13 @@
   :where(a, button, summary, input, textarea, select, [tabindex]):focus-visible {
     outline: 2px solid var(--foreground);
     outline-offset: 3px;
+  }
+  /* Campfire's thinner scrollbars, which it gives Chrome (base.css), so the timeline is as wide as ember-rust's. */
+  @media screen and (-webkit-min-device-pixel-ratio: 0) and (min-resolution: 0.001dpcm) {
+    * {
+      scrollbar-color: var(--scrollbar) transparent;
+      scrollbar-width: thin;
+    }
   }
 }
 

@@ -1,7 +1,8 @@
 import { feature } from "@ember/parity";
-import type { Locator } from "@playwright/test";
+import type { ServerFrame } from "@ember/protocol";
+import type { Locator, Page } from "@playwright/test";
 import { administratorOn, editorField, ROOM_SOCKET } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
@@ -10,6 +11,21 @@ const box = async (locator: Locator) => {
   if (!rect) throw new Error("Not visible");
   return rect;
 };
+
+/** Opens the room as if each message `times` names, by id, was written when it says, by rewriting the room's welcome. */
+const writtenAt = (times: Map<string, string>) => (page: Page) =>
+  page.routeWebSocket(ROOM_SOCKET, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((frame) => {
+      const parsed = JSON.parse(String(frame)) as ServerFrame;
+      if (parsed.type !== "welcome") return ws.send(frame);
+      const messages = parsed.messages.map((message) => ({ ...message, createdAt: times.get(message.id) ?? message.createdAt }));
+      ws.send(JSON.stringify({ ...parsed, messages }));
+    });
+  });
+
+/** The day separator just above the message that says `text`, if it has one. */
+const separatorAbove = (member: Member, text: string) => member.message(text).locator("xpath=preceding-sibling::h2");
 
 test.describe(feature("messages.create"), () => {
   test("delivers a message to everyone in the room as it's sent", async ({ members }) => {
@@ -97,6 +113,8 @@ test.describe(feature("messages.layout"), () => {
       expect((await box(name)).x - (avatar.x + avatar.width)).toBe(8);
       await expect(name).toHaveCSS("font-size", "15px");
       await expect(name).toHaveCSS("font-weight", "700");
+      // An h3, whose letters are spaced as ember-rust's headings are.
+      await expect(row.getByRole("heading", { level: 3 })).toHaveCSS("letter-spacing", "-0.375px");
       await expect(row.locator("time")).toHaveCSS("font-size", "12px");
       const body = row.getByText(text, { exact: true });
       await expect(body).toHaveCSS("font-size", "15px");
@@ -199,11 +217,54 @@ test.describe(feature("messages.follow-up-times"), () => {
     await ada.message("Follow-up").hover();
     await expect(shown("Follow-up")).toHaveCSS("opacity", "1");
     expect(await box(body)).toEqual(before);
+    // After the text, beside it.
+    const time = await box(ada.message("Follow-up").locator("time"));
+    expect(time.x).toBeGreaterThan(before.x + before.width);
+    expect(time.y).toBeLessThan(before.y + before.height);
 
     await ada.composer().hover();
     await expect(shown("Follow-up")).toHaveCSS("opacity", "0");
     await ada.message("Follow-up").getByRole("button", { name: "Add a boost" }).focus();
     await expect(shown("Follow-up")).toHaveCSS("opacity", "1");
+  });
+
+  test("links each time to its message, which following goes to in place", async ({ members, participant, baseURL }) => {
+    const message = await (await participant("Grace")).say("Link to me");
+    const ada = await members.signIn("Ada");
+    const link = ada.message("Link to me").getByRole("link").filter({ has: ada.page.locator("time") });
+    const permalink = `${baseURL}/rooms/${encodeURIComponent(message.roomId)}/@${encodeURIComponent(message.id)}`;
+    await expect(link).toHaveAttribute("href", new URL(permalink).pathname);
+
+    // A page load would forget this.
+    await ada.page.evaluate(() => Object.assign(window, { stayed: true }));
+    await link.click();
+    await expect(ada.page).toHaveURL(permalink);
+    expect(await ada.page.evaluate(() => "stayed" in window)).toBe(true);
+  });
+});
+
+test.describe(feature("messages.day-separators"), () => {
+  test("dates each day's first message in the reader's time zone, with its date and time on hover", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    const times = new Map<string, string>();
+    // Two hours apart on the 15th in UTC, but either side of midnight in Los Angeles.
+    for (const [text, at] of [
+      ["Late on the 14th", "2026-10-15T06:30:00Z"],
+      ["Early on the 15th", "2026-10-15T08:30:00Z"],
+    ] as const) {
+      times.set((await grace.say(text)).id, at);
+    }
+    const ada = await members.signIn("Ada", { context: { timezoneId: "America/Los_Angeles", locale: "en-US" }, beforeOpen: writtenAt(times) });
+
+    await expect(separatorAbove(ada, "Late on the 14th")).toHaveText("October 14, 2026");
+    const separator = separatorAbove(ada, "Early on the 15th");
+    await expect(separator).toHaveText("October 15, 2026");
+    await expect(separator.locator("time")).toHaveAttribute("title", "10/15/26, 1:30 AM");
+    // ember-rust's: 14px bold, as written rather than in capitals, in a pill between two rules.
+    await expect(separator).toHaveCSS("font-size", "14px");
+    await expect(separator).toHaveCSS("font-weight", "700");
+    await expect(separator).toHaveCSS("text-transform", "none");
+    await expect(separator.locator("time")).toHaveCSS("border-radius", "14px");
   });
 });
 
@@ -742,6 +803,27 @@ test.describe(feature("messages.grouping"), () => {
 
     await grace.send("Grace replies");
     await expect(ada.message("Grace replies").getByText("Grace", { exact: true })).toBeVisible();
+  });
+
+  test("groups someone's messages up to five minutes apart, past midnight too, under the new day's date", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    const times = new Map<string, string>();
+    for (const [text, at] of [
+      ["Before midnight", "2026-10-15T23:52:00Z"],
+      ["Five minutes on", "2026-10-15T23:57:00Z"],
+      ["Past midnight", "2026-10-16T00:02:00Z"],
+      ["Six minutes on", "2026-10-16T00:08:00Z"],
+    ] as const) {
+      times.set((await grace.say(text)).id, at);
+    }
+    const ada = await members.signIn("Ada", { context: { timezoneId: "UTC", locale: "en-US" }, beforeOpen: writtenAt(times) });
+
+    const named = (text: string) => ada.message(text).getByText("Grace", { exact: true });
+    await expect(named("Before midnight")).toBeVisible();
+    await expect(named("Five minutes on")).toHaveCount(0);
+    await expect(named("Past midnight")).toHaveCount(0);
+    await expect(named("Six minutes on")).toBeVisible();
+    await expect(separatorAbove(ada, "Past midnight")).toHaveText("October 16, 2026");
   });
 });
 

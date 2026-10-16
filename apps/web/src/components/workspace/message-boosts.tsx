@@ -66,7 +66,8 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
   return (
     <div
       className={cn(
-        "flex w-full flex-wrap items-center gap-x-[0.4ch] text-message-ink",
+        // Under a grouped message's text and time, across both columns.
+        "col-span-full flex w-full flex-wrap items-center gap-x-[0.4ch] text-message-ink",
         // Where Message options is 44px, the next message's rises 11px into this one, reaching 38px in from
         // its edge, so reactions stop short of it. A grouped message's body already keeps 32px of that clear.
         // The Custom reaction form's buttons sit higher than that, so it takes the row's whole width.
