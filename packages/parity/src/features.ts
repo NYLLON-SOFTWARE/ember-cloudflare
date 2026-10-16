@@ -1251,7 +1251,7 @@ export const features = [
     sources: ["reference/app/models/sound.rb", "crates/db/src/models/message.rs", "crates/views/src/messages/presentation.rs", "crates/assets/overrides/models/client_message.js", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/javascript/controllers/sound_controller.js"],
     upstreamTests: ["crates/db/src/tests/message_test.rs"],
     notes:
-      "The clips and pictures are Campfire's, which the build downloads from once-campfire at the commit ember-rust pins and checks against `apps/web/plugins/campfire-sounds.json`, rather than keeping them in this repository. The 🔊 is named \"Play <name>\" for screen readers and takes taps 24px across on touch screens, and a picture too wide for its message shrinks keeping its shape, where ember-rust's is squeezed. A browser that won't play a sound before the page has been used refuses quietly. Reply quotes `/play <name>`, where ember-rust's writes nothing for a sound.",
+      "The clips and pictures are Campfire's, which the build downloads from once-campfire at the commit ember-rust pins and checks against `apps/web/plugins/campfire-sounds.json`, rather than keeping them in this repository. The 🔊 is named \"Play <name>\" for screen readers and takes taps 24px across on touch screens, and a picture too wide for its message shrinks keeping its shape, where ember-rust's is squeezed. A browser that won't play a sound before the page has been used refuses quietly. A sound that couldn't be sent shows its `/play <name>` beside Not sent, where ember-rust's still says \"Playing <name>…\". Reply quotes `/play <name>`, where ember-rust's writes nothing for a sound.",
   },
   {
     id: "messages.plain-text",

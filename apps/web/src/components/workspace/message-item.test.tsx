@@ -186,6 +186,13 @@ describe(feature("messages.sounds"), () => {
     const unknown = show({ ...message({ plainText: "/play nonexistent_sound_name" }), pending: true });
     expect(unknown.article.querySelector(".message-content")).toHaveTextContent("/play nonexistent_sound_name");
   });
+
+  it("shows what was written for a sound that couldn't be sent, where ember-rust's still says it's playing", () => {
+    const { article } = show({ ...message({ plainText: "/play tada" }), pending: true, failed: true });
+    expect(article.querySelector(".message-content")).toHaveTextContent("/play tada");
+    expect(article).not.toHaveTextContent("Playing");
+    expect(screen.getByText("Not sent")).toBeInTheDocument();
+  });
 });
 
 describe(feature("messages.optimistic"), () => {

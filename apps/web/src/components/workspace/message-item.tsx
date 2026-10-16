@@ -139,7 +139,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   const allEmoji = isAllEmoji(message.plainText);
   const sound = pending ? undefined : soundIn(message.plainText);
   // What client_message.js shows while a message that starts with `/play <name>` is on its way, whatever follows.
-  const playing = pending ? pendingSound(message.plainText) : undefined;
+  // One that couldn't be sent shows what was written beside Not sent, where ember-rust's still says it's playing.
+  const playing = pending && !message.failed ? pendingSound(message.plainText) : undefined;
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
