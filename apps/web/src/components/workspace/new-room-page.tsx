@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { NewRoom, Room, RoomIconName, User, UserId } from "@ember/protocol";
+import { useFlash } from "@/components/flash";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
+import { ApiError, createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
@@ -27,7 +28,8 @@ interface Props {
 /**
  * ember-rust's New room pages (rooms/opens/new.html and rooms/closeds/new.html). The Everyone switch
  * swaps one for the other in place, keeping what's been filled in, as ember-rust's settings.js does, and
- * leaving with anything filled in asks first.
+ * leaving with anything filled in asks first. While only administrators can create rooms, anyone else
+ * is sent to workspace settings with an alert, where ember-rust answers an empty 403 page.
  */
 export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   useTitle("New chat room");
@@ -41,17 +43,23 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   // The form the page opened on, which the Everyone switch can move away from and back to.
   const [opened] = useState(access);
   const roomForm = useRef<HTMLFormElement>(null);
+  const flash = useFlash();
   const mounted = useMounted();
 
   useEffect(() => {
     let stopped = false;
     fetchNewRoomForm().then(
       (form) => !stopped && setPeople(form.people),
-      // A page left before its form loads only reports a session that's ended, which goes to sign in.
-      (error: unknown) => (!stopped || isSignedOut(error)) && onFailed(error),
+      (error: unknown) => {
+        // A page left before its form loads only reports a session that's ended, which goes to sign in.
+        if (stopped && !isSignedOut(error)) return;
+        if (!(error instanceof ApiError && error.status === 403)) return onFailed(error);
+        navigate(WORKSPACE_SETTINGS_PATH, { replace: true });
+        flash("alert", error.message);
+      },
     );
     return () => void (stopped = true);
-  }, [onFailed]);
+  }, [flash, onFailed]);
 
   /** Creates the room and lists it in the sidebar. */
   const send = () => {

@@ -26,7 +26,7 @@ const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
 });
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
-const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, invitation: null, suggestions: [] });
+const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, suggestions: [] });
 
 describe(feature("rooms.create-open"), () => {
   it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
@@ -157,6 +157,27 @@ describe(feature("sidebar.room-order"), () => {
   it("orders names as the browser's language does, whatever their case, then by id", () => {
     const rooms = [room("r4", "zed"), room("r2", "alpha"), room("r3", "Éclair"), room("r1", "ALPHA")];
     expect(inSidebarOrder(rooms, []).map((r) => r.id)).toEqual(["r1", "r2", "r3", "r4"]);
+  });
+});
+
+describe(feature("sidebar.shared-order"), () => {
+  it("lists the rooms the shared order ranks after the stars, in its order, then the rest by name", () => {
+    expect(inSidebarOrder(four, ["r4"], ["r3", "r4", "r2"]).map((r) => r.name)).toEqual(["Zebra", "Ops", "general", "Design"]);
+  });
+
+  it("passes over ranks of rooms the list hasn't got", () => {
+    expect(inSidebarOrder(four, [], ["gone", "r2"]).map((r) => r.name)).toEqual(["general", "Design", "Ops", "Zebra"]);
+  });
+
+  it("takes the order an administrator saves here, over a list asked for before they saved it", () => {
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four) });
+    const reordered = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "reordered", sharedOrder: ["r4", "r1"] });
+    expect(reordered.list!.sharedOrder).toEqual(["r4", "r1"]);
+    expect(roomListReducer(reordered, { type: "loaded", list: sidebar(four) }).list!.sharedOrder).toEqual(["r4", "r1"]);
+  });
+
+  it("starts with none when the first list fails to arrive", () => {
+    expect(roomListReducer(NO_ROOM_LIST, { type: "unanswered" }).list!.sharedOrder).toEqual([]);
   });
 });
 

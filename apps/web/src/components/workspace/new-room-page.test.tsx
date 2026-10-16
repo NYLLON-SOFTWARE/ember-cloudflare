@@ -3,6 +3,7 @@ import type { Room } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import checkMark from "@/components/icons/campfire/check.svg";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
@@ -13,12 +14,12 @@ const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
 const linus = { id: "u3", name: "Linus Torvalds" };
 
-/** Answers the people for the form, then `created` (or `refusal`) for a new room. */
-function serve({ created, refusal }: { created?: Room; refusal?: { status: number; error: string } } = {}) {
+/** Answers the people for the form, or `formRefusal`, then `created` (or `refusal`) for a new room. */
+function serve({ created, refusal, formRefusal }: { created?: Room; refusal?: { status: number; error: string }; formRefusal?: { status: number; error: string } } = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (init?.method === "POST") return refusal ? Response.json({ error: refusal.error }, { status: refusal.status }) : Response.json({ room: created }, { status: 201 });
     expect(input).toBe("/api/rooms/new");
-    return Response.json({ people: [ada, grace, linus] });
+    return formRefusal ? Response.json({ error: formRefusal.error }, { status: formRefusal.status }) : Response.json({ people: [ada, grace, linus] });
   });
 }
 
@@ -41,9 +42,11 @@ function showPage(path = "/rooms/opens/new") {
   const [onCreated, onFailed] = [vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
   render(
-    <Sheet>
-      <NewRoomRoute onCreated={onCreated} onFailed={onFailed} />
-    </Sheet>,
+    <FlashProvider workspace>
+      <Sheet>
+        <NewRoomRoute onCreated={onCreated} onFailed={onFailed} />
+      </Sheet>
+    </FlashProvider>,
   );
   return { onCreated, onFailed, user: userEvent.setup() };
 }
@@ -170,6 +173,38 @@ describe(feature("rooms.create-open"), () => {
     expect(onFailed).not.toHaveBeenCalled();
     await act(async () => answers[1]!(Response.json({ error: "Sign in to continue" }, { status: 401 })));
     expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));
+  });
+});
+
+describe(feature("rooms.creation-permission"), () => {
+  const ONLY_ADMINISTRATORS = "Only administrators can create rooms";
+
+  it("sends anyone but an administrator to workspace settings, saying why, while only they can create rooms, where ember-rust answers an empty 403", async () => {
+    serve({ formRefusal: { status: 403, error: ONLY_ADMINISTRATORS } });
+    const { onFailed } = showPage("/rooms/closeds/new");
+    expect(await screen.findByRole("alert")).toHaveTextContent(ONLY_ADMINISTRATORS);
+    expect(location.pathname).toBe("/account/edit");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("stays where it was sent when the refusal comes after the page was left", async () => {
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const { onFailed } = showPage();
+    act(() => navigate("/rooms/general"));
+    await act(async () => answer(Response.json({ error: ONLY_ADMINISTRATORS }, { status: 403 })));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("says why a room wasn't created once only administrators can create them, keeping the form", async () => {
+    serve({ refusal: { status: 403, error: ONLY_ADMINISTRATORS } });
+    const { onFailed, user } = showPage();
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403, message: ONLY_ADMINISTRATORS })));
+    expect(location.pathname).toBe("/rooms/opens/new");
+    expect(await roomName()).toHaveValue("New room");
   });
 });
 

@@ -33,6 +33,8 @@ interface Props {
   suggestions: User[];
   /** The rooms they've starred, whose rows come first, end with a star, and can be moved among themselves. */
   favorites: Favorites;
+  /** The rooms the workspace's shared order ranks, which come next, in its order. */
+  sharedOrder: RoomId[];
   currentRoomId: string | null;
   /** Whether Activity is on, which shows only the rows marked unread. */
   unreadOnly: boolean;
@@ -49,14 +51,15 @@ interface Props {
 
 /**
  * The conversation list: rooms, then DMs, under the workspace name. The starred rooms come first, then
- * the rest by name, and a starred room's row ends with a grip and a star, as channel_order_controller.js
- * marks it (`.mb-room-drag-handle`, `.mb-room-favorite-marker`): held, it can be dragged among the other
- * starred rows, or moved with Alt and an arrow (`useStarOrder`). The DMs come latest active first, and
- * a DM's row shows who else is in it, as ember-rust's `_direct.html` does. People suggested for DMs
- * follow, as ember-rust's `_direct_placeholder.html` lists them. A room or DM marked unread is bold with
- * a dot at the end of its row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css). With
- * Activity on, only those rows show, as shell.js's `filterRooms` leaves them, and with none it says
- * everything's read; with it off and nothing to list, it says it found nothing.
+ * the ones the shared order ranks, in its order, then the rest by name, and a starred room's row ends
+ * with a grip and a star, as channel_order_controller.js marks it (`.mb-room-drag-handle`,
+ * `.mb-room-favorite-marker`): held, it can be dragged among the other starred rows, or moved with Alt
+ * and an arrow (`useStarOrder`). The DMs come latest active first, and a DM's row shows who else is in
+ * it, as ember-rust's `_direct.html` does. People suggested for DMs follow, as ember-rust's
+ * `_direct_placeholder.html` lists them. A room or DM marked unread is bold with a dot at the end of its
+ * row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css). With Activity on, only those
+ * rows show, as shell.js's `filterRooms` leaves them, and with none it says everything's read; with it
+ * off and nothing to list, it says it found nothing.
  */
 export function Sidebar({
   workspaceName,
@@ -65,6 +68,7 @@ export function Sidebar({
   loaded,
   suggestions,
   favorites,
+  sharedOrder,
   currentRoomId,
   unreadOnly,
   onSelect,
@@ -80,7 +84,7 @@ export function Sidebar({
     return room && room.kind !== "direct" ? room.name : "";
   };
   const { order, moving, status, listRef, scrollerRef, listProps } = useStarOrder({ favorites, shown, nameOf, onSaved: onStarred, onSessionChanged });
-  const listed = useMemo(() => inSidebarOrder(shared, order), [shared, order]);
+  const listed = useMemo(() => inSidebarOrder(shared, order, sharedOrder), [shared, order, sharedOrder]);
   const starred = useMemo(() => new Set(order), [order]);
   const directsListed = useMemo(() => inDirectOrder(directs), [directs]);
   // Activity hides the suggestions, as shell.js's `filterRooms` hides their forms.

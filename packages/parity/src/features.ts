@@ -560,7 +560,7 @@ export const features = [
     id: "rooms.creation-permission",
     title: "Only administrators create rooms (setting)",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "New room lives in the Rooms section of workspace settings; the sidebar has no create-room link.",
       "Administrators get a \"Must be admin to create new rooms\" row, marked with a crown, whose switch (named the same for screen readers) saves as soon as it changes.",
@@ -568,6 +568,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/templates/accounts/edit.html", "reference/app/models/account.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "reference/test/models/account_test.rb", "parity/kro/workspace.test.mjs"],
+    notes: "The setting is kept in the account's settings as `restrict_room_creation_to_administrators`, read as ember-rust reads it: anything present is on, so blank text, null, false and an empty list are off. The New room pages are the app's own, so `GET /api/rooms/new` answers the 403 (\"Only administrators can create rooms\") and the page sends the member to workspace settings with that alert, where ember-rust answers an empty 403 page. Creating a room answers the same 403 before anything sent is checked, as ember-rust's check comes first, and someone's role is read as they create it. The Rooms section goes or comes back on members' open pages as soon as an administrator moves the switch (`account.updated`), where ember-rust's waits for their next page.",
   },
   {
     id: "rooms.show",
@@ -884,7 +885,7 @@ export const features = [
     id: "sidebar.room-order",
     title: "Room order",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.",
       "A room added or renamed while the page is open sorts into place at once.",
@@ -892,7 +893,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/presenters/accounts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. There's no shared order yet (`sidebar.shared-order`). A room you create or rename sorts into place in your own sidebar at once.",
+    notes: "Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rooms the shared order ranks, in its order (`sidebar.shared-order`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. The sidebar's list carries only the ranks of rooms you're in. A room you create or rename sorts into place in your own sidebar at once.",
   },
   {
     id: "sidebar.dm-order",
@@ -1000,7 +1001,7 @@ export const features = [
     id: "sidebar.shared-order",
     title: "Shared room order",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Administrators arrange the rooms in their own sidebar, DMs aside, in workspace settings, under \"Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.\", or see \"No rooms to arrange yet.\" when there are none. Members don't see it.",
       "A row moves by dragging its \"Move <name>\" handle, at once with no hold (\"Moving <name>. Release to place, or press Escape to cancel.\"), or with Alt+Up and Alt+Down.",
@@ -1012,12 +1013,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/sidebars.rs", "crates/db/src/models/account.rs", "crates/views/templates/accounts/edit.html", "crates/assets/overrides/controllers/channel_order_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/channels/broadcasts.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/db/src/tests/account_test.rs"],
+    notes: "Each room keeps its own place in the order (`rooms.shared_position`), where ember-rust keeps one list in the account's settings, so the sidebar reads a room's place with the room (`docs/database.md`). `PUT /api/account/room_order` takes the list as JSON `roomIds`, refuses one of more than 4,096 rooms, and answers the rooms of the administrator's it ranks, `{ sharedOrder }`, where ember-rust answers 204. The list on workspace settings is the administrator's sidebar as it is now, so a room made or deleted meanwhile joins its end or leaves it, where ember-rust's is as the page loaded. The broadcast, `rooms.reordered`, names no rooms, and each tab waits up to 5 seconds at random before loading its rooms again, so they don't all ask the Workspace at once, where ember-rust's reload at once. The line saying what happened is there from the start for screen readers, taking no room until it says something. Save order and Cancel are dimmed while they can't be pressed, as Campfire dims a disabled submit button, and each row's grip is 44px wide for fingers, where ember-rust's is 36px.",
   },
   {
     id: "sidebar.refresh-preserves-state",
     title: "Background sidebar reloads keep your place",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A reload for a shared-order change waits until any hold, drag or save in the room list is over, then keeps the list's scroll position and the focused row.",
       "Other background reloads, on reconnect or when a tab comes back after 60 seconds, never interrupt a hold, drag or save in progress.",
@@ -1025,7 +1027,7 @@ export const features = [
     sources: ["crates/assets/overrides/controllers/channel_order_controller.js", "crates/assets/overrides/ember/shell.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
     notes:
-      "A sidebar reloaded in the background, as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust. There's no shared order yet, so nothing waits on one.",
+      "A sidebar reloaded in the background, for a new shared order or as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row, with no need to wait for them to end, as ember-rust's frame reload has to. A starred row moves only among the stars, above every other room, so a new shared order that lands mid-drag moves only the rows below it. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust.",
   },
 
   // Messages

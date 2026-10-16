@@ -16,6 +16,7 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_ROOM_NAME_LENGTH,
+  MAX_SHARED_ORDER,
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
@@ -27,6 +28,7 @@ import {
   parseRoomChanges,
   parseRoomSocketParams,
   parseServerFrame,
+  parseSharedOrder,
   parseSignUp,
   parseWorkspaceClientFrame,
   ROOM_ICON_NAMES,
@@ -172,7 +174,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -352,11 +354,40 @@ describe(feature("accounts.translation-buttons"), () => {
   it.each([
     ["settings that aren't an object", { settings: [true] }, "Settings must be a JSON object"],
     ["a setting that isn't true or false", { settings: { hideTranslationButtons: "false" } }, "Hide translation buttons must be true or false"],
-    ["a setting it doesn't know", { settings: { hideTranslationButtons: true, restrictRoomCreation: true } }, "Unknown setting: restrictRoomCreation"],
+    ["a setting it doesn't know", { settings: { hideTranslationButtons: true, allowGuests: true } }, "Unknown setting: allowGuests"],
     ["a setting named for an object's own methods", { settings: { toString: true } }, "Unknown setting: toString"],
     ["a good setting beside a bad name", { name: 7, settings: { hideTranslationButtons: true } }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("rooms.creation-permission"), () => {
+  it("takes Must be admin to create new rooms as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { restrictRoomCreation: true } })).toEqual({ settings: { restrictRoomCreation: true } });
+    expect(parseAccountChanges({ settings: { restrictRoomCreation: false, hideTranslationButtons: true } })).toEqual({
+      settings: { restrictRoomCreation: false, hideTranslationButtons: true },
+    });
+    expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe(feature("sidebar.shared-order"), () => {
+  it("takes a list of distinct rooms, or none, which clears the order", () => {
+    expect(parseSharedOrder({ roomIds: ["0000000000000002", "general"] })).toEqual(["0000000000000002", "general"]);
+    expect(parseSharedOrder({ roomIds: [] })).toEqual([]);
+    expect(parseSharedOrder({ roomIds: Array.from({ length: MAX_SHARED_ORDER }, (_, i) => `room-${i}`) })).toHaveLength(MAX_SHARED_ORDER);
+  });
+
+  it.each([
+    ["no list", {}, "roomIds must be an array"],
+    ["a body that isn't an object", null, "roomIds must be an array"],
+    ["a list that isn't one", { roomIds: "general" }, "roomIds must be an array"],
+    ["more rooms than an order can rank", { roomIds: Array.from({ length: MAX_SHARED_ORDER + 1 }, (_, i) => `room-${i}`) }, "too many rooms"],
+    ["a room twice", { roomIds: ["general", "general"] }, "room IDs must be unique and valid"],
+    ["an id that isn't a room's", { roomIds: ["general", 7] }, "room IDs must be unique and valid"],
+  ])("refuses %s as ember-rust's `parse_order` does, and says why", (_, body, error) => {
+    expect(parseSharedOrder(body)).toBe(error);
   });
 });
 

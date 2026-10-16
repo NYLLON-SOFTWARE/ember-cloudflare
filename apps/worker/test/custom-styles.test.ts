@@ -31,7 +31,7 @@ const bootstrap = async (session?: Session) => (await (await api("/api/bootstrap
 const stored = async () => ((await workspaceSql("SELECT custom_styles, updated_at FROM accounts")) as Array<{ custom_styles: string | null; updated_at: string }>)[0]!;
 
 /** The workspace as pages show it with `customStyles`. */
-const styled = (customStyles: string): Account => ({ name: "Ember", hideTranslationButtons: true, customStyles });
+const styled = (customStyles: string): Account => ({ name: "Ember", hideTranslationButtons: true, customStyles, restrictRoomCreation: false });
 
 /** CSS as an administrator might type it, with what would end ember-rust's unescaped `<style>`. */
 const CSS = ".mb-app { --mb-ink: rebeccapurple; }\n</style><script>alert(1)</script>\n";

@@ -24,6 +24,7 @@ function renderSidebar(props: Partial<Props> = {}) {
     meId: "u1",
     rooms,
     favorites: unstarred,
+    sharedOrder: [],
     loaded: true,
     suggestions: [],
     currentRoomId: null,
@@ -148,6 +149,23 @@ describe(feature("sidebar.room-order"), () => {
     const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false }];
     renderSidebar({ rooms: more, favorites: { rooms: ["random", "ops"], version: 2 } });
     expect(listed()).toEqual(["#random", "#ops", "#Design", "#general"]);
+  });
+});
+
+describe(feature("sidebar.shared-order"), () => {
+  it("lists the rooms the shared order ranks after your stars, in its order, then the rest by name", () => {
+    const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false }];
+    renderSidebar({ rooms: more, favorites: { rooms: ["ops"], version: 1 }, sharedOrder: ["random", "ops", "gone", "general"] });
+    expect(listed()).toEqual(["#ops", "#random", "#general", "#Design"]);
+  });
+
+  it("moves only the starred rows, which stay above the rest", () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites: { rooms: ["general"], version: 2 } }));
+    renderSidebar({ favorites: { rooms: ["general"], version: 1 }, sharedOrder: ["random", "general"] });
+    expect(listed()).toEqual(["#general", "#random"]);
+    for (const [name, key] of [["random", "ArrowUp"], ["general", "ArrowDown"]] as const) fireEvent.keyDown(row(name), { key, altKey: true });
+    expect(listed()).toEqual(["#general", "#random"]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -450,7 +468,7 @@ describe(feature("dms.naming"), () => {
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
         <Sidebar
-          {...{ workspaceName: "Ember", meId: ada!.id, loaded: true, suggestions: [], favorites: unstarred, currentRoomId: null, unreadOnly: false }}
+          {...{ workspaceName: "Ember", meId: ada!.id, loaded: true, suggestions: [], favorites: unstarred, sharedOrder: [], currentRoomId: null, unreadOnly: false }}
           {...{ onSelect: vi.fn(), onNewDirect: vi.fn(), onStartDirect: vi.fn(), onStarred: vi.fn(), onSessionChanged: vi.fn() }}
           rooms={[direct("d1", [ada!, grace!])]}
         />

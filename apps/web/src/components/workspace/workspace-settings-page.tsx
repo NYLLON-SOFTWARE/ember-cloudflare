@@ -1,8 +1,18 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { MAX_ACCOUNT_NAME_LENGTH, type Account, type DirectoryUser, type Me, type PersonRole, type WorkspaceSettings } from "@ember/protocol";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  MAX_ACCOUNT_NAME_LENGTH,
+  type Account,
+  type AccountSettings,
+  type DirectoryUser,
+  type Me,
+  type PersonRole,
+  type RoomId,
+  type SidebarRoom,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Art } from "@/components/icons/campfire";
+import { Add, Art, Crown } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -13,10 +23,12 @@ import { useMounted } from "@/hooks/use-mounted";
 import { CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removePerson } from "@/lib/api";
+import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { InviteLink } from "./invite-link";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
+import { RoomOrder } from "./room-order";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
@@ -41,22 +53,45 @@ interface Props {
   onPersonChanged: (person: DirectoryUser) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
+  /** The rooms in this person's sidebar, as it lists them now, or null until it has. */
+  rooms: SidebarRoom[] | null;
+  /** The ones of them the shared order ranks, in its order. */
+  sharedOrder: RoomId[];
+  /** Called with the rooms of theirs the shared order ranks, as the server answers them, once they save it. */
+  onSharedOrderSaved: (sharedOrder: RoomId[]) => void;
+  /** Called with null when the session has expired. */
+  onSessionChanged: (me: Me | null) => void;
 }
 
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
  * the workspace, show or hide the translation buttons, and have a link to the Custom CSS page, and
- * members see its name, then everyone gets the Rooms section with New room, the join link, which
- * administrators can regenerate, the people, whom administrators can make administrators or members
- * and remove, and "Ember™ version" at the foot.
+ * members see its name. Then comes the Rooms section with New room, which members don't get while only
+ * administrators can create rooms, and where administrators switch that on or off and put the rooms in
+ * order for everyone. Then the join link, which administrators can regenerate, the people, whom
+ * administrators can make administrators or members and remove, and "Ember™ version" at the foot.
  */
-export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoinCodeChanged, reloadPeople, onPersonChanged, onFailed }: Props) {
+export function WorkspaceSettingsPage({
+  me,
+  back,
+  version,
+  askForAccount,
+  onJoinCodeChanged,
+  reloadPeople,
+  onPersonChanged,
+  onFailed,
+  rooms,
+  sharedOrder,
+  onSharedOrderSaved,
+  onSessionChanged,
+}: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  // Where the Hide translation buttons switch was moved to, while that's saved.
+  // Where the Hide translation buttons switch was moved to, while that's saved, and Must be admin to create new rooms.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
+  const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   const account = useAccount();
   const people = useContext(PeopleContext);
   // The people as they are now, for answers that come later.
@@ -118,23 +153,32 @@ export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoin
     );
   };
 
-  // As ember-rust's switch does: saved at once, with no notice after.
-  const switchTranslations = (hide: boolean) => {
-    if (hidingTranslations !== null) return;
-    setHidingTranslations(hide);
+  // As ember-rust's switches do: saved at once, with no notice after, then `settled` is called.
+  const saveSwitch = (settings: AccountSettings, settled: () => void) => {
     const answered = askForAccount();
-    changeAccount({ settings: { hideTranslationButtons: hide } }).then(
+    changeAccount({ settings }).then(
       (account) => {
         answered(account);
-        if (mounted.current) setHidingTranslations(null);
+        if (mounted.current) settled();
       },
       (error: unknown) => {
         if (!mounted.current && !isSignedOut(error)) return;
-        setHidingTranslations(null);
+        settled();
         onFailed(error);
       },
     );
   };
+  const switchTranslations = (hide: boolean) => {
+    if (hidingTranslations !== null) return;
+    setHidingTranslations(hide);
+    saveSwitch({ hideTranslationButtons: hide }, () => setHidingTranslations(null));
+  };
+  const switchRoomCreation = (restrict: boolean) => {
+    if (restrictingCreation !== null) return;
+    setRestrictingCreation(restrict);
+    saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
+  };
+  const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -240,20 +284,39 @@ export function WorkspaceSettingsPage({ me, back, version, askForAccount, onJoin
           ) : (
             <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
           ))}
-        <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="rooms-settings-heading" className="text-base font-semibold">
-              Rooms
-            </h2>
-            <PageLink
-              href={newRoomPath("open")}
-              className="inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium"
-            >
-              <Add width={18} height={18} className="size-[18px]" />
-              <span>New room</span>
-            </PageLink>
-          </div>
-        </section>
+        {(me.administrator || !account.restrictRoomCreation) && (
+          <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="rooms-settings-heading" className="text-base font-semibold">
+                Rooms
+              </h2>
+              <PageLink
+                href={newRoomPath("open")}
+                className="inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium"
+              >
+                <Add width={18} height={18} className="size-[18px]" />
+                <span>New room</span>
+              </PageLink>
+            </div>
+            {settings?.canAdminister && (
+              <>
+                {/* `.mb-channel-settings-permissions`. */}
+                <div className="mt-4 flex items-center gap-x-[1ch] gap-y-4 border-t pt-4">
+                  <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
+                    <Crown width={18} height={18} className="size-[18px]" />
+                    Must be admin to create new rooms
+                  </div>
+                  <Switch
+                    checked={restrictingCreation ?? account.restrictRoomCreation}
+                    onCheckedChange={switchRoomCreation}
+                    aria-label="Must be admin to create new rooms"
+                  />
+                </div>
+                {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
+              </>
+            )}
+          </section>
+        )}
         {/* ember-rust's box holds the people too, under the link (accounts/edit.html). */}
         {settings && (
           <div className="my-4 rounded-[10px] border bg-surface px-[1ch] pt-4">

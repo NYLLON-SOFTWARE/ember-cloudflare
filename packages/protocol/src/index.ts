@@ -125,6 +125,12 @@ export interface Favorites {
 export interface Sidebar {
   rooms: SidebarRoom[];
   favorites: Favorites;
+  /**
+   * The rooms in `rooms` that the workspace's shared order ranks, in that order, which the sidebar lists
+   * after the stars, before the rest, as ember-rust's `channel_order` has them (users/sidebars.rs). An
+   * administrator sets it on workspace settings, and the ids of rooms someone isn't in never reach them.
+   */
+  sharedOrder: RoomId[];
   invitation: Invitation | null;
   /**
    * People to start a DM with, as ember-rust's sidebar suggests them after the DMs
@@ -195,6 +201,8 @@ export interface Account {
   hideTranslationButtons: boolean;
   /** The CSS administrators add to every page, after the app's own. Empty when there's none. */
   customStyles: string;
+  /** Whether only administrators can create rooms, as "Must be admin to create new rooms" says. Off until one turns it on. */
+  restrictRoomCreation: boolean;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -220,6 +228,7 @@ export interface AccountChanges {
 /** The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]` names it. */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
+  restrictRoomCreation?: boolean;
 }
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
@@ -542,6 +551,12 @@ export type WorkspaceServerFrame =
   | { type: "room.active"; roomId: RoomId; at: string }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /**
+   * An administrator saved the shared room order, so the sidebar loads again, as ember-rust's
+   * `room_order_changed` has every sidebar reload (broadcasts.rs). It names no rooms, since some aren't
+   * everyone's. Sent to everyone.
+   */
+  | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
   | { type: "error"; message: string }
@@ -630,6 +645,8 @@ export const MAX_CUSTOM_STYLES_LENGTH = 100_000;
 export const MAX_LISTED_USERS = 1_000;
 /** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
 export const MAX_FAVORITES = 4_096;
+/** How many rooms the shared order can rank, as ember-rust caps it (`MAX_CHANNEL_ORDER`, account.rs). */
+export const MAX_SHARED_ORDER = 4_096;
 /** The profile's Bio field's `maxlength` (users/profiles/show.html), which the server keeps too. */
 export const MAX_BIO_LENGTH = 200;
 
@@ -799,19 +816,28 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 }
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
-const SETTING_NAMES: Record<keyof AccountSettings, string> = { hideTranslationButtons: "Hide translation buttons" };
+const SETTING_NAMES: Record<keyof AccountSettings, string> = {
+  hideTranslationButtons: "Hide translation buttons",
+  restrictRoomCreation: "Must be admin to create new rooms",
+};
 
 /**
- * Parses an untrusted order for someone's starred rooms, as ember-rust's `parse_order` reads one
+ * Parses an untrusted order of at most `max` rooms, as ember-rust's `parse_order` reads one
  * (users/sidebars.rs). Returns why it's refused instead of the rooms.
  */
-export function parseFavoriteOrder(data: unknown): RoomId[] | string {
+function parseRoomOrder(data: unknown, max: number): RoomId[] | string {
   const roomIds = typeof data === "object" && data !== null ? (data as Record<string, unknown>).roomIds : undefined;
   if (!Array.isArray(roomIds)) return "roomIds must be an array";
-  if (roomIds.length > MAX_FAVORITES) return "too many rooms";
+  if (roomIds.length > max) return "too many rooms";
   const ids = roomIds.filter((id): id is RoomId => typeof id === "string" && isRoomId(id));
   return ids.length === roomIds.length && new Set(ids).size === ids.length ? ids : "room IDs must be unique and valid";
 }
+
+/** Parses an untrusted order for someone's starred rooms. Returns why it's refused instead of the rooms. */
+export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FAVORITES);
+
+/** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
+export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
 
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in

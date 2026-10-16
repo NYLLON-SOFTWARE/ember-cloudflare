@@ -77,7 +77,12 @@ const ROOMS_AT_ONCE = 6;
 const MESSAGES_PER_PURGE = 100;
 
 /** The account as every page shows it, without its join code, which only the people in it see. */
-const accountOf = ({ name, hideTranslationButtons, customStyles }: JoinableAccount): Account => ({ name, hideTranslationButtons, customStyles });
+const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation }: JoinableAccount): Account => ({
+  name,
+  hideTranslationButtons,
+  customStyles,
+  restrictRoomCreation,
+});
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
 export const CREDENTIALS_HEADER = "X-Ember-Credentials";
@@ -343,10 +348,11 @@ export class Workspace extends DurableObject<Env> {
   async changeAccount(credentials: Credentials, { name, settings }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const hideTranslationButtons = settings?.hideTranslationButtons;
+      const { hideTranslationButtons, restrictRoomCreation } = settings ?? {};
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
+        ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
       };
       if (Object.keys(change).length === 0) return accountOf(account);
       return this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
@@ -623,16 +629,35 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The sidebar of the person `credentials` signs in: the rooms they're in and the ones they've starred,
-   * with the welcome card's invitation if they're in the workspace's first room, and the people it
-   * suggests for DMs. Null without a valid session.
+   * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
+   * the shared order of the rest, with the welcome card's invitation if they're in the workspace's first
+   * room, and the people it suggests for DMs. Null without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, suggestions, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const [{ rooms, favorites, sharedOrder, suggestions, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
     const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
-    return { rooms, favorites, invitation: account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null, suggestions };
+    const invitation = account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null;
+    return { rooms, favorites, sharedOrder, invitation, suggestions };
+  }
+
+  /**
+   * Puts the rooms in the sidebar of the administrator `credentials` signs in, DMs aside, in the shared
+   * order in the order `roomIds` lists them, as ember-rust's `sidebars#update_default_order` does
+   * (users/sidebars.rs), answering the rooms they're in that it ranks, in its order: "forbidden" unless
+   * they're an administrator and every room is one they could order, or null without a valid session.
+   * Every sidebar loads again, its own included.
+   */
+  async setSharedOrder(credentials: Credentials, roomIds: RoomId[]): Promise<RoomId[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const sharedOrder = await this.store.setSharedOrder(user.id, roomIds);
+      if (!sharedOrder) return "forbidden";
+      this.broadcast({ type: "rooms.reordered" });
+      return sharedOrder;
+    });
   }
 
   /**
@@ -683,13 +708,36 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
+  /** Whether the person `credentials` signs in is an administrator now, or null without a valid session. */
+  async canAdminister(credentials: Credentials): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.isAdministrator(user.id);
+  }
+
   /**
-   * Creates a room as the person `credentials` signs in, or answers null without a valid session.
-   * Everyone it puts in sees it in their sidebars at once, and nobody else hears of it.
+   * Whether the person `credentials` signs in may create rooms, as ember-rust's
+   * `ensure_permission_to_create_rooms` decides (rooms.rs): anyone, unless an administrator has turned
+   * on "Must be admin to create new rooms". Null without a valid session.
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | null> {
+  async mayCreateRooms(credentials: Credentials): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.mayCreateRoomsAs(user.id);
+  }
+
+  private async mayCreateRoomsAs(userId: UserId): Promise<boolean> {
+    const account = await this.joinableAccount();
+    return !account?.restrictRoomCreation || this.store.isAdministrator(userId);
+  }
+
+  /**
+   * Creates a room as the person `credentials` signs in: "forbidden" unless they may create rooms, or
+   * null without a valid session. Everyone it puts in sees it in their sidebars at once, and nobody else
+   * hears of it.
+   */
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
+    if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
     const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
     const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
     this.tell(memberIds, { type: "room.saved", room: created });
@@ -713,10 +761,14 @@ export class Workspace extends DurableObject<Env> {
     return direct;
   }
 
-  /** What the New room forms list, everyone active, for the person `credentials` signs in, or null without a valid session. */
-  async newRoomForm(credentials: Credentials): Promise<NewRoomForm | null> {
+  /**
+   * What the New room forms list, everyone active, for the person `credentials` signs in: "forbidden"
+   * unless they may create rooms, or null without a valid session.
+   */
+  async newRoomForm(credentials: Credentials): Promise<NewRoomForm | "forbidden" | null> {
     const user = await this.authenticate(credentials);
-    return user && { people: await this.store.activePeople() };
+    if (!user) return null;
+    return (await this.mayCreateRoomsAs(user.id)) ? { people: await this.store.activePeople() } : "forbidden";
   }
 
   /**

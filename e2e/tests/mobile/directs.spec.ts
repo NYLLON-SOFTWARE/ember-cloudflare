@@ -43,7 +43,7 @@ test.describe(feature("dms.suggestions"), () => {
     // The server's suggestions, the oldest accounts, with only this test's room.
     await page.route("**/api/sidebar", async (route) => {
       const { suggestions } = (await (await route.fetch()).json()) as Sidebar;
-      await route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, invitation: null, suggestions } satisfies Sidebar });
+      await route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false }], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions } satisfies Sidebar });
     });
     await openRoom(page, room);
     if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();

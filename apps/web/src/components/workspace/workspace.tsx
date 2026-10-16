@@ -57,9 +57,10 @@ interface Redirect {
   alert?: string;
 }
 
-/** The rooms, and stars, of someone whose rooms haven't loaded yet. */
+/** The rooms, stars and shared order of someone whose rooms haven't loaded yet. */
 const NO_ROOMS: SidebarRoom[] = [];
 const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
+const NO_ORDER: RoomId[] = [];
 const NO_PEOPLE: User[] = [];
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
@@ -178,6 +179,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
   const favorites = list?.favorites ?? NO_FAVORITES;
+  const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
   // Not anyone the directory has heard is removed or banned since the list loaded, whom ember-rust's
   // next page, such as the one removing someone loads, no longer suggests.
@@ -235,6 +237,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
+  const reorderedRooms = useCallback((sharedOrder: RoomId[]) => changeRooms({ type: "reordered", sharedOrder }), []);
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
   // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
@@ -359,6 +362,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       loaded={rooms !== null}
       suggestions={suggestions}
       favorites={favorites}
+      sharedOrder={sharedOrder}
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
@@ -398,6 +402,10 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             reloadPeople={directory.reload}
             onPersonChanged={directory.update}
             onFailed={failed}
+            rooms={rooms}
+            sharedOrder={sharedOrder}
+            onSharedOrderSaved={reorderedRooms}
+            onSessionChanged={onSessionChanged}
           />
         );
       case "custom-styles":

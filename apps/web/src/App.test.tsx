@@ -18,7 +18,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
+const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
 const general = { id: "general", name: "general", kind: "open", icon: null };
 /** The rooms first run makes, general first. */
 const firstRooms = [

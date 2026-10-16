@@ -2,10 +2,11 @@ import { suggestedCount, type Favorites, type Room, type RoomId, type SharedRoom
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms they've
-// starred first, in the order they starred them, then the rest by name, as ember-rust's
-// channel_order_controller.js sorts its rows: each name lowercased and compared as `localeCompare`
-// compares it, in the browser's language, then by id. Their DMs go by when each was last active, latest
-// first, as ember-rust's sorted_list_controller.js sorts them.
+// starred first, in the order they starred them, then the rooms the workspace's shared order ranks, in
+// its order, then the rest by name, as ember-rust's channel_order_controller.js sorts its rows: each
+// name lowercased and compared as `localeCompare` compares it, in the browser's language, then by id.
+// Their DMs go by when each was last active, latest first, as ember-rust's sorted_list_controller.js
+// sorts them.
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
@@ -27,17 +28,21 @@ const collator = new Intl.Collator();
 
 const byId = (a: Room, b: Room) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** Each room's place in `order`. */
+const placesIn = (order: RoomId[]) => new Map(order.map((id, place) => [id, place]));
+
 /**
- * `rooms` in the sidebar's order, the rooms in `favorites` first, each room's place and name worked out
- * once rather than at every comparison.
+ * `rooms` in the sidebar's order, the rooms in `favorites` first, then the ones `sharedOrder` ranks, each
+ * room's places and name worked out once rather than at every comparison.
  */
-export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: RoomId[]): T[] {
-  const places = new Map(favorites.map((id, place) => [id, place]));
+export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: RoomId[], sharedOrder: RoomId[] = []): T[] {
+  const stars = placesIn(favorites);
+  const shared = placesIn(sharedOrder);
   return (
     rooms
-      .map((room) => ({ room, place: places.get(room.id) ?? Infinity, name: room.name.toLowerCase() }))
-      // Two rooms that aren't starred are Infinity - Infinity apart, which is NaN, so they go by name.
-      .sort((a, b) => a.place - b.place || collator.compare(a.name, b.name) || byId(a.room, b.room))
+      .map((room) => ({ room, star: stars.get(room.id) ?? Infinity, shared: shared.get(room.id) ?? Infinity, name: room.name.toLowerCase() }))
+      // Two rooms that neither ranks are Infinity - Infinity apart, which is NaN, so they go by what's next.
+      .sort((a, b) => a.star - b.star || a.shared - b.shared || collator.compare(a.name, b.name) || byId(a.room, b.room))
       .map(({ room }) => room)
   );
 }
@@ -99,15 +104,17 @@ const withActivity = (rooms: SidebarRoom[], roomId: RoomId, at: string): Sidebar
 /**
  * A change to someone's rooms, which the server's list shows the next time it's asked: a room as it was
  * saved, here or anywhere else, one that's gone for this person, deleted or no longer theirs, a room the
- * workspace socket says has been marked unread or read, a DM it says a message has come in, or their
- * stars, as a star saved in any of their tabs leaves them.
+ * workspace socket says has been marked unread or read, a DM it says a message has come in, their
+ * stars, as a star saved in any of their tabs leaves them, or the shared order, as saving it here leaves
+ * their rooms in it.
  */
 export type RoomChange =
   | { type: "saved"; room: Room }
   | { type: "gone"; roomId: RoomId }
   | { type: "marked"; roomId: RoomId; unread: boolean }
   | { type: "active"; roomId: RoomId; at: string }
-  | { type: "starred"; favorites: Favorites };
+  | { type: "starred"; favorites: Favorites }
+  | { type: "reordered"; sharedOrder: RoomId[] };
 
 /** What the server answers a change to a room with: the room as saved, or gone for this person. */
 export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" }>;
@@ -152,6 +159,8 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
     // so the newest stands.
     case "starred":
       return change.favorites.version > list.favorites.version ? { ...list, favorites: change.favorites } : list;
+    case "reordered":
+      return { ...list, sharedOrder: change.sharedOrder };
   }
 }
 
@@ -163,7 +172,7 @@ export function roomListReducer(state: RoomListState, action: RoomListAction): R
       return { list: (state.pending ?? []).reduce(changed, action.list), pending: null };
     // When the first list fails to arrive, there are no rooms to show, rather than a list loading for good.
     case "unanswered":
-      return { list: state.list ?? { rooms: [], favorites: { rooms: [], version: 0 }, invitation: null, suggestions: [] }, pending: null };
+      return { list: state.list ?? { rooms: [], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [] }, pending: null };
     default:
       return { list: state.list && changed(state.list, action), pending: state.pending && [...state.pending, action] };
   }

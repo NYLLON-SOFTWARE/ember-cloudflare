@@ -13,16 +13,16 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 71 ported and 50 partial of 172 features; 46 not started, 5 not applicable.
+**Overall:** 75 ported and 48 partial of 172 features; 44 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 6 | 6 | 0 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 11 | 2 | 1 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 2 | 2 | 1 | 0 | 5 |
-| [Rooms](#rooms) | 7 | 10 | 1 | 0 | 18 |
+| [Rooms](#rooms) | 8 | 10 | 0 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
-| [Sidebar and navigation](#sidebar-and-navigation) | 5 | 4 | 1 | 0 | 10 |
+| [Sidebar and navigation](#sidebar-and-navigation) | 8 | 2 | 0 | 0 | 10 |
 | [Messages](#messages) | 8 | 11 | 0 | 0 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **71** | **50** | **46** | **5** | **172** |
+| **Total** | **75** | **48** | **44** | **5** | **172** |
 
 ## Sign-in and sessions
 
@@ -523,7 +523,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Open rooms everyone is in | `rooms.open` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Create an open room | `rooms.create-open` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [room-settings](apps/worker/test/room-settings.test.ts), [rooms](apps/worker/test/rooms.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Create a private room | `rooms.create-closed` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [rooms](apps/worker/test/rooms.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
-| Only administrators create rooms (setting) | `rooms.creation-permission` | Campfire | ⬜ Not started |  |
+| Only administrators create rooms (setting) | `rooms.creation-permission` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [room-creation](apps/worker/test/room-creation.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [room-creation](e2e/tests/workspace-settings/room-creation.spec.ts) |
 | Open a room | `rooms.show` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Go back to the last room | `rooms.last-visited` | Campfire | ✅ Ported | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [last-room](apps/web/src/lib/last-room.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Room addresses | `rooms.index` | Campfire | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
@@ -584,11 +584,13 @@ Sources: [`crates/ember/src/controllers/rooms/closeds.rs`](https://github.com/NY
 
 ember-rust tests: [`reference/test/controllers/rooms/closeds_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/closeds_controller_test.rb) · [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs)
 
-**Only administrators create rooms (setting)** (`rooms.creation-permission`) ⬜
+**Only administrators create rooms (setting)** (`rooms.creation-permission`) ✅
 
 - New room lives in the Rooms section of workspace settings; the sidebar has no create-room link.
 - Administrators get a "Must be admin to create new rooms" row, marked with a crown, whose switch (named the same for screen readers) saves as soon as it changes.
 - While it's on, members get 403 from the new room pages and from creating open or private rooms, and the whole Rooms section, heading included, is hidden from them. Administrators and DMs are unaffected.
+
+Note: The setting is kept in the account's settings as `restrict_room_creation_to_administrators`, read as ember-rust reads it: anything present is on, so blank text, null, false and an empty list are off. The New room pages are the app's own, so `GET /api/rooms/new` answers the 403 ("Only administrators can create rooms") and the page sends the member to workspace settings with that alert, where ember-rust answers an empty 403 page. Creating a room answers the same 403 before anything sent is checked, as ember-rust's check comes first, and someone's role is read as they create it. The Rooms section goes or comes back on members' open pages as soon as an administrator moves the switch (`account.updated`), where ember-rust's waits for their next page.
 
 Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/models/account.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/account.rb)
 
@@ -866,15 +868,15 @@ ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Conversations sidebar | `sidebar.rooms` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Room order | `sidebar.room-order` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts) |
+| Room order | `sidebar.room-order` | Ember | ✅ Ported | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts) |
 | DM order | `sidebar.dm-order` | Campfire | ✅ Ported | Worker: [directs](apps/worker/test/directs.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [directs](e2e/tests/features/directs.spec.ts) |
 | Live sidebar updates | `sidebar.live-updates` | Campfire | 🟡 Partial | Worker: [live-socket](apps/worker/test/live-socket.test.ts), [sidebar-updates](apps/worker/test/sidebar-updates.test.ts)<br>Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Unread rooms | `sidebar.unread` | Campfire | ✅ Ported | Worker: [unread](apps/worker/test/unread.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Activity filter | `sidebar.activity-filter` | Ember | ✅ Ported | Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Star rooms | `sidebar.favorites` | Ember | ✅ Ported | Worker: [favorites](apps/worker/test/favorites.test.ts)<br>Web: [favorite-button](apps/web/src/components/workspace/favorite-button.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [api](apps/web/src/lib/api.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Reorder starred rooms | `sidebar.favorite-order` | Ember | ✅ Ported | Worker: [favorites](apps/worker/test/favorites.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [api](apps/web/src/lib/api.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts), [sidebar](e2e/tests/mobile/sidebar.spec.ts) |
-| Shared room order | `sidebar.shared-order` | Ember | ⬜ Not started |  |
-| Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | 🟡 Partial | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx) |
+| Shared room order | `sidebar.shared-order` | Ember | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [shared-order](apps/worker/test/shared-order.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [room-order](e2e/tests/workspace-settings/room-order.spec.ts) |
+| Background sidebar reloads keep your place | `sidebar.refresh-preserves-state` | Ember | ✅ Ported | Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -891,13 +893,13 @@ Sources: [`crates/views/templates/users/sidebars/show.html`](https://github.com/
 
 ember-rust tests: [`reference/test/controllers/users/sidebars_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/sidebars_controller_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Room order** (`sidebar.room-order`) 🟡
+**Room order** (`sidebar.room-order`) ✅
 
 - Rooms are ordered: your starred rooms in your order, then the administrators' shared order, then the rest alphabetically in the browser's locale, ignoring case.
 - A room added or renamed while the page is open sorts into place at once.
 - Shared-order rooms you can't see are skipped, and their ids never reach your page. Your stars never reorder anyone else's sidebar.
 
-Note: Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. There's no shared order yet (`sidebar.shared-order`). A room you create or rename sorts into place in your own sidebar at once.
+Note: Your starred rooms come first, in the order you starred them (`sidebar.favorites`), then the rooms the shared order ranks, in its order (`sidebar.shared-order`), then the rest by name, lowercased and compared in the browser's language, then by id, as channel_order_controller.js sorts them. The sidebar's list carries only the ranks of rooms you're in. A room you create or rename sorts into place in your own sidebar at once.
 
 Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs)
 
@@ -990,7 +992,7 @@ Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](htt
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Shared room order** (`sidebar.shared-order`) ⬜
+**Shared room order** (`sidebar.shared-order`) ✅
 
 - Administrators arrange the rooms in their own sidebar, DMs aside, in workspace settings, under "Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.", or see "No rooms to arrange yet." when there are none. Members don't see it.
 - A row moves by dragging its "Move &lt;name&gt;" handle, at once with no hold ("Moving &lt;name&gt;. Release to place, or press Escape to cancel."), or with Alt+Up and Alt+Down.
@@ -1000,16 +1002,18 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Members get 403, and so does a list naming a room outside the administrator's sidebar. A malformed list answers 400, as in `sidebar.favorite-order`.
 - Everyone's stars, and their order, are kept.
 
+Note: Each room keeps its own place in the order (`rooms.shared_position`), where ember-rust keeps one list in the account's settings, so the sidebar reads a room's place with the room (`docs/database.md`). `PUT /api/account/room_order` takes the list as JSON `roomIds`, refuses one of more than 4,096 rooms, and answers the rooms of the administrator's it ranks, `{ sharedOrder }`, where ember-rust answers 204. The list on workspace settings is the administrator's sidebar as it is now, so a room made or deleted meanwhile joins its end or leaves it, where ember-rust's is as the page loaded. The broadcast, `rooms.reordered`, names no rooms, and each tab waits up to 5 seconds at random before loading its rooms again, so they don't all ask the Workspace at once, where ember-rust's reload at once. The line saying what happened is there from the start for screen readers, taking no room until it says something. Save order and Cancel are dimmed while they can't be pressed, as Campfire dims a disabled submit button, and each row's grip is 44px wide for fingers, where ember-rust's is 36px.
+
 Sources: [`crates/ember/src/controllers/users/sidebars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/sidebars.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/ember/src/controllers/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/db/src/tests/account_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/account_test.rs)
 
-**Background sidebar reloads keep your place** (`sidebar.refresh-preserves-state`) 🟡
+**Background sidebar reloads keep your place** (`sidebar.refresh-preserves-state`) ✅
 
 - A reload for a shared-order change waits until any hold, drag or save in the room list is over, then keeps the list's scroll position and the focused row.
 - Other background reloads, on reconnect or when a tab comes back after 60 seconds, never interrupt a hold, drag or save in progress.
 
-Note: A sidebar reloaded in the background, as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust. There's no shared order yet, so nothing waits on one.
+Note: A sidebar reloaded in the background, for a new shared order or as reconnecting reloads it, updates the list in place, so a hold, drag or save goes on and the list keeps its scroll position and focused row, with no need to wait for them to end, as ember-rust's frame reload has to. A starred row moves only among the stars, above every other room, so a new shared order that lands mid-drag moves only the rows below it. Stars that changed meanwhile, which your other tabs hear at once rather than at a reload, end a hold or drag, as news of a change does in ember-rust.
 
 Sources: [`crates/assets/overrides/controllers/channel_order_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/channel_order_controller.js) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js)
 

@@ -11,8 +11,8 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
-/** The workspace named `name`, as pages show a new one: translation buttons hidden, and no custom CSS. */
-const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "" });
+/** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
+const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {

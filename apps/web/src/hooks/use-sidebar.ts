@@ -19,6 +19,13 @@ export const RELOAD_AFTER_HIDDEN_MS = 60_000;
 const DEPLOY_SPREAD_MS = [2_000, 10_000] as const;
 
 /**
+ * How long, at most, a tab waits to load its sidebar again once an administrator has put the rooms in
+ * order for everyone, each tab waiting a while at random, so that every tab in the workspace doesn't ask
+ * the Workspace at once, as each of ember-rust's reloads its frame on `room_order_changed`.
+ */
+export const REORDER_SPREAD_MS = 5_000;
+
+/**
  * `task`, one run at a time. Called while it runs, it runs again once that run is over, once for all
  * the calls made meanwhile, since the run under way started before them. Each call settles as the first
  * run to start after it does.
@@ -60,8 +67,9 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * deleted, and as this person is put in them and taken out, marks rooms unread and read, moves DMs as
  * messages come in them, and brings the stars saved in any of their tabs. It loads again when the tab
  * is shown after more than a minute hidden too, as `refresh-room:visible` reloads it
- * (helpers/users.rs), which ember-rust does on a room's page and this does on every page. `refresh`
- * asks for it again, settling once a list asked for since has come, or failing as that did.
+ * (helpers/users.rs), which ember-rust does on a room's page and this does on every page, and a while
+ * after the socket says the shared order has changed, its rooms only. `refresh` asks for it again,
+ * settling once a list asked for since has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
@@ -122,9 +130,20 @@ export function useSidebar(
     let closed = false;
     // A session that has expired goes to sign in. Otherwise a list that doesn't come leaves the sidebar
     // as it is, until it loads again.
+    const reloadRooms = () => void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
+    // The load the shared order waits for, which loading everything again makes needless.
+    let reordering: ReturnType<typeof setTimeout> | undefined;
     const reload = () => {
+      clearTimeout(reordering);
+      reordering = undefined;
       reloadPeople();
-      void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
+      reloadRooms();
+    };
+    const reorder = () => {
+      reordering ??= setTimeout(() => {
+        reordering = undefined;
+        reloadRooms();
+      }, Math.random() * REORDER_SPREAD_MS);
     };
 
     // What this connection has said changed, the person signed in or the workspace, which can come
@@ -163,6 +182,8 @@ export function useSidebar(
           return changed(frame.user);
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "rooms.reordered":
+          return reorder();
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
@@ -201,6 +222,7 @@ export function useSidebar(
     document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       closed = true;
+      clearTimeout(reordering);
       workspace.close();
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
