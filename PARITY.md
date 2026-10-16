@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 96 ported and 53 partial of 172 features; 17 not started, 6 not applicable.
+**Overall:** 97 ported and 54 partial of 172 features; 15 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 3 | 5 | 7 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 4 | 6 | 5 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **96** | **53** | **17** | **6** | **172** |
+| **Total** | **97** | **54** | **15** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1946,8 +1946,8 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | Bot keys | `bots.api-auth` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Bots post messages | `bots.api-post` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bots read messages | `bots.api-list` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
-| Bots edit and delete their messages | `bots.api-edit-delete` | Campfire | ⬜ Not started |  |
-| Bots boost messages | `bots.api-boosts` | Campfire | ⬜ Not started |  |
+| Bots edit and delete their messages | `bots.api-edit-delete` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
+| Bots boost messages | `bots.api-boosts` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Webhooks | `bots.webhook-delivery` | Campfire | ⬜ Not started |  |
 | Webhook replies | `bots.webhook-reply` | Campfire | ⬜ Not started |  |
 | Where bots show up | `bots.membership` | Campfire | ⬜ Not started |  |
@@ -2025,7 +2025,7 @@ ember-rust tests: [`reference/test/models/user/bot_test.rb`](https://github.com/
 - A valid key sent to any other page that needs signing in (as a `bot_key` parameter) gets an empty 403.
 - Writes from banned IP addresses get 429.
 
-Note: Bots call `/rooms/<room id>/<bot key>/messages`, with or without `.json`, which the Worker answers before any page. The key is read as ember-rust reads it (`User.authenticate_bot`): spaces around it are dropped, as JavaScript trims them, the bot's id is what comes before its first `-` and its token what comes between that and the next, and the token must be the active bot's current one, compared in constant time, so a key with an empty token matches nothing and a deleted bot's key or a replaced one stops working at once. A room the bot isn't in, or that doesn't exist, is an empty 404, and its object is never woken. Posts from banned IP addresses get 429, as other writes do (`users.ban`). Unlike ember-rust, a key that names no active bot answers 401 `{"error":"Unknown bot key"}`, where ember-rust redirects a script to sign in. These addresses never read a session cookie, so a request carrying one still acts as the bot, where ember-rust acts as the cookie's person, and nothing but the key in the address makes a request anyone's, so posts from other sites are taken without a forgery check. No other address reads a bot key, so a request with only one answers 401 there, where ember-rust answers 403.
+Note: Bots call `/rooms/<room id>/<bot key>/messages` and the addresses of its messages and boosts under it, each with or without `.json`, which the Worker answers before any page. The key is read as ember-rust reads it (`User.authenticate_bot`): spaces around it are dropped, as JavaScript trims them, the bot's id is what comes before its first `-` and its token what comes between that and the next, and the token must be the active bot's current one, compared in constant time, so a key with an empty token matches nothing and a deleted bot's key or a replaced one stops working at once. A room the bot isn't in, or that doesn't exist, is an empty 404, and its object is never woken. Posts, edits, deletions and boosts from banned IP addresses get 429, as other writes do (`users.ban`). Unlike ember-rust, a key that names no active bot answers 401 `{"error":"Unknown bot key"}`, where ember-rust redirects a script to sign in. These addresses never read a session cookie, so a request carrying one still acts as the bot, where ember-rust acts as the cookie's person, and nothing but the key in the address makes a request anyone's, so posts from other sites are taken without a forgery check. No other address reads a bot key, so a request with only one answers 401 there, where ember-rust answers 403.
 
 Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/concerns/authentication.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/authentication.rb) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 
@@ -2063,7 +2063,7 @@ Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com
 
 ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Bots edit and delete their messages** (`bots.api-edit-delete`) ⬜
+**Bots edit and delete their messages** (`bots.api-edit-delete`) 🟡
 
 - PUT or PATCH on `…/messages/<id>` replaces the bot's own message with the raw body and answers 200 with the message's JSON, shaped as in the list. The body isn't checked for blank, so an empty one empties the message.
 - A multipart `attachment` replaces the message's file and keeps its text, and an empty `attachment=` field removes the file.
@@ -2071,17 +2071,21 @@ ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.
 - Someone else's message is an empty 403, a message outside the room is 404 `{"status":404,"error":"Not Found"}`, and a room the bot isn't in is an empty 404. None of them changes anything.
 - Edits and deletions reach the room live, and edits never trigger webhooks.
 
+Note: PUT or PATCH on a message's address for bots, `/rooms/<room id>/<bot key>/messages/<id>`, replaces the text of the bot's own message with the request's body, as rich text, as a socket's edit does: the message is marked edited, and text saved as it was leaves it as it was. It answers 200 with the message as the list writes it, with its ETag. DELETE deletes the message and its boosts and answers 204. Both reach the room live, and search finds the message as it is now. Someone else's message is an empty 403, a message outside the room is 404 `{"status":404,"error":"Not Found"}`, and a room the bot isn't in is an empty 404; none of them changes anything. Unlike ember-rust, which saves any body, an empty one included, text is held to what the edit form allows, as a post's is (`bots.api-post`): text that shows nothing is 422 `{"error":"Your message is empty."}`, more than 10,000 characters of it 422 `{"error":"Messages can be up to 10,000 characters."}`, and more than 100,000 characters of markup 413. Still to come: files (`attachments.upload`), until when a form answers 415 `{"error":"Bots can't post files yet"}`.
+
 Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs)
 
 ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Bots boost messages** (`bots.api-boosts`) ⬜
+**Bots boost messages** (`bots.api-boosts`) ✅
 
 - POSTing to `…/messages/<id>/boosts` boosts the message with the raw body as its content, untrimmed and of any length, and answers 201 with the boost's JSON. A bot may boost any message in the room, its own included, and add the same boost again.
 - Boost JSON has, in order, `id`, `content`, `created_at`, `booster` (`id`, `name`, `role`, `avatar_url`) and `message` (`id`, `url`).
 - A room the bot isn't in, or a message outside the room, is an empty 404, checked before a blank body's 422.
 - DELETE on `…/boosts/<boost id>` removes the bot's own boost on that message with 204; anyone else's, or one already removed, is an empty 404.
 - New and removed boosts reach the room live.
+
+Note: POSTing to a message's boosts address for bots, `/rooms/<room id>/<bot key>/messages/<id>/boosts`, boosts it with the request's body and answers 201 with the boost's JSON, in Campfire's order of keys, with its ETag. A bot may boost any message in the room, its own included, and add the same boost again, which the room shows as another reaction, where a person's repeated click adds nothing. DELETE on `…/boosts/<boost id>` removes the bot's own boost on that message with 204. Both reach the room live. A message outside the room, or a room the bot isn't in, is an empty 404, checked before a blank body's empty 422; anyone else's boost, the bot's own under another message, or one already removed is an empty 404. Unlike ember-rust, which keeps the body as it comes, a boost is trimmed and holds at most 16 characters, as a person's does: ember-rust's column is `varchar(16)`, which SQLite doesn't enforce. A longer one is 422 `{"error":"Boosts can be up to 16 characters."}`.
 
 Sources: [`crates/ember/src/controllers/messages/boosts/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/boosts/by_bots.rs) · [`reference/app/controllers/messages/boosts/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/boosts/by_bots_controller.rb) · [`reference/app/views/messages/boosts/_boost.json.jbuilder`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/messages/boosts/_boost.json.jbuilder) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs)
 
