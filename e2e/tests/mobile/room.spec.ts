@@ -54,8 +54,12 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 
   await openRoom(page, room);
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();
-  // Four faces, then a count for everyone else.
-  await expect(page.getByText("+3")).toBeVisible();
+  // Four faces, then a count for everyone else, though up to 500px wide only screen readers hear who's here.
+  const header = page.getByRole("navigation", { name: "Page" });
+  await expect(header.getByText("7 here now")).toBeAttached();
+  if (page.viewportSize()!.width > 500) await expect(header.getByText("+3")).toBeVisible();
+  // So the faces never squeeze out the room's name, which keeps its first few letters even 320px wide.
+  expect((await header.getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 

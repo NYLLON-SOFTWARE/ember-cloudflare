@@ -1678,6 +1678,7 @@ ember-rust tests: [`reference/test/channels/presence_channel_test.rb`](https://g
 **Who's here** (`realtime.who-is-here`) ✅
 
 - The room header shows the faces of up to four people who have the room open, with +N for the rest, their names on hover, and "N here now" for screen readers.
+- Up to 500px wide, where the faces would squeeze out the room's name, only screen readers hear who's here.
 - It changes as people arrive and leave.
 
 **Typing indicator** (`realtime.typing`) ✅
@@ -2242,7 +2243,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as "Settings for this room", or "Settings for this Ping" in a DM.
 - On phones the header is 56px tall and its buttons are 44px squares. Up to 500px wide, the labels of the header's links are hidden too, leaving 44px buttons.
 
-Note: The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings ("Settings for this room" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.
+Note: The header has all of ember-rust's: the icon, the name, the star (`sidebar.favorites`), Search messages (`search.page`), the bell (`notifications.levels`) and Conversation settings ("Settings for this room" to screen readers). It also shows who's here (`realtime.who-is-here`), though only to screen readers up to 500px wide, and "Connecting…" or "Reconnecting…" whenever the room's connection isn't open. The star is 44px wide for fingers, where ember-rust's is 32px. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.
 
 Sources: [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/src/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/rooms.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 

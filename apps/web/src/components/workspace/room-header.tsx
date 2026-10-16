@@ -70,7 +70,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         )}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-1.5" title={present.map(nameOf).join(", ")}>
+      {/* ember-rust's header has no faces. Up to 500px wide they'd squeeze out the room's name, so there only
+          screen readers hear who's here. */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 max-[500px]:sr-only" title={present.map(nameOf).join(", ")}>
         <span className="sr-only">{present.length} here now</span>
         <div className="flex -space-x-1.5" aria-hidden="true">
           {present.slice(0, MAX_FACES).map((user) => (

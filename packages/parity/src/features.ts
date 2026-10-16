@@ -1698,6 +1698,7 @@ export const features = [
     status: "ported",
     behaviors: [
       "The room header shows the faces of up to four people who have the room open, with +N for the rest, their names on hover, and \"N here now\" for screen readers.",
+      "Up to 500px wide, where the faces would squeeze out the room's name, only screen readers hear who's here.",
       "It changes as people arrive and leave.",
     ],
     sources: [],
@@ -2303,7 +2304,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings (\"Settings for this room\" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
+    notes: "The header has all of ember-rust's: the icon, the name, the star (`sidebar.favorites`), Search messages (`search.page`), the bell (`notifications.levels`) and Conversation settings (\"Settings for this room\" to screen readers). It also shows who's here (`realtime.who-is-here`), though only to screen readers up to 500px wide, and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. The star is 44px wide for fingers, where ember-rust's is 32px. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
   },
   {
     id: "ui.mobile-drawer",
