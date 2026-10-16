@@ -1,6 +1,6 @@
-// Workspace settings list people by name, as ember-rust's `ORDER BY LOWER(name)` does
-// (controllers/presenters/accounts.rs): compared as SQLite compares text, folding only ASCII letters,
-// then by id.
+// Workspace settings list people by name, and your profile your rooms, as ember-rust's
+// `ORDER BY LOWER(name)` does (controllers/presenters/accounts.rs): compared as SQLite compares text,
+// folding only ASCII letters, then by id.
 
 const folded = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 

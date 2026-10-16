@@ -1,11 +1,14 @@
-import type { Favorites, Me, Room, User } from "@ember/protocol";
+import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
 import { MenuDotsHorizontal, MessagesOutlined, Search } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
+import type { RoomAnswer } from "@/lib/room-list";
 import type { ConnectionStatus } from "@/lib/room-state";
+import { cn } from "@/lib/utils";
 import { FavoriteButton } from "./favorite-button";
+import { InvolvementButton } from "./involvement-button";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { UserAvatar } from "./user-avatar";
 
@@ -23,14 +26,22 @@ interface Props {
   favorite: boolean;
   /** Called with this person's stars once its star saves them. */
   onStarred: (favorites: Favorites) => void;
+  /** This person's notification level in the room. */
+  involvement: Involvement;
+  /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
+  /** Says why its bell couldn't save a level, as the workspace's alerts do. */
+  onFailed: (error: unknown) => void;
 }
 
 /**
- * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search and
- * its settings. A DM's has Campfire's `messages-outlined` in place of the room's icon, and no star.
+ * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search, your
+ * notification level's bell and its settings. A DM's has Campfire's `messages-outlined` in place of the
+ * room's icon, and no star. ember-rust's bell offers to turn notifications on until they're on, then
+ * loads the level's; there are no notifications to turn on yet, so this one is the level's from the start.
  */
-export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, onSessionChanged }: Props) {
+export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
   const direct = room.kind === "direct";
   return (
@@ -59,7 +70,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         )}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-1.5" title={present.map(nameOf).join(", ")}>
+      {/* ember-rust's header has no faces. Up to 500px wide they'd squeeze out the room's name, so there only
+          screen readers hear who's here. */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 max-[500px]:sr-only" title={present.map(nameOf).join(", ")}>
         <span className="sr-only">{present.length} here now</span>
         <div className="flex -space-x-1.5" aria-hidden="true">
           {present.slice(0, MAX_FACES).map((user) => (
@@ -75,6 +88,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
+        <InvolvementButton room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MenuDotsHorizontal className="size-5" />
           <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>

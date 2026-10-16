@@ -9,6 +9,7 @@ import {
   type DirectRoom,
   type Favorites,
   type HelpContact,
+  type Involvement,
   type PersonRole,
   type Profile,
   type Role,
@@ -243,6 +244,7 @@ interface SidebarRow {
   icon: SharedRoom["icon"];
   active_at: string;
   unread: number;
+  involvement: Involvement;
   shared_position: number | null;
 }
 
@@ -273,8 +275,12 @@ const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) =
 const roomOf = ({ id, kind, name, icon, active_at }: SidebarRow, members: DirectMemberRow[] = []): Room =>
   kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon };
 
-/** A room as someone's sidebar lists it, with whether it's marked unread for them. */
-const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({ ...roomOf(row, members), unread: row.unread === 1 });
+/** A room as someone's sidebar lists it, with whether it's marked unread for them and their level in it. */
+const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({
+  ...roomOf(row, members),
+  unread: row.unread === 1,
+  involvement: row.involvement,
+});
 
 const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
 
@@ -290,14 +296,14 @@ const storedSession = (row: SessionRow): StoredSession => ({
 const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_at`;
 
 /**
- * The rooms someone is in, with whether each is marked unread for them and when it was last active,
- * which orders DMs, in the order they were made, for the app to go home to the oldest and to `/rooms`
- * to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs), and each
- * room's place in the shared order. Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have
+ * The rooms someone is in, hidden ones too, with whether each is marked unread for them, their level in
+ * it and when it was last active, which orders DMs, in the order they were made, for the app to go
+ * home to the oldest and to `/rooms` to the newest, as ember-rust's `original_for_user` and
+ * `last_for_user` find them (room.rs), and each room's place in the shared order. Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have
  * ids that don't sort by time, so they go by when they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
-    rooms.shared_position
+    memberships.involvement, rooms.shared_position
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
@@ -546,6 +552,21 @@ const AFTER_UNSTAR = afterStarring(STARRABLE);
 /** The rooms ?1 has starred and can star, in the order they starred them. */
 const FAVORITES_FOR_USER = `SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}) ORDER BY position`;
 const FAVORITES_VERSION = `SELECT favorites_version AS version FROM users WHERE id = ?`;
+
+/** ?1's notification level in room ?2, if they're in it. */
+const INVOLVEMENT = `SELECT involvement FROM memberships WHERE user_id = ?1 AND room_id = ?2`;
+
+/**
+ * Counts a change to ?1's stars when level ?3 hides room ?2, which they've starred, or shows it again,
+ * since their stars leave out the rooms they've hidden. It runs before the level changes, to compare.
+ */
+const COUNT_HIDDEN_STAR = `UPDATE users SET favorites_version = favorites_version + 1 WHERE id = ?1
+  AND EXISTS (SELECT 1 FROM favorites WHERE user_id = ?1 AND room_id = ?2)
+  AND EXISTS (SELECT 1 FROM memberships WHERE user_id = ?1 AND room_id = ?2 AND (involvement = 'invisible') <> (?3 = 'invisible'))
+  RETURNING favorites_version AS version`;
+
+/** Gives ?1 level ?3 in room ?2, if they're in it. */
+const SET_INVOLVEMENT = `UPDATE memberships SET involvement = ?3 WHERE user_id = ?1 AND room_id = ?2 RETURNING involvement`;
 
 /**
  * Whether ?2, a JSON array of distinct room ids, is exactly the rooms ?1 has starred and can star, as
@@ -1260,6 +1281,28 @@ export class WorkspaceStore {
       statement(FAVORITES_FOR_USER, userId),
     ])) as [unknown[], unknown[], Array<{ version: number }>, Array<{ room_id: RoomId }>];
     return saved ? { rooms: starred.map((row) => row.room_id), version: saved.version } : null;
+  }
+
+  /**
+   * Gives someone level `involvement` in room `roomId`, as ember-rust's `involvements#update` does
+   * (rooms/involvements.rs), answering it, with their stars as they are then when hiding the room or
+   * showing it again changed them. Answers "not found" when they aren't in the room, and "invalid" for
+   * no level at all, having changed nothing.
+   */
+  async setInvolvement(
+    userId: UserId,
+    roomId: RoomId,
+    involvement: Involvement | null,
+  ): Promise<{ involvement: Involvement; favorites: Favorites | null } | "not found" | "invalid"> {
+    if (involvement === null) return (await this.db.all(INVOLVEMENT, userId, roomId)).length > 0 ? "invalid" : "not found";
+    const [[counted], [saved], starred] = (await this.db.batch([
+      statement(COUNT_HIDDEN_STAR, userId, roomId, involvement),
+      statement(SET_INVOLVEMENT, userId, roomId, involvement),
+      statement(FAVORITES_FOR_USER, userId),
+    ])) as [Array<{ version: number }>, Array<{ involvement: Involvement }>, Array<{ room_id: RoomId }>];
+    if (!saved) return "not found";
+    const favorites = counted ? { rooms: starred.map((row) => row.room_id), version: counted.version } : null;
+    return { involvement: saved.involvement, favorites };
   }
 
   /**

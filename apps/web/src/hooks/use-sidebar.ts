@@ -86,8 +86,8 @@ export function useSidebar(
   onGone: (roomId: RoomId) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
-  // How many of the workspace socket's frames have said what became of a room, and the number of the
-  // last to speak of each room.
+  // How many of the workspace socket's frames have said what became of a room or of this person's level
+  // in it, and the number of the last to speak of each room.
   const roomFrames = useRef({ count: 0, lastOf: new Map<RoomId, number>() });
   const [refresh] = useState(() => {
     // The last list the server sent, which it says is still current rather than send again.
@@ -180,6 +180,9 @@ export function useSidebar(
         case "user.updated":
           if (!isSomeoneElse(frame.user)) toldOf.you = true;
           return changed(frame.user);
+        case "room.involvement":
+          heardOf(frame.roomId);
+          return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
         case "rooms.reordered":
@@ -229,9 +232,10 @@ export function useSidebar(
   }, [refresh]);
 
   /**
-   * Called as a room is saved or deleted: what lists it as the server answers, unless the workspace
-   * socket has said what became of the room since, which the answer could undo, as with a rename saved
-   * in another tab just after. The socket brings this change too, in its turn, if it changed anything.
+   * Called as a room is saved or deleted, or this person's level in it: what lists it as the server
+   * answers, unless the workspace socket has said what became of the room or the level since, which the
+   * answer could undo, as with a rename or a level saved in another tab just after. The socket brings
+   * this change too, in its turn, if it changed anything.
    */
   const askForRoom = useCallback(() => {
     const asked = roomFrames.current.count;

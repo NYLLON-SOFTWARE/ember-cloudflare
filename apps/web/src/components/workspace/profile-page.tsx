@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile, type ProfileChanges } from "@ember/protocol";
+import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -9,13 +9,19 @@ import { useMounted } from "@/hooks/use-mounted";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeProfile, fetchProfile, isSignedOut } from "@/lib/api";
+import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { ConversationNotifications } from "./conversation-notifications";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 
 interface Props {
   me: Me;
+  /** Your rooms and DMs, as the sidebar's list has them, or null until it has loaded. */
+  rooms: SidebarRoom[] | null;
+  /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -55,13 +61,13 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 /**
  * ember-rust's profile (users/profiles/show.html), as far as it's built: your name, email address, a
  * new password and your bio, which Save changes saves with the notice "✓", keeping the page where
- * ember-rust reloads it, then a sign-in link for you, a new one each time the page loads or saves, as
- * each of ember-rust's pages has, and Log out in the top bar. Go Back returns to the page it was
- * opened from. Your name and bio reach everyone's open pages at once, through the workspace socket,
- * as your new name reaches the rail. There's no photo picker until photos are stored, and no
- * conversation notifications or install instructions until those are built.
+ * ember-rust reloads it, then your notification level in each of your rooms and DMs, then a sign-in
+ * link for you, a new one each time the page loads or saves, as each of ember-rust's pages has, and Log
+ * out in the top bar. Go Back returns to the page it was opened from. Your name and bio reach
+ * everyone's open pages at once, through the workspace socket, as your new name reaches the rail.
+ * There's no photo picker until photos are stored, and no install instructions until those are built.
  */
-export function ProfilePage({ me, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -185,6 +191,7 @@ export function ProfilePage({ me, onSignOut, onFailed }: Props) {
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
+        {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>

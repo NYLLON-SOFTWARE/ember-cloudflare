@@ -9,8 +9,8 @@ import { guardLeaving } from "@/hooks/use-route";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
-  { id: "general", name: "general", kind: "open" as const, icon: null, unread: false },
-  { id: "random", name: "random", kind: "open" as const, icon: null, unread: false },
+  { id: "general", name: "general", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const },
+  { id: "random", name: "random", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const },
 ];
 const unstarred: Favorites = { rooms: [], version: 0 };
 const HELP = "Hold a starred room to drag it, or press Alt and the up or down arrow to reorder your favorites. Other rooms follow the workspace order.";
@@ -44,7 +44,7 @@ const [ada, grace, linus, alan, edsger, barbara]: User[] = ["Ada", "Grace", "Lin
 /** `minutes` past noon, on the day these tests take place. */
 const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
 /** A DM between `members`, as the sidebar lists it to Ada, who's always in it, last active `activeAt`. */
-const direct = (id: string, members: User[], unread = false, activeAt = at(0)): SidebarRoom => ({ id, kind: "direct", members, activeAt, unread });
+const direct = (id: string, members: User[], unread = false, activeAt = at(0)): SidebarRoom => ({ id, kind: "direct", members, activeAt, unread, involvement: "everything" });
 
 /** The rows suggesting people to start a DM with, top to bottom. */
 const suggestionRows = () => within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("button", { name: /^Start a direct message with / });
@@ -118,7 +118,7 @@ describe(feature("sidebar.unread"), () => {
 });
 
 describe(feature("sidebar.activity-filter"), () => {
-  const marked = [{ ...rooms[0]!, unread: true }, rooms[1]!, { id: "design", name: "design", kind: "open" as const, icon: null, unread: true }];
+  const marked = [{ ...rooms[0]!, unread: true }, rooms[1]!, { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "mentions" as const }];
 
   it("shows only the rows marked unread, without the people suggested for DMs", () => {
     const { rerender } = renderSidebar({ rooms: marked, suggestions: [grace!], unreadOnly: true });
@@ -146,7 +146,7 @@ describe(feature("sidebar.activity-filter"), () => {
 
 describe(feature("sidebar.room-order"), () => {
   it("lists your starred rooms first, in the order you starred them, then the rest by name", () => {
-    const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false }];
+    const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
     renderSidebar({ rooms: more, favorites: { rooms: ["random", "ops"], version: 2 } });
     expect(listed()).toEqual(["#random", "#ops", "#Design", "#general"]);
   });
@@ -154,7 +154,7 @@ describe(feature("sidebar.room-order"), () => {
 
 describe(feature("sidebar.shared-order"), () => {
   it("lists the rooms the shared order ranks after your stars, in its order, then the rest by name", () => {
-    const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false }];
+    const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
     renderSidebar({ rooms: more, favorites: { rooms: ["ops"], version: 1 }, sharedOrder: ["random", "ops", "gone", "general"] });
     expect(listed()).toEqual(["#ops", "#random", "#general", "#Design"]);
   });
@@ -199,7 +199,7 @@ describe(feature("sidebar.favorites"), () => {
 });
 
 describe(feature("sidebar.favorite-order"), () => {
-  const team = [...rooms, { id: "design", name: "design", kind: "open" as const, icon: null, unread: false }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false }];
+  const team = [...rooms, { id: "design", name: "design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
   const stars: Favorites = { rooms: ["general", "random", "design"], version: 3 };
   const status = () => screen.getByRole("status");
   /** What was sent to save an order, as the JSON it was sent as. */
@@ -424,7 +424,7 @@ describe(feature("sidebar.refresh-preserves-state"), () => {
 
   it("keeps a drag going through a reload of the list, but ends it when the stars have changed elsewhere", () => {
     const stars: Favorites = { rooms: ["general", "random"], version: 2 };
-    const more: SidebarRoom[] = [...rooms, { id: "design", name: "design", kind: "open", icon: null, unread: true }];
+    const more: SidebarRoom[] = [...rooms, { id: "design", name: "design", kind: "open", icon: null, unread: true, involvement: "mentions" }];
     const { rerender } = renderSidebar({ favorites: stars });
     fireEvent.pointerDown(row("random"), { pointerType: "mouse", button: 0, clientX: 20, clientY: 54 });
     act(() => vi.advanceTimersByTime(400));
@@ -604,5 +604,15 @@ describe(feature("sidebar.activity-filter"), () => {
     rerender({ currentRoomId: "d1" });
     expect(directRows()).toEqual([]);
     expect(screen.getByText("You’re all caught up. No unread conversations.")).toBeInTheDocument();
+  });
+});
+
+describe(feature("notifications.hide-room"), () => {
+  it("leaves out the rooms and DMs you've hidden, even the one open", () => {
+    const hidden = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "invisible" as const };
+    const hiddenDirect: SidebarRoom = { ...direct("d2", [ada!, linus!], true), involvement: "invisible" };
+    renderSidebar({ rooms: [...rooms, hidden, direct("d1", [ada!, grace!]), hiddenDirect], currentRoomId: "design" });
+    expect(listed()).toEqual(["#general", "#random"]);
+    expect(directRows().map((row) => row.textContent)).toEqual(["Direct message with Grace"]);
   });
 });

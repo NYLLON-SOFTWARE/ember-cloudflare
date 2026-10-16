@@ -149,7 +149,8 @@ function serve({
       account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons };
       return Response.json({ account });
     }
-    return Response.json({ rooms, favorites: { rooms: [], version: 0 }, invitation: null });
+    // Each read, at the level a room starts at.
+    return Response.json({ rooms: rooms.map((room) => ({ ...room, unread: false, involvement: "mentions" })), favorites: { rooms: [], version: 0 }, invitation: null });
   });
 }
 

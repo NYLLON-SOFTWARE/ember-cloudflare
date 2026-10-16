@@ -115,10 +115,22 @@ export interface Invitation {
 }
 
 /**
- * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
- * tab, which marks it unread for them until they do again.
+ * How much someone hears of a room they're in, its notification level, as ember-rust's memberships'
+ * `involvement` has it (membership.rs): its @mentions of them, all its messages, nothing, or nothing
+ * with the room hidden from their sidebar.
  */
-export type SidebarRoom = Room & { unread: boolean };
+export const INVOLVEMENTS = ["mentions", "everything", "nothing", "invisible"] as const;
+export type Involvement = (typeof INVOLVEMENTS)[number];
+
+/** The level someone starts at in `room`, as ember-rust grants it: all messages in a DM, and @mentions elsewhere. */
+export const startingInvolvement = (room: Room): Involvement => (room.kind === "direct" ? "everything" : "mentions");
+
+/**
+ * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
+ * tab, which marks it unread for them until they do again, and their level in it. A room they've
+ * hidden is listed too, since they can still open it, but their sidebar leaves it out.
+ */
+export type SidebarRoom = Room & { unread: boolean; involvement: Involvement };
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them, as
@@ -564,6 +576,8 @@ export type WorkspaceServerFrame =
   | { type: "room.active"; roomId: RoomId; at: string }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /** They've given a room of theirs another notification level, in this tab or another. */
+  | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /**
    * An administrator saved the shared room order, so the sidebar loads again, as ember-rust's
    * `room_order_changed` has every sidebar reload (broadcasts.rs). It names no rooms, since some aren't
@@ -893,6 +907,20 @@ export function parseCustomStyles(data: unknown): Partial<CustomStyles> | string
 export function parseRoleChange(data: unknown): RoleChange | null {
   if (typeof data !== "object" || data === null || Array.isArray(data) || !("role" in data)) return null;
   return { role: data.role === "administrator" ? "administrator" : "member" };
+}
+
+/** Whether `value` is exactly one of the notification levels, as ember-rust's `Involvement::from_name` reads one. */
+export const isInvolvement = (value: unknown): value is Involvement => (INVOLVEMENTS as readonly unknown[]).includes(value);
+
+/**
+ * Parses an untrusted change to someone's notification level in a room: the level, or null for
+ * anything else. ember-rust stores a blank level as none at all, which leaves the room out of the
+ * sidebar but shows no level, and fails on anything else (rooms/involvements.rs).
+ */
+export function parseInvolvementChange(data: unknown): Involvement | null {
+  if (typeof data !== "object" || data === null) return null;
+  const { involvement } = data as Record<string, unknown>;
+  return isInvolvement(involvement) ? involvement : null;
 }
 
 const PROFILE_FIELDS = { name: "Name", emailAddress: "Email address", password: "Password", bio: "Bio" } as const satisfies Record<keyof ProfileChanges, string>;

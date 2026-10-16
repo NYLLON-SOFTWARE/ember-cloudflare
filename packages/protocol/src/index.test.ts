@@ -1,6 +1,8 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
+  INVOLVEMENTS,
+  isInvolvement,
   isMessageTooLong,
   isPasswordTooLong,
   isPasswordTooShort,
@@ -20,6 +22,7 @@ import {
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
+  parseInvolvementChange,
   parseNewDirect,
   parseNewRoom,
   parsePasswordReset,
@@ -34,6 +37,7 @@ import {
   ROOM_ICON_NAMES,
   ROOM_PROTOCOL,
   roomSocketQuery,
+  startingInvolvement,
   suggestedCount,
   type WorkspaceServerFrame,
 } from "./index";
@@ -425,6 +429,36 @@ describe(feature("accounts.roles"), () => {
     ["an object without a role", { name: "Grace" }],
   ])("finds no role change in %s", (_, body) => {
     expect(parseRoleChange(body)).toBeNull();
+  });
+});
+
+describe(feature("notifications.levels"), () => {
+  it("takes exactly one of the four levels", () => {
+    expect(INVOLVEMENTS).toEqual(["mentions", "everything", "nothing", "invisible"]);
+    for (const involvement of INVOLVEMENTS) {
+      expect(isInvolvement(involvement)).toBe(true);
+      expect(parseInvolvementChange({ involvement })).toBe(involvement);
+    }
+  });
+
+  it.each([
+    ["no body", null],
+    ["text", "everything"],
+    ["an object without a level", { level: "everything" }],
+    ["a blank level", { involvement: "" }],
+    ["a level in capitals", { involvement: "Everything" }],
+    ["a level with spaces", { involvement: " nothing" }],
+    ["another word", { involvement: "all" }],
+    ["a list", { involvement: ["mentions"] }],
+    ["a number", { involvement: 1 }],
+  ])("finds no level in %s", (_, body) => {
+    expect(parseInvolvementChange(body)).toBeNull();
+  });
+
+  it("starts DMs at all messages and other rooms at @mentions", () => {
+    expect(startingInvolvement({ id: "general", kind: "open", name: "general", icon: null })).toBe("mentions");
+    expect(startingInvolvement({ id: "secret", kind: "closed", name: "secret", icon: null })).toBe("mentions");
+    expect(startingInvolvement({ id: "dm", kind: "direct", members: [], activeAt: "2026-10-16T00:00:00.000Z" })).toBe("everything");
   });
 });
 

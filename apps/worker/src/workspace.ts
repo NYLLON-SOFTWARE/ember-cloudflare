@@ -10,6 +10,7 @@ import {
   type DirectRoom,
   type Favorites,
   type HelpContact,
+  type Involvement,
   type Me,
   type NewJoinCode,
   type NewRoom,
@@ -688,6 +689,23 @@ export class Workspace extends DurableObject<Env> {
     if (!favorites) return "forbidden";
     this.starsChanged(user.id, favorites);
     return favorites;
+  }
+
+  /**
+   * Gives the person `credentials` signs in level `involvement` in room `roomId`, answering it, as
+   * ember-rust's `involvements#update` does (rooms/involvements.rs): "not found" when they aren't in
+   * it, "invalid" for no level, having changed nothing, or null without a valid session. Every tab of
+   * theirs hears it, which hides the room from their sidebars at "invisible", and hears their stars
+   * again when hiding a starred room, or showing it again, changes them.
+   */
+  async setInvolvement(credentials: Credentials, roomId: RoomId, involvement: Involvement | null): Promise<Involvement | "not found" | "invalid" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const saved = await this.store.setInvolvement(user.id, roomId, involvement);
+    if (typeof saved === "string") return saved;
+    this.tell([user.id], { type: "room.involvement", roomId, involvement: saved.involvement });
+    if (saved.favorites) this.starsChanged(user.id, saved.favorites);
+    return saved.involvement;
   }
 
   /** Tells every tab of `userId`'s what their stars are now. */

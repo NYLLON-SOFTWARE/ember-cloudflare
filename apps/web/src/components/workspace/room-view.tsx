@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import type { Favorites, Invitation, Me } from "@ember/protocol";
+import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
 import { Close } from "@/components/icons/ember";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
@@ -10,6 +10,7 @@ import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
 import { hasTouchKeyboard } from "@/lib/keyboard";
 import { rememberLastRoom } from "@/lib/last-room";
+import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import type { MessageEditorHandle } from "./message-editor";
@@ -30,7 +31,13 @@ interface Props {
   gone: boolean;
   /** Called with this person's stars once the room's star saves them. */
   onStarred: (favorites: Favorites) => void;
+  /** This person's notification level in the room. */
+  involvement: Involvement;
+  /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
+  askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
+  /** Says why the room's bell couldn't save a level, as the workspace's alerts do. */
+  onFailed: (error: unknown) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
   onGone: (room: Room) => void;
   ref?: Ref<RoomViewHandle>;
@@ -41,7 +48,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, invitation, me, favorite, gone, onStarred, onSessionChanged, onGone, ref }: Props) {
+export function RoomView({ room, messageId, invitation, me, favorite, gone, onStarred, involvement, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
   const { state, postMessage, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
@@ -120,7 +127,10 @@ export function RoomView({ room, messageId, invitation, me, favorite, gone, onSt
         offline={state.offline}
         favorite={favorite}
         onStarred={onStarred}
+        involvement={involvement}
+        askForRoom={askForRoom}
         onSessionChanged={onSessionChanged}
+        onFailed={onFailed}
       />
       {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
       <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">

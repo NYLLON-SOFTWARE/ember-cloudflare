@@ -1698,6 +1698,7 @@ export const features = [
     status: "ported",
     behaviors: [
       "The room header shows the faces of up to four people who have the room open, with +N for the rest, their names on hover, and \"N here now\" for screen readers.",
+      "Up to 500px wide, where the faces would squeeze out the room's name, only screen readers hear who's here.",
       "It changes as people arrive and leave.",
     ],
     sources: [],
@@ -1767,7 +1768,7 @@ export const features = [
     id: "notifications.levels",
     title: "Notification levels",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Each room you're in has a level, cycled by its button: rooms go @mentions, all messages, off, off and hidden, then @mentions again; DMs go all messages and off.",
       "The labels are \"Notifying about @ mentions\", \"Notifying about all messages\", \"Notifications are off\" and \"Notifications are off and room invisible in sidebar\".",
@@ -1777,6 +1778,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/involvements.rs", "crates/views/src/helpers/rooms.rs", "crates/views/templates/rooms/involvements/_bell.html", "crates/db/src/models/membership.rs", "reference/app/controllers/rooms/involvements_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/involvements_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "crates/views/tests/rooms_views.rs", "parity/screens.yml"],
+    notes: "`PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. There are no push notifications to turn on yet (`notifications.enable`), so the header shows the level's bell from the start, where ember-rust shows \"Enable notifications\" until this browser has turned them on, and the levels decide nothing but hiding rooms until pushes are sent (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.",
   },
   {
     id: "notifications.enable",
@@ -1799,7 +1801,7 @@ export const features = [
     id: "notifications.hide-room",
     title: "Hide a room",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Setting a room to off and hidden takes it out of your sidebar in every tab you have open, and changing its level again puts it back in your rooms list the same way.",
       "A hidden room is still reachable by link and searchable, and your profile lists it, dimmed.",
@@ -1807,12 +1809,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/involvements.rs", "crates/ember/src/channels/broadcasts.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/involvements_controller.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/broadcasts_test.rs", "reference/test/controllers/rooms/involvements_controller_test.rb"],
+    notes: "Hiding a room takes it out of your sidebar in every tab, the room shown included, which stays open, and showing it again puts it back in its place. It still opens at its address, is searched, and is listed on your profile, dimmed. It gets no new unread marks, and a mark from before it was hidden stays, left out of Activity's count until it's shown again, as ember-rust's `unread_memberships` leaves it out. Hiding a starred room takes it out of your stars, and showing it again brings its star back in its place (`favorites.changed`); starring a hidden room is refused (403). Pushes, and the badge that counts hidden rooms' marks, come with `notifications.push`.",
   },
   {
     id: "notifications.profile-list",
     title: "Levels on your profile",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Your profile's \"Conversation notifications\" lists every room you're in by name (case ignored for ASCII letters only), hidden ones dimmed, then your DMs, with a separator only when there are both.",
       "Each row links to its conversation, named in bold (a DM by its other members, \"Ann and Bob\" or \"Ann, Bob, and Cat\", or by your own name when you're alone in it), followed by its level button, which cycles in place.",
@@ -1820,6 +1823,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/profiles/show.html", "crates/views/templates/users/profiles/_membership.html", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/membership.rs"],
     upstreamTests: ["parity/screens.yml"],
+    notes: "Each room's pill takes taps 44px tall on touch screens, past its 29px, where ember-rust's take its own size.",
   },
   {
     id: "notifications.push",
@@ -2300,7 +2304,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has the `#`, the name, the star (`sidebar.favorites`) and Conversation settings (\"Settings for this room\" to screen readers), but no search or bell. It shows who's here instead (`realtime.who-is-here`), and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
+    notes: "The header has all of ember-rust's: the icon, the name, the star (`sidebar.favorites`), Search messages (`search.page`), the bell (`notifications.levels`) and Conversation settings (\"Settings for this room\" to screen readers). It also shows who's here (`realtime.who-is-here`), though only to screen readers up to 500px wide, and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. The star is 44px wide for fingers, where ember-rust's is 32px. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
   },
   {
     id: "ui.mobile-drawer",

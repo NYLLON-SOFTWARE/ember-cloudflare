@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { navigate } from "@/hooks/use-route";
 import { loadPage } from "@/lib/page";
@@ -17,9 +17,12 @@ const rooms: SharedRoom[] = [
 ];
 /** Ada's DM with Grace. */
 const withGrace: DirectRoom = { id: "d1", kind: "direct", members: [{ id: ada.id, name: ada.name }, { id: "u2", name: "Grace" }], activeAt: "2026-10-15T12:00:00.000Z" };
-/** The sidebar's list of `listed`, with the rooms starred in `favorites`, and the ones the shared order ranks in `sharedOrder`. */
+/**
+ * The sidebar's list of `listed`, read and at the level each starts at unless it says otherwise, with the
+ * rooms starred in `favorites`, and the ones the shared order ranks in `sharedOrder`.
+ */
 const roomList = (listed: Room[], favorites: RoomId[] = [], sharedOrder: RoomId[] = []) => ({
-  rooms: listed,
+  rooms: listed.map((room) => ({ unread: false, involvement: startingInvolvement(room), ...room })),
   favorites: { rooms: favorites, version: 0 },
   sharedOrder,
   invitation: null,
@@ -913,7 +916,11 @@ describe(feature("users.show"), () => {
 });
 
 describe(feature("sidebar.activity-filter"), () => {
-  const marked: SidebarRoom[] = [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true }, { id: "design", name: "Design", kind: "open", icon: null, unread: false }];
+  const marked: SidebarRoom[] = [
+    { ...rooms[0]!, unread: true, involvement: "mentions" },
+    { ...rooms[1]!, unread: true, involvement: "mentions" },
+    { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" },
+  ];
   const activity = () => screen.getByRole("button", { name: "Activity" });
   // The sidebar's rooms, which workspace settings has a section named for too.
   const sidebarRooms = () =>
@@ -1424,5 +1431,62 @@ describe(feature("ui.accessibility"), () => {
     for (const control of [...screen.getAllByRole("button"), ...screen.getAllByRole("link")]) {
       expect(control).toHaveAccessibleName();
     }
+  });
+});
+
+describe(feature("notifications.levels"), () => {
+  it("keeps a level another tab saves while the bell's answer is on its way", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList(rooms)),
+      "PUT /api/rooms/general/involvement": () => new Promise<Response>((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await user.click(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" }));
+    // The socket brings the level this tab saved, then the next, which another tab saved before the answer.
+    await workspaceSends({ type: "room.involvement", roomId: "general", involvement: "everything" });
+    await workspaceSends({ type: "room.involvement", roomId: "general", involvement: "nothing" });
+    await act(async () => answer(Response.json({ involvement: "everything" })));
+    expect(screen.getByRole("checkbox", { name: "Notifications are off" })).not.toHaveAttribute("aria-disabled");
+  });
+});
+
+describe(feature("notifications.hide-room"), () => {
+  const activity = () => screen.getByRole("button", { name: "Activity" });
+
+  it("takes the room shown out of the sidebar once its bell hides it, keeping it open, and puts it back once it's shown again", async () => {
+    const listed: SidebarRoom[] = [
+      { ...rooms[0]!, unread: false, involvement: "nothing" },
+      { ...rooms[1]!, unread: false, involvement: "mentions" },
+    ];
+    const levels = ["invisible", "mentions"];
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList(listed)),
+      "PUT /api/rooms/general/involvement": () => Response.json({ involvement: levels.shift() }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(sidebarRooms()).toEqual(["general", "random"]);
+
+    await user.click(screen.getByRole("checkbox", { name: "Notifications are off" }));
+    await waitFor(() => expect(sidebarRooms()).toEqual(["random"]));
+    expect(screen.getByRole("checkbox", { name: "Notifications are off and room invisible in sidebar" })).toBeInTheDocument();
+    expect(await roomHeading()).toHaveTextContent("general");
+
+    await user.click(screen.getByRole("checkbox", { name: "Notifications are off and room invisible in sidebar" }));
+    await waitFor(() => expect(sidebarRooms()).toEqual(["general", "random"]));
+  });
+
+  it("leaves the rooms you've hidden out of Activity's count", async () => {
+    const listed: SidebarRoom[] = [
+      { ...rooms[0]!, unread: false, involvement: "mentions" },
+      { ...rooms[1]!, unread: true, involvement: "invisible" },
+    ];
+    serve({ "GET /api/sidebar": () => Response.json(roomList(listed)) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    expect(sidebarRooms()).toEqual(["general"]);
+    expect(activity()).not.toHaveAccessibleDescription(/\d unread/);
   });
 });

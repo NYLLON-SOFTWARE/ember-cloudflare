@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import type { Account, DirectRoom, Favorites, Me, Room, RoomId, SidebarRoom, User } from "@ember/protocol";
+import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -420,7 +420,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       case "custom-styles":
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       case "profile":
-        return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
+        return <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />;
       case "search":
         return <SearchPage me={me} back={back} onFailed={failed} />;
       case "person":
@@ -451,7 +451,11 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               favorite={starred.has(room.id)}
               gone={goneRoom !== null}
               onStarred={starredRooms}
+              // As the list has it, or as it starts once the room has gone from the list.
+              involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
+              askForRoom={askForRoom}
               onSessionChanged={onSessionChanged}
+              onFailed={failed}
               onGone={roomGone}
             />
           );

@@ -25,7 +25,7 @@ const favoritesOf = async (session: Session) => ((await (await api("/api/sidebar
 const storedStars = async (session: Session) =>
   (await workspaceSql("SELECT room_id FROM favorites WHERE user_id = ? ORDER BY position", session.user.id)).map((row) => (row as { room_id: RoomId }).room_id);
 
-/** Hides room `roomId` from `session`'s person, as setting its involvement to Invisible will, or shows it again. */
+/** Hides room `roomId` from `session`'s person, as its bell does at off and hidden, or shows it again. */
 const hide = (session: Session, roomId: RoomId, hidden = true) =>
   workspaceSql("UPDATE memberships SET involvement = ? WHERE room_id = ? AND user_id = ?", hidden ? "invisible" : "mentions", roomId, session.user.id);
 
