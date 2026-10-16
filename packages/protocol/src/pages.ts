@@ -34,6 +34,11 @@ export type WorkspacePage =
   | { page: "custom-styles" }
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
   | { page: "profile" }
+  /**
+   * Your browsers' push subscriptions, at `/users/me/push_subscriptions`, or at any other person's id in
+   * its place, where you can send each a test push. Nothing links to it.
+   */
+  | { page: "push-subscriptions" }
   /** Someone's page, at `/users/<id>`, whatever their status. */
   | { page: "person"; userId: UserId }
   /** Search, at `/searches`, whose query string holds what's searched for. */
@@ -47,6 +52,7 @@ export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
+export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
 
 /** A path segment as text, or null for a malformed escape, which names nothing. */
@@ -70,6 +76,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (pathname === SEARCHES_PATH) return { page: "search" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
+  if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);
   const personId = person && decoded(person[1]!);
   if (personId) return { page: "person", userId: personId };

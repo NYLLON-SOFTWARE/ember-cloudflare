@@ -1,10 +1,11 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { isAppleMessages, isUnsupportedBrowser, platformOf } from "../src/user-agent";
+import { browserNamesOf, isAppleMessages, isUnsupportedBrowser, platformOf } from "../src/user-agent";
 import { api } from "./support";
-// Campfire's answers from ember-rust's vectors/campfire_user_agents.json (cfeb4c2): `blocked?`, `apple_messages?`
-// and the platform its views see, which is false or "" where Ruby raises.
+// Campfire's answers from ember-rust's vectors/campfire_user_agents.json (cfeb4c2): `blocked?`, `apple_messages?`,
+// the platform its views see, which is false or "" where Ruby raises, and the gem's browser, version and
+// platform, "" where it reads none or raises, as ember-rust's push subscriptions page shows them.
 import vectors from "./fixtures/user-agents.json";
 
 /** Expects Campfire to answer each user agent with "Upgrade to a supported web browser". */
@@ -266,5 +267,15 @@ describe(feature("notifications.setup-help"), () => {
       browser: "Safari",
       operatingSystem: "iPhone",
     });
+  });
+});
+
+describe(feature("notifications.test-page"), () => {
+  it("names exactly the vectors' browsers, versions and platforms that ember-rust's push subscriptions page shows", () => {
+    expect(vectors.map(({ ua }) => ({ ua, names: browserNamesOf(ua) }))).toEqual(vectors.map(({ ua, names }) => ({ ua, names })));
+  });
+
+  it("names a browser that sent no user agent as the gem reads one, Mozilla 4.0, on no platform", () => {
+    expect(browserNamesOf(null)).toEqual({ browser: "Mozilla", version: "4.0", platform: "" });
   });
 });

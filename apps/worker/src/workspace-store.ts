@@ -19,7 +19,6 @@ import {
   type RoomId,
   type RoomKind,
   type RoomSettings,
-  type SavedPushSubscription,
   type SharedRoom,
   type SidebarRoom,
   type User,
@@ -142,6 +141,13 @@ export interface AppliedEvents {
 export interface MessagePush {
   payload: PushPayload;
   deliveries: PushDelivery[];
+}
+
+/** One of someone's push subscriptions, with the user agent of the browser that saved it, if it sent one. */
+export interface StoredPushSubscription {
+  id: number;
+  endpoint: string;
+  userAgent: string | null;
 }
 
 /** A subscription a message is pushed to, and the count its push sets the app's badge to. */
@@ -293,7 +299,7 @@ function messagePushes(roomId: RoomId, { message }: RoomEvent, rows: PushRow[]):
   return [
     {
       payload: messagePayload(roomId, { kind, name }, author_name, message!.plainText),
-      deliveries: rows.map((row) => ({ subscriptionId: row.id, endpoint: row.endpoint, p256dhKey: row.p256dh_key, authKey: row.auth_key, badge: row.badge })),
+      deliveries: rows.map(deliveryOf),
     },
   ];
 }
@@ -529,16 +535,36 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     AND (memberships.involvement = 'everything' OR (memberships.involvement = 'mentions' AND memberships.user_id IN (SELECT value FROM json_each(?4))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
-interface PushRow {
+/** A subscription a push goes to, and the count it sets the badge to. */
+interface DeliveryRow {
   id: number;
   endpoint: string;
   p256dh_key: string;
   auth_key: string;
   badge: number;
+}
+
+interface PushRow extends DeliveryRow {
   kind: RoomKind;
   name: string | null;
   author_name: string;
 }
+
+/**
+ * Someone's push subscription ?1, to send a test push to, with the count it sets the badge to, as
+ * `MESSAGE_PUSHES` counts it, and nothing when it's someone else's, ?2 being whose it should be.
+ */
+const TEST_PUSH = `SELECT id, endpoint, p256dh_key, auth_key,
+    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
+  FROM push_subscriptions WHERE id = ?1 AND user_id = ?2`;
+
+const deliveryOf = (row: DeliveryRow): PushDelivery => ({
+  subscriptionId: row.id,
+  endpoint: row.endpoint,
+  p256dhKey: row.p256dh_key,
+  authKey: row.auth_key,
+  badge: row.badge,
+});
 
 /** Records that the Workspace has applied room ?2's events up to ?1. */
 const APPLIED = `UPDATE rooms SET applied_seq = ?1 WHERE id = ?2 AND applied_seq < ?1`;
@@ -1286,12 +1312,21 @@ export class WorkspaceStore {
   }
 
   /** Someone's push subscriptions, oldest first. */
-  async pushSubscriptionsOf(userId: UserId): Promise<SavedPushSubscription[]> {
+  async pushSubscriptionsOf(userId: UserId): Promise<StoredPushSubscription[]> {
     const rows = await this.db.all<{ id: number; endpoint: string; user_agent: string | null }>(
       `SELECT id, endpoint, user_agent FROM push_subscriptions WHERE user_id = ? ORDER BY id`,
       userId,
     );
     return rows.map((row) => ({ id: row.id, endpoint: row.endpoint, userAgent: row.user_agent }));
+  }
+
+  /**
+   * Where a test push to someone's push subscription `id` goes, with how many of their conversations
+   * are marked unread for its badge, or null if it isn't theirs or there's no such subscription.
+   */
+  async testPushDelivery(userId: UserId, id: number): Promise<PushDelivery | null> {
+    const [row] = await this.db.all<DeliveryRow>(TEST_PUSH, id, userId);
+    return row ? deliveryOf(row) : null;
   }
 
   /** Deletes someone's push subscription `id`, if it's theirs, as ember-rust's `push_subscriptions#destroy` does. */

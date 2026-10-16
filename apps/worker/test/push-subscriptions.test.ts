@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
-import { MAX_PUSH_ENDPOINT_LENGTH, MAX_PUSH_KEY_LENGTH, type NewWorkspace, type PushSubscriptionKeys, type PushSubscriptions, type UserId } from "@ember/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
-import { api, cookieOf, freshDeploy, shown, signIn, workspaceSql, type Session } from "./support";
+import { MAX_PUSH_ENDPOINT_LENGTH, MAX_PUSH_KEY_LENGTH, PUSH_SUBSCRIPTIONS_PATH, type NewWorkspace, type PushSubscriptionKeys, type PushSubscriptions, type UserId } from "@ember/protocol";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api, apiWith, cookieOf, freshDeploy, freshRoom, origin, pushBrowser, shown, signIn, workspaceSql, type Session } from "./support";
 
 const FIREFOX = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0";
 
@@ -49,7 +49,25 @@ const idsOf = async (userId: UserId) => ((await workspaceSql("SELECT id FROM pus
 const signOut = (session: Session, pushSubscriptionEndpoint?: string) =>
   api("/api/session", { method: "DELETE", headers: { Cookie: session.cookie }, body: JSON.stringify({ pushSubscriptionEndpoint }) });
 
+/** What `POST /api/push-subscriptions/:id/test-notifications` answers `session`, as Send test notification asks. */
+const sendTest = (session: Session | null, id: number | string) =>
+  api(`/api/push-subscriptions/${id}/test-notifications`, { method: "POST", headers: session ? { Cookie: session.cookie } : {} });
+
+/** Stands in for every push service, answering each push with `status`, and keeps what was pushed where. */
+function pushServices(status = 201) {
+  const pushed: Array<{ endpoint: string; body: Uint8Array }> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    pushed.push({ endpoint: input instanceof Request ? input.url : String(input), body: init!.body as Uint8Array });
+    return new Response(null, { status });
+  });
+  return pushed;
+}
+
 beforeEach(freshDeploy);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe(feature("notifications.subscriptions"), () => {
   it("saves a browser's subscription for you, with its user agent, and lists only yours", async () => {
@@ -61,7 +79,7 @@ describe(feature("notifications.subscriptions"), () => {
     const response = await list(ada);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const [id] = await idsOf(ada.user.id);
-    expect(await response.json()).toEqual({ subscriptions: [{ id, endpoint: subscription().endpoint, userAgent: FIREFOX }] });
+    expect(await response.json()).toEqual({ subscriptions: [{ id, endpoint: subscription().endpoint, browser: "Firefox", version: "131.0", platform: "Macintosh" }] });
     expect(await endpointsOf(grace)).toEqual([]);
   });
 
@@ -226,5 +244,90 @@ describe(feature("notifications.subscriptions"), () => {
       expect((await api(`/api/users/${grace.user.id}/ban`, { method: "POST", headers: { Cookie: ada.cookie } })).status).toBe(200);
       expect(await idsOf(grace.user.id)).toHaveLength(2);
     });
+  });
+});
+
+describe(feature("notifications.test-page"), () => {
+  it("pushes \"Ember Test\" to one of your subscriptions at once, with a new UUID, opening this page, badged with your conversations marked unread", async () => {
+    const ada = await signIn("Ada");
+    const browser = await pushBrowser();
+    await saved(ada, { ...subscription(), p256dhKey: browser.p256dh, authKey: browser.auth });
+    const [id] = await idsOf(ada.user.id);
+    for (const label of ["Designers", "Engineers", "Quiet"]) await freshRoom(label);
+    await workspaceSql("UPDATE memberships SET unread_at = ? WHERE user_id = ? AND room_id IN (SELECT id FROM rooms WHERE name <> 'Quiet')", new Date().toISOString(), ada.user.id);
+    const pushed = pushServices();
+
+    const bodies: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      expect((await sendTest(ada, id!)).status).toBe(204);
+      expect(pushed).toHaveLength(i + 1);
+      expect(pushed[i]!.endpoint).toBe(subscription().endpoint);
+      const { title, options } = JSON.parse(await browser.open(pushed[i]!.body)) as { title: string; options: { body: string } };
+      expect({ title, options }).toEqual({
+        title: "Ember Test",
+        options: { body: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), icon: "/account/logo", data: { path: `${origin}${PUSH_SUBSCRIPTIONS_PATH}`, badge: 2 } },
+      });
+      bodies.push(options.body);
+    }
+    expect(bodies[0]).not.toBe(bodies[1]);
+  });
+
+  it("answers 404 for a subscription that isn't yours, or that nobody has, pushing nothing", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    await saved(grace);
+    const [graces] = await idsOf(grace.user.id);
+    const pushed = pushServices();
+
+    for (const id of [graces!, 999, "nonsense", "1.5"]) {
+      const response = await sendTest(ada, id);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Push subscription not found" });
+    }
+    expect(pushed).toEqual([]);
+  });
+
+  it("answers 401 without a session, pushing nothing", async () => {
+    const ada = await signIn("Ada");
+    await saved(ada);
+    const [id] = await idsOf(ada.user.id);
+    const pushed = pushServices();
+
+    for (const session of [null, { ...ada, cookie: `${ada.cookie}x` }]) {
+      const response = await sendTest(session, id!);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "Not signed in" });
+    }
+    expect(pushed).toEqual([]);
+  });
+
+  it("fails when the push service says the subscription is gone, keeping it, as ember-rust's page does", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ada = await signIn("Ada");
+    await saved(ada);
+    const [id] = await idsOf(ada.user.id);
+    pushServices(410);
+
+    const response = await sendTest(ada, id!);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
+    expect(await idsOf(ada.user.id)).toEqual([id]);
+    expect(errors).toHaveBeenCalledWith(`POST /api/push-subscriptions/${id}/test-notifications failed:`, expect.objectContaining({ message: expect.stringContaining("status: 410") }));
+  });
+
+  it("fails while Web Push is off, pushing nothing", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ada = await signIn("Ada");
+    await saved(ada);
+    const [id] = await idsOf(ada.user.id);
+    const pushed = pushServices();
+
+    const response = await apiWith({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }, `/api/push-subscriptions/${id}/test-notifications`, {
+      method: "POST",
+      headers: { Cookie: ada.cookie },
+    });
+    expect(response.status).toBe(500);
+    expect(pushed).toEqual([]);
+    expect(errors).toHaveBeenCalledWith(`POST /api/push-subscriptions/${id}/test-notifications failed:`, expect.objectContaining({ message: "Web Push is off (no valid VAPID keys)" }));
   });
 });

@@ -1494,3 +1494,21 @@ describe(feature("notifications.hide-room"), () => {
     expect(activity()).not.toHaveAccessibleDescription(/\d unread/);
   });
 });
+
+describe(feature("notifications.test-page"), () => {
+  it("shows your push subscriptions at their address, or at anyone's id in place of me, marking nothing on the rail, with Go Back to the last room visited", async () => {
+    serve({ "GET /api/push-subscriptions": () => Response.json({ subscriptions: [{ id: 1, endpoint: "https://web.push.apple.com/abc", browser: "Safari", version: "18.0", platform: "iPhone" }] }) });
+    const { user } = showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+
+    for (const path of ["/users/me/push_subscriptions", "/users/u2/push_subscriptions"]) {
+      act(() => navigate(path));
+      expect(await screen.findByRole("heading", { level: 1, name: "Push Notification Subscriptions" })).toBeInTheDocument();
+      expect(await screen.findByText("Safari 18.0 on iPhone")).toBeInTheDocument();
+      expect(document.title).toBe("Push notification subscriptions");
+      expect(railCurrent()).toEqual([]);
+    }
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await roomHeading()).toHaveTextContent("random");
+  });
+});

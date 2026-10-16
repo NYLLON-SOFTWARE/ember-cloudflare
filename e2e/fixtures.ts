@@ -10,6 +10,12 @@ export const ROOM_SOCKET = /\/api\/rooms\/[^/]+\/socket/;
 /** A tab's workspace socket, for `page.routeWebSocket`. */
 export const WORKSPACE_SOCKET = /\/api\/socket$/;
 
+/**
+ * How long a test waits for the room icon picker's 991 KB catalog, which the test server has taken
+ * longer than expect's 5 seconds to send at the end of a CI run.
+ */
+export const ICON_CATALOG_LOADED = { timeout: 15_000 };
+
 /** Node's WebSocket, which, unlike a browser's, can send a handshake's headers. */
 const NodeWebSocket = WebSocket as unknown as new (url: URL, init: { headers: Record<string, string> }) => WebSocket;
 
@@ -122,7 +128,7 @@ function standInPushService({ endpoint, on, keys }: { endpoint: string; on: bool
   if (!on) return;
   subscribe({ userVisibleOnly: true });
   // The service worker turning them on registered, active.
-  const registration = { active: {}, pushManager: { getSubscription: async () => subscription } };
+  const registration = { active: {}, pushManager: { getSubscription: async () => subscription, subscribe } };
   ServiceWorkerContainer.prototype.getRegistration = async () => registration as unknown as ServiceWorkerRegistration;
 }
 

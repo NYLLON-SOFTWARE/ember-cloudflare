@@ -2,10 +2,11 @@ import type { Platform } from "@ember/protocol";
 
 /**
  * Whether Campfire turns a browser away as too old, whether a request is Apple Messages fetching a
- * link preview, and the platform the notification setup help is for. Ports ember-rust's
- * `ApplicationPlatform` (crates/ember/src/concerns/platform.rs): `browser_blocked`, `apple_messages` and
- * `to_view`, and the parts of its useragent gem port (crates/ember/src/concerns/user_agent.rs) they read.
- * Those port Rails' `allow_browser`
+ * link preview, the platform the notification setup help is for, and how the push subscriptions page
+ * names a browser. Ports ember-rust's `ApplicationPlatform` (crates/ember/src/concerns/platform.rs):
+ * `browser_blocked`, `apple_messages` and `to_view`, its push subscriptions' presenter
+ * (crates/ember/src/controllers/presenters/accounts.rs), and the parts of its useragent gem port
+ * (crates/ember/src/concerns/user_agent.rs) they read. Those port Rails' `allow_browser`
  * (`ActionController::AllowBrowser::BrowserBlocker`) with Campfire's `AllowBrowser::VERSIONS`, Campfire's
  * `ApplicationPlatform#apple_messages?`, and the useragent gem 0.16.11, which reads the header for both.
  *
@@ -92,6 +93,23 @@ export function platformOf(userAgent: string | null): Platform {
   };
 }
 
+/** A browser as the push subscriptions page names it. */
+export interface BrowserNames {
+  browser: string;
+  version: string;
+  platform: string;
+}
+
+/**
+ * The browser a push subscription was saved from, as ember-rust's push subscriptions page names it
+ * (`push_subscription`, presenters/accounts.rs): each of its name, version and platform is "" where the
+ * gem reads none or raises. One saved without a user agent reads as the gem's "Mozilla/4.0 (compatible)".
+ */
+export function browserNamesOf(userAgent: string | null): BrowserNames {
+  const agent = parse(userAgent ?? "");
+  return { browser: browserOf(agent) ?? "", version: versionOf(agent) ?? "", platform: platformNameOrNull(agent) ?? "" };
+}
+
 /** What `operating_system` calls the system each of these names in the gem's `platform`, in this order. */
 const OPERATING_SYSTEMS = [
   ["Android", "Android"],
@@ -104,6 +122,16 @@ const OPERATING_SYSTEMS = [
 
 /** The gem raising, which leaves the system unnamed. */
 class NoMethodError extends Error {}
+
+/** `platform`, or null where the gem raises. */
+function platformNameOrNull(agent: Agent): string | null {
+  try {
+    return platformNameOf(agent);
+  } catch (error) {
+    if (error instanceof NoMethodError) return null;
+    throw error;
+  }
+}
 
 /**
  * `ApplicationPlatform#operating_system`: the system the gem's `platform` names, else its `os`, with any
@@ -404,30 +432,40 @@ function browserOf(agent: Agent): string | null {
   }
 }
 
-/**
- * `version`, for the browsers that have a minimum version. The others get through whatever their
- * version, so how the gem reads theirs isn't ported.
- */
+/** `version`, or null where the gem reads none, or raises, as WeChat's browser does without a MicroMessenger product. */
 function versionOf(agent: Agent): string | null {
   const { products } = agent;
   const application = applicationOf(agent);
   switch (agent.kind) {
     case "Base":
+    case "WindowsMediaPlayer":
+    case "AppleCoreMedia":
       return application?.version ?? null;
+    case "Edge":
+    case "Vivaldi":
+      return products.at(-1)?.version ?? null;
     case "InternetExplorer":
       return /(MSIE[ \t\n\v\f\r]|rv:)([\d.]+)/.exec(application!.comment!.join("; "))?.[2] ?? "";
     case "Opera":
       return operaVersion(products);
+    case "WechatBrowser":
+      return detectProduct(products, "MicroMessenger")?.version ?? null;
     case "Chrome":
       return (detectProduct(products, "CriOS") ?? detectProduct(products, "Chrome"))!.version;
+    case "ITunes":
+      return detectProduct(products, "iTunes")!.version;
+    case "PlayStation":
+      return playStationVersion(products);
+    case "PodcastAddict":
+      return null;
     case "Webkit":
       return webkitVersion(products, application);
     case "Gecko": {
       const version = detectProduct(products, geckoBrowser(products))!.version;
       return isNilVersion(version) ? application!.version : version;
     }
-    default:
-      return null;
+    case "Libavformat":
+      return detectProduct(products, "NSPlayer") === undefined ? (application?.version ?? null) : null;
   }
 }
 
@@ -449,6 +487,17 @@ function operaVersion(products: Product[]): string {
   const mini = application.comment?.find((part) => part.includes("Opera Mini"));
   if (mini !== undefined) return /Opera Mini\/([\d.]+)/.exec(mini)?.[1] ?? "";
   return (detectProduct(products, "Version") ?? detectProduct(products, "OPR") ?? application).version;
+}
+
+/** The consoles `PlayStation#platform` names, as their browsers' comments name them, in the order it looks for them. */
+const PLAYSTATIONS = ["PLAYSTATION 3", "PlayStation 4", "PlayStation Vita"];
+
+/** `PlayStation#version`: Silk's own, else what follows the console's name in the first product's comment. */
+function playStationVersion(products: Product[]): string | null {
+  if (playStationBrowser(products) === "Silk") return products.at(-1)!.version;
+  const os = products[0]!.comment!.join(" ");
+  const model = PLAYSTATIONS.find((name) => os.includes(name));
+  return model === undefined ? null : (rubySplit(os, `${model} `).at(-1) ?? "");
 }
 
 /** `PlayStation#browser`. */

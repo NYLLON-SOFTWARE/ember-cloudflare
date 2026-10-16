@@ -24,7 +24,6 @@ import {
   type RoomChanges,
   type RoomId,
   type RoomSettings,
-  type SavedPushSubscription,
   type SharedRoom,
   type Sidebar,
   type User,
@@ -55,7 +54,9 @@ import {
   type MessagePush,
   type NewPerson,
   type ProfileEntry,
+  type PushDelivery,
   type SavedRoomChange,
+  type StoredPushSubscription,
   type StoredSession,
 } from "./workspace-store";
 
@@ -1232,9 +1233,20 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */
-  async pushSubscriptions(credentials: Credentials): Promise<SavedPushSubscription[] | null> {
+  async pushSubscriptions(credentials: Credentials): Promise<StoredPushSubscription[] | null> {
     const user = await this.authenticate(credentials);
     return user && this.store.pushSubscriptionsOf(user.id);
+  }
+
+  /**
+   * Where a test push to push subscription `id` goes, if it's the person's `credentials` signs in, with
+   * their unread count as its badge, as ember-rust's `test_notifications#create` finds it: "missing" if
+   * it's someone else's, or there's no such subscription or no id, and null without a valid session.
+   */
+  async testPushDelivery(credentials: Credentials, id: number | null): Promise<PushDelivery | "missing" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (id !== null && (await this.store.testPushDelivery(user.id, id))) || "missing";
   }
 
   /**

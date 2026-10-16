@@ -1,4 +1,4 @@
-import { cookieHeader, signInAs, type TestRoom } from "../../fixtures";
+import { cookieHeader, ICON_CATALOG_LOADED, signInAs, type TestRoom } from "../../fixtures";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 // Asking for the test's room makes it the only one in the sidebar, which wider phones show beside the page.
@@ -53,7 +53,7 @@ test("the room icon picker fits the phone", async ({ page, room, screenIsFine })
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await page.getByRole("button", { name: "Choose room icon" }).click();
   const picker = page.getByRole("dialog", { name: "Choose a room icon" });
-  await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown");
+  await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown", ICON_CATALOG_LOADED);
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
