@@ -1,5 +1,6 @@
 import {
   MAX_FAVORITES,
+  MAX_SHARED_ORDER,
   SUGGESTED_PEOPLE,
   suggestedCount,
   type Account,
@@ -45,8 +46,8 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
-/** What a new account's settings and custom CSS read as: translation buttons hidden, and no CSS. */
-export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "" } as const;
+/** What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, and anyone may create rooms. */
+export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false } as const;
 
 /** The workspace's account, with the code in its join link, which only the people in it see. */
 export interface JoinableAccount extends Account {
@@ -60,8 +61,8 @@ export interface NewAccount {
   joinCode: string;
 }
 
-/** What `WorkspaceStore.changeAccount` changes: the name, Hide translation buttons, or both. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons">>;
+/** What `WorkspaceStore.changeAccount` changes: the name, and the settings workspace settings' switches change. */
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -116,6 +117,8 @@ export interface SavedRoomChange {
   addedIds: UserId[];
   /** Who it took out, whose sockets there it queued closing. */
   removedIds: UserId[];
+  /** Whether the shared order ranks the room, which the sidebars of the people it put in have left out. */
+  ranked: boolean;
 }
 
 /** What applying events from a room's log changed. */
@@ -199,21 +202,32 @@ function isPresent(value: unknown): boolean {
   return typeof value !== "object" || Object.keys(value).length > 0;
 }
 
+/** The account's settings, as stored, or null when they don't parse as a JSON object. */
+function storedSettings(settings: string | null): Record<string, unknown> | null {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(settings ?? "{}");
+  } catch {
+    return null;
+  }
+  return typeof stored === "object" && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>) : null;
+}
+
 /**
  * Whether the account's settings hide the translation buttons, as ember-rust reads them (account.rs,
  * `hide_translation_buttons`): hidden until the setting is stored, even for an existing account, then
  * only while it's present, so a stored false or blank shows them. Settings that don't parse hide them.
  */
-function hidesTranslationButtons(settings: string | null): boolean {
-  let stored: unknown;
-  try {
-    stored = JSON.parse(settings ?? "{}");
-  } catch {
-    return true;
-  }
-  const hide = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>).hide_translation_buttons : undefined;
+function hidesTranslationButtons(settings: Record<string, unknown> | null): boolean {
+  const hide = settings ? settings.hide_translation_buttons : true;
   return hide === undefined || isPresent(hide);
 }
+
+/**
+ * Whether the account's settings let only administrators create rooms, as ember-rust reads them
+ * (account.rs, `restrict_room_creation_to_administrators`): only while the setting is present.
+ */
+const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
@@ -227,6 +241,7 @@ interface SidebarRow {
   icon: SharedRoom["icon"];
   active_at: string;
   unread: number;
+  shared_position: number | null;
 }
 
 /** Someone in a DM, as the statements that read a DM's people return them. */
@@ -245,6 +260,9 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** Whether `ROOM_RANKED` found that the shared order ranks the room. */
+const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ranked === 1;
 
 /** A DM's people, as the app has them, from the rows naming them. */
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
@@ -271,13 +289,21 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
 /**
  * The rooms someone is in, with whether each is marked unread for them and when it was last active,
  * which orders DMs, in the order they were made, for the app to go home to the oldest and to `/rooms`
- * to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs). Rooms
- * from before the Workspace kept a list (`LEGACY_ROOMS`) have ids that don't sort by time, so they go
- * by when they were listed.
+ * to the newest, as ember-rust's `original_for_user` and `last_for_user` find them (room.rs), and each
+ * room's place in the shared order. Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have
+ * ids that don't sort by time, so they go by when they were listed.
  */
-export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread
+export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
+    rooms.shared_position
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
+
+/** The ids of the rooms in `rows` that the shared order ranks, in its order. */
+const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
+  rows
+    .filter((row) => row.shared_position !== null)
+    .sort((a, b) => a.shared_position! - b.shared_position!)
+    .map((row) => row.id);
 
 /**
  * The workspace's first room, where the welcome card shows: its oldest, of any kind, as ember-rust's
@@ -458,14 +484,16 @@ export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role =
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
 
 /**
- * Sets Hide translation buttons, true or false as JSON, in the account's settings and records when.
- * The other settings stay, as ember-rust merges a change into them (account.rs, `assign`), and
- * settings that aren't a JSON object start afresh, as ember-rust reads them.
+ * Sets the account's setting `key`, true or false as JSON, and records when. The other settings stay,
+ * as ember-rust merges a change into them (account.rs, `assign`), and settings that aren't a JSON
+ * object start afresh, as ember-rust reads them.
  */
-const SET_HIDE_TRANSLATION_BUTTONS = `UPDATE accounts SET settings = json_set(
+const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
     CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
-    '$.hide_translation_buttons', json(?1)
+    '$.${key}', json(?1)
   ), updated_at = ?2`;
+const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
+const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -532,6 +560,47 @@ const THEIR_STARS = `(SELECT count(*) FROM json_each(?2)) = (SELECT count(*) FRO
 const REORDER_STARS = `UPDATE favorites SET position = listed.key FROM json_each(?2) AS listed
   WHERE favorites.user_id = ?1 AND favorites.room_id = listed.value AND ${THEIR_STARS}`;
 const AFTER_REORDER = afterStarring(THEIR_STARS);
+
+/**
+ * Whether ?1 can put ?2, a JSON array of distinct room ids, in the shared order, as ember-rust's
+ * `set_default_room_order` requires (account.rs): they're an active administrator, and each room is
+ * one in their sidebar, not a DM. The ids go in as one value, since there can be thousands.
+ */
+const MAY_ORDER_ROOMS = `SELECT EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = ${ADMINISTRATOR} AND status = ${ACTIVE})
+  AND NOT EXISTS (SELECT 1 FROM json_each(?2) WHERE value NOT IN (${STARRABLE_ROOMS})) AS allowed`;
+
+/** The shared order, each room with whether it's one ?1 could order. */
+const SHARED_ORDER_FOR_ADMINISTRATOR = `SELECT id, id IN (${STARRABLE_ROOMS}) AS orderable FROM rooms
+  WHERE shared_position IS NOT NULL ORDER BY shared_position`;
+
+/** Takes the rooms ?1, a JSON array of their ids, leaves out of the shared order out of it. */
+const UNRANK_ROOMS = `UPDATE rooms SET shared_position = NULL
+  WHERE shared_position IS NOT NULL AND id NOT IN (SELECT value FROM json_each(?1))`;
+
+/** Gives each room ?1, a JSON array of their ids, lists its place there in the shared order, unless it has it already. */
+const RANK_ROOMS = `UPDATE rooms SET shared_position = listed.key FROM json_each(?1) AS listed
+  WHERE rooms.id = listed.value AND rooms.shared_position IS NOT listed.key`;
+
+/** The rooms ?1 is in that the shared order ranks, in its order, as their sidebar has them. */
+const SHARED_ORDER_FOR_USER = `SELECT rooms.id FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ?1 AND rooms.shared_position IS NOT NULL ORDER BY rooms.shared_position`;
+
+/**
+ * The shared order once an administrator has put the rooms they could order in the order `roomIds`
+ * lists them, given the order `saved` as it is, as ember-rust's `set_default_room_order` merges them
+ * (account.rs): each place held by a room they could order goes to the next of `roomIds` in turn, or
+ * goes once `roomIds` runs out; the rooms they couldn't order, which another administrator may have
+ * placed, keep their places; and the rest of `roomIds` follow.
+ */
+export function mergedSharedOrder(saved: Array<{ id: RoomId; orderable: boolean }>, roomIds: RoomId[]): RoomId[] {
+  const listed = roomIds.values();
+  const merged = saved.flatMap(({ id, orderable }) => {
+    if (!orderable) return [id];
+    const next = listed.next();
+    return next.done ? [] : [next.value];
+  });
+  return [...merged, ...listed];
+}
 
 /** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
@@ -655,6 +724,9 @@ export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = 
 /** Who's in a room, which the memberships' key finds. */
 export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
 
+/** Whether the shared order ranks a room. */
+const ROOM_RANKED = `SELECT shared_position IS NOT NULL AS ranked FROM rooms WHERE id = ?`;
+
 /**
  * Renames a room, changes its kind and sets its icon, keeping whichever is null as it is, and records
  * when, unless nothing changes, as ember-rust's `Room::update` does (room.rs). An icon of "" is the
@@ -683,14 +755,22 @@ export class WorkspaceStore {
       `SELECT name, join_code, settings, custom_styles FROM accounts`,
     );
     if (!row) return null;
-    return { name: row.name, joinCode: row.join_code, hideTranslationButtons: hidesTranslationButtons(row.settings), customStyles: row.custom_styles ?? "" };
+    const settings = storedSettings(row.settings);
+    return {
+      name: row.name,
+      joinCode: row.join_code,
+      hideTranslationButtons: hidesTranslationButtons(settings),
+      customStyles: row.custom_styles ?? "",
+      restrictRoomCreation: restrictsRoomCreation(settings),
+    };
   }
 
-  /** Changes the workspace's name, Hide translation buttons, or both, in one batch. */
-  async changeAccount({ name, hideTranslationButtons }: AccountChange, now: string): Promise<void> {
+  /** Changes the workspace's name and settings, as `change` has them, in one batch. */
+  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
+      ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
     ]);
   }
 
@@ -1027,7 +1107,7 @@ export class WorkspaceStore {
    * starred, the people their sidebar suggests for DMs, and the workspace's first room, if there is one
    * yet.
    */
-  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; suggestions: User[]; originalRoomId: RoomId | null }> {
+  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; sharedOrder: RoomId[]; suggestions: User[]; originalRoomId: RoomId | null }> {
     const [rows, [original], starred, [user], members, suggested] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
@@ -1041,9 +1121,37 @@ export class WorkspaceStore {
     return {
       rooms: rows.map((row) => sidebarRoom(row, membersByRoom.get(row.id))),
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
+      sharedOrder: sharedOrderOf(rows),
       suggestions: suggested.slice(0, suggestedCount(peopleInDirects)),
       originalRoomId: original?.id ?? null,
     };
+  }
+
+  /**
+   * Puts the rooms in administrator `userId`'s sidebar, DMs aside, in the shared order in the order
+   * `roomIds` lists them, as saving it on ember-rust's workspace settings does (`set_default_room_order`,
+   * account.rs), merged with the order as `mergedSharedOrder` says, or clears the order when `roomIds`
+   * is empty. Answers the rooms they're in that the order ranks, in its order, as their sidebar lists
+   * them then, or null, having changed nothing, unless they're an active administrator and every room
+   * is one they could order, and the order holds at most `MAX_SHARED_ORDER` rooms. The Workspace makes
+   * this change one at a time with the others that change who can see a room or order them, so nothing
+   * changes what the first batch read before the second.
+   */
+  async setSharedOrder(userId: UserId, roomIds: RoomId[]): Promise<RoomId[] | null> {
+    const [[may], saved] = (await this.db.batch([
+      statement(MAY_ORDER_ROOMS, userId, JSON.stringify(roomIds)),
+      statement(SHARED_ORDER_FOR_ADMINISTRATOR, userId),
+    ])) as [Array<{ allowed: number }>, Array<{ id: RoomId; orderable: number }>];
+    if (may?.allowed !== 1) return null;
+    const merged = roomIds.length === 0 ? [] : mergedSharedOrder(saved.map((row) => ({ id: row.id, orderable: row.orderable === 1 })), roomIds);
+    if (merged.length > MAX_SHARED_ORDER) return null;
+    const listed = JSON.stringify(merged);
+    const [, , ranked] = (await this.db.batch([
+      statement(UNRANK_ROOMS, listed),
+      statement(RANK_ROOMS, listed),
+      statement(SHARED_ORDER_FOR_USER, userId),
+    ])) as [unknown[], unknown[], Array<{ id: RoomId }>];
+    return ranked.map((row) => row.id);
   }
 
   /**
@@ -1195,28 +1303,38 @@ export class WorkspaceStore {
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
    * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers what
-   * it changed, and who's in the room then.
+   * it changed, who's in the room then, and whether the shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
     const members = statement(ROOM_MEMBERS, roomId);
+    const ranked = statement(ROOM_RANKED, roomId);
     if (changes.kind === "open") {
-      const [updated, added, after] = (await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now), members])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [] };
+      const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
+      const [updated, added, after, rank] = (await this.db.batch([update, grant, members, ranked])) as UserIdRow[][];
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], ranked: isRanked(rank!) };
     }
     if (changes.kind !== "closed") {
       const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [] };
+      // Nobody new is in it, so nobody's sidebar has left it out.
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    const [updated, added, , removed, after] = (await this.db.batch([
+    const [updated, added, , removed, after, rank] = (await this.db.batch([
       update,
       statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
       members,
+      ranked,
     ])) as UserIdRow[][];
-    return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: userIdsOf(removed!) };
+    return {
+      roomChanged: updated!.length > 0,
+      memberIds: userIdsOf(after!),
+      addedIds: userIdsOf(added!),
+      removedIds: userIdsOf(removed!),
+      ranked: isRanked(rank!),
+    };
   }
 
   /** The kind of room `roomId`, DMs included, and whether someone can change it, unless they aren't in it. */

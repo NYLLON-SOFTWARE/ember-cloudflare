@@ -5,6 +5,7 @@ import {
   parseAccountChanges,
   parseCustomStyles,
   parseFavoriteOrder,
+  parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
   parseProfileChanges,
@@ -408,14 +409,26 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
 /** A parameter's value unless it's blank, as Rails' `presence` reads it. */
 const present = (value: string | null) => (value === null || value.trim() === "" ? undefined : value);
 
-/** Creates an open room, or a closed one for the people it names, as New room's forms do. */
+/** What someone hears when "Must be admin to create new rooms" is on and they aren't one. */
+const ROOM_CREATION_FORBIDDEN = "Only administrators can create rooms";
+
+/**
+ * Creates an open room, or a closed one for the people it names, as New room's forms do. As in
+ * ember-rust, someone who may not create rooms hears so before anything they sent is checked
+ * (rooms/opens.rs).
+ */
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const room = parseNewRoom(await request.json().catch(() => null));
-  if (typeof room === "string") return problem(422, room);
+  if (typeof room === "string") {
+    const may = await workspace(env).mayCreateRooms(credentials);
+    if (may === null) return problem(401, "Not signed in");
+    return may ? problem(422, room) : problem(403, ROOM_CREATION_FORBIDDEN);
+  }
   const created = await workspace(env).createRoom(credentials, room);
-  return created ? json({ room: created }, { status: 201 }) : problem(401, "Not signed in");
+  if (!created) return problem(401, "Not signed in");
+  return created === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json({ room: created }, { status: 201 });
 }
 
 /**
@@ -431,11 +444,12 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   return started ? json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 }) : problem(401, "Not signed in");
 }
 
-/** Who New room's forms list: everyone active, by name. */
+/** Who New room's forms list: everyone active, by name, for anyone who may create rooms. */
 async function newRoomForm(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const form = credentials && (await workspace(env).newRoomForm(credentials));
-  return form ? json(form satisfies NewRoomForm) : problem(401, "Not signed in");
+  if (!form) return problem(401, "Not signed in");
+  return form === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json(form satisfies NewRoomForm);
 }
 
 /** A room's settings page, for its members, read-only for those who can't change it. */
@@ -511,6 +525,31 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/** What someone hears when they can't put rooms in the shared order. */
+const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
+
+/**
+ * Puts the rooms in the signed-in administrator's sidebar in the shared order, as saving it on
+ * workspace settings does, answering the rooms they're in that it ranks, where ember-rust's
+ * `sidebars#update_default_order` answers 204 (users/sidebars.rs): 400 for a list it can't read, and
+ * 403 for anyone but an administrator, or a list naming a room outside their sidebar. An empty list
+ * clears the order.
+ */
+async function setSharedOrder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const roomIds = parseSharedOrder(await request.json().catch(() => null));
+  // As in ember-rust, someone who isn't an administrator hears so before the list is checked.
+  if (typeof roomIds === "string") {
+    const administrator = await workspace(env).canAdminister(credentials);
+    if (administrator === null) return problem(401, "Not signed in");
+    return administrator ? problem(400, roomIds) : problem(403, SHARED_ORDER_FORBIDDEN);
+  }
+  const sharedOrder = await workspace(env).setSharedOrder(credentials, roomIds);
+  if (!sharedOrder) return problem(401, "Not signed in");
+  return sharedOrder === "forbidden" ? problem(403, SHARED_ORDER_FORBIDDEN) : json({ sharedOrder } satisfies { sharedOrder: RoomId[] });
+}
+
 /** A tab's workspace socket, which the Workspace lets in itself, as the session the request's cookie names. */
 async function connectToWorkspace(request: Request, env: Env): Promise<Response> {
   // As with a room's, the address is only there for upgrades from the app's own pages.
@@ -559,6 +598,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
+  if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);

@@ -11,7 +11,7 @@ import { ProfilePage } from "./profile-page";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program" };
-const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" };
+const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
 

@@ -108,7 +108,7 @@ describe(feature("accounts.qr-codes"), () => {
 describe(feature("accounts.translation-buttons"), () => {
   it("has a translation button for its invitation once an administrator shows them", () => {
     render(
-      <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "" }}>
+      <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false }}>
         <InvitationCard joinCode={JOIN_CODE} />
       </AccountContext>,
     );

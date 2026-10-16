@@ -261,6 +261,15 @@ export async function setFavoriteOrder(roomIds: RoomId[]): Promise<Favorites> {
   return (await request<{ favorites: Favorites }>("/api/sidebar/order", { method: "PUT", body: JSON.stringify({ roomIds }) })).favorites;
 }
 
+/**
+ * Puts the rooms in this administrator's sidebar in the shared order, in the order `roomIds` lists them,
+ * answering the rooms they're in that it ranks, in its order. Fails with a 403 ApiError for anyone but
+ * an administrator, and for a room outside their sidebar.
+ */
+export async function setSharedOrder(roomIds: RoomId[]): Promise<RoomId[]> {
+  return (await request<{ sharedOrder: RoomId[] }>("/api/account/room_order", { method: "PUT", body: JSON.stringify({ roomIds }) })).sharedOrder;
+}
+
 /** Deletes a room, with its messages. */
 export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });

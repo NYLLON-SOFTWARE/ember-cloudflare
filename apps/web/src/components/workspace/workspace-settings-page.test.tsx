@@ -1,11 +1,12 @@
 import { feature } from "@ember/parity";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, AccountChanges, DirectoryUser, Me, RoleChange, WorkspaceSettings } from "@ember/protocol";
+import type { Account, AccountChanges, DirectoryUser, Me, RoleChange, RoomId, SidebarRoom, WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import cancel from "@/components/icons/campfire/cancel.svg";
+import crown from "@/components/icons/campfire/crown.svg";
 import minus from "@/components/icons/campfire/minus.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -17,7 +18,7 @@ import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page"
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "" },
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   joinCode: JOIN_CODE,
   canAdminister: true,
 };
@@ -43,6 +44,16 @@ const everyone = [mallory, listed("u5", "Build Bot", "bot"), linus, listed("u6",
 const asAda: Me = { id: ada.id, name: ada.name, administrator: true };
 const asLinus: Me = { id: linus.id, name: linus.name, administrator: false };
 
+/** A room shared by name, as the sidebar lists it. */
+const shared = (id: string, name: string): SidebarRoom => ({ id, name, kind: id.startsWith("secret") ? "closed" : "open", icon: null, unread: false });
+/** Ada's rooms, in the order she joined them, as her sidebar lists them, with a DM, which isn't put in order. */
+const adasRooms: SidebarRoom[] = [
+  shared("general", "general"),
+  shared("random", "random"),
+  shared("secret", "Design"),
+  { id: "dm", kind: "direct", members: [asAda, { id: grace.id, name: grace.name }], activeAt: "2026-10-16T12:00:00.000Z", unread: false },
+];
+
 interface Answers {
   /** What saving the name or the settings answers, rather than the workspace changed as asked. */
   saved?: () => Response | Promise<Response>;
@@ -52,10 +63,12 @@ interface Answers {
   roleChanged?: () => Response | Promise<Response>;
   /** What removing someone answers, rather than them removed. */
   removed?: () => Response | Promise<Response>;
+  /** What saving the shared order answers, rather than the rooms sent. */
+  ordered?: () => Response | Promise<Response>;
 }
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
-function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed }: Answers = {}) {
+function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered }: Answers = {}) {
   let { account } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -72,11 +85,18 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
       case "PATCH /api/account": {
         if (saved) return saved();
         const { name = account.name, settings: changed } = JSON.parse(String(init?.body)) as AccountChanges;
-        account = { ...account, name, hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons };
+        account = {
+          ...account,
+          name,
+          hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
+          restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
+        };
         return Response.json({ account });
       }
       case "POST /api/account/join_code":
         return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
+      case "PUT /api/account/room_order":
+        return ordered ? ordered() : Response.json({ sharedOrder: (JSON.parse(String(init?.body)) as { roomIds: RoomId[] }).roomIds });
       default:
         throw new Error(`Unexpected request for ${request}`);
     }
@@ -89,6 +109,8 @@ const spies = () => ({
   reloadPeople: vi.fn(async () => {}),
   onPersonChanged: vi.fn(),
   onFailed: vi.fn(),
+  onSharedOrderSaved: vi.fn(),
+  onSessionChanged: vi.fn(),
 });
 type Callbacks = ReturnType<typeof spies>;
 
@@ -96,19 +118,28 @@ type Callbacks = ReturnType<typeof spies>;
 let socketSays: (person: DirectoryUser) => void;
 /** Changes the workspace the page shows, as the workspace socket does. */
 let workspaceSays: (account: Account) => void;
+/** Changes the rooms the page shows, and the shared order, as the sidebar's list does. */
+let sidebarSays: (rooms: SidebarRoom[] | null, sharedOrder?: RoomId[]) => void;
 
 /**
- * The page, with the workspace and the people directory as the app keeps them: changed as the page or
- * the workspace socket says. The workspace starts as the app loaded it, before the page's settings came.
+ * The page, with the workspace, the people directory and the sidebar's rooms as the app keeps them:
+ * changed as the page, the workspace socket or the sidebar says. The workspace starts as the app loaded
+ * it, before the page's settings came, and the rooms as the sidebar listed them.
  */
-function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; callbacks: Callbacks }) {
+function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: DirectoryUser[]; rooms: SidebarRoom[] | null; callbacks: Callbacks }) {
   const [people, setPeople] = useState(() => new Map(listed.map((person) => [person.id, person])));
   const [account, setAccount] = useState<Account>({ ...asAdministrator.account, name: "Ember" });
+  const [sidebar, setSidebar] = useState<{ rooms: SidebarRoom[] | null; sharedOrder: RoomId[] }>({ rooms: listedRooms, sharedOrder: [] });
   socketSays = (person) => setPeople((people) => new Map(people).set(person.id, person));
   workspaceSays = setAccount;
+  sidebarSays = (rooms, sharedOrder = []) => setSidebar({ rooms, sharedOrder });
   const personChanged = (person: DirectoryUser) => {
     callbacks.onPersonChanged(person);
     socketSays(person);
+  };
+  const sharedOrderSaved = (sharedOrder: RoomId[]) => {
+    callbacks.onSharedOrderSaved(sharedOrder);
+    setSidebar((sidebar) => ({ ...sidebar, sharedOrder }));
   };
   // As the app's, which the page's loading waits on, it stays the same.
   const [askForAccount] = useState(() => () => (account: Account) => {
@@ -121,7 +152,17 @@ function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; call
       <PeopleContext value={people}>
         <FlashProvider workspace>
           <Sheet>
-            <WorkspaceSettingsPage me={me} back="/rooms/general" version="0.1" {...handlers} askForAccount={askForAccount} onPersonChanged={personChanged} />
+            <WorkspaceSettingsPage
+              me={me}
+              back="/rooms/general"
+              version="0.1"
+              {...handlers}
+              askForAccount={askForAccount}
+              onPersonChanged={personChanged}
+              rooms={sidebar.rooms}
+              sharedOrder={sidebar.sharedOrder}
+              onSharedOrderSaved={sharedOrderSaved}
+            />
           </Sheet>
         </FlashProvider>
       </PeopleContext>
@@ -129,10 +170,10 @@ function Page({ me, listed, callbacks }: { me: Me; listed: DirectoryUser[]; call
   );
 }
 
-function showPage(me = asAda, people = everyone, callbacks = spies()) {
+function showPage(me = asAda, people = everyone, callbacks = spies(), rooms: SidebarRoom[] | null = adasRooms) {
   history.replaceState(null, "", "/account/edit");
-  const { rerender } = render(<Page me={me} listed={people} callbacks={callbacks} />);
-  return { ...callbacks, rerender: (me: Me) => rerender(<Page me={me} listed={people} callbacks={callbacks} />), user: userEvent.setup() };
+  const { rerender } = render(<Page me={me} listed={people} rooms={rooms} callbacks={callbacks} />);
+  return { ...callbacks, rerender: (me: Me) => rerender(<Page me={me} listed={people} rooms={rooms} callbacks={callbacks} />), user: userEvent.setup() };
 }
 
 const nameField = () => screen.findByRole("textbox", { name: "Workspace name" });
@@ -375,6 +416,316 @@ describe(feature("rooms.create-open"), () => {
     expect(newRoom).toHaveAttribute("href", "/rooms/opens/new");
     await user.click(newRoom);
     expect(location.pathname).toBe("/rooms/opens/new");
+  });
+});
+
+describe(feature("rooms.creation-permission"), () => {
+  const restrictSwitch = () => screen.findByRole("switch", { name: "Must be admin to create new rooms" });
+  const roomsSection = () => screen.queryByRole("region", { name: "Rooms" });
+
+  it("gives administrators a crowned switch under New room that limits creating rooms to them, saved at once with no notice", async () => {
+    const { onAccountChanged, user } = showPage();
+    const restrict = await restrictSwitch();
+    expect(roomsSection()).toContainElement(restrict);
+    expect(restrict.parentElement).toHaveTextContent("Must be admin to create new rooms");
+    expect(restrict.parentElement!.querySelector("img")).toHaveAttribute("src", crown);
+    expect(restrict).not.toBeChecked();
+
+    await user.click(restrict);
+    expect(restrict).toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictRoomCreation: true }));
+    // Administrators can still create rooms.
+    expect(within(roomsSection()!).getByRole("link", { name: "New room" })).toBeInTheDocument();
+
+    await user.click(restrict);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
+    expect(saved()).toEqual([{ settings: { restrictRoomCreation: true } }, { settings: { restrictRoomCreation: false } }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    showPage();
+    const restrict = await restrictSwitch();
+    act(() => workspaceSays({ ...asAdministrator.account, restrictRoomCreation: true }));
+    expect(restrict).toBeChecked();
+  });
+
+  it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { onFailed, user } = showPage();
+    const restrict = await restrictSwitch();
+    await user.click(restrict);
+    await user.click(restrict);
+    expect(restrict).toBeChecked();
+    expect(saved()).toEqual([{ settings: { restrictRoomCreation: true } }]);
+
+    answer(Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(restrict).not.toBeChecked();
+  });
+
+  it("takes the Rooms section away from members while it's on, and gives it back once it's off", async () => {
+    serve({ ...asMember, account: { ...asMember.account, restrictRoomCreation: true } });
+    showPage(asLinus);
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(roomsSection()).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "New room" })).not.toBeInTheDocument();
+
+    act(() => workspaceSays({ ...asMember.account, restrictRoomCreation: false }));
+    expect(within(roomsSection()!).getByRole("link", { name: "New room" })).toBeInTheDocument();
+  });
+
+  it("gives members New room alone in the Rooms section while anyone can create rooms", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    const rooms = roomsSection()!;
+    expect(within(rooms).getByRole("link", { name: "New room" })).toBeInTheDocument();
+    expect(within(rooms).queryByRole("switch")).not.toBeInTheDocument();
+    expect(within(rooms).queryByRole("list", { name: "Room order" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("sidebar.shared-order"), () => {
+  const HELP = "Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.";
+  const orderList = () => screen.getByRole("list", { name: "Room order" });
+  const orderRows = () => within(orderList()).getAllByRole("listitem");
+  /** The rooms the list shows, top to bottom. */
+  const ordered = () => orderRows().map((row) => row.textContent);
+  const orderRow = (name: string) => orderRows().find((row) => row.textContent === `#${name}`)!;
+  const status = () => within(screen.getByRole("region", { name: "Rooms" })).getByRole("status");
+  const button = (name: string) => screen.getByRole("button", { name });
+  /** The orders the page has saved, as sent. */
+  const sentOrders = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input) === "/api/account/room_order")
+      .map(([, init]) => [init?.method, JSON.parse(String(init?.body))]);
+  /** Moves `name`'s row with Alt and an arrow. */
+  const altArrow = (name: string, key: "ArrowUp" | "ArrowDown") => fireEvent.keyDown(orderRow(name), { key, altKey: true });
+
+  it("lists an administrator's rooms but their DMs, the ones the shared order ranks first, in its order, then the rest by name", async () => {
+    showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    act(() => sidebarSays(adasRooms, ["random", "general"]));
+    expect(ordered()).toEqual(["#random", "#general", "#Design"]);
+
+    expect(screen.getByText(HELP)).toBeInTheDocument();
+    for (const row of orderRows()) {
+      expect(row).toHaveAccessibleDescription(HELP);
+      expect(row).toHaveAttribute("tabindex", "0");
+      expect(row).toHaveAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    }
+    const grip = within(orderRow("random")).getByRole("button", { name: "Move random" });
+    expect(grip).toHaveAttribute("title", "Drag to reorder, or press Alt + Up / Down");
+    expect(grip).toHaveClass("cursor-grab", "touch-none");
+    expect(button("Cancel")).toBeDisabled();
+    expect(button("Save order")).toBeDisabled();
+    expect(status()).toBeEmptyDOMElement();
+    expect(status()).toHaveClass("sr-only");
+  });
+
+  it("moves a row past the one above or below it with Alt and an arrow, keeping it focused, and saves only with Save order", async () => {
+    const { onSharedOrderSaved, user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    orderRow("random").focus();
+    altArrow("random", "ArrowUp");
+    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(orderRow("random")).toHaveFocus();
+    expect(status()).toHaveTextContent("Unsaved room order. Save to apply it to everyone.");
+    expect(status()).not.toHaveClass("sr-only");
+    expect(status()).toHaveClass("text-muted-foreground");
+    // Not past either end, nor with the arrow alone.
+    altArrow("Design", "ArrowUp");
+    fireEvent.keyDown(orderRow("general"), { key: "ArrowUp" });
+    altArrow("general", "ArrowDown");
+    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(sentOrders()).toEqual([]);
+
+    await user.click(button("Save order"));
+    await waitFor(() => expect(status()).toHaveTextContent("Room order saved for everyone."));
+    expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
+    expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(["secret", "random", "general"]);
+    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(button("Save order")).toBeDisabled();
+    expect(button("Cancel")).toBeDisabled();
+  });
+
+  it("puts the rows back as saved with Cancel, saying nothing", async () => {
+    const { user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    altArrow("general", "ArrowUp");
+    await user.click(button("Cancel"));
+    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    expect(status()).toBeEmptyDOMElement();
+    expect(button("Save order")).toBeDisabled();
+    expect(sentOrders()).toEqual([]);
+  });
+
+  it("keeps still until a save is answered, then saves nothing more until something moves", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { ordered: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    altArrow("general", "ArrowUp");
+    await user.click(button("Save order"));
+    expect(status()).toHaveTextContent("Saving room order…");
+    expect(button("Save order")).toBeDisabled();
+    expect(button("Cancel")).toBeDisabled();
+    altArrow("random", "ArrowUp");
+    expect(ordered()).toEqual(["#general", "#Design", "#random"]);
+
+    await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"] })));
+    expect(status()).toHaveTextContent("Room order saved for everyone.");
+    expect(sentOrders()).toHaveLength(1);
+  });
+
+  it("says on screen why an order wasn't saved, keeping it to try again", async () => {
+    serve(asAdministrator, { ordered: () => Response.json({ error: "Only administrators can put rooms in order for everyone" }, { status: 403 }) });
+    const { onSharedOrderSaved, onFailed, user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    altArrow("general", "ArrowUp");
+    await user.click(button("Save order"));
+    await waitFor(() => expect(status()).toHaveTextContent("Couldn’t save room order. Please try again."));
+    expect(status()).toHaveClass("text-negative");
+    expect(ordered()).toEqual(["#general", "#Design", "#random"]);
+    expect(button("Save order")).toBeEnabled();
+    expect(onSharedOrderSaved).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("goes to sign in when the session has expired", async () => {
+    serve(asAdministrator, { ordered: () => Response.json({ error: "Sign in to continue" }, { status: 401 }) });
+    const { onSessionChanged, user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    altArrow("general", "ArrowUp");
+    await user.click(button("Save order"));
+    await waitFor(() => expect(onSessionChanged).toHaveBeenCalledExactlyOnceWith(null));
+  });
+
+  it("keeps what's moved as rooms come and go, a new one last, and follows an order saved elsewhere otherwise", async () => {
+    showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    altArrow("random", "ArrowUp");
+    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    act(() => sidebarSays([...adasRooms.filter((room) => room.id !== "secret"), shared("ops", "Ops")], ["general"]));
+    expect(ordered()).toEqual(["#random", "#general", "#Ops"]);
+    expect(button("Save order")).toBeEnabled();
+
+    fireEvent.click(button("Cancel"));
+    expect(ordered()).toEqual(["#general", "#Ops", "#random"]);
+    act(() => sidebarSays(adasRooms, ["random", "secret"]));
+    expect(ordered()).toEqual(["#random", "#Design", "#general"]);
+  });
+
+  it("waits for the sidebar's rooms, and says when there are none to arrange", async () => {
+    showPage(asAda, everyone, spies(), null);
+    await screen.findByRole("switch", { name: "Must be admin to create new rooms" });
+    expect(screen.queryByRole("list", { name: "Room order" })).not.toBeInTheDocument();
+    act(() => sidebarSays(adasRooms.filter((room) => room.kind === "direct")));
+    expect(orderList()).toBeEmptyDOMElement();
+    expect(screen.getByText("No rooms to arrange yet.")).toBeInTheDocument();
+    act(() => sidebarSays(adasRooms));
+    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    expect(screen.queryByText("No rooms to arrange yet.")).not.toBeInTheDocument();
+  });
+
+  describe("dragged", () => {
+    // jsdom lays nothing out, so each row is 52px tall, in the order the list draws them, and the list
+    // is too tall for a drag to scroll it.
+    function layOutRows() {
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (!this.dataset.roomId) return DOMRect.fromRect({ x: 0, y: -1000, width: 600, height: 3000 });
+        return DOMRect.fromRect({ x: 0, y: Array.prototype.indexOf.call(this.parentElement!.children, this) * 52, width: 600, height: 52 });
+      });
+    }
+
+    /** Shows the page with its rooms in order, and the clock and layout as the drags need them. */
+    async function showList() {
+      const shown = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      vi.useFakeTimers();
+      layOutRows();
+      return shown;
+    }
+
+    afterEach(() => vi.useRealTimers());
+
+    const grip = (name: string) => within(orderRow(name)).getByRole("button", { name: `Move ${name}` });
+    const pressGrip = (name: string) =>
+      fireEvent.pointerDown(grip(name), { pointerType: "mouse", button: 0, clientX: 20, clientY: orderRows().indexOf(orderRow(name)) * 52 + 26 });
+    const dragTo = (clientY: number) => fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY });
+
+    it("picks a row up by its grip at once, moves it past the rows whose middle it passes, and places it where it's let go", async () => {
+      await showList();
+      pressGrip("random");
+      expect(status()).toHaveTextContent("Moving random. Release to place, or press Escape to cancel.");
+      expect(orderRow("random")).toHaveClass("bg-hover", "shadow-[inset_3px_0_var(--color-foreground)]");
+      expect(orderList()).toHaveClass("select-none");
+
+      dragTo(10);
+      expect(ordered()).toEqual(["#random", "#Design", "#general"]);
+      fireEvent.pointerUp(window);
+      expect(orderRow("random")).not.toHaveClass("bg-hover");
+      expect(orderRow("random")).toHaveFocus();
+      expect(status()).toHaveTextContent("Unsaved room order. Save to apply it to everyone.");
+      expect(button("Save order")).toBeEnabled();
+      expect(sentOrders()).toEqual([]);
+    });
+
+    it("picks a row up only by its grip", async () => {
+      await showList();
+      fireEvent.pointerDown(orderRow("random").lastElementChild!, { pointerType: "mouse", button: 0, clientX: 200, clientY: 2 * 52 + 26 });
+      dragTo(10);
+      fireEvent.pointerUp(window);
+      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(status()).toBeEmptyDOMElement();
+    });
+
+    it("puts a dragged row back on Escape, leaving nothing to save", async () => {
+      await showList();
+      pressGrip("random");
+      dragTo(10);
+      expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
+      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(status()).toHaveTextContent("Room move canceled.");
+      fireEvent.pointerUp(window);
+      expect(button("Save order")).toBeDisabled();
+    });
+
+    it("puts a row being dragged back when Cancel or Save order is pressed, so what's put back, or saved, is what shows", async () => {
+      await showList();
+      altArrow("random", "ArrowUp");
+      pressGrip("Design");
+      dragTo(2 * 52 + 40);
+      expect(ordered()).toEqual(["#random", "#general", "#Design"]);
+      fireEvent.click(button("Cancel"));
+      fireEvent.pointerUp(window);
+      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(button("Save order")).toBeDisabled();
+
+      altArrow("random", "ArrowUp");
+      pressGrip("Design");
+      dragTo(2 * 52 + 40);
+      fireEvent.click(button("Save order"));
+      fireEvent.pointerUp(window);
+      expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+      expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
+      await act(() => vi.runAllTimersAsync());
+      expect(status()).toHaveTextContent("Room order saved for everyone.");
+    });
+
+    it("drags with a finger on its grip at once, the page not scrolling", async () => {
+      await showList();
+      fireEvent.touchStart(grip("Design"), { touches: [{ clientX: 20, clientY: 26 }] });
+      expect(status()).toHaveTextContent("Moving Design.");
+      expect(fireEvent.touchMove(window, { touches: [{ clientX: 20, clientY: 2 * 52 + 40 }] })).toBe(false);
+      expect(ordered()).toEqual(["#general", "#random", "#Design"]);
+      fireEvent.touchEnd(window);
+      expect(status()).toHaveTextContent("Unsaved room order.");
+    });
   });
 });
 

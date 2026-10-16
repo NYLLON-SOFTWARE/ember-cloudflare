@@ -2,15 +2,15 @@ import { feature } from "@ember/parity";
 import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RELOAD_AFTER_HIDDEN_MS, useSidebar } from "./use-sidebar";
+import { RELOAD_AFTER_HIDDEN_MS, REORDER_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
 const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
 const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
-const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, invitation: null, suggestions: [] });
-const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "" };
+const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [] });
+const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -451,6 +451,74 @@ describe(feature("sidebar.favorites"), () => {
     await release();
     await settle();
     expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 1 });
+  });
+});
+
+describe(feature("sidebar.shared-order"), () => {
+  it("loads its rooms again a while after the workspace socket says the shared order changed, once for the news that comes meanwhile", async () => {
+    const onReload = vi.fn(async () => {});
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
+    socket().connect();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+
+    server.change({ ...unstarred([design, general]), sharedOrder: [general.id, design.id] });
+    socket().receive({ type: "rooms.reordered" });
+    // Math.random says halfway.
+    await wait(REORDER_SPREAD_MS / 2 - 1);
+    socket().receive({ type: "rooms.reordered" });
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+    await wait(1);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+    expect(result.current.list?.sharedOrder).toEqual([general.id, design.id]);
+    // The people haven't changed.
+    expect(onReload).toHaveBeenCalledTimes(2);
+
+    await wait(REORDER_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+  });
+
+  it("spreads the tabs' loads over a few seconds at random", async () => {
+    await showSidebar();
+    socket().connect();
+    await settle();
+    vi.mocked(Math.random).mockReturnValue(0.999);
+    socket().receive({ type: "rooms.reordered" });
+    await wait(0.999 * REORDER_SPREAD_MS - 1);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+    await wait(1);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+  });
+
+  it("doesn't wait to load what the socket's next welcome loads anyway", async () => {
+    await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "rooms.reordered" });
+    socket().drop();
+    await wait(500);
+    socket().connect();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+    await wait(REORDER_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+  });
+
+  it("loads nothing once the tab is gone", async () => {
+    const { unmount } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "rooms.reordered" });
+    unmount();
+    await wait(REORDER_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
   });
 });
 

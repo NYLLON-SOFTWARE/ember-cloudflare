@@ -5,7 +5,7 @@ const PENDING: Bootstrap = {
   setup: "pending",
   setupProtected: false,
   guestSignIn: true,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   helpContact: null,
   version: "0.1",
   user: null,

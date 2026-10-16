@@ -14,7 +14,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
   guestSignIn: false,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "" },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
 };

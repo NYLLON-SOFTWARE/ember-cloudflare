@@ -240,6 +240,20 @@ search index. On top of that schema it adds indexes and query changes for speed.
   the same few values however many stars there are, and changes nothing unless the order holds
   exactly their stars. As in ember-rust, a star outlives its person's membership: it's left out while
   they can't star the room, and dropped at their next star, unstar or reorder.
+- **A room's place in the shared order is a column of the room.** ember-rust keeps the order
+  administrators set for everyone as a list of ids in the account's settings
+  (`ember_default_room_order`, `crates/db/src/models/account.rs`), which every sidebar reads whole and
+  filters to the rooms its person can see. Ours is `rooms.shared_position` (workspace migration 0020),
+  so the sidebar's statement reads each room's place with the room, and listing the order costs
+  nothing more, nor reads the places of rooms someone isn't in. Saving it reads the order, with
+  whether the administrator could order each room in it, merges their list in as ember-rust does,
+  then numbers every room it ranks in one `UPDATE ... FROM json_each`, skipping those already in
+  place, and unranks the rest in another, given the merged order as one JSON value, so it binds the
+  same few values however many rooms it ranks. The Workspace saves it one at a time with the changes
+  that decide who can see a room, so nothing comes between the read and the writes. A deleted room
+  leaves the order with its row, where ember-rust's list keeps its id. Whether only administrators
+  create rooms stays in the account's settings, as in ember-rust, and the Workspace keeps it with the
+  rest of the account it has read.
 - **Rooms are named by their ids, and some have no creator.** A room's id names its Durable Object
   too, so it's a 16-character sortable string like a message's rather than an integer, and its kind
   is `open`, `closed` or `direct` rather than Rails' class name. The rooms from before the Workspace

@@ -21,7 +21,8 @@ const SETUP_PATH = "/first_run";
 /** Where the sign-in page is, as in ember-rust. */
 const SIGN_IN_PATH = "/session/new";
 
-const isSameAccount = (a: Account, b: Account) => a.name === b.name && a.hideTranslationButtons === b.hideTranslationButtons && a.customStyles === b.customStyles;
+const isSameAccount = (a: Account, b: Account) =>
+  a.name === b.name && a.hideTranslationButtons === b.hideTranslationButtons && a.customStyles === b.customStyles && a.restrictRoomCreation === b.restrictRoomCreation;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.

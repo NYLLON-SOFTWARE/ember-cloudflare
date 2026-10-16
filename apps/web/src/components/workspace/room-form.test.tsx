@@ -152,7 +152,7 @@ describe(feature("rooms.settings-page"), () => {
 
 describe(feature("accounts.translation-buttons"), () => {
   it("has a translation button by the room's name once an administrator shows them", () => {
-    renderForm({}, ({ children }) => <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "" }}>{children}</AccountContext>);
+    renderForm({}, ({ children }) => <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false }}>{children}</AccountContext>);
     expect(screen.getByText("Translate")).toBeInTheDocument();
     expect(screen.getByText(TRANSLATIONS.room_name[0][1])).toBeInTheDocument();
   });

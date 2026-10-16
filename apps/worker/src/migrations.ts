@@ -17,6 +17,7 @@ import directKeys from "../migrations/0016_direct_keys.sql";
 import directActivity from "../migrations/0017_direct_activity.sql";
 import bans from "../migrations/0018_bans.sql";
 import messagesByCreator from "../migrations/0019_messages_by_creator.sql";
+import sharedRoomOrder from "../migrations/0020_shared_room_order.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -56,6 +57,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0017_direct_activity.sql", scope: "workspace", sql: directActivity },
   { name: "0018_bans.sql", scope: "workspace", sql: bans },
   { name: "0019_messages_by_creator.sql", scope: "room", sql: messagesByCreator },
+  { name: "0020_shared_room_order.sql", scope: "workspace", sql: sharedRoomOrder },
 ];
 
 /**
