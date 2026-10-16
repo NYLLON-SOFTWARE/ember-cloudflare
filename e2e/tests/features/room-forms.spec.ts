@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { APIRequestContext, Page } from "@playwright/test";
-import { cookieHeader, createRoom, createSession, signInAs, type Session, type TestRoom } from "../../fixtures";
+import { cookieHeader, createRoom, createSession, ICON_CATALOG_LOADED, signInAs, type Session, type TestRoom } from "../../fixtures";
 import { expect, Member, test, unique } from "./fixtures";
 
 /** The id of the room `member` is in, from the address. */
@@ -234,7 +234,7 @@ test.describe(feature("rooms.icon-picker"), () => {
     await trigger.click();
 
     const picker = ada.page.getByRole("dialog", { name: "Choose a room icon" });
-    await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown");
+    await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown", ICON_CATALOG_LOADED);
     await picker.getByRole("searchbox", { name: "Search icons" }).fill("coffee");
     await picker.getByRole("button", { name: "Use Coffee icon" }).click();
     await picker.getByRole("button", { name: "Use icon" }).click();
