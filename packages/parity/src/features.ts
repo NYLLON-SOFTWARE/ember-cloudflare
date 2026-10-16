@@ -126,7 +126,7 @@ export const features = [
     id: "auth.sign-out",
     title: "Sign out",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The profile page's header has a \"Log out\" button (logout icon) that sends `DELETE /session`: it deletes the session, its cookie and the rest of the browser's session data, then goes to `/`, which redirects to sign-in.",
       "Before submitting, the page unsubscribes this browser from push and sends the subscription's endpoint, and the server deletes that subscription if it's the person's own.",
@@ -134,7 +134,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/sessions.rs", "crates/ember/src/concerns.rs", "crates/views/templates/users/profiles/show.html", "reference/app/javascript/controllers/sessions_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "\"Log out\" loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's sockets, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed. The rooms close them just after signing out answers, through the Workspace's outbox (`realtime.connection`), which tries a room it can't reach again later rather than holding up the sign-out. There's no push subscription to remove until push notifications are ported.",
+    notes: "\"Log out\" loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's sockets, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed. The rooms close them just after signing out answers, through the Workspace's outbox (`realtime.connection`), which tries a room it can't reach again later rather than holding up the sign-out. \"Log out\" sends the push subscription's endpoint as JSON (`pushSubscriptionEndpoint`), and the server forgets the person's subscriptions with it in the change that ends the session. A browser that can't end its subscription still signs out, and the server still forgets it, where ember-rust's page stops and stays signed in.",
   },
   {
     id: "auth.sign-in-link",
@@ -1861,7 +1861,7 @@ export const features = [
     id: "notifications.subscriptions",
     title: "Save push subscriptions",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A browser's push endpoint and keys are saved for the signed-in person, whatever user the URL names, along with the browser's user agent. Saving the same three values again checks them again and refreshes the row; a changed key adds a new row.",
       "Endpoints must be HTTPS on the standard port at a known push service (fcm.googleapis.com, jmt17.google.com, updates.push.services.mozilla.com, web.push.apple.com, notify.windows.com, or their subdomains) on a public address; anything else is 422.",
@@ -1871,6 +1871,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users/push_subscriptions.rs", "crates/db/src/models/push_subscription.rs", "crates/ember/src/controllers/sessions.rs", "reference/app/models/push/subscription.rb", "reference/app/javascript/controllers/sessions_controller.js"],
     upstreamTests: ["reference/test/controllers/users/push_subscriptions_controller_test.rb", "reference/test/models/push/subscription_test.rb", "crates/db/src/tests/push_test.rs"],
+    notes: "The API is `/api/push-subscriptions`, which takes JSON `{endpoint, p256dhKey, authKey}`, all three required (where ember-rust saves a missing key as none at all), with the endpoint at most 2,048 characters and each key 256. Saving answers 204, a refusal 422 with the errors as one message (\"Endpoint can't be blank and is not a valid URL\"), and deleting 204 whether or not anything was deleted, where ember-rust answers 200, an empty 422 and a redirect. The list gives each subscription's id, endpoint and user agent. An endpoint that `URL`, and so `fetch`, reads with another host or port than ember-rust's parser does is refused too, such as one with a \"\\\" before its \"@\". The endpoint's host isn't looked up, so \"resolves to a private or invalid IP address\" never comes up: the `global_fetch_strictly_public` flag sends a Worker's every fetch over the public Internet, where a private address can't be reached, and a lookup on each save would be one more thing to fail. Until notifications can be turned on (`notifications.enable`), nothing in the app saves one.",
   },
   {
     id: "notifications.test-page",
@@ -1890,7 +1891,7 @@ export const features = [
     id: "notifications.service-worker",
     title: "Service worker",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`/service-worker.js` is public and sent as `text/javascript; charset=utf-8`; it's the worker the page registers.",
       "On a push it shows a notification with the push's title and options, and sets the app badge to the push's count, clearing it when that's 0 or missing.",
@@ -1899,6 +1900,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/service_worker.js", "crates/ember/src/controllers/pwa.rs", "reference/app/views/pwa/service_worker.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    notes: "It's ember-rust's file byte for byte, after a comment, served from the app's static files, so `/service-worker` without `.js` is the 404 page where ember-rust serves it too. Nothing registers it until notifications can be turned on (`notifications.enable`).",
   },
   {
     id: "notifications.app-badge",
@@ -1947,7 +1949,7 @@ export const features = [
     id: "notifications.web-push-keys",
     title: "Web Push configuration",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, a P-256 key pair in URL-safe Base64, turn Web Push on. Without them (a blank value counts as unset) push is off, and \"Web Push is off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY aren't set\" is logged.",
       "A pair that doesn't parse or doesn't match also turns push off, logging \"Web Push is off: \" followed by \"VAPID_PUBLIC_KEY isn't a Base64 P-256 public key\", \"VAPID_PRIVATE_KEY isn't a Base64 P-256 private key\" or \"VAPID_PUBLIC_KEY isn't the public key of VAPID_PRIVATE_KEY\".",
@@ -1956,6 +1958,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/vapid.rs", "crates/ember/src/integrations/jobs.rs", "crates/views/templates/layouts/application.html", "reference/config/initializers/vapid.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/tests.rs"],
+    notes: "The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Nothing is pushed yet, so there's no VAPID token, `VAPID_SUBJECT` or test push (`notifications.push`, `notifications.test-page`), and no bell to explain that push is off (`notifications.enable`).",
   },
 
   // Bots and webhooks
@@ -2543,6 +2546,7 @@ export const features = [
     behaviors: [
       "A deploy without `SESSION_SECRET` generates one, and later deploys keep it; a failed lookup of the Worker's secrets stops the deploy rather than replacing one.",
       "`EMBER_SETUP_TOKEN` comes from the repository secret when one is set. Otherwise the first deploy stores a random one that nobody sees, so setup stays locked rather than open.",
+      "A deploy without either VAPID key generates a pair, and later deploys keep it, so browsers' push subscriptions outlast deploys; a Worker with just one key keeps it.",
       "Secrets go live with the code in a single deploy, and neither the token nor the setup link appears in logs or the run summary.",
       "The deploy check fails when setup is pending and unprotected.",
     ],

@@ -35,6 +35,15 @@ export interface Env {
    * reset anyone's password. Unset, nothing can, so set it only while it's needed.
    */
   EMBER_RECOVERY_TOKEN?: string;
+  /**
+   * The public half of the P-256 key pair that signs push notifications (VAPID), as ember-rust takes
+   * it: the point, compressed or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both
+   * halves, or with a pair that doesn't match, push notifications are off. Browsers subscribe with it,
+   * so changing it orphans every subscription.
+   */
+  VAPID_PUBLIC_KEY?: string;
+  /** The private half of the VAPID key pair: its scalar, up to 32 bytes, in URL-safe Base64. */
+  VAPID_PRIVATE_KEY?: string;
   /** What to call this deployment's version, as ember-rust's `APP_VERSION` does. */
   APP_VERSION?: string;
   /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */

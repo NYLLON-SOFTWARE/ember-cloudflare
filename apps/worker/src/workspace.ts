@@ -19,10 +19,12 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
+  type PushSubscriptionKeys,
   type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SavedPushSubscription,
   type SharedRoom,
   type Sidebar,
   type User,
@@ -583,9 +585,11 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Ends the session `tokenDigest` names, and closes the sockets it opened, telling them to reconnect,
    * as ember-rust's sign-out does (concerns.rs): its workspace sockets here at once, and the rest by
-   * having every room its person is in close the session's sockets there.
+   * having every room its person is in close the session's sockets there. It forgets its person's push
+   * subscriptions with the endpoint `pushEndpoint`, the browser's signing out, as ember-rust does
+   * (sessions.rs).
    */
-  async signOut(tokenDigest: string): Promise<void> {
+  async signOut(tokenDigest: string, pushEndpoint: string | null = null): Promise<void> {
     const now = Date.now();
     // Found first: on D1 a change can be saved, its revocations with it, and its answer lost on the
     // way back, and then nothing would say which sockets were the session's.
@@ -593,7 +597,7 @@ export class Workspace extends DurableObject<Env> {
     // Until the database says it queued nothing.
     let queued = true;
     try {
-      queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now));
+      queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now, pushEndpoint));
     } finally {
       // Whether or not it ended: the sockets of a session that didn't are let in again.
       if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
@@ -1199,6 +1203,33 @@ export class Workspace extends DurableObject<Env> {
   async clearSearches(credentials: Credentials): Promise<boolean> {
     const user = await this.authenticate(credentials);
     if (user) await this.store.clearSearches(user.id);
+    return user !== null;
+  }
+
+  /**
+   * Saves a browser's push subscription, already checked, for the person `credentials` signs in, with
+   * the browser's user agent, answering false without a valid session. Given none, it only checks the
+   * session, for a subscription that's refused.
+   */
+  async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionKeys | null): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (user && subscription) await this.store.savePushSubscription(user.id, subscription, credentials.client.userAgent, new Date().toISOString());
+    return user !== null;
+  }
+
+  /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */
+  async pushSubscriptions(credentials: Credentials): Promise<SavedPushSubscription[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.pushSubscriptionsOf(user.id);
+  }
+
+  /**
+   * Deletes push subscription `id` if it's the person's `credentials` signs in, and does nothing if it's
+   * someone else's or there's no id, as ember-rust does, answering false without a valid session.
+   */
+  async deletePushSubscription(credentials: Credentials, id: number | null): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (user && id !== null) await this.store.deletePushSubscription(user.id, id);
     return user !== null;
   }
 

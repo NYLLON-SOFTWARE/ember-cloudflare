@@ -93,10 +93,13 @@ export async function authenticate(request: Request, env: Env): Promise<{ user: 
   return user && { user, token };
 }
 
-/** Ends the session the request's cookie names, if any. */
-export async function signOut(request: Request, env: Env): Promise<void> {
+/**
+ * Ends the session the request's cookie names, if any, and forgets its person's push subscriptions
+ * with `pushEndpoint`, the endpoint of the subscription this browser just ended, if it had one.
+ */
+export async function signOut(request: Request, env: Env, pushEndpoint: string | null): Promise<void> {
   const token = sessionToken(request);
-  if (token) await workspace(env).signOut(await tokenDigest(token, env.SESSION_SECRET));
+  if (token) await workspace(env).signOut(await tokenDigest(token, env.SESSION_SECRET), pushEndpoint);
 }
 
 /**

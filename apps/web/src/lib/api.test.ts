@@ -50,7 +50,13 @@ describe(feature("auth.sign-out"), () => {
   it("ends the session on the server", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     await signOut();
-    expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE" }));
+    expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE", body: "{}" }));
+  });
+
+  it("names the push subscription this browser ended, so the server forgets it too", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+    await signOut("https://fcm.googleapis.com/fcm/send/abc");
+    expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE", body: JSON.stringify({ pushSubscriptionEndpoint: "https://fcm.googleapis.com/fcm/send/abc" }) }));
   });
 });
 

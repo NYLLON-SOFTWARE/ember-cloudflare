@@ -8,33 +8,34 @@ choices to adopt as features land.
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
 each room's messages, boosts, recent revocations and deletions, and the changes the Workspace and
 the search index have yet to hear of live in that room's Durable Object SQLite storage, and the
-account, people, their sessions, bans and recent searches, rooms, memberships and the outbox of
-revocations, purges and reindexes in the Workspace object's. With `d1`, all of them live in one D1
-database. Both backends use the schema in `apps/worker/migrations/` and the queries in
-`apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`. The search index is
-the exception: it keeps its tables in the `SearchIndex` object's own SQLite storage on either
-backend, since D1 can't export a database that holds a virtual table, as its FTS5 table is.
+account, people, their sessions, browsers' push subscriptions, bans and recent searches, rooms,
+memberships and the outbox of revocations, purges and reindexes in the Workspace object's. With
+`d1`, all of them live in one D1 database. Both backends use the schema in `apps/worker/migrations/`
+and the queries in `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`.
+The search index is the exception: it keeps its tables in the `SearchIndex` object's own SQLite
+storage on either backend, since D1 can't export a database that holds a virtual table, as its FTS5
+table is.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
 room's change log, its log of messages for the search index and its recent deletions, and
-`workspace` for the workspace-wide tables (the account, people, sessions, bans, recent searches,
-rooms, memberships, stars, pending revocations, purges and reindexes, and the rooms deleted). On DO
-SQLite, an object applies only its own scope's files, so a room's storage never holds workspace
-tables. Wrangler applies every file to D1, where all the tables share one database and each room's
-rows carry its `room_id`. The search index's schema is in `apps/worker/search-migrations/`, which
-only the index applies, listed in `SEARCH_MIGRATIONS`.
+`workspace` for the workspace-wide tables (the account, people, sessions, push subscriptions, bans,
+recent searches, rooms, memberships, stars, pending revocations, purges and reindexes, and the rooms
+deleted). On DO SQLite, an object applies only its own scope's files, so a room's storage never
+holds workspace tables. Wrangler applies every file to D1, where all the tables share one database
+and each room's rows carry its `room_id`. The search index's schema is in
+`apps/worker/search-migrations/`, which only the index applies, listed in `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages` and
-`message_deletions`, the Workspace keeps `accounts`, `users`, `sessions`, `bans`, `searches`,
-`rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes`
-and `deleted_rooms`, and the search index keeps `search_messages`, `search_rooms` and the FTS5
-table `search_index`. A room's id also names its Durable
-Object, and the Worker asks the Workspace whether someone is a member before it wakes the room for
-their socket. First run creates the account and its administrator, who signs in with an email
-address and password, found through the unique index on `users.email_address`, as do the people who
-join with the join link; where it's allowed, anyone can sign in with just a display name instead.
-Presence and typing live in each room object's memory.
+`message_deletions`, the Workspace keeps `accounts`, `users`, `sessions`, `push_subscriptions`,
+`bans`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`,
+`pending_reindexes` and `deleted_rooms`, and the search index keeps `search_messages`,
+`search_rooms` and the FTS5 table `search_index`. A room's id also names its Durable Object, and the
+Worker asks the Workspace whether someone is a member before it wakes the room for their socket.
+First run creates the account and its administrator, who signs in with an email address and
+password, found through the unique index on `users.email_address`, as do the people who join with
+the join link; where it's allowed, anyone can sign in with just a display name instead. Presence and
+typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -369,6 +370,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   two searches can't tie, as two in the same instant could by time. The batch that records it also
   forgets all but the newest 10 and reads them back with the rooms the search needs, so searching
   takes the Workspace one round trip, as it did before searches were recorded.
+- **Each browser's subscription is saved once, in one statement.** ember-rust's `push_subscriptions`
+  looks a subscription up by its endpoint and keys before adding it or touching it, with an index on
+  those three and another on the person (`crates/db/src/models/push_subscription.rs`), so two saves
+  at once can add it twice. Ours requires the endpoint and keys, which its columns don't, and has one
+  unique index on the person, the endpoint and the keys (workspace migration 0024), so saving is one
+  upsert, and the same index, led by the person, lists someone's subscriptions and finds the one a
+  browser names as it signs out.
 
 ## Writing SQL here
 

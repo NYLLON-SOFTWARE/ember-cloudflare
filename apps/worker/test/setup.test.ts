@@ -27,6 +27,7 @@ describe(feature("auth.first-run"), () => {
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
       helpContact: null,
       version: "0.1",
+      vapidPublicKey: null,
       user: null,
     });
     expect((await api("/api/bootstrap")).headers.get("Cache-Control")).toBe("no-store");

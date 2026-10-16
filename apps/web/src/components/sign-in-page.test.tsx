@@ -14,6 +14,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
+  vapidPublicKey: null,
 };
 
 const respond = (status: number, body: unknown) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));

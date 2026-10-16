@@ -139,6 +139,21 @@ and every answer from the Worker carries HSTS, except on `localhost` and loopbac
 phone on your network, set the `DISABLE_SSL` variable to any value. `/up` answers 200 for uptime
 checks, as Rails' does, without touching storage.
 
+### Push notifications
+
+Push notifications need a VAPID key pair. `pnpm vapid:keys` prints a new one as the Worker's two
+settings, for `apps/worker/.dev.vars` or its secrets:
+
+```sh
+pnpm vapid:keys
+pnpm --filter @ember/worker exec wrangler secret put VAPID_PUBLIC_KEY
+pnpm --filter @ember/worker exec wrangler secret put VAPID_PRIVATE_KEY
+```
+
+Without them push is off, and `/api/health` says why. Keep the pair once people use it: browsers
+subscribe with its public key, so a new pair leaves everyone to turn notifications on again. A pair
+from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
@@ -152,7 +167,7 @@ A third, `EMBER_SETUP_TOKEN` (`openssl rand -hex 32`), becomes the preview's set
 deployed, open `<preview link>/first_run/access#token=<your token>` to set up Ember. Without it, the
 first deploy gives the preview a token nobody knows, so setup stays locked until you add the secret
 and run the workflow again. The secrets go up with each deploy, never in its logs. The first deploy
-makes the Worker's `SESSION_SECRET`, and later ones keep it.
+makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them.
 
 The preview is a private workspace, which its administrator invites people to with the join link.
 Its version, under the sign-in page's help contact, is the commit it deployed. After each deploy,

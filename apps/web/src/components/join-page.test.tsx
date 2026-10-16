@@ -17,6 +17,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
+  vapidPublicKey: null,
 };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 
