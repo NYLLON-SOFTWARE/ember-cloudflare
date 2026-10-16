@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 92 ported and 48 partial of 172 features; 26 not started, 6 not applicable.
+**Overall:** 93 ported and 48 partial of 172 features; 25 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -30,12 +30,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
-| [Notifications](#notifications) | 11 | 1 | 1 | 0 | 13 |
+| [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **92** | **48** | **26** | **6** | **172** |
+| **Total** | **93** | **48** | **25** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1748,7 +1748,7 @@ ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-S
 | Save push subscriptions | `notifications.subscriptions` | Campfire | ✅ Ported | Worker: [push-subscriptions](apps/worker/test/push-subscriptions.test.ts)<br>Web: [push](apps/web/src/lib/push.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | Push subscriptions page | `notifications.test-page` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [push-subscriptions](apps/worker/test/push-subscriptions.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>Web: [push-subscriptions-page](apps/web/src/components/workspace/push-subscriptions-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [push](apps/web/src/lib/push.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | Service worker | `notifications.service-worker` | Campfire | ✅ Ported | Web: [service-worker](apps/web/src/service-worker.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
-| App icon badge | `notifications.app-badge` | Campfire | ⬜ Not started |  |
+| App icon badge | `notifications.app-badge` | Campfire | ✅ Ported | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-app-badge](apps/web/src/hooks/use-app-badge.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | Install as an app | `notifications.install-instructions` | Campfire | ✅ Ported | Web: [notification-help](apps/web/src/components/workspace/notification-help.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [install-prompt](apps/web/src/lib/install-prompt.test.ts) |
 | Notification setup help | `notifications.setup-help` | Campfire | ✅ Ported | Worker: [user-agent](apps/worker/test/user-agent.test.ts)<br>Web: [notification-help](apps/web/src/components/workspace/notification-help.test.tsx) |
 | Web Push configuration | `notifications.web-push-keys` | Ember | 🟡 Partial | Worker: [web-push-keys](apps/worker/test/web-push-keys.test.ts), [web-push](apps/worker/test/web-push.test.ts)<br>Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts), [vapid-keys](apps/worker/scripts/vapid-keys.test.ts) |
@@ -1880,10 +1880,12 @@ Sources: [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYL
 
 ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
-**App icon badge** (`notifications.app-badge`) ⬜
+**App icon badge** (`notifications.app-badge`) ✅
 
 - Where the browser supports app badges (installed apps), the page sets the badge to the number of conversations marked unread in the sidebar, rooms and DMs, on load and whenever one is marked unread or read, and clears it at 0.
 - Hidden rooms aren't in the sidebar, so the page doesn't count them, but a push sets the badge to its own count, which does (`notifications.payload`).
+
+Note: The workspace badges the app with Activity's count (`sidebar.activity-filter`), the sidebar's conversations marked unread but the one shown, once the sidebar has loaded and whenever the count changes, where Campfire's sets the badge again at every message in a room its sidebar lists. So a push's badge, which counts hidden rooms, lasts here until the count next changes. A browser refusing the badge changes nothing, where Campfire leaves the refusal unhandled.
 
 Sources: [`reference/app/javascript/controllers/badge_dot_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/badge_dot_controller.js) · [`crates/views/templates/users/sidebars/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/sidebars/show.html) · [`crates/views/src/helpers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/rooms.rs) · [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/service_worker.js)
 

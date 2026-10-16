@@ -1911,13 +1911,15 @@ export const features = [
     id: "notifications.app-badge",
     title: "App icon badge",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Where the browser supports app badges (installed apps), the page sets the badge to the number of conversations marked unread in the sidebar, rooms and DMs, on load and whenever one is marked unread or read, and clears it at 0.",
       "Hidden rooms aren't in the sidebar, so the page doesn't count them, but a push sets the badge to its own count, which does (`notifications.payload`).",
     ],
     sources: ["reference/app/javascript/controllers/badge_dot_controller.js", "crates/views/templates/users/sidebars/show.html", "crates/views/src/helpers/rooms.rs", "crates/views/templates/pwa/service_worker.js"],
     upstreamTests: ["crates/ember/src/integrations/web_push/tests.rs"],
+    notes:
+      "The workspace badges the app with Activity's count (`sidebar.activity-filter`), the sidebar's conversations marked unread but the one shown, once the sidebar has loaded and whenever the count changes, where Campfire's sets the badge again at every message in a room its sidebar lists. So a push's badge, which counts hidden rooms, lasts here until the count next changes. A browser refusing the badge changes nothing, where Campfire leaves the refusal unhandled.",
   },
   {
     id: "notifications.install-instructions",

@@ -270,6 +270,38 @@ test.describe(feature("notifications.test-page"), () => {
   });
 });
 
+/** A badge set on the app's icon, or "cleared" for one taken off. */
+type Badge = number | "cleared";
+
+/** Gives the page the Badging API, as an installed app has it, keeping the badges it sets in `badges`. */
+const keepBadges = async (page: Page) => {
+  await page.addInitScript(() => {
+    const badges: Badge[] = [];
+    Object.assign(window, { badges });
+    Navigator.prototype.setAppBadge = async (count = 0) => void badges.push(count);
+    Navigator.prototype.clearAppBadge = async () => void badges.push("cleared");
+  });
+};
+
+/** The badges `page` has set on the app's icon, in order. */
+const badges = (page: Page) => page.evaluate(() => (window as unknown as { badges: Badge[] }).badges);
+
+test.describe(feature("notifications.app-badge"), () => {
+  test("badges the app with the conversations marked unread, as Activity counts them, and clears the badge once they're read", async ({ members, rooms }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}`, beforeOpen: keepBadges });
+    await expect.poll(() => badges(grace.page)).toEqual(["cleared"]);
+
+    await ada.send("Lunch?");
+    await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
+    await expect.poll(() => badges(grace.page)).toEqual(["cleared", 1]);
+
+    await roomRows(grace.page).filter({ hasText: "general" }).click();
+    await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+    await expect.poll(() => badges(grace.page)).toEqual(["cleared", 1, "cleared"]);
+  });
+});
+
 test.describe(feature("notifications.service-worker"), () => {
   test("is public at /service-worker.js, as JavaScript a page can register", async ({ page, request }) => {
     const response = await request.get("/service-worker.js");

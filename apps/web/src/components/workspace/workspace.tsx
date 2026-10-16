@@ -5,6 +5,7 @@ import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -365,6 +366,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => setUnreadOnly((on) => !on),
   };
+  // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows.
+  useAppBadge(rooms === null ? null : activity.unread);
   const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onNewDirect={openNewDirect} />;
   const sidebar = (
     <Sidebar
