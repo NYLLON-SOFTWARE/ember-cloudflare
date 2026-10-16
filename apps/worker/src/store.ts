@@ -89,6 +89,9 @@ export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id
 export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
 export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
 
+/** How many messages a room has, as ember-rust's `count_in_room` counts them (message.rs), which reads every one. */
+export const COUNT_MESSAGES = `SELECT COUNT(*) AS count FROM messages WHERE room_id = ?`;
+
 /**
  * How many changes behind a tab that connects again can be and still catch up, which is as long as the
  * room keeps a deleted message's id. One further behind gets the newest page, as a new tab does.
@@ -116,6 +119,12 @@ const MESSAGES_ANYWHERE_WITH_IDS = `${SELECT_MESSAGES} WHERE id IN (SELECT value
 
 /** What the search index keeps of the messages whose ids a JSON array lists. */
 const INDEXABLE_MESSAGES = `SELECT id, created_at AS createdAt, plain_text AS text FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
+
+/** Which page `MessageStore.pageAt` reads: the one before a message, or after one, or with neither the newest. */
+export interface PageCursor {
+  before?: string;
+  after?: string;
+}
 
 /** What changed in a room after a change a tab has seen, and the latest change. */
 export interface Changes {
@@ -151,6 +160,29 @@ export class MessageStore {
   async after(limit: number, after: string): Promise<{ messages: Message[]; hasNewer: boolean }> {
     const rows = await this.db.all<MessageRow>(MESSAGES_AFTER, this.roomId, after, limit + 1);
     return { messages: rows.slice(0, limit).map(toMessage), hasNewer: rows.length > limit };
+  }
+
+  /**
+   * The page before the message `before` names, or else after the one `after` names, or else the newest,
+   * as ember-rust's `find_paged_messages` picks (messages.rs), with whether the room has messages older
+   * than its first and newer than its last, or null when the room doesn't have the message named.
+   */
+  async pageAt({ before, after }: PageCursor, limit: number): Promise<Omit<TimelinePage, "around"> | null> {
+    if (before !== undefined) {
+      const [cursor, { messages, hasMore }] = await Promise.all([this.find(before), this.page(limit, before)]);
+      // The message named is newer than every message before it.
+      return cursor && { messages, hasMore, hasNewer: messages.length > 0 };
+    }
+    if (after !== undefined) {
+      const [cursor, { messages, hasNewer }] = await Promise.all([this.find(after), this.after(limit, after)]);
+      return cursor && { messages, hasMore: messages.length > 0, hasNewer };
+    }
+    return { ...(await this.page(limit)), hasNewer: false };
+  }
+
+  /** How many messages the room has. */
+  async count(): Promise<number> {
+    return (await this.db.all<{ count: number }>(COUNT_MESSAGES, this.roomId))[0]!.count;
   }
 
   /**

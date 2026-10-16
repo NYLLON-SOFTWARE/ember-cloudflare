@@ -54,6 +54,7 @@ import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
+import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -713,7 +714,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
-  const action = apiAction(request, env, pathname);
+  const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname);
   // First, as ember-rust's `reject_banned_ip` (concerns.rs): once a route is found, so an unknown
   // address still answers 404, a banned IP address can't change anything, sign in or join.
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
@@ -740,15 +741,16 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
 }
 
 /**
- * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API, and
- * Campfire's 500 page otherwise. Setup's pages and form can hold the setup token or the first
- * administrator's password, and recovery its token and a new password, so there the log says only
- * that the request failed.
+ * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API and the
+ * bot API, and Campfire's 500 page otherwise. Setup's pages and form can hold the setup token or the
+ * first administrator's password, and recovery its token and a new password, so there the log says only
+ * that the request failed, and a bot's key is filtered out of its address, as Campfire's log filters it.
  */
 function failure(request: Request, env: Env, pathname: string, error: unknown): Response {
   const holdsSecrets = isSetupPath(pathname) || pathname === "/api/first_run" || pathname === RECOVERY_PATH;
-  console.error(`${request.method} ${pathname} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
+  console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
+  if (isBotPath(pathname)) return exception(500);
   return keepSetupPrivate(failed(request), env, pathname);
 }
 

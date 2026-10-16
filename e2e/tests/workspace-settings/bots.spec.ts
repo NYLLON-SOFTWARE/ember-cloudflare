@@ -95,6 +95,31 @@ test.describe(feature("bots.delete"), () => {
   });
 });
 
+test.describe(feature("bots.api-post"), () => {
+  test("a bot's command posts to its room as the bot, which shows there at once, and the bot reads it back", async ({ page }) => {
+    await openBots(page);
+    const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await addBot(page, name);
+    const command = botNamed(page, name).getByRole("group", { name: "general", exact: true }).getByRole("textbox", { name: "curl command for posting messages" });
+    const url = (await command.inputValue()).split(" ").at(-1)!;
+
+    // The room the command posts to, open in the administrator's browser.
+    await page.goto(new URL(url).pathname.replace(/\/[^/]+\/messages$/, ""));
+    await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+    const text = `Deploy finished ${crypto.randomUUID().slice(0, 8)}`;
+    // As `curl -d` sends it.
+    const posted = await page.request.post(url, { data: text, headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+    expect(posted.status()).toBe(201);
+    const message = page.getByRole("article").filter({ hasText: text });
+    await expect(message).toBeVisible();
+    await expect(message).toContainText(name);
+
+    const read = await page.request.get(url);
+    expect(read.status()).toBe(200);
+    expect(((await read.json()) as Array<{ body: { plain_text: string }; creator: { name: string } }>).at(-1)).toMatchObject({ body: { plain_text: text }, creator: { name } });
+  });
+});
+
 test.describe(feature("bots.list"), () => {
   test("a member who opens the bot pages is sent to workspace settings, told why", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);

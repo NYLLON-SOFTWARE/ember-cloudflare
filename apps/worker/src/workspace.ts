@@ -38,7 +38,7 @@ import {
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
-import { botKeyOf, newBotToken } from "./bots/keys";
+import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { alphanumeric, sortableId } from "./ids";
@@ -1387,6 +1387,25 @@ export class Workspace extends DurableObject<Env> {
    */
   async mentionedPeople(ids: UserId[]): Promise<User[]> {
     return this.store.peopleWithIds(ids);
+  }
+
+  /**
+   * The people of `ids` who exist, whatever their status, as the people directory lists them, for the
+   * bot API's messages, which show their writers as `users/_user.json` does.
+   */
+  async directoryEntries(ids: UserId[]): Promise<DirectoryEntry[]> {
+    return this.store.directoryEntries(ids);
+  }
+
+  /**
+   * The active bot a bot API key names by `botId` and `token`, as ember-rust's `allow_bot_access` finds
+   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`: "not found" when it isn't, as
+   * `set_room` answers then (messages/by_bots.rs), or null unless `token` is the bot's token now.
+   */
+  async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<User | "not found" | null> {
+    const found = await this.store.activeBotKey(botId, roomId);
+    if (!found || !isBotToken(token, found.token)) return null;
+    return found.member ? found.bot : "not found";
   }
 
   /**
