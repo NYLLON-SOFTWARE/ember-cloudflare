@@ -4,6 +4,7 @@ import { Minus, NotificationBellEverything } from "@/components/icons/campfire";
 import { useMounted } from "@/hooks/use-mounted";
 import { useTitle } from "@/hooks/use-title";
 import { deletePushSubscription, fetchPushSubscriptions, isSignedOut, sendTestNotification } from "@/lib/api";
+import { endPushSubscriptionAt } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { Panel, SettingsPage } from "./settings-page";
 
@@ -65,12 +66,15 @@ interface RowProps {
 /**
  * A subscription (users/push_subscriptions/_push_subscription.html): the browser in bold, cut short with
  * an ellipsis, then its endpoint in small text beside its buttons. The endpoint breaks anywhere, where
- * ember-rust's runs out of the panel on a phone.
+ * ember-rust's runs out of the panel on a phone. Deleting this browser's own subscription ends it here
+ * too, so the bell can turn notifications on again.
  */
 function SubscriptionRow({ subscription: { id, browser, version, platform, endpoint }, onDeleted, onFailed }: RowProps) {
   const [testing, setTesting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const mounted = useMounted();
+
+  const remove = (id: number) => deletePushSubscription(id).then(() => endPushSubscriptionAt(endpoint));
 
   // Each button is its own form there, which Turbo disables until its answer comes.
   const send = (request: (id: number) => Promise<void>, setSending: (sending: boolean) => void, sent?: () => void) => {
@@ -100,7 +104,7 @@ function SubscriptionRow({ subscription: { id, browser, version, platform, endpo
           <RoundButton label="Send test notification" disabled={testing} onClick={() => send(sendTestNotification, setTesting)} className="bg-primary">
             <NotificationBellEverything tone="reversed" className="size-[1.3em]" />
           </RoundButton>
-          <RoundButton label="Delete subscription" disabled={deleting} onClick={() => send(deletePushSubscription, setDeleting, onDeleted)} className="bg-negative-button">
+          <RoundButton label="Delete subscription" disabled={deleting} onClick={() => send(remove, setDeleting, onDeleted)} className="bg-negative-button">
             <Minus tone="white" className="size-[1.3em]" />
           </RoundButton>
         </span>

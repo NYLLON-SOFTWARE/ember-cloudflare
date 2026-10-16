@@ -248,6 +248,26 @@ test.describe(feature("notifications.test-page"), () => {
     await expect(grace.page.locator("main section")).toHaveAttribute("aria-busy", "false");
     await expect(rows).toHaveCount(0);
   });
+
+  test("turns notifications off in the browser whose own subscription it deletes, so the bell can turn them on again", async ({ members }) => {
+    const endpoint = uniqueEndpoint();
+    const grace = await members.signIn(unique("Grace"), { beforeOpen: (page) => allowNotifications(page.context(), { endpoint }) });
+    // The subscription the browser turned notifications on with.
+    const saving = await grace.page.request.post("/api/push-subscriptions", { data: { endpoint, p256dhKey: PUSH_KEYS.p256dh, authKey: PUSH_KEYS.auth } });
+    expect(saving.status()).toBe(204);
+    await grace.page.goto("/users/me/push_subscriptions");
+    const rows = grace.page.getByRole("list", { name: "Push Notification Subscriptions" }).getByRole("listitem");
+    await rows.getByRole("button", { name: "Delete subscription" }).click();
+    await expect(rows).toHaveCount(0);
+
+    await grace.page.getByRole("link", { name: "Go Back" }).click();
+    const saved = grace.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/push-subscriptions");
+    await grace.page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+    expect((await saved).status()).toBe(204);
+    await expect(headerBell(grace.page)).toHaveAccessibleName(MENTIONS);
+    const { subscriptions } = (await (await grace.page.request.get("/api/push-subscriptions")).json()) as PushSubscriptions;
+    expect(subscriptions.map((subscription) => subscription.endpoint)).toEqual([endpoint]);
+  });
 });
 
 test.describe(feature("notifications.service-worker"), () => {

@@ -122,7 +122,7 @@ function standInPushService({ endpoint, on, keys }: { endpoint: string; on: bool
   if (!on) return;
   subscribe({ userVisibleOnly: true });
   // The service worker turning them on registered, active.
-  const registration = { active: {}, pushManager: { getSubscription: async () => subscription } };
+  const registration = { active: {}, pushManager: { getSubscription: async () => subscription, subscribe } };
   ServiceWorkerContainer.prototype.getRegistration = async () => registration as unknown as ServiceWorkerRegistration;
 }
 

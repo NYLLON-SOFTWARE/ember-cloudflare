@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isPushOn, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import { endPushSubscriptionAt, isPushOn, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -65,6 +65,46 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await unsubscribeFromPush()).toBeNull();
     registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
     expect(await unsubscribeFromPush()).toBeNull();
+  });
+});
+
+describe(feature("notifications.test-page"), () => {
+  it("ends this browser's push subscription when the one deleted is at its endpoint, saying so", async () => {
+    const ended = vi.fn();
+    const stop = subscribeToPushEnding(ended);
+    const { registration, unsubscribe } = subscribed();
+    registered(registration);
+    await endPushSubscriptionAt(ENDPOINT);
+    expect(unsubscribe).toHaveBeenCalled();
+    expect(ended).toHaveBeenCalledOnce();
+    stop();
+  });
+
+  it("leaves this browser's push subscription be when another browser's is deleted, and does nothing for a browser without one", async () => {
+    const ended = vi.fn();
+    const stop = subscribeToPushEnding(ended);
+    const { registration, unsubscribe } = subscribed();
+    registered(registration);
+    await endPushSubscriptionAt("https://web.push.apple.com/QGuQyavXutnMZHyWVcLaK");
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    registered({ pushManager: { getSubscription: async () => null } });
+    await endPushSubscriptionAt(ENDPOINT);
+    registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
+    await endPushSubscriptionAt(ENDPOINT);
+    Reflect.deleteProperty(navigator, "serviceWorker");
+    await endPushSubscriptionAt(ENDPOINT);
+    expect(ended).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("settles without saying so when the browser can't end it", async () => {
+    const ended = vi.fn();
+    const stop = subscribeToPushEnding(ended);
+    registered(subscribed(vi.fn(() => Promise.reject(new DOMException("Failed", "AbortError")))).registration);
+    await expect(endPushSubscriptionAt(ENDPOINT)).resolves.toBeUndefined();
+    expect(ended).not.toHaveBeenCalled();
+    stop();
   });
 });
 

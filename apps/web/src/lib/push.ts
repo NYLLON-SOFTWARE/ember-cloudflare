@@ -100,7 +100,7 @@ function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
 
 const endingListeners = new Set<() => void>();
 
-/** Calls `listener` whenever `unsubscribeFromPush` ends this browser's push subscription. */
+/** Calls `listener` whenever this browser's push subscription is ended here, by `unsubscribeFromPush` or `endPushSubscriptionAt`. */
 export function subscribeToPushEnding(listener: () => void): () => void {
   endingListeners.add(listener);
   return () => endingListeners.delete(listener);
@@ -115,8 +115,23 @@ export async function unsubscribeFromPush(): Promise<string | null> {
   const subscription = await pushSubscription().catch(() => null);
   if (!subscription) return null;
   // The server forgets it even if the browser can't end it, where ember-rust doesn't sign out at all.
-  if (await subscription.unsubscribe().catch(() => false)) for (const listener of endingListeners) listener();
+  await end(subscription);
   return subscription.endpoint;
+}
+
+/**
+ * Ends this browser's push subscription if it's the one at `endpoint`, which the server has just
+ * deleted, so the bell offers to turn notifications on again, where ember-rust's keeps passing for on
+ * with nothing to push to.
+ */
+export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
+  const subscription = await pushSubscription().catch(() => null);
+  if (subscription?.endpoint === endpoint) await end(subscription);
+}
+
+/** Ends `subscription`, telling the listeners once the browser has. */
+async function end(subscription: PushSubscription): Promise<void> {
+  if (await subscription.unsubscribe().catch(() => false)) for (const listener of endingListeners) listener();
 }
 
 async function pushSubscription(): Promise<PushSubscription | null> {

@@ -58,6 +58,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(navigator, "serviceWorker");
   vi.restoreAllMocks();
 });
 
@@ -120,6 +121,24 @@ describe(feature("notifications.test-page"), () => {
     expect(sent()).toEqual(["DELETE /api/push-subscriptions/1"]);
     const [laptop] = await listed(1);
     expect(within(laptop!).getByText("Chrome 131.0.0.0 on Macintosh")).toBeInTheDocument();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("ends this browser's own subscription when it's deleted, so the bell can turn notifications on again, but not another browser's", async () => {
+    const unsubscribe = vi.fn(async () => true);
+    // This browser is the laptop.
+    const registration = { pushManager: { getSubscription: async () => ({ endpoint: LAPTOP.endpoint, unsubscribe }) } };
+    Object.defineProperty(navigator, "serviceWorker", { value: { getRegistration: async () => registration }, configurable: true });
+    const { onFailed, user } = showPage();
+    const [phone] = await listed(2);
+
+    await user.click(within(phone!).getByRole("button", { name: "Delete subscription" }));
+    const [laptop] = await listed(1);
+    expect(unsubscribe).not.toHaveBeenCalled();
+    await user.click(within(laptop!).getByRole("button", { name: "Delete subscription" }));
+    await listed(0);
+    expect(sent()).toEqual(["DELETE /api/push-subscriptions/1", "DELETE /api/push-subscriptions/2"]);
+    expect(unsubscribe).toHaveBeenCalledOnce();
     expect(onFailed).not.toHaveBeenCalled();
   });
 
