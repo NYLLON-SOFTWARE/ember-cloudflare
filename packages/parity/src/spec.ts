@@ -8,7 +8,8 @@ export type Origin = "campfire" | "ember" | "cloudflare";
  * - ported: every behavior listed is implemented and tested here.
  * - partial: some behaviors are; `notes` says what's missing.
  * - todo: not started.
- * - n/a: tied to ember-rust's platform (Rails compatibility, self-hosting); `notes` says why.
+ * - n/a: won't be ported, being tied to ember-rust's platform (Rails compatibility, self-hosting) or left out on
+ *   purpose; `notes` says why.
  */
 export type Status = "ported" | "partial" | "todo" | "n/a";
 

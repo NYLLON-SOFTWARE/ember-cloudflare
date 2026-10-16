@@ -1246,7 +1246,7 @@ export const features = [
     id: "messages.sounds",
     title: "/play sounds",
     origin: "campfire",
-    status: "partial",
+    status: "n/a",
     behaviors: [
       "A message of exactly `/play <name>`, naming one of 56 sounds, shows a 🔊 button with the sound's picture or caption (bell shows 🔔); anything else is ordinary text.",
       "The sound plays as the message arrives for everyone whose timeline reaches the newest message, the sender included, and 🔊 plays it again. Search, push and webhooks see the text `/play <name>`.",
@@ -1254,7 +1254,8 @@ export const features = [
     ],
     sources: ["reference/app/models/sound.rb", "crates/db/src/models/message.rs", "crates/views/src/messages/presentation.rs", "crates/assets/overrides/models/client_message.js", "crates/assets/overrides/controllers/messages_controller.js"],
     upstreamTests: ["crates/db/src/tests/message_test.rs"],
-    notes: "`packages/richtext` lists the 56 sounds and finds the one a message plays, and the one a message that's sending shows as playing, but nothing plays them or shows the 🔊 button yet.",
+    notes:
+      "Left out on purpose. Most of Campfire's 56 clips are pop-culture samples, such as Ballmer's \"developers!\", GLaDOS and Nyan Cat, so open-source Ember doesn't ship them, and `/play <name>` stays plain text like any other message.",
   },
   {
     id: "messages.plain-text",
@@ -1269,7 +1270,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it; nothing searches, pushes or sends it to bots yet.",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it, and /play needn't, since its sounds are left out (`messages.sounds`). Nothing searches, pushes or sends it to bots yet.",
   },
   {
     id: "messages.autolink",

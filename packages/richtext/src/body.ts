@@ -20,7 +20,7 @@ import { append, createElement, createText } from "./tree";
 export interface PreparedBody {
   /** The body in the form Ember stores and clients render (`canonicalize`). */
   html: string;
-  /** Action Text's plain text of it: for search, notifications, emoji-only bodies and `/play`. */
+  /** Action Text's plain text of it: for search, notifications and emoji-only bodies. */
   plainText: string;
   /** The users it mentions, once each, in order, named as `resolve` named them. */
   mentions: MentionUser[];
