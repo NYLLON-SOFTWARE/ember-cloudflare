@@ -235,7 +235,7 @@ export const features = [
     id: "accounts.logo",
     title: "Workspace logo",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Administrators pick a logo from the round picker in workspace settings (\"Upload logo\", \"Choose a workspace logo\", previewed as \"Workspace logo\"), which saves as soon as a file is chosen and shows \"Changes saved.\", or with a \"Save logo\" button without JavaScript. Members get 403.",
       "Remove logo, shown only while a logo is attached, removes it with no confirmation or notice, and the rail goes back to the Ember flame.",
@@ -247,6 +247,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/logos.rs", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/presenters/attachments.rs", "crates/views/templates/accounts/edit.html", "reference/app/controllers/accounts/logos_controller.rb", "reference/app/models/account.rb"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts/logos_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
+    notes: "`/account/logo` answers Ember's stock app icon, or the 192-pixel one with `size=small`, to anyone, with ember-rust's caching, and is pushes' icon (`notifications.payload`). Its ETag is the image's own, where ember-rust's names the account's version and the icon's digest. Uploading, removing and showing a logo wait on file storage (R2), so until then pages, the manifest and the rail keep Ember's flame and stock icons.",
   },
   {
     id: "accounts.custom-css",
@@ -402,7 +403,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "crates/db/src/models/ban.rs", "crates/db/src/models/push_subscription.rs", "reference/app/controllers/concerns/block_banned_requests.rb"],
     upstreamTests: ["reference/test/controllers/concerns/block_banned_requests_test.rb", "crates/ember/src/app/tests.rs"],
-    notes: "A request to change something from a banned address answers ember-rust's empty 429 once a route takes it, so an unknown address still answers 404, and before the checks for old browsers and other sites, as `reject_banned_ip` comes first in ember-rust's chain (concerns.rs). The health check and the password recovery script, which ember-rust runs on the server, aren't blocked. The Workspace keeps the banned addresses in memory, reading them again after a ban or a lifted ban. Messages, edits, deletions and boosts go over the room socket here rather than as requests, so a room socket from a banned address is let in to read, and the room answers each of those frames with an `error` saying \"Request failed (429)\", which the app shows as it would a failed request, bringing back a reaction it showed as going; typing, history and catching up still work. A room socket is tagged with its address, and banning it or lifting its ban closes the sockets from it in every room, so they connect again as the ban now stands. Unlike ember-rust, an administrator can't ban someone signed in from the address they're using, which would block them too (422). Banned people can't sign in and their sign-in links answer 400 (`accounts.ban`); keeping push notifications from them is left to `notifications.push`.",
+    notes: "A request to change something from a banned address answers ember-rust's empty 429 once a route takes it, so an unknown address still answers 404, and before the checks for old browsers and other sites, as `reject_banned_ip` comes first in ember-rust's chain (concerns.rs). The health check and the password recovery script, which ember-rust runs on the server, aren't blocked. The Workspace keeps the banned addresses in memory, reading them again after a ban or a lifted ban. Messages, edits, deletions and boosts go over the room socket here rather than as requests, so a room socket from a banned address is let in to read, and the room answers each of those frames with an `error` saying \"Request failed (429)\", which the app shows as it would a failed request, bringing back a reaction it showed as going; typing, history and catching up still work. A room socket is tagged with its address, and banning it or lifting its ban closes the sockets from it in every room, so they connect again as the ban now stands. Unlike ember-rust, an administrator can't ban someone signed in from the address they're using, which would block them too (422). Banned people can't sign in and their sign-in links answer 400 (`accounts.ban`); and they get no pushes, though they keep their subscriptions (`notifications.push`).",
   },
   {
     id: "accounts.reset-password",
@@ -1270,7 +1271,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and the search index read it (`search.messages`), and /play needn't, since its sounds are left out (`messages.sounds`). Nothing pushes it or sends it to bots yet.",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and the search index read it (`search.messages`), and /play needn't, since its sounds are left out (`messages.sounds`). Pushes read it (`notifications.payload`); nothing sends it to bots yet.",
   },
   {
     id: "messages.autolink",
@@ -1768,7 +1769,7 @@ export const features = [
     id: "notifications.levels",
     title: "Notification levels",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Each room you're in has a level, cycled by its button: rooms go @mentions, all messages, off, off and hidden, then @mentions again; DMs go all messages and off.",
       "The labels are \"Notifying about @ mentions\", \"Notifying about all messages\", \"Notifications are off\" and \"Notifications are off and room invisible in sidebar\".",
@@ -1778,7 +1779,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/involvements.rs", "crates/views/src/helpers/rooms.rs", "crates/views/templates/rooms/involvements/_bell.html", "crates/db/src/models/membership.rs", "reference/app/controllers/rooms/involvements_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/involvements_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "crates/views/tests/rooms_views.rs", "parity/screens.yml"],
-    notes: "`PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. The header shows Enable notifications in its place until this browser has turned notifications on (`notifications.enable`), and the levels decide nothing but hiding rooms until pushes are sent (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.",
+    notes: "`PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. The header shows Enable notifications in its place until this browser has turned notifications on (`notifications.enable`), and the levels decide whom each message is pushed to (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.",
   },
   {
     id: "notifications.enable",
@@ -1802,7 +1803,7 @@ export const features = [
     id: "notifications.hide-room",
     title: "Hide a room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Setting a room to off and hidden takes it out of your sidebar in every tab you have open, and changing its level again puts it back in your rooms list the same way.",
       "A hidden room is still reachable by link and searchable, and your profile lists it, dimmed.",
@@ -1810,7 +1811,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/involvements.rs", "crates/ember/src/channels/broadcasts.rs", "crates/db/src/models/membership.rs", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/involvements_controller.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/broadcasts_test.rs", "reference/test/controllers/rooms/involvements_controller_test.rb"],
-    notes: "Hiding a room takes it out of your sidebar in every tab, the room shown included, which stays open, and showing it again puts it back in its place. It still opens at its address, is searched, and is listed on your profile, dimmed. It gets no new unread marks, and a mark from before it was hidden stays, left out of Activity's count until it's shown again, as ember-rust's `unread_memberships` leaves it out. Hiding a starred room takes it out of your stars, and showing it again brings its star back in its place (`favorites.changed`); starring a hidden room is refused (403). Pushes, and the badge that counts hidden rooms' marks, come with `notifications.push`.",
+    notes: "Hiding a room takes it out of your sidebar in every tab, the room shown included, which stays open, and showing it again puts it back in its place. It still opens at its address, is searched, and is listed on your profile, dimmed. It gets no new unread marks, and a mark from before it was hidden stays, left out of Activity's count until it's shown again, as ember-rust's `unread_memberships` leaves it out. Hiding a starred room takes it out of your stars, and showing it again brings its star back in its place (`favorites.changed`); starring a hidden room is refused (403). It gets no pushes, and a push's badge still counts its mark from before (`notifications.push`).",
   },
   {
     id: "notifications.profile-list",
@@ -1830,7 +1831,7 @@ export const features = [
     id: "notifications.push",
     title: "Who gets a push",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Each new message, bots' and webhooks' included, is pushed to the room's active members other than its sender who aren't connected to the room: everyone at all messages, and at @mentions only those it mentions. Nobody at off or hidden is pushed, nor anyone mentioned who isn't a member.",
       "Being connected means having the room open in a tab that hasn't been hidden for 5 seconds; a connection that stops refreshing lapses after 60 seconds.",
@@ -1841,12 +1842,13 @@ export const features = [
     ],
     sources: ["reference/app/models/room/message_pusher.rb", "crates/db/src/models/push_subscription.rs", "crates/db/src/models/membership.rs", "crates/ember/src/integrations/jobs.rs", "crates/ember/src/integrations/web_push.rs", "crates/ember/src/integrations/web_push/pool.rs"],
     upstreamTests: ["reference/test/models/room/push_test.rb", "crates/ember/src/integrations/web_push/tests.rs", "crates/db/src/tests/push_test.rs"],
+    notes: "A room logs each new message with its id (room migration 0025), and as it sends its log to the Workspace (`sidebar.unread`), the Workspace finds each new message's pushes in the batch that marks the room unread for it, so a message is pushed once however often its event is sent, and only while Web Push is on. Who's connected is who's viewing the room as its log reaches the Workspace, as for unread marks (`realtime.presence`). The room sends the pushes six at a time, each given 30 seconds, without holding up its log, and has the Workspace delete the subscriptions found gone, logging \"Destroying push subscription: <id>\" as ember-rust does. A failure logs \"Error in WebPush::Pool.deliver: <class> host: <host>, status: <status>\", Rails' line with the status, where ember-rust's names the class twice. Unlike ember-rust, an endpoint's host isn't resolved and pinned to a public address before each push, which a Worker can't do; only the permitted push services are reached, over HTTPS on the default port (`notifications.subscriptions`). On the Workers Free plan, a room's pushes past 50 at a time fail, as the README says. Bots' and webhooks' messages will be pushed as people's are once they exist.",
   },
   {
     id: "notifications.payload",
     title: "What a push says",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A room message is titled with the room's name and reads \"<sender>: <text>\"; a DM is titled with the sender's name and reads the text.",
       "The text is the message's plain text (`messages.plain-text`): mentions read \"@Name\", a file reads its caption or else its file name, and a message without text leaves it empty (\"<sender>: \" in a room).",
@@ -1857,6 +1859,7 @@ export const features = [
     ],
     sources: ["crates/db/src/models/push_subscription.rs", "crates/ember/src/integrations/web_push.rs", "crates/ember/src/integrations/web_push/encryption.rs", "reference/lib/web_push/notification.rb"],
     upstreamTests: ["crates/ember/src/integrations/web_push/tests.rs", "crates/db/src/tests/push_test.rs"],
+    notes: "The room reads a message's plain text and mentions as it sends the message's event, so an edit made before then is what's pushed. Titles and text are cut as ember-rust cuts them, where Rails sent them whole. Pushes are encrypted with WebCrypto as the web-push gem encrypts them, one record of the ciphertext's own length, which `apps/worker/test/web-push.test.ts` checks against the gem's output and RFC 8291's example. A file's caption or name comes with attachments (`messages.plain-text`).",
   },
   {
     id: "notifications.subscriptions",
@@ -1961,7 +1964,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/vapid.rs", "crates/ember/src/integrations/jobs.rs", "crates/views/templates/layouts/application.html", "reference/config/initializers/vapid.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/tests.rs"],
-    notes: "The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Nothing is pushed yet, so there's no VAPID token, `VAPID_SUBJECT` or test push (`notifications.push`, `notifications.test-page`).",
+    notes: "The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Pushes are signed with the pair (`notifications.push`). Without `VAPID_SUBJECT` they name this project's URL, as ember-rust's do without `TLS_DOMAIN`, since a Worker has no setting for its domain. There's no test push yet (`notifications.test-page`).",
   },
 
   // Bots and webhooks

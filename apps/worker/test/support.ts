@@ -18,7 +18,8 @@ import {
 import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
-import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
+import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER, type ChatRoom } from "../src/chat-room";
+import { toBase64url, urlsafeDecode64 } from "../src/encoding";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { searchIndex } from "../src/search-index";
@@ -130,6 +131,29 @@ export async function outcome(room: RoomId, access: Access): Promise<"welcome" |
   });
   const { code, reason } = await closeOf(ws);
   return welcomed ? "welcome" : { code, reason };
+}
+
+/**
+ * Makes the Workspace unreachable from room `room`, as it is when it's restarting, until the function
+ * this answers is called. The time of each call the room makes meanwhile goes in `calls`.
+ */
+export async function cutOff(room: RoomId, calls: number[] = []): Promise<() => Promise<void>> {
+  let original: Env | undefined;
+  await runInDurableObject(roomStub(room), (instance: ChatRoom) => {
+    const object = instance as unknown as { env: Env };
+    original = object.env;
+    const unreachable = {
+      applyRoomEvents: () => {
+        calls.push(Date.now());
+        return Promise.reject(new Error("The Workspace is unreachable"));
+      },
+    };
+    object.env = { ...original, WORKSPACE: { getByName: () => unreachable } as unknown as Env["WORKSPACE"] };
+  });
+  return () =>
+    runInDurableObject(roomStub(room), (instance: ChatRoom) => {
+      (instance as unknown as { env: Env }).env = original!;
+    });
 }
 
 /** How `ws` closes, once it does. */
@@ -324,3 +348,68 @@ export async function openWorkspaceSocket(session: Session) {
 }
 
 export type WorkspaceSocket = Awaited<ReturnType<typeof openWorkspaceSocket>>;
+
+const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
+const encoder = new TextEncoder();
+
+/** A browser that has subscribed to pushes: its keys, as its subscription gives them, and what reads the pushes made for them. */
+export interface PushBrowser {
+  p256dh: string;
+  auth: string;
+  /** The push's one record, decrypted. */
+  read(body: Uint8Array): Promise<PushRecord>;
+  /** The push's JSON, as the service worker reads it, from a record the gem's way pads. */
+  open(body: Uint8Array): Promise<string>;
+}
+
+/** What a push's record header says, and its plaintext, delimiter and padding included. */
+export interface PushRecord {
+  recordSize: number;
+  ciphertextLength: number;
+  serverPublic: Uint8Array;
+  plaintext: Uint8Array;
+}
+
+/** A browser with fresh keys, or the keys `given`: its private key, and its subscription's keys in URL-safe Base64. */
+export async function pushBrowser(given?: { privateKey: CryptoKey; p256dh: string; auth: string }): Promise<PushBrowser> {
+  let keys = given;
+  if (!keys) {
+    const pair = (await crypto.subtle.generateKey(ECDH, true, ["deriveBits"])) as CryptoKeyPair;
+    const point = new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer);
+    keys = { privateKey: pair.privateKey, p256dh: toBase64url(point), auth: toBase64url(crypto.getRandomValues(new Uint8Array(16))) };
+  }
+  const { privateKey, p256dh, auth } = keys;
+  const read = (body: Uint8Array) => decryptedPush(body, privateKey, p256dh, auth);
+  return { p256dh, auth, read, open: async (body) => gemMessage((await read(body)).plaintext) };
+}
+
+/**
+ * A push's one record as a browser reads it (RFC 8291 and RFC 8188), written apart from the code under
+ * test, so it checks that code: what its header says, and its plaintext.
+ */
+async function decryptedPush(body: Uint8Array, privateKey: CryptoKey, p256dh: string, auth: string): Promise<PushRecord> {
+  const salt = body.subarray(0, 16);
+  const recordSize = new DataView(body.buffer, body.byteOffset).getUint32(16);
+  const serverPublic = body.subarray(21, 21 + body[20]!);
+  const ciphertext = body.subarray(21 + body[20]!);
+  const serverKey = await crypto.subtle.importKey("raw", serverPublic, ECDH, false, []);
+  const agreement = { name: "ECDH", public: serverKey };
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(agreement, privateKey, 256));
+  const key = await hkdf(urlsafeDecode64(auth)!, shared, Uint8Array.from([...encoder.encode("WebPush: info\0"), ...urlsafeDecode64(p256dh)!, ...serverPublic]), 32);
+  const contentKey = await hkdf(salt, key, encoder.encode("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(salt, key, encoder.encode("Content-Encoding: nonce\0"), 12);
+  const aes = await crypto.subtle.importKey("raw", contentKey, "AES-GCM", false, ["decrypt"]);
+  const plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce }, aes, ciphertext));
+  return { recordSize, ciphertextLength: ciphertext.length, serverPublic, plaintext };
+}
+
+async function hkdf(salt: Uint8Array, secret: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, length * 8));
+}
+
+/** The message in a record the gem padded: its plaintext but for the last record's delimiter and one zero. */
+export function gemMessage(plaintext: Uint8Array): string {
+  expect([...plaintext.subarray(-2)]).toEqual([2, 0]);
+  return new TextDecoder().decode(plaintext.subarray(0, -2));
+}

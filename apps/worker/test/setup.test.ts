@@ -27,7 +27,8 @@ describe(feature("auth.first-run"), () => {
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
       helpContact: null,
       version: "0.1",
-      vapidPublicKey: null,
+      // The suite's key pair's public key, uncompressed, without padding.
+      vapidPublicKey: "BEYXTBB5_jNhNzXDmx5KEU55Vbbd-u--Lk9rM5OFQvUkPIBwZJ9QzAq0zdEzFw6yTV8cTriz_qYBVicY02_VxTQ",
       // What the useragent gem reads without a user agent, which it takes as "Mozilla/4.0 (compatible)".
       platform: { ios: false, android: false, desktop: true, windows: false, chrome: false, firefox: false, safari: false, edge: false, browser: "Mozilla", operatingSystem: "" },
       user: null,

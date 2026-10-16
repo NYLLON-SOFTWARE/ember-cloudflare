@@ -11,6 +11,8 @@ EMBER_GUEST_SIGN_IN=true
 # Turns push notifications on: the key pair `pnpm vapid:keys` prints, which browsers subscribe with.
 # VAPID_PUBLIC_KEY=
 # VAPID_PRIVATE_KEY=
+# Whom push services may contact about your pushes, a mailto: or https: address; this project's otherwise.
+# VAPID_SUBJECT=
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true

@@ -34,6 +34,7 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { mentionPromptItem } from "@ember/richtext";
+import { isAccountLogoPath, showAccountLogo } from "./account-logo";
 import {
   clientOf,
   credentialsFor,
@@ -719,6 +720,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);
   const avatarToken = avatarTokenOf(pathname);
   if (avatarToken !== null) return showAvatar(request, env, avatarToken);
+  if (isAccountLogoPath(pathname)) return showAccountLogo(request, env);
   const page = write ? null : workspacePageOf(pathname);
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   return anyOtherPage(request, env, pathname);

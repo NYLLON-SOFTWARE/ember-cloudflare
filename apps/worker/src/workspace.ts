@@ -38,6 +38,7 @@ import { banProblem, type BanProblem } from "./bans";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
+import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -51,6 +52,7 @@ import {
   type Client,
   type DirectoryEntry,
   type JoinableAccount,
+  type MessagePush,
   type NewPerson,
   type ProfileEntry,
   type SavedRoomChange,
@@ -1180,13 +1182,25 @@ export class Workspace extends DurableObject<Env> {
    * someone opening it clears their mark. Each event is applied once, however often it's sent. Whoever's
    * mark changes hears of it on their workspace sockets, and nobody else does. A new message in a DM
    * moves it to the top of everyone's DMs there, its author's too, as in ember-rust every member's
-   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once.
+   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once. While Web
+   * Push is on, it answers each new message's pushes, for the room to send.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<void> {
-    if (events.length === 0) return;
-    const { marks, active } = await this.store.applyRoomEvents(roomId, events, viewerIds);
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<MessagePush[]> {
+    if (events.length === 0) return [];
+    const { on: pushing } = await webPush(this.env);
+    const { marks, active, pushes } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing);
     for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
+    return pushes;
+  }
+
+  /**
+   * Forgets the push subscriptions with `ids`, which a push service has said are gone, or whose keys no
+   * push can be encrypted for, as ember-rust's push pool destroys them, logging each as it does.
+   */
+  async forgetPushSubscriptions(ids: number[]): Promise<void> {
+    for (const id of ids) console.log(`Destroying push subscription: ${id}`);
+    await this.store.forgetPushSubscriptions(ids);
   }
 
   /**

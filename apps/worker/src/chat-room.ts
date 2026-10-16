@@ -19,6 +19,7 @@ import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
+import { sendPushes } from "./push/delivery";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
@@ -26,6 +27,7 @@ import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace } from "./workspace";
+import type { MessagePush } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
 interface Attachment extends Viewing {
@@ -444,9 +446,21 @@ export class ChatRoom extends DurableObject<Env> {
     const log = this.logFor(roomId);
     const events = await log.undelivered(ENTRIES_PER_CALL);
     if (events.length === 0) return 0;
-    await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    const pushes = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    // The Workspace answers a message's pushes once, so they're sent whatever happens next, and the
+    // log's next call doesn't wait on push services.
+    if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
     await log.delivered(events.at(-1)!.seq);
     return events.length;
+  }
+
+  /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */
+  private async push(pushes: MessagePush[]): Promise<void> {
+    const gone = await sendPushes(this.env, pushes);
+    if (gone.length === 0) return;
+    await workspace(this.env)
+      .forgetPushSubscriptions(gone)
+      .catch((error: unknown) => console.error(`Error in WebPush::Pool.invalid_subscription_handler: ${error}`));
   }
 
   /**

@@ -155,6 +155,39 @@ describe(feature("platform.storage"), () => {
     expect(rows[3]).toMatchObject({ body: "<p>Windows<br>line</p>", plain_text: "Windows\nline" });
   });
 
+  it("keeps the push subscriptions saved before they were numbered with AUTOINCREMENT, and never numbers another as one deleted", async () => {
+    // D1 runs the same SQL, at setup, with no subscriptions from before to keep.
+    if ((env as { DB?: D1Database }).DB) return;
+    // A new room's storage stands in for a Workspace's from before, since a Workspace migrates as it opens.
+    const room = await freshRoom("push-subscriptions-before");
+    const rows = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      state.storage.sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+      for (const { name, sql } of MIGRATIONS.filter(({ scope, name }) => scope === "workspace" && name < "0026")) {
+        state.storage.sql.exec(sql);
+        state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      }
+      const subscribe = (label: string, id: number | null = null) =>
+        state.storage.sql.exec(
+          `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
+           VALUES (?, 'u1', ?, 'p256dh', 'auth', 'Firefox', 'now', 'now')`,
+          id,
+          `https://updates.push.services.mozilla.com/wpush/v2/${label}`,
+        );
+      state.storage.sql.exec("INSERT INTO users (id, name, created_at, updated_at) VALUES ('u1', 'Grace', 'now', 'now')");
+      subscribe("phone", 1);
+      subscribe("laptop", 3);
+      migrate(state.storage, "workspace");
+      // Without AUTOINCREMENT, SQLite would number the next one past the highest left, 3 again.
+      state.storage.sql.exec("DELETE FROM push_subscriptions WHERE id = 3");
+      subscribe("tablet");
+      return state.storage.sql.exec("SELECT id, endpoint FROM push_subscriptions ORDER BY id").toArray();
+    });
+    expect(rows).toEqual([
+      { id: 1, endpoint: "https://updates.push.services.mozilla.com/wpush/v2/phone" },
+      { id: 4, endpoint: "https://updates.push.services.mozilla.com/wpush/v2/tablet" },
+    ]);
+  });
+
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {
     const room = await freshRoom("batch");
     // D1 keeps every room's messages in one table, so the ids are the room's own.

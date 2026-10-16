@@ -17,6 +17,7 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomKind,
   type RoomSettings,
   type SavedPushSubscription,
   type SharedRoom,
@@ -25,7 +26,8 @@ import {
   type UserId,
   type UserStatus,
 } from "@ember/protocol";
-import { statement, type Db } from "./db";
+import { statement, type Db, type Statement } from "./db";
+import { messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
 
@@ -132,6 +134,23 @@ export interface AppliedEvents {
   marks: Map<UserId, boolean>;
   /** When messages came in a DM, when the latest did and everyone in the DM; null otherwise. */
   active: { at: string; userIds: UserId[] } | null;
+  /** The new messages' pushes, oldest message first, when they were asked for. */
+  pushes: MessagePush[];
+}
+
+/** A new message's pushes: what they say, and the subscriptions they go to. */
+export interface MessagePush {
+  payload: PushPayload;
+  deliveries: PushDelivery[];
+}
+
+/** A subscription a message is pushed to, and the count its push sets the app's badge to. */
+export interface PushDelivery {
+  subscriptionId: number;
+  endpoint: string;
+  p256dhKey: string;
+  authKey: string;
+  badge: number;
 }
 
 /** A revocation the Workspace has yet to deliver to its room. */
@@ -266,6 +285,18 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** A new message's pushes, from the subscriptions `MESSAGE_PUSHES` found for it: none when it found none. */
+function messagePushes(roomId: RoomId, { message }: RoomEvent, rows: PushRow[]): MessagePush[] {
+  if (rows.length === 0) return [];
+  const [{ kind, name, author_name }] = rows as [PushRow];
+  return [
+    {
+      payload: messagePayload(roomId, { kind, name }, author_name, message!.plainText),
+      deliveries: rows.map((row) => ({ subscriptionId: row.id, endpoint: row.endpoint, p256dhKey: row.p256dh_key, authKey: row.auth_key, badge: row.badge })),
+    },
+  ];
+}
 
 /** Whether `ROOM_RANKED` found that the shared order ranks the room. */
 const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ranked === 1;
@@ -477,6 +508,37 @@ export const MARK_READ = `UPDATE memberships SET unread_at = NULL
  */
 const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
   WHERE room_id = ?1 AND ?2 > (SELECT applied_seq FROM rooms WHERE id = ?1 AND kind = 'direct')`;
+
+/**
+ * Where a new message, numbered ?5, by ?2 in room ?1 is pushed, as ember-rust's `MessagePusher` finds it
+ * (push_subscription.rs): to the subscriptions of the room's active members other than its author and
+ * the people a JSON list ?3 names, who are viewing it, at all messages, then of those at @mentions whom
+ * it mentions, a JSON list ?4, each in the order they were saved. Each comes with the room, its author's
+ * name and the count its push sets the badge to: how many of its owner's conversations are marked
+ * unread, as ember-rust's `badge` counts them. Nothing once the Workspace has applied the message's event.
+ */
+export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
+    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
+    rooms.kind, rooms.name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
+  FROM rooms
+    JOIN memberships ON memberships.room_id = rooms.id
+    JOIN users ON users.id = memberships.user_id
+    JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
+  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
+    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
+    AND (memberships.involvement = 'everything' OR (memberships.involvement = 'mentions' AND memberships.user_id IN (SELECT value FROM json_each(?4))))
+  ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
+
+interface PushRow {
+  id: number;
+  endpoint: string;
+  p256dh_key: string;
+  auth_key: string;
+  badge: number;
+  kind: RoomKind;
+  name: string | null;
+  author_name: string;
+}
 
 /** Records that the Workspace has applied room ?2's events up to ?1. */
 const APPLIED = `UPDATE rooms SET applied_seq = ?1 WHERE id = ?2 AND applied_seq < ?1`;
@@ -1351,26 +1413,39 @@ export class WorkspaceStore {
    * is viewing the room: a message marks it unread for the members who aren't, and a read clears the
    * reader's mark. The latest message also records when the room was last active. Those the Workspace
    * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
-   * when a message has come in a DM, when the latest did and everyone in the DM, to tell.
+   * when a message has come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`,
+   * it answers each new message's pushes too, found just after its marks, so that a push's badge counts
+   * them and none of the events after it.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast((event) => event.kind === "message");
     // When the latest message came, which a clock behind can make earlier than one logged before it.
     const messageAt = message && events.reduce((latest, { kind, at }) => (kind === "message" && at > latest ? at : latest), message.at);
-    const results = (await this.db.batch([
-      ...events.map(({ seq, kind, userId, at }) =>
-        kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq),
-      ),
-      ...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]),
-    ])) as Array<Array<{ user_id: UserId }>>;
-    const marks = new Map<UserId, boolean>();
-    events.forEach(({ kind }, i) => {
-      for (const { user_id } of results[i]!) marks.set(user_id, kind === "message");
+    const statements: Statement[] = [];
+    const applied = events.map((event) => {
+      const { seq, kind, userId, at } = event;
+      const marks = statements.push(kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
+      const mentions = pushing && event.message ? JSON.stringify(event.message.mentionIds) : null;
+      const pushes = mentions === null ? null : statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1;
+      return { event, marks, pushes };
     });
-    const told = message ? userIdsOf(results[events.length]!) : [];
-    return { marks, active: told.length > 0 ? { at: messageAt!, userIds: told } : null };
+    const told = statements.length;
+    statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
+    const results = await this.db.batch(statements);
+    const marks = new Map<UserId, boolean>();
+    for (const { event, marks: at } of applied) {
+      for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, event.kind === "message");
+    }
+    const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
+    const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
+    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes };
+  }
+
+  /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */
+  async forgetPushSubscriptions(ids: number[]): Promise<void> {
+    await this.db.run(`DELETE FROM push_subscriptions WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
