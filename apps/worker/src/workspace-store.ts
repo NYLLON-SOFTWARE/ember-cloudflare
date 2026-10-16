@@ -1606,9 +1606,8 @@ export class WorkspaceStore {
   /** The active bots, by name, each with its token and its rooms but DMs, read together. */
   async activeBots(): Promise<StoredBot[]> {
     const [bots, rooms] = (await this.db.batch([statement(ACTIVE_BOTS), statement(ACTIVE_BOTS_ROOMS)])) as [BotRow[], Array<BotRoom & { user_id: UserId }>];
-    const roomsOf = new Map<UserId, BotRoom[]>();
-    for (const { user_id, id, name } of rooms) roomsOf.set(user_id, [...(roomsOf.get(user_id) ?? []), { id, name }]);
-    return bots.map((row) => storedBot(row, roomsOf.get(row.id) ?? []));
+    const roomsOf = Map.groupBy(rooms, (room) => room.user_id);
+    return bots.map((row) => storedBot(row, (roomsOf.get(row.id) ?? []).map(({ id, name }) => ({ id, name }))));
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
