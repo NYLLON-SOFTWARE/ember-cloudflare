@@ -53,6 +53,7 @@ import {
 import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
+import { changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -639,6 +640,15 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);
   if (person && request.method === "DELETE") return () => removePerson(request, env, person[1]!);
+  if (pathname === "/api/account/bots" && request.method === "GET") return () => listBots(request, env);
+  if (pathname === "/api/account/bots" && request.method === "POST") return () => createBot(request, env);
+  // As with people, bots' ids never need percent-encoding, so an encoded segment names none.
+  const bot = pathname.match(/^\/api\/account\/bots\/([^/]+)$/);
+  if (bot && request.method === "GET") return () => showBot(request, env, bot[1]!);
+  if (bot && request.method === "PATCH") return () => changeBot(request, env, bot[1]!);
+  if (bot && request.method === "DELETE") return () => deleteBot(request, env, bot[1]!);
+  const botKey = pathname.match(/^\/api\/account\/bots\/([^/]+)\/key$/);
+  if (botKey && request.method === "PUT") return () => resetBotKey(request, env, botKey[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);

@@ -1,0 +1,85 @@
+import type { DirectoryUser, RoomId } from "./index.ts";
+
+// Chat bots, as administrators add, change and delete them through `/api/account/bots`: ember-rust's
+// `accounts/bots` and `accounts/bots/keys` controllers (crates/ember/src/controllers/accounts/bots.rs),
+// which port Campfire's.
+
+/** The longest webhook URL saved. */
+export const MAX_WEBHOOK_URL_LENGTH = 2048;
+
+/** A room a bot is in, which the bots page shows its commands for. */
+export interface BotRoom {
+  id: RoomId;
+  name: string;
+}
+
+/** A bot as the bots page lists it: as the people directory lists it, with its key and its rooms. */
+export interface Bot extends DirectoryUser {
+  /** What its API's addresses carry, `<id>-<token>`, which only administrators are told. */
+  key: string;
+  /** The rooms it's in but its DMs, by name. */
+  rooms: BotRoom[];
+}
+
+/** A bot as its edit page shows it: as the bots page lists it, with where its webhook delivers, or null for nowhere. */
+export interface BotSettings extends Bot {
+  webhookUrl: string | null;
+}
+
+/** What `GET /api/account/bots` answers: the active bots, by name. */
+export interface Bots {
+  bots: Bot[];
+}
+
+/**
+ * What `GET /api/account/bots/<id>` answers, and `POST /api/account/bots`, `PATCH /api/account/bots/<id>`
+ * and `PUT /api/account/bots/<id>/key`, which add a bot, change one and give one a new key.
+ */
+export interface BotAnswer {
+  bot: BotSettings;
+}
+
+/**
+ * What `PATCH /api/account/bots/<id>` changes, as the bot form saves it: the bot's name, and where its
+ * webhook delivers, "" for nowhere. What's left out stays as it is.
+ */
+export interface BotChanges {
+  name?: string;
+  webhookUrl?: string;
+}
+
+/** What `POST /api/account/bots` takes, as the bot form adds one: a name, and where its webhook delivers, if anywhere. */
+export interface NewBot {
+  name: string;
+  webhookUrl?: string;
+}
+
+/**
+ * Parses an untrusted change to a bot. Returns why it's refused instead: a name has to have more than
+ * spaces, where ember-rust saves whatever the form sends. The name is saved as typed, and the webhook
+ * URL trimmed, as the form's URL field sends it; the Worker checks that it's a URL.
+ */
+export function parseBotChanges(data: unknown): BotChanges | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { name, webhookUrl } = data as Record<string, unknown>;
+  const changes: BotChanges = {};
+  if (name !== undefined) {
+    if (typeof name !== "string") return "Name must be text";
+    if (!name.trim()) return "Name can't be blank";
+    changes.name = name;
+  }
+  if (webhookUrl !== undefined) {
+    if (typeof webhookUrl !== "string") return "Webhook URL must be text";
+    const url = webhookUrl.trim();
+    if (url.length > MAX_WEBHOOK_URL_LENGTH) return `Webhook URL can't be longer than ${MAX_WEBHOOK_URL_LENGTH} characters`;
+    changes.webhookUrl = url;
+  }
+  return changes;
+}
+
+/** Parses an untrusted new bot, as `parseBotChanges` does a change, which also needs a name. */
+export function parseNewBot(data: unknown): NewBot | string {
+  const changes = parseBotChanges(data);
+  if (typeof changes === "string") return changes;
+  return changes.name === undefined ? "Name can't be blank" : { ...changes, name: changes.name };
+}

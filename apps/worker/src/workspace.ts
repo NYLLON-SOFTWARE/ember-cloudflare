@@ -5,6 +5,9 @@ import {
   parseWorkspaceClientFrame,
   type Account,
   type AccountChanges,
+  type Bot,
+  type BotChanges,
+  type BotSettings,
   type CustomStyles,
   type DirectoryUser,
   type DirectRoom,
@@ -12,6 +15,7 @@ import {
   type HelpContact,
   type Involvement,
   type Me,
+  type NewBot,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
@@ -34,9 +38,10 @@ import {
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
+import { botKeyOf, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
-import { sortableId } from "./ids";
+import { alphanumeric, sortableId } from "./ids";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
@@ -56,6 +61,8 @@ import {
   type ProfileEntry,
   type PushDelivery,
   type SavedRoomChange,
+  type StoredBot,
+  type StoredBotSettings,
   type StoredPushSubscription,
   type StoredSession,
 } from "./workspace-store";
@@ -151,19 +158,8 @@ export interface RoomAccess {
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
 
-const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
 /** A join link's code, as ember-rust makes them (account.rs): 12 random letters and digits in fours, like aB3d-Ef5h-iJ7k. */
-function newJoinCode(): string {
-  let code = "";
-  while (code.length < 12) {
-    for (const byte of crypto.getRandomValues(new Uint8Array(12))) {
-      // 248 is the largest multiple of 62 below 256, so every character is as likely as the next.
-      if (byte < 248 && code.length < 12) code += ALPHANUMERICS[byte % ALPHANUMERICS.length];
-    }
-  }
-  return code.match(/.{4}/g)!.join("-");
-}
+const newJoinCode = () => alphanumeric(12).match(/.{4}/g)!.join("-");
 
 const encoder = new TextEncoder();
 
@@ -901,29 +897,155 @@ export class Workspace extends DurableObject<Env> {
       const person = await this.store.activePerson(userId);
       if (!person) return "not found";
       if (userId === user.id) return "yourself";
-
-      const now = Date.now();
-      const removedAt = new Date(now).toISOString();
-      const removed = await this.directoryUser({ ...person, status: "deactivated", updatedAt: removedAt });
-      // As when resetting a password, until the database says it queued nothing.
-      let queued = true;
-      this.helpContactChanges++;
-      try {
-        queued = await this.sessions.change(
-          (session) => session.user.id === userId,
-          () => this.store.removePerson(userId, crypto.randomUUID(), CloseCode.Revoked, now, removedAt),
-        );
-      } finally {
-        this.helpContactChanges++;
-        // The first administrator, whose email address it may have changed.
-        this.knownHelpContact = undefined;
-        // Whether or not it saved: the app connects them again if they're still signed in.
-        this.closeSockets(userId, CloseCode.Revoked);
-        if (queued) await this.wakeAt(now);
-      }
-      this.broadcast({ type: "user.updated", user: removed });
-      return removed;
+      return this.deactivate(person);
     });
+  }
+
+  /**
+   * Deactivates someone active, as ember-rust's `User#deactivate` does (user.rs), answering them as the
+   * people directory then lists them. All their sessions end, and their sockets close for good: here at
+   * once, and in every room they're in through the outbox. Everyone's workspace sockets hear of it.
+   */
+  private async deactivate({ id, name, bio, role }: DirectoryEntry): Promise<DirectoryUser> {
+    const now = Date.now();
+    const removedAt = new Date(now).toISOString();
+    const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt });
+    // As when resetting a password, until the database says it queued nothing.
+    let queued = true;
+    this.helpContactChanges++;
+    try {
+      queued = await this.sessions.change(
+        (session) => session.user.id === id,
+        () => this.store.removePerson(id, crypto.randomUUID(), CloseCode.Revoked, now, removedAt),
+      );
+    } finally {
+      this.helpContactChanges++;
+      // The first administrator, whose email address it may have changed.
+      this.knownHelpContact = undefined;
+      // Whether or not it saved: the app connects them again if they're still signed in.
+      this.closeSockets(id, CloseCode.Revoked);
+      if (queued) await this.wakeAt(now);
+    }
+    this.broadcast({ type: "user.updated", user: removed });
+    return removed;
+  }
+
+  /**
+   * The active bots, by name, each with its key and the rooms it's in but its DMs, as ember-rust's bots
+   * page lists them (`accounts/bots#index`, accounts/bots.rs), for the person `credentials` signs in:
+   * "forbidden" unless that's an administrator, or null without a valid session.
+   */
+  async bots(credentials: Credentials): Promise<Bot[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return this.shownBots(await this.store.activeBots());
+  }
+
+  /**
+   * The active bot `botId` as its edit page shows it to the person `credentials` signs in, as
+   * ember-rust's `accounts/bots#edit` finds it: "forbidden" unless that's an administrator, "not found"
+   * unless `botId` is an active bot, or null without a valid session.
+   */
+  async bot(credentials: Credentials, botId: UserId): Promise<BotSettings | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return (await this.botSettings(botId)) ?? "not found";
+  }
+
+  /**
+   * Adds a bot as the person `credentials` signs in, as ember-rust's `accounts/bots#create` does
+   * (`User.create_bot!`, user.rs): with a new token, a webhook if `bot` gives it somewhere to deliver,
+   * and in every open room, as someone who joins is. Answers it as its edit page shows it, "forbidden"
+   * unless that's an administrator, or null without a valid session.
+   */
+  async createBot(credentials: Credentials, { name, webhookUrl }: NewBot): Promise<BotSettings | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const id = sortableId();
+      await this.store.createBot({ id, name, token: newBotToken(), webhookUrl: webhookUrl || null }, new Date().toISOString());
+      return (await this.botSettings(id))!;
+    });
+  }
+
+  /**
+   * Changes the active bot `botId` as the person `credentials` signs in, as ember-rust's
+   * `accounts/bots#update` does (`update_bot!`, user.rs), answering it as its edit page then shows it:
+   * "forbidden" unless that's an administrator, "not found" unless `botId` is an active bot, or null
+   * without a valid session. Null `changes` change nothing, once that's checked. Everyone's workspace
+   * sockets hear of a new name.
+   */
+  async changeBot(credentials: Credentials, botId: UserId, changes: BotChanges | null): Promise<BotSettings | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const bot = await this.store.activeBot(botId);
+      if (!bot) return "not found";
+      if (changes) await this.store.changeBot(botId, changes, new Date().toISOString());
+      const changed = (await this.store.activeBot(botId))!;
+      if (changed.name !== bot.name) {
+        const { id, name, bio, role, status, updatedAt } = changed;
+        this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, role, status, updatedAt }) });
+      }
+      return this.shownBotSettings(changed);
+    });
+  }
+
+  /**
+   * Deletes the active bot `botId` as the person `credentials` signs in, as ember-rust's
+   * `accounts/bots#destroy` does, deactivating it as removing someone does: it leaves every room but its
+   * DMs, and its key stops working, while its messages, token and webhook stay. Answers "forbidden"
+   * unless that's an administrator, "not found" unless `botId` is an active bot, or null without a valid
+   * session. Everyone's workspace sockets hear of it.
+   */
+  async deleteBot(credentials: Credentials, botId: UserId): Promise<"deleted" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const bot = await this.store.activeBot(botId);
+      if (!bot) return "not found";
+      await this.deactivate(bot);
+      return "deleted";
+    });
+  }
+
+  /**
+   * Gives the active bot `botId` a new token as the person `credentials` signs in, as ember-rust's
+   * `accounts/bots/keys#update` does (`reset_bot_key`, user.rs), so its old key stops working at once.
+   * Answers it as its edit page then shows it, "forbidden" unless that's an administrator, "not found"
+   * unless `botId` is an active bot, or null without a valid session.
+   */
+  async resetBotKey(credentials: Credentials, botId: UserId): Promise<BotSettings | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.activeBot(botId))) return "not found";
+      await this.store.changeBotToken(botId, newBotToken(), new Date().toISOString());
+      return (await this.botSettings(botId))!;
+    });
+  }
+
+  /** The active bot `botId` as its edit page shows it, or null unless it's one. */
+  private async botSettings(botId: UserId): Promise<BotSettings | null> {
+    const bot = await this.store.activeBot(botId);
+    return bot && this.shownBotSettings(bot);
+  }
+
+  /** Bots as administrators see them: with their avatars' addresses, and their keys in place of their tokens. */
+  private async shownBots(bots: StoredBot[]): Promise<Bot[]> {
+    return (await directoryOf(bots, this.env.SESSION_SECRET)).map(({ token, ...bot }) => ({ ...bot, key: botKeyOf(bot.id, token) }));
+  }
+
+  /** A bot as its edit page shows it to administrators. */
+  private async shownBotSettings(bot: StoredBotSettings): Promise<BotSettings> {
+    const [shown] = await this.shownBots([bot]);
+    return { ...shown!, webhookUrl: bot.webhookUrl };
   }
 
   /**

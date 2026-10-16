@@ -24,6 +24,7 @@ import recentSearches from "../migrations/0023_recent_searches.sql";
 import pushSubscriptions from "../migrations/0024_push_subscriptions.sql";
 import roomEventMessages from "../migrations/0025_room_event_messages.sql";
 import pushSubscriptionIds from "../migrations/0026_push_subscription_ids.sql";
+import bots from "../migrations/0027_bots.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
@@ -72,6 +73,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0024_push_subscriptions.sql", scope: "workspace", sql: pushSubscriptions },
   { name: "0025_room_event_messages.sql", scope: "room", sql: roomEventMessages },
   { name: "0026_push_subscription_ids.sql", scope: "workspace", sql: pushSubscriptionIds },
+  { name: "0027_bots.sql", scope: "workspace", sql: bots },
 ];
 
 /**
