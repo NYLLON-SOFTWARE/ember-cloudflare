@@ -151,6 +151,38 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
   }
 }
 
+/*
+ * Campfire's actiontext.css, for a link preview in the editor: a card as wide as it needs to be, up to the
+ * editor's width, without the background of a selected attachment, which would show at its rounded
+ * corners, and with a round red remove button centered on its top edge while it's selected.
+ */
+action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed"] {
+  lexxy-editor & {
+    display: block;
+    inline-size: fit-content;
+    max-inline-size: 100%;
+  }
+
+  lexxy-editor &.node--selected {
+    --lexxy-attachment-bg-color: transparent;
+  }
+
+  lexxy-editor & lexxy-node-delete-button {
+    inset-block-start: 0;
+    inset-inline-end: auto;
+    inset-inline-start: 50%;
+    transform: translate(-50%, -50%);
+
+    .lexxy-floating-controls__group {
+      --button-size: 2.2em;
+
+      background-color: var(--negative);
+      border-radius: 50%;
+      color: white;
+    }
+  }
+}
+
 .mention {
   --avatar-size: 1.1em;
 
@@ -248,6 +280,89 @@ action-text-attachment[content-type~="application/vnd.campfire.mention"] {
   h1 {
     font-size: 1.4rem !important;
     margin: 0;
+  }
+}
+
+/*
+ * Campfire's embeds.css, for a link preview in the editor, as LinkPreview (message-body.tsx) draws one in a
+ * message: a card of the page's title, linked, and its description, cut at six lines, then its image, 16:9
+ * under them, or beside them at 100ch wide and up. An X avatar is small and round, beside them at any width.
+ * The card's `gap` class is Campfire's utility, spelled out here.
+ */
+.lexxy-content {
+  .og-embed {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 0.5em;
+    column-gap: 1ch;
+    display: flex;
+    flex-direction: column;
+    margin-block: 1rem 0.5rem;
+    overflow: clip;
+    padding: 1rem 1.5ch;
+    row-gap: 1rem;
+
+    @media (min-width: 100ch) {
+      align-items: start;
+      flex-direction: row;
+    }
+
+    &.og-embed--twitter-avatar {
+      flex-direction: row;
+    }
+  }
+
+  .og-embed__content {
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    display: -webkit-box;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .og-embed__description {
+    color: var(--foreground);
+  }
+
+  .og-embed__title {
+    font-weight: 600;
+
+    a {
+      text-decoration: underline;
+    }
+  }
+
+  .og-embed__image {
+    aspect-ratio: 16 / 9;
+    display: flex;
+    flex-shrink: 0;
+    max-inline-size: 100%;
+    overflow: clip;
+
+    @media (min-width: 100ch) {
+      inline-size: 15dvw;
+    }
+
+    /* Over Lexxy's small round images in attachments, as mentions show avatars */
+    > * {
+      block-size: auto;
+      border-radius: 0;
+      inline-size: 100%;
+      object-fit: contain;
+      object-position: top right;
+
+      @media (max-width: 100ch) {
+        object-position: top left;
+      }
+    }
+
+    .og-embed--twitter-avatar & {
+      aspect-ratio: 1;
+      block-size: 2lh;
+      border-radius: 50%;
+      inline-size: 2lh;
+    }
   }
 }
 

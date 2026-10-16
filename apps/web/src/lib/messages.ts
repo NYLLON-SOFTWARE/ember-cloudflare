@@ -1,5 +1,5 @@
 import type { Message, UserId } from "@ember/protocol";
-import { displayMarkup, type DisplayNode } from "@ember/richtext/dom";
+import { displayMarkup, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 
 /**
  * How far apart a person's messages can be, either way, and still group, as Campfire's
@@ -59,15 +59,64 @@ export function timeline(messages: Message[]): TimelineItem[] {
 }
 
 /**
- * What Reply writes in the composer (reply_controller.js): what the message shows, quoted, with each
- * mention as the bare name `nameOf` gives, then its author with a link to it, and a line to reply on.
+ * What Reply writes in the composer (reply_controller.js): what the message shows but its link previews,
+ * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
+ * to reply on.
  */
 export function replyQuote(nodes: DisplayNode[], author: string, link: string, nameOf: (userId: UserId) => string): string {
   const linkToOriginal: DisplayNode = { kind: "element", name: "a", attrs: { href: link }, children: [{ kind: "text", value: "#" }] };
   const quote: DisplayNode[] = [
-    { kind: "element", name: "blockquote", attrs: {}, children: nodes },
+    { kind: "element", name: "blockquote", attrs: {}, children: quoted(nodes) },
     { kind: "element", name: "cite", attrs: {}, children: [{ kind: "text", value: `${author} ` }, linkToOriginal] },
     { kind: "element", name: "p", attrs: {}, children: [{ kind: "element", name: "br", attrs: {}, children: [] }] },
   ];
   return displayMarkup(quote, ({ userId }) => nameOf(userId));
+}
+
+/**
+ * `#stripUnfurledAttachments`: what a message shows, or, when that's only link previews, the address of the
+ * first link in them, as a message of only a link shows only its preview.
+ */
+function quoted(nodes: DisplayNode[]): DisplayNode[] {
+  const link = firstPreviewLink(nodes);
+  return link && !hasText(nodes) ? [{ kind: "text", value: link }] : nodes;
+}
+
+/** Whether there's text outside link previews, where a mention is the name it shows. */
+const hasText = (nodes: DisplayNode[]): boolean =>
+  nodes.some((node) => node.kind === "mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
+
+/** The first link in a link preview, as `.og-embed a` finds it, by where it goes. */
+function firstPreviewLink(nodes: DisplayNode[]): string | undefined {
+  for (const node of nodes) {
+    const link = node.kind === "element" ? firstPreviewLink(node.children) : node.kind === "preview" ? previewLink(node) : undefined;
+    if (link !== undefined) return link;
+  }
+  return undefined;
+}
+
+/** Where a preview's first link goes: its title's, or else the first address linked in its text. */
+function previewLink(preview: DisplayPreview): string | undefined {
+  if (preview.href !== undefined) return hrefOf(preview.href);
+  const link = firstLink([...preview.title, ...preview.description]);
+  return link && hrefOf(link.attrs.href);
+}
+
+function firstLink(nodes: DisplayNode[]): DisplayElement | undefined {
+  for (const node of nodes) {
+    if (node.kind !== "element") continue;
+    const link = node.name === "a" ? node : firstLink(node.children);
+    if (link) return link;
+  }
+  return undefined;
+}
+
+/** A link's `href` as the browser reads it: absolute, or empty for a link without one. */
+function hrefOf(href: string | undefined): string {
+  if (href === undefined) return "";
+  try {
+    return new URL(href, location.href).href;
+  } catch {
+    return href;
+  }
 }

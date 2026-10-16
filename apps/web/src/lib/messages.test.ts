@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { displayBody } from "@ember/richtext/dom";
+import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { dateLabel, dateTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
@@ -74,14 +74,39 @@ describe(feature("messages.day-separators"), () => {
 
 describe(feature("messages.reply"), () => {
   const MENTION = 'content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"';
+  const LINK = "https://ember.test/rooms/general/@m1";
+  const CITE = `<cite>Ada <a href="${LINK}">#</a></cite><p><br></p>`;
+
+  /** A link preview as the composer adds one. */
+  function preview(details: Parameters<typeof previewContent>[0]): string {
+    const attachment = document.createElement("action-text-attachment");
+    attachment.setAttribute("content-type", OPENGRAPH_EMBED_CONTENT_TYPE);
+    attachment.setAttribute("content", previewContent(details));
+    return attachment.outerHTML;
+  }
+
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
-    const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`);
+    const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
     expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',
     );
+  });
+
+  it("leaves out the message's link previews", () => {
+    expect(quote(`<p>Look <action-text-attachment ${MENTION}></action-text-attachment></p>${preview({ href: "https://basecamp.com/", filename: "Basecamp" })}`, "Look @Grace")).toBe(
+      `<blockquote><p>Look Grace</p></blockquote>${CITE}`,
+    );
+  });
+
+  it("quotes a message of only link previews by where the first link in them goes, as the browser reads its address", () => {
+    const solo = `<p><a href="https://basecamp.com">https://basecamp.com</a></p>${preview({ href: "https://basecamp.com", filename: "Basecamp" })}`;
+    expect(quote(solo, "https://basecamp.com")).toBe(`<blockquote>https://basecamp.com/</blockquote>${CITE}`);
+    expect(quote(preview({ filename: "Free cookies", description: "At www.example.com" }), "")).toBe(`<blockquote>http://www.example.com/</blockquote>${CITE}`);
+    expect(quote(preview({ filename: "Unlinked" }), "")).toBe(`<blockquote></blockquote>${CITE}`);
   });
 });

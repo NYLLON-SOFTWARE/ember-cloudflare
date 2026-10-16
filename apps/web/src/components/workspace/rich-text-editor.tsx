@@ -1,4 +1,5 @@
 import { configure, Extension, Lexical } from "@37signals/lexxy";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import "./rich-text-editor.css";
 
@@ -135,6 +136,13 @@ type LexxyEditor = HTMLElement & {
   readonly editor: { update(change: () => void, options: { discrete: boolean }): void };
 };
 
+/** A link pasted in the editor, as Lexxy tells of it with `lexxy:insert-link`. */
+export interface PastedLink {
+  url: string;
+  /** Adds an attachment of `contentType`, `html` its content, after the paragraph the link is in, if it's still there. */
+  insertBelowLink(html: string, options: { attachment: { contentType: string } }): void;
+}
+
 export interface RichTextEditorHandle {
   /** What's written, as Lexxy's markup. */
   value(): string;
@@ -170,6 +178,8 @@ interface Props {
   onChange?: () => void;
   /** Called for each key pressed in its text before the editor sees it, which stopping the event's propagation keeps from the editor. */
   onKeyDown?: (event: KeyboardEvent) => void;
+  /** Called when an address is pasted as a link. */
+  onLinkPasted?: (link: PastedLink) => void;
   ref?: Ref<RichTextEditorHandle>;
 }
 
@@ -177,7 +187,19 @@ interface Props {
  * A `<lexxy-editor>`. React would set its attributes as properties, and some of Lexxy's can only be
  * read or throw before it's connected, so it's built here, in a `<div>` React leaves alone.
  */
-export default function RichTextEditor({ label, placeholder, rows, initialValue, mentionsFrom, mentionsAbove = false, autoFocus = false, onChange, onKeyDown, ref }: Props) {
+export default function RichTextEditor({
+  label,
+  placeholder,
+  rows,
+  initialValue,
+  mentionsFrom,
+  mentionsAbove = false,
+  autoFocus = false,
+  onChange,
+  onKeyDown,
+  onLinkPasted,
+  ref,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<LexxyEditor>(null);
 
@@ -214,6 +236,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
 
   const changed = useEffectEvent(() => onChange?.());
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));
+  const linkPasted = useEffectEvent((link: PastedLink) => onLinkPasted?.(link));
   const ready = useEffectEvent((lexxy: LexxyEditor) => {
     if (!(typeof autoFocus === "function" ? autoFocus() : autoFocus)) return;
     lexxy.focus();
@@ -225,13 +248,15 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
-    lexxy.setAttribute("permitted-attachment-types", "application/vnd.campfire.mention");
+    // As in ember-rust, mentions and link previews, which only the composer adds, but every editor keeps.
+    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
     lexxy.addEventListener("lexxy:change", (event) => {
       if ((event as CustomEvent).detail !== LOOK_AGAIN) changed();
     });
     lexxy.addEventListener("lexxy:initialize", () => ready(lexxy), { once: true });
+    lexxy.addEventListener("lexxy:insert-link", (event) => linkPasted((event as CustomEvent<PastedLink>).detail));
     // Before Lexical's own handlers, which are on the contenteditable inside, and only for the text's
     // keys, not those of the toolbar's buttons and fields.
     const keyDown = (event: KeyboardEvent) => {

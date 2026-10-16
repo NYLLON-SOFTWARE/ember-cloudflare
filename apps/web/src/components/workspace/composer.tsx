@@ -1,12 +1,13 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
 import type { User } from "@ember/protocol";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { ArrowUp, TextOptions } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
-import { mentionPromptSrc } from "@/lib/api";
+import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { RichTextEditor, editorLoaded, type RichTextEditorHandle } from "./editor";
+import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 
 /**
  * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
@@ -99,6 +100,24 @@ function useEditorShown(deferred: boolean): boolean {
   return shown;
 }
 
+/**
+ * ember-rust's unfurl_controller.js: a link pasted in the composer gets the preview of the page it goes to
+ * below its paragraph, when the page has one, unless another link is pasted first, or the composer goes.
+ * Previews that can't be had are left out without a word.
+ */
+function useLinkPreviews(): (link: PastedLink) => Promise<void> {
+  const pending = useRef<AbortController>(null);
+  useEffect(() => () => pending.current?.abort(), []);
+  return async ({ url, insertBelowLink }) => {
+    pending.current?.abort();
+    const request = (pending.current = new AbortController());
+    const preview = await fetchLinkPreview(url, request.signal).catch(() => null);
+    if (!preview || request.signal.aborted) return;
+    const content = previewContent({ href: preview.url, url: preview.image ?? undefined, filename: preview.title, description: preview.description });
+    insertBelowLink(content, { attachment: { contentType: OPENGRAPH_EMBED_CONTENT_TYPE } });
+  };
+}
+
 /** Whether `target` is the page itself, as when nothing has focus, rather than anything on it. */
 function isPage(target: EventTarget | null): boolean {
   return target === document.body || target === document.getElementById("main-content");
@@ -160,6 +179,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // focus elsewhere, where it's left.
   const [focusAtOpen] = useState(() => document.activeElement);
   const editorShown = useEditorShown(deferEditor);
+  const previewLink = useLinkPreviews();
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
@@ -289,6 +309,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                   autoFocus={() => replied.current || (focusOnOpen && focusStayedOn(focusAtOpen))}
                   onChange={changed}
                   onKeyDown={keyDown}
+                  onLinkPasted={previewLink}
                 />
               ) : (
                 <LoadingEditor placeholder={placeholder} />

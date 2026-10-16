@@ -5,7 +5,7 @@
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH } from "./content";
 import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
-import type { MentionUser, ResolveMention } from "./attachments";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, type MentionUser, type ResolveMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 import { isPlainParagraph } from "./plain-paragraph";
 import { htmlEscape } from "./ruby";
@@ -57,12 +57,14 @@ export function mentionPromptItem(person: MentionCard): string {
 /**
  * ember-rust's `editable_value` (lib.rs) for a body Ember stored: the markup the editor opens with,
  * each mention given the content Lexxy shows it by, since Lexxy drops an attachment without content. A
- * mention of someone `card` doesn't know goes, as one of someone deleted does there.
+ * mention of someone `card` doesn't know goes, as one of someone deleted does there. Link previews are
+ * stored with their content.
  */
 export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined): string {
   if (isPlainParagraph(stored)) return stored;
   const content = parse(stored, BODY);
   for (const attachment of attachmentNodes(content)) {
+    if (getAttr(attachment, "content-type") === OPENGRAPH_EMBED_CONTENT_TYPE) continue;
     const userId = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
     const person = userId === undefined ? undefined : card(userId);
     if (person) setAttr(attachment, "content", mentionContent(person));

@@ -103,6 +103,18 @@ export class Member {
   }
 }
 
+/** Pastes `text` into the composer, and `html` if given, as Campfire's tests do. */
+export const paste = (member: Member, text: string, html?: string) =>
+  member.composer().evaluate(
+    (content, [text, html]) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", text);
+      if (html) clipboardData.setData("text/html", html);
+      content.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    },
+    [text, html] as const,
+  );
+
 export interface SignInOptions {
   /** Where to open the app: this test's #general by default. */
   path?: string;
@@ -147,6 +159,8 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         await context.addCookies([session.cookie]);
         contexts.push(context);
         if (!serverRooms) await showRooms(context, rooms);
+        // A pasted link gets no preview, unless a test answers with one, so no test reaches the Internet.
+        await context.route("**/api/unfurl", (route) => route.fulfill({ status: 204 }));
         const page = await context.newPage();
         await beforeOpen?.(page);
         await page.goto(path);

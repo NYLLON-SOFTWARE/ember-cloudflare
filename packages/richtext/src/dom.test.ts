@@ -18,7 +18,7 @@ const readings: Record<string, (parse: HtmlParser, body: string) => unknown> = {
   "prepared body": (parse, body) => prepareBody(parse, body, corpusUser),
   "prepared body as it shows": (parse, body) => {
     const prepared = prepareBody(parse, body, corpusUser);
-    return prepared && displayBody(parse, prepared.html);
+    return prepared && displayBody(parse, prepared.html, prepared.plainText, "once.campfire.test");
   },
 };
 
