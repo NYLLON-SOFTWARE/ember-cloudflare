@@ -42,6 +42,18 @@ describe(feature("users.avatars"), () => {
     expect(result.current.people.get("u1")).toEqual(ada);
   });
 
+  it("has loaded once a load has come, and not for a change the workspace socket brings before one", async () => {
+    const { result } = renderHook(() => useDirectory());
+    act(() => result.current.update(grace));
+    expect(result.current).toMatchObject({ loaded: false, people: new Map([["u2", grace]]) });
+    server.down = true;
+    await expect(reload(result)).rejects.toThrow("Failed to fetch");
+    expect(result.current.loaded).toBe(false);
+    server.down = false;
+    await reload(result);
+    expect(result.current.loaded).toBe(true);
+  });
+
   it("keeps the people it has while the server says they're current, and takes them again when they change", async () => {
     const { result } = renderHook(() => useDirectory());
     await reload(result);

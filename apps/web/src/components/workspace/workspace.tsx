@@ -5,7 +5,7 @@ import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, isSignedOut, startDirect } from "@/lib/api";
@@ -544,5 +544,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
       </DrawerOpen>
     </Sheet>
   );
-  return <PeopleContext value={directory.people}>{layout}</PeopleContext>;
+  return (
+    <PeopleContext value={directory.people}>
+      <DirectoryLoaded value={directory.loaded}>{layout}</DirectoryLoaded>
+    </PeopleContext>
+  );
 }
