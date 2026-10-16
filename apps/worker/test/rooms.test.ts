@@ -158,7 +158,7 @@ describe(feature("rooms.create-closed"), () => {
 });
 
 describe(feature("rooms.legacy-rooms"), () => {
-  /** A room with messages and a reaction from before the Workspace kept a list, as the preview's are. */
+  /** A room with messages and a reaction from before the Workspace kept a list, as the old preview's are. */
   async function legacyRoom() {
     const id = `legacy-${crypto.randomUUID().slice(0, 8)}`;
     const authors = { ada: { id: `${id}-ada`, name: "Ada" }, grace: { id: `${id}-grace`, name: "Grace" } };

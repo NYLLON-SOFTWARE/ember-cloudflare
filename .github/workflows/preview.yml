@@ -1,6 +1,6 @@
 name: Preview
 
-# Deploys main to a Worker named ember-preview on the account's workers.dev subdomain, then checks
+# Deploys main to a Worker named ember-production on the account's workers.dev subdomain, then checks
 # it end to end. It needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets and
 # skips without them, so forks don't try to deploy. An EMBER_SETUP_TOKEN repository secret, if
 # there is one, becomes the preview's setup token.
@@ -43,7 +43,7 @@ jobs:
       name: preview
       url: ${{ steps.deploy.outputs.url }}
     env:
-      WORKER_NAME: ember-preview
+      WORKER_NAME: ember-production
       WRANGLER_SEND_METRICS: "false"
     steps:
       # Pinned to commits, not tags, because this job holds the Cloudflare token: a moved tag
@@ -73,9 +73,8 @@ jobs:
           trap 'rm -f "$secrets_file"' EXIT
           bash scripts/preview-secrets.sh "$WORKER_NAME" "$secrets_file"
 
-          # The preview's general and random rooms date from before the Workspace kept a list, so it
-          # registers them. Its version, under the sign-in page's help contact, is the commit it deploys.
-          pnpm exec wrangler deploy --name "$WORKER_NAME" --secrets-file "$secrets_file" --var LEGACY_ROOMS:general,random --var "GIT_REVISION:${GITHUB_SHA::7}"
+          # Its version, under the sign-in page's help contact, is the commit it deploys.
+          pnpm exec wrangler deploy --name "$WORKER_NAME" --secrets-file "$secrets_file" --var "GIT_REVISION:${GITHUB_SHA::7}"
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"

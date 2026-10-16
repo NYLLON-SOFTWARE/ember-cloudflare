@@ -16,7 +16,8 @@ export interface Env {
   STORAGE_BACKEND: StorageBackend;
   /**
    * Comma-separated addresses of rooms from before the Workspace kept a list, which it registers as
-   * open rooms so their messages stay reachable. Only the preview sets it.
+   * open rooms so their messages stay reachable. Only the old preview Worker, `ember-preview`, was
+   * deployed with it.
    */
   LEGACY_ROOMS?: string;
   SESSION_SECRET: string;

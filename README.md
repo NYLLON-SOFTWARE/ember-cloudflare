@@ -139,8 +139,8 @@ checks, as Rails' does, without touching storage.
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
-`ember-preview` on your workers.dev subdomain after every push, or when run by hand from the Actions
-tab. It needs two repository secrets, and skips without them:
+`ember-production` on your workers.dev subdomain after every push, or when run by hand from the
+Actions tab. It needs two repository secrets, and skips without them:
 
 - `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
@@ -152,9 +152,7 @@ and run the workflow again. The secrets go up with each deploy, never in its log
 makes the Worker's `SESSION_SECRET`, and later ones keep it.
 
 The preview is a private workspace, which its administrator invites people to with the join link.
-Its `LEGACY_ROOMS` keeps the general and random rooms it had before the Workspace kept a list of
-rooms, which stand in for the ones first run makes, and its version, under the sign-in page's help
-contact, is the commit it deployed. After each deploy,
+Its version, under the sign-in page's help contact, is the commit it deployed. After each deploy,
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
@@ -166,8 +164,8 @@ the repository's Deployments.
 Someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`, as
 ember-rust's `emberctl reset-password` gives one on its server. The Worker takes recovery requests
 only while its `EMBER_RECOVERY_TOKEN` secret is set, and the script sends the same token from your
-shell's environment, so set one up just for the reset (add `--name ember-preview` to each `wrangler`
-command for the preview):
+shell's environment, so set one up just for the reset (add `--name ember-production` to each
+`wrangler` command for the preview):
 
 ```sh
 export EMBER_RECOVERY_TOKEN=$(openssl rand -hex 32)
