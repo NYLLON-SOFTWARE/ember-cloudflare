@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 97 ported and 54 partial of 172 features; 15 not started, 6 not applicable.
+**Overall:** 99 ported and 54 partial of 172 features; 13 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 4 | 6 | 5 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 6 | 6 | 3 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **97** | **54** | **15** | **6** | **172** |
+| **Total** | **99** | **54** | **13** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1942,18 +1942,18 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | Chat bots page | `bots.list` | Campfire | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bots-page](apps/web/src/components/workspace/bots-page.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Add and edit a bot | `bots.create-edit` | Campfire | 🟡 Partial | Protocol: [bots](packages/protocol/src/bots.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Delete a bot | `bots.delete` | Campfire | 🟡 Partial | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
-| Generate a new bot key | `bots.reset-key` | Campfire | 🟡 Partial | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
+| Generate a new bot key | `bots.reset-key` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts), [webhooks](apps/worker/test/webhooks.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bot keys | `bots.api-auth` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Bots post messages | `bots.api-post` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bots read messages | `bots.api-list` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Bots edit and delete their messages | `bots.api-edit-delete` | Campfire | 🟡 Partial | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bots boost messages | `bots.api-boosts` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
-| Webhooks | `bots.webhook-delivery` | Campfire | ⬜ Not started |  |
+| Webhooks | `bots.webhook-delivery` | Campfire | 🟡 Partial | Worker: [webhooks](apps/worker/test/webhooks.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Webhook replies | `bots.webhook-reply` | Campfire | ⬜ Not started |  |
 | Where bots show up | `bots.membership` | Campfire | ⬜ Not started |  |
 | A bot's profile | `bots.profile` | Campfire | ⬜ Not started |  |
 | Bot keys in logs | `bots.log-redaction` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
-| Webhooks run in the background | `bots.webhook-jobs` | Ember | ⬜ Not started |  |
+| Webhooks run in the background | `bots.webhook-jobs` | Ember | ✅ Ported | Worker: [webhooks](apps/worker/test/webhooks.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1997,20 +1997,20 @@ ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`
 - Its token and webhook are kept, so deliveries already queued still go out and their replies still post.
 - Members get 403, and unknown or already deleted bots 404.
 
-Note: The bot's settings end with Delete bot, which asks ember-rust's question in the browser's own dialog, then sends `DELETE /api/account/bots/<id>`, answered 204, and goes back to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves the bots page and every room but its DMs, every open page hears so (`user.updated`), and its page says it's no longer on this account (`users.show`). Its token and webhook are kept. Its key stops working in the bot API at once (`bots.api-auth`). There are no queued deliveries until `bots.webhook-delivery`.
+Note: The bot's settings end with Delete bot, which asks ember-rust's question in the browser's own dialog, then sends `DELETE /api/account/bots/<id>`, answered 204, and goes back to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves the bots page and every room but its DMs, every open page hears so (`user.updated`), and its page says it's no longer on this account (`users.show`). Its token and webhook are kept. Its key stops working in the bot API at once (`bots.api-auth`). Deliveries already on their way to it still go (`bots.webhook-jobs`), and their replies will post once bots can answer (`bots.webhook-reply`).
 
 Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
 ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs)
 
-**Generate a new bot key** (`bots.reset-key`) 🟡
+**Generate a new bot key** (`bots.reset-key`) ✅
 
 - The edit page's red "Generate a new key" button asks "Are you sure you want to change the bot key? All usage of this bot must be updated." and gives the bot a new token of 12 random letters and digits.
 - The old key stops working at once, and the bots page it returns to shows the new key in its commands.
 - Webhook deliveries made after the reset carry the new key in `room.path`.
 - Members get 403, and unknown or deleted bots 404.
 
-Note: The bot's settings end with Generate a new key, which asks ember-rust's question in the browser's own dialog, then sends `PUT /api/account/bots/<id>/key`, which gives the bot a new token of 12 random letters and digits, and goes back to the bots page, whose commands carry the new key. The old key stops working in the bot API at once (`bots.api-auth`). Webhooks, which carry the key, come with `bots.webhook-delivery`.
+Note: The bot's settings end with Generate a new key, which asks ember-rust's question in the browser's own dialog, then sends `PUT /api/account/bots/<id>/key`, which gives the bot a new token of 12 random letters and digits, and goes back to the bots page, whose commands carry the new key. The old key stops working in the bot API at once (`bots.api-auth`). Webhook deliveries for the messages sent after the reset carry the new key (`bots.webhook-delivery`), but one already waiting its turn carries the old (`bots.webhook-jobs`).
 
 Sources: [`crates/ember/src/controllers/accounts/bots/keys.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots/keys.rs) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`reference/app/controllers/accounts/bots/keys_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots/keys_controller.rb) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
@@ -2041,7 +2041,7 @@ ember-rust tests: [`reference/test/controllers/messages/by_bots_controller_test.
 - A text body over 16 MiB, or a file over 250,000,000 bytes, gets 413.
 - The message reaches the room like anyone's (live, unread, pushed, searchable) and triggers other bots' webhooks, never the sender's own, even when it mentions itself or is in its own DM.
 
-Note: POSTing to a room's address for bots posts the request's body, whatever its type, as the bot's message, as rich text, read as UTF-8 with invalid bytes replaced. It answers 201 with an empty body and `Location` set to the message's permalink, `<origin>/rooms/<room id>/@<id>`, on the host it was asked at, where ember-rust's `/messages/<id>` answers 404. The message reaches the room as anyone's does: live, unread, pushed and searchable. A body that's empty or only spaces is an empty 422. Unlike ember-rust, which takes up to 16 MiB of anything, more than 100,000 characters of markup is 413 `{"status":413,"error":"Content Too Large"}`, more than 10,000 characters of text is 422 `{"error":"Messages can be up to 10,000 characters."}`, as the composer allows, and markup that shows nothing, such as `<p> </p>`, is 422 `{"error":"Your message is empty."}` rather than an empty message. Still to come: file messages (`attachments.upload`), until when a form, as `curl -F` sends a file, answers 415 `{"error":"Bots can't post files yet"}`; and other bots' webhooks (`bots.webhook-delivery`).
+Note: POSTing to a room's address for bots posts the request's body, whatever its type, as the bot's message, as rich text, read as UTF-8 with invalid bytes replaced. It answers 201 with an empty body and `Location` set to the message's permalink, `<origin>/rooms/<room id>/@<id>`, on the host it was asked at, where ember-rust's `/messages/<id>` answers 404. The message reaches the room as anyone's does: live, unread, pushed and searchable, and is delivered to the webhooks of the other bots it's for, never its sender's (`bots.webhook-delivery`). A body that's empty or only spaces is an empty 422. Unlike ember-rust, which takes up to 16 MiB of anything, more than 100,000 characters of markup is 413 `{"status":413,"error":"Content Too Large"}`, more than 10,000 characters of text is 422 `{"error":"Messages can be up to 10,000 characters."}`, as the composer allows, and markup that shows nothing, such as `<p> </p>`, is 422 `{"error":"Your message is empty."}` rather than an empty message. Still to come: file messages (`attachments.upload`), until when a form, as `curl -F` sends a file, answers 415 `{"error":"Bots can't post files yet"}`.
 
 Sources: [`crates/ember/src/controllers/messages/by_bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/by_bots.rs) · [`reference/app/controllers/messages/by_bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages/by_bots_controller.rb) · [`reference/app/controllers/concerns/raw_request_body.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/concerns/raw_request_body.rb) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs)
 
@@ -2091,7 +2091,7 @@ Sources: [`crates/ember/src/controllers/messages/boosts/by_bots.rs`](https://git
 
 ember-rust tests: [`reference/test/controllers/messages/boosts/by_bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/messages/boosts/by_bots_controller_test.rb) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Webhooks** (`bots.webhook-delivery`) ⬜
+**Webhooks** (`bots.webhook-delivery`) 🟡
 
 - Creating a message, in the app or through the bot API, notifies bots: in a DM, every active bot in it; elsewhere, every active bot it mentions who is a member of the room. The sender and bots without a webhook are skipped, each bot gets one delivery, and a typed "@Name" that isn't a real mention doesn't count.
 - Edits, boosts and webhook replies never trigger deliveries.
@@ -2100,6 +2100,8 @@ ember-rust tests: [`reference/test/controllers/messages/boosts/by_bots_controlle
 - Requests send `Content-Type: application/json`, `Accept: */*` and `User-Agent: Ruby`, accept gzip and deflate, and escape `<`, `>` and `&` in the JSON as `\u003c`, `\u003e` and `\u0026`.
 - Any http or https URL and port is accepted, redirects aren't followed and nothing is retried. An invalid URL, such as the empty one a bot created without a URL has, fails without a reply.
 - Webhooks may point at internal hosts: there's no private-network guard, since only administrators set them.
+
+Note: A new message, from the composer or the bot API, is delivered once the Workspace applies it from its room's log, which it does once however often the room sends it: to the webhooks of the active bots it mentions that are in its room, or in a DM to those of every active bot in it, never to its author, and to each once. Edits and boosts deliver nothing. Each delivery POSTs Campfire's JSON, in its order of keys and with `<`, `>` and `&` escaped, to the URL as it was saved: `html` is the message's stored rich text and `plain` its plain text without the receiving bot's @mentions. It sends Net::HTTP's `Content-Type`, `Accept` and `User-Agent`, but leaves `Accept-Encoding` to the Worker's `fetch`, which sends none in local development, and Cloudflare adds `CF-Worker`, naming the Worker's host. Redirects aren't followed and nothing is retried. Unlike Campfire, a webhook's URL is checked when it's saved (`bots.create-edit`), and a bot without one has no webhook, so nothing is tried for it, where Campfire tries the empty URL and fails. Nothing guards where a webhook points, but a deployed Worker reaches the internet, not a private network, so a webhook on one needs a public address, such as a Cloudflare Tunnel's. Still to come: file messages, whose `html` is null and `plain` their file's name (`attachments.upload`), and what bots answer, which delivers nothing (`bots.webhook-reply`).
 
 Sources: [`reference/app/models/webhook.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/webhook.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`crates/db/src/models/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/webhook.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs)
 
@@ -2149,13 +2151,15 @@ Sources: [`reference/lib/rails_ext/log_scrubbing_formatter.rb`](https://github.c
 
 ember-rust tests: [`reference/test/lib/rails_ext/log_scrubbing_formatter_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/rails_ext/log_scrubbing_formatter_test.rb)
 
-**Webhooks run in the background** (`bots.webhook-jobs`) ⬜
+**Webhooks run in the background** (`bots.webhook-jobs`) ✅
 
 - Deliveries are queued once the message is saved and run in the background on their own queue, so a slow webhook never holds up the message's request, pushes or other jobs.
 - `JOB_CONCURRENCY` deliveries (2 by default) run at a time and up to 1,024 more wait; beyond that a delivery is dropped and logged as "job queue is full, dropping job".
 - Nothing is retried. The bot, message and webhook are read when the delivery runs: a message deleted or a webhook removed by then fails it with nothing sent, an edit made by then is delivered, and a bot deleted by then still gets it.
 - Each delivery logs "performed", or "job failed" with its cause.
 - On shutdown, queued deliveries still run for up to 10 seconds; a crash loses them.
+
+Note: A room delivers its new messages in the background once the Workspace has applied them, so neither a message's request nor its pushes wait on a webhook. As ember-rust's job runner does, 2 deliveries run at a time and up to 1,024 more wait their turn, but each room has its own queue, so one room's slow webhooks never hold up another's. Beyond that a delivery is dropped and logged as `dropped: the room's webhook queue is full`. Nothing is retried. The message is read when its turn comes, so an edit made by then is delivered and a message deleted by then fails with nothing sent. Unlike ember-rust, which reads the bot and its webhook then too, they're as they were when the Workspace applied the message: a bot deleted since still gets it, as in ember-rust, but so does a webhook removed since, and a delivery waiting when the bot's key is reset carries the old key. Each delivery logs `Bot::WebhookJob of message <id> to bot <id> performed:` with the webhook's status, or `failed:` with its reason, never with the webhook's URL or the bot's key. A deploy resets every room's object, which ends the deliveries waiting or running in it, as a crash ends ember-rust's.
 
 Sources: [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/jobs/bot/webhook_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/bot/webhook_job.rb) · [`reference/app/jobs/application_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/application_job.rb)
 

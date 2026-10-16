@@ -1,6 +1,8 @@
+import { createServer, type IncomingHttpHeaders } from "node:http";
+import type { AddressInfo } from "node:net";
 import { feature } from "@ember/parity";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
-import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, editorField, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** A command that posts to a room as a bot: its room's address on this server, then the bot's key. */
@@ -29,16 +31,41 @@ async function addBot(page: Page, name: string, webhookUrl = "") {
   await expect(page).toHaveURL(/\/account\/bots$/);
 }
 
-/** Adds a bot named `name` and opens general, answering the address the bot's command posts there to. */
-async function openGeneralFor(page: Page, name: string): Promise<string> {
+/** Adds a bot named `name`, delivering to `webhookUrl` if it's given, and opens general, answering the address the bot's command posts there to. */
+async function openGeneralFor(page: Page, name: string, webhookUrl?: string): Promise<string> {
   await openBots(page);
-  await addBot(page, name);
+  await addBot(page, name, webhookUrl);
   const command = botNamed(page, name).getByRole("group", { name: "general", exact: true }).getByRole("textbox", { name: "curl command for posting messages" });
   const url = (await command.inputValue()).split(" ").at(-1)!;
   // The room the command posts to, open in the administrator's browser.
   await page.goto(new URL(url).pathname.replace(/\/[^/]+\/messages$/, ""));
   await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
   return url;
+}
+
+/** A request a webhook got. */
+interface Received {
+  method: string;
+  path: string;
+  headers: IncomingHttpHeaders;
+  body: string;
+}
+
+/** Listens on this machine as a bot's webhook, answering each request with an empty 204, as a bot with nothing to say does. */
+async function listenAsWebhook(): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
+  const received: Received[] = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => (body += chunk));
+    request.on("end", () => {
+      received.push({ method: request.method!, path: request.url!, headers: request.headers, body });
+      response.writeHead(204).end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}/hooks/build?team=ops`, received, close: () => new Promise((resolve) => server.close(() => resolve())) };
 }
 
 /** As `curl -d` sends a body. */
@@ -162,6 +189,46 @@ test.describe(feature("bots.api-boosts"), () => {
     const { id } = (await boosted.json()) as { id: string };
     expect((await page.request.delete(`${message}/boosts/${id}`)).status()).toBe(204);
     await expect(boost).toHaveCount(0);
+  });
+});
+
+test.describe(feature("bots.webhook-delivery"), () => {
+  test("mentioning a bot in the composer delivers the message to its webhook, as Campfire's JSON", async ({ page }) => {
+    const webhook = await listenAsWebhook();
+    try {
+      const tag = crypto.randomUUID().slice(0, 8);
+      const name = `Build Bot ${tag}`;
+      const url = await openGeneralFor(page, name, webhook.url);
+      const composer = editorField(page, "Write a message");
+      await composer.pressSequentially("Ship it & tell ");
+      await composer.pressSequentially("@");
+      await expect(page.getByRole("listbox")).toBeVisible();
+      // Waits for the people listed for the whole tag, as an answer for less of it may come later.
+      const listed = page.waitForResponse((response) => new URL(response.url()).searchParams.get("filter") === tag);
+      await composer.pressSequentially(tag);
+      await listed;
+      await expect(page.getByRole("listbox").getByRole("option")).toHaveText([name]);
+      await composer.press("Tab");
+      await composer.press("Enter");
+      const sent = page.getByRole("article").filter({ hasText: `Ship it & tell ${name}` });
+      await expect(sent).toBeVisible();
+
+      await expect.poll(() => webhook.received.length).toBe(1);
+      const [{ method, path, headers, body }] = webhook.received as [Received];
+      expect([method, path]).toEqual(["POST", "/hooks/build?team=ops"]);
+      expect(headers).toMatchObject({ "content-type": "application/json", accept: "*/*", "user-agent": "Ruby" });
+      expect(body).not.toMatch(/[<>&]/);
+      const payload = JSON.parse(body) as { user: { name: string }; room: { name: string; path: string }; message: { id: string; body: { html: string; plain: string }; path: string } };
+      // The room's address is the bot's own, as its command posts to, and the message's its permalink.
+      const room = new URL(url).pathname;
+      expect(payload).toMatchObject({ user: { name: ADMINISTRATOR.name }, room: { name: "general", path: room }, message: { body: { plain: "Ship it & tell" } } });
+      expect(Object.keys(payload)).toEqual(["user", "room", "message"]);
+      expect(payload.message.path).toBe(`${room.replace(/\/[^/]+\/messages$/, "")}/@${payload.message.id}`);
+      // The stored rich text, the mention an attachment as Campfire keeps it.
+      expect(payload.message.body.html).toMatch(/^<p>Ship it &amp; tell <action-text-attachment [^>]*content-type="application\/vnd\.campfire\.mention"/);
+    } finally {
+      await webhook.close();
+    }
   });
 });
 

@@ -2021,13 +2021,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/bots.rs", "crates/views/templates/accounts/bots/edit.html", "crates/db/src/models/user.rs", "reference/app/models/user.rb", "crates/ember/src/integrations/jobs.rs"],
     upstreamTests: ["reference/test/controllers/accounts/bots_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
-    notes: "The bot's settings end with Delete bot, which asks ember-rust's question in the browser's own dialog, then sends `DELETE /api/account/bots/<id>`, answered 204, and goes back to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves the bots page and every room but its DMs, every open page hears so (`user.updated`), and its page says it's no longer on this account (`users.show`). Its token and webhook are kept. Its key stops working in the bot API at once (`bots.api-auth`). There are no queued deliveries until `bots.webhook-delivery`.",
+    notes: "The bot's settings end with Delete bot, which asks ember-rust's question in the browser's own dialog, then sends `DELETE /api/account/bots/<id>`, answered 204, and goes back to the bots page. The bot is deactivated as someone removed is (`accounts.remove-person`): it leaves the bots page and every room but its DMs, every open page hears so (`user.updated`), and its page says it's no longer on this account (`users.show`). Its token and webhook are kept. Its key stops working in the bot API at once (`bots.api-auth`). Deliveries already on their way to it still go (`bots.webhook-jobs`), and their replies will post once bots can answer (`bots.webhook-reply`).",
   },
   {
     id: "bots.reset-key",
     title: "Generate a new bot key",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The edit page's red \"Generate a new key\" button asks \"Are you sure you want to change the bot key? All usage of this bot must be updated.\" and gives the bot a new token of 12 random letters and digits.",
       "The old key stops working at once, and the bots page it returns to shows the new key in its commands.",
@@ -2036,7 +2036,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/bots/keys.rs", "crates/views/templates/accounts/bots/edit.html", "reference/app/models/user/bot.rb", "reference/app/controllers/accounts/bots/keys_controller.rb", "crates/ember/src/integrations/jobs.rs"],
     upstreamTests: ["reference/test/models/user/bot_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/bots/keys_controller_test.rb"],
-    notes: "The bot's settings end with Generate a new key, which asks ember-rust's question in the browser's own dialog, then sends `PUT /api/account/bots/<id>/key`, which gives the bot a new token of 12 random letters and digits, and goes back to the bots page, whose commands carry the new key. The old key stops working in the bot API at once (`bots.api-auth`). Webhooks, which carry the key, come with `bots.webhook-delivery`.",
+    notes: "The bot's settings end with Generate a new key, which asks ember-rust's question in the browser's own dialog, then sends `PUT /api/account/bots/<id>/key`, which gives the bot a new token of 12 random letters and digits, and goes back to the bots page, whose commands carry the new key. The old key stops working in the bot API at once (`bots.api-auth`). Webhook deliveries for the messages sent after the reset carry the new key (`bots.webhook-delivery`), but one already waiting its turn carries the old (`bots.webhook-jobs`).",
   },
   {
     id: "bots.api-auth",
@@ -2071,7 +2071,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/by_bots.rs", "reference/app/controllers/messages/by_bots_controller.rb", "reference/app/controllers/concerns/raw_request_body.rb", "crates/ember/src/controllers/messages.rs", "crates/kit/src/body.rs"],
     upstreamTests: ["reference/test/controllers/messages/by_bots_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs"],
-    notes: "POSTing to a room's address for bots posts the request's body, whatever its type, as the bot's message, as rich text, read as UTF-8 with invalid bytes replaced. It answers 201 with an empty body and `Location` set to the message's permalink, `<origin>/rooms/<room id>/@<id>`, on the host it was asked at, where ember-rust's `/messages/<id>` answers 404. The message reaches the room as anyone's does: live, unread, pushed and searchable. A body that's empty or only spaces is an empty 422. Unlike ember-rust, which takes up to 16 MiB of anything, more than 100,000 characters of markup is 413 `{\"status\":413,\"error\":\"Content Too Large\"}`, more than 10,000 characters of text is 422 `{\"error\":\"Messages can be up to 10,000 characters.\"}`, as the composer allows, and markup that shows nothing, such as `<p> </p>`, is 422 `{\"error\":\"Your message is empty.\"}` rather than an empty message. Still to come: file messages (`attachments.upload`), until when a form, as `curl -F` sends a file, answers 415 `{\"error\":\"Bots can't post files yet\"}`; and other bots' webhooks (`bots.webhook-delivery`).",
+    notes: "POSTing to a room's address for bots posts the request's body, whatever its type, as the bot's message, as rich text, read as UTF-8 with invalid bytes replaced. It answers 201 with an empty body and `Location` set to the message's permalink, `<origin>/rooms/<room id>/@<id>`, on the host it was asked at, where ember-rust's `/messages/<id>` answers 404. The message reaches the room as anyone's does: live, unread, pushed and searchable, and is delivered to the webhooks of the other bots it's for, never its sender's (`bots.webhook-delivery`). A body that's empty or only spaces is an empty 422. Unlike ember-rust, which takes up to 16 MiB of anything, more than 100,000 characters of markup is 413 `{\"status\":413,\"error\":\"Content Too Large\"}`, more than 10,000 characters of text is 422 `{\"error\":\"Messages can be up to 10,000 characters.\"}`, as the composer allows, and markup that shows nothing, such as `<p> </p>`, is 422 `{\"error\":\"Your message is empty.\"}` rather than an empty message. Still to come: file messages (`attachments.upload`), until when a form, as `curl -F` sends a file, answers 415 `{\"error\":\"Bots can't post files yet\"}`.",
   },
   {
     id: "bots.api-list",
@@ -2127,7 +2127,7 @@ export const features = [
     id: "bots.webhook-delivery",
     title: "Webhooks",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Creating a message, in the app or through the bot API, notifies bots: in a DM, every active bot in it; elsewhere, every active bot it mentions who is a member of the room. The sender and bots without a webhook are skipped, each bot gets one delivery, and a typed \"@Name\" that isn't a real mention doesn't count.",
       "Edits, boosts and webhook replies never trigger deliveries.",
@@ -2139,6 +2139,7 @@ export const features = [
     ],
     sources: ["reference/app/models/webhook.rb", "crates/ember/src/integrations/webhook.rs", "crates/ember/src/controllers/messages.rs", "reference/app/controllers/messages_controller.rb", "reference/app/models/user/bot.rb", "crates/db/src/models/webhook.rs", "crates/db/src/models/message.rs", "crates/ember/src/integrations/jobs.rs"],
     upstreamTests: ["reference/test/models/webhook_test.rb", "reference/test/models/user/bot_test.rb", "crates/ember/src/jobs/tests.rs", "reference/test/controllers/messages_controller_test.rb", "reference/test/controllers/messages/by_bots_controller_test.rb", "crates/ember/src/integrations/webhook.rs"],
+    notes: "A new message, from the composer or the bot API, is delivered once the Workspace applies it from its room's log, which it does once however often the room sends it: to the webhooks of the active bots it mentions that are in its room, or in a DM to those of every active bot in it, never to its author, and to each once. Edits and boosts deliver nothing. Each delivery POSTs Campfire's JSON, in its order of keys and with `<`, `>` and `&` escaped, to the URL as it was saved: `html` is the message's stored rich text and `plain` its plain text without the receiving bot's @mentions. It sends Net::HTTP's `Content-Type`, `Accept` and `User-Agent`, but leaves `Accept-Encoding` to the Worker's `fetch`, which sends none in local development, and Cloudflare adds `CF-Worker`, naming the Worker's host. Redirects aren't followed and nothing is retried. Unlike Campfire, a webhook's URL is checked when it's saved (`bots.create-edit`), and a bot without one has no webhook, so nothing is tried for it, where Campfire tries the empty URL and fails. Nothing guards where a webhook points, but a deployed Worker reaches the internet, not a private network, so a webhook on one needs a public address, such as a Cloudflare Tunnel's. Still to come: file messages, whose `html` is null and `plain` their file's name (`attachments.upload`), and what bots answer, which delivers nothing (`bots.webhook-reply`).",
   },
   {
     id: "bots.webhook-reply",
@@ -2199,7 +2200,7 @@ export const features = [
     id: "bots.webhook-jobs",
     title: "Webhooks run in the background",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Deliveries are queued once the message is saved and run in the background on their own queue, so a slow webhook never holds up the message's request, pushes or other jobs.",
       "`JOB_CONCURRENCY` deliveries (2 by default) run at a time and up to 1,024 more wait; beyond that a delivery is dropped and logged as \"job queue is full, dropping job\".",
@@ -2209,6 +2210,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/jobs.rs", "crates/ember/src/integrations/jobs.rs", "crates/ember/src/config.rs", "crates/ember/src/app.rs", "reference/app/jobs/bot/webhook_job.rb", "reference/app/jobs/application_job.rb"],
     upstreamTests: ["crates/ember/src/jobs/tests.rs"],
+    notes: "A room delivers its new messages in the background once the Workspace has applied them, so neither a message's request nor its pushes wait on a webhook. As ember-rust's job runner does, 2 deliveries run at a time and up to 1,024 more wait their turn, but each room has its own queue, so one room's slow webhooks never hold up another's. Beyond that a delivery is dropped and logged as `dropped: the room's webhook queue is full`. Nothing is retried. The message is read when its turn comes, so an edit made by then is delivered and a message deleted by then fails with nothing sent. Unlike ember-rust, which reads the bot and its webhook then too, they're as they were when the Workspace applied the message: a bot deleted since still gets it, as in ember-rust, but so does a webhook removed since, and a delivery waiting when the bot's key is reset carries the old key. Each delivery logs `Bot::WebhookJob of message <id> to bot <id> performed:` with the webhook's status, or `failed:` with its reason, never with the webhook's URL or the bot's key. A deploy resets every room's object, which ends the deliveries waiting or running in it, as a crash ends ember-rust's.",
   },
 
   // Composer

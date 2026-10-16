@@ -15,3 +15,33 @@ export async function eachAtMost<T>(items: T[], limit: number, work: (item: T) =
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
+
+/**
+ * Runs jobs `limit` at a time as they come, keeping up to `capacity` more waiting their turn and dropping
+ * any beyond, as ember-rust's job runner does for each kind of job (jobs.rs).
+ */
+export class JobQueue {
+  private running = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(
+    private readonly limit: number,
+    private readonly capacity: number,
+  ) {}
+
+  /** Runs `job` in its turn, answering whether it ran: false, at once, when too many are waiting already. */
+  async run(job: () => Promise<void>): Promise<boolean> {
+    if (this.running < this.limit) this.running++;
+    else if (this.waiting.length < this.capacity) await new Promise<void>((resolve) => this.waiting.push(resolve));
+    else return false;
+    try {
+      await job();
+    } finally {
+      // The job's place passes to the next waiting, if there is one.
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.running--;
+    }
+    return true;
+  }
+}

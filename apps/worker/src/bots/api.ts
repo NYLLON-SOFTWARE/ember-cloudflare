@@ -6,6 +6,7 @@ import { etagOf, isFresh } from "../etag";
 import type { PageCursor } from "../store";
 import { workspace, type BotAccess } from "../workspace";
 import { botKeyParts } from "./keys";
+import { railsJson } from "./rails-json";
 
 // The bot API, as ember-rust's `Messages::ByBotsController` and `Messages::Boosts::ByBotsController`
 // answer it (crates/ember/src/controllers/messages/by_bots.rs and boosts/by_bots.rs): a bot posts to a
@@ -298,6 +299,3 @@ async function peopleJson(env: Env, origin: string, ids: UserId[]) {
 
 /** A message's address on `origin`: its permalink, which opens its room at it. */
 const permalink = (origin: string, { roomId, id }: Pick<Message, "roomId" | "id">) => `${origin}/rooms/${roomId}/@${id}`;
-
-/** `value` as `ActiveSupport::JSON` writes it: with `<`, `>` and `&` escaped, as `\u003c`, `\u003e` and `\u0026`. */
-const railsJson = (value: unknown) => JSON.stringify(value).replace(/[<>&]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);

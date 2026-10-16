@@ -18,6 +18,8 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { JobQueue } from "./at-once";
+import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
@@ -30,7 +32,7 @@ import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type PageCursor } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace, type BotAccess } from "./workspace";
-import type { MessagePush } from "./workspace-store";
+import type { MessagePush, MessageWebhook } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
 interface Attachment extends Viewing {
@@ -87,6 +89,13 @@ export const BLANK = "blank";
 /** Why the room keeps no longer boost, where ember-rust's column holds 16 characters but SQLite keeps any. */
 const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
 
+/**
+ * How many of a room's deliveries to bots' webhooks run at once, as many as ember-rust's job runner
+ * runs by default (`JOB_CONCURRENCY`), and how many more can wait, as many as it lets wait (`QUEUE_CAPACITY`).
+ */
+const WEBHOOKS_AT_ONCE = 2;
+const WEBHOOKS_WAITING = 1024;
+
 /** What sends each of a room's logs (see `couriersFor`). */
 interface Couriers {
   /** Sends the Workspace the room's events, which it marks the room unread and read by. */
@@ -106,6 +115,7 @@ export class ChatRoom extends DurableObject<Env> {
   private log: RoomLog | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
+  private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -612,12 +622,34 @@ export class ChatRoom extends DurableObject<Env> {
     const log = this.logFor(roomId);
     const events = await log.undelivered(ENTRIES_PER_CALL);
     if (events.length === 0) return 0;
-    const pushes = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
-    // The Workspace answers a message's pushes once, so they're sent whatever happens next, and the
-    // log's next call doesn't wait on push services.
+    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    // The Workspace answers a message's pushes and webhooks once, so they're sent whatever happens next,
+    // and the log's next call doesn't wait on push services or bots.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
+    for (const webhook of webhooks) this.ctx.waitUntil(this.deliver(roomId, webhook));
     await log.delivered(events.at(-1)!.seq);
     return events.length;
+  }
+
+  /**
+   * Delivers a new message to a bot's webhook in its turn, as ember-rust's `Bot::WebhookJob` does
+   * (integrations/jobs.rs): the message as it is by then, and nothing once it's gone, to the bot and
+   * webhook the Workspace found for it. Each delivery is logged, without its URL or the bot's key, and
+   * one the queue has no room for is dropped.
+   */
+  private async deliver(roomId: RoomId, webhook: MessageWebhook): Promise<void> {
+    const job = `Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.bot.id}`;
+    const ran = await this.webhooks.run(async () => {
+      try {
+        const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(webhook.messageId);
+        if (!message) throw new WebhookError("the message is gone");
+        const delivered = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message));
+        console.log(`${job} performed: ${"status" in delivered ? delivered.status : `no answer within ${delivered.timedOutAfter} seconds`}`);
+      } catch (error) {
+        console.error(`${job} failed:`, error instanceof WebhookError ? error.message : error);
+      }
+    });
+    if (!ran) console.error(`${job} dropped: the room's webhook queue is full`);
   }
 
   /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */
