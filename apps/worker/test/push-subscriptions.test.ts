@@ -117,6 +117,18 @@ describe(feature("notifications.subscriptions"), () => {
   });
 
   it.each([
+    // `fetch` reads the "\" as the end of the host, so this goes to attacker.example.
+    ["https://attacker.example\\@fcm.googleapis.com/fcm/send/abc", "Endpoint is not a permitted push service"],
+    ["https://fcm.googleapis.com:+443/fcm/send/abc", "Endpoint is not a valid URL"],
+  ])("refuses the endpoint %j, which ember-rust takes but `fetch` reads otherwise", async (endpoint, error) => {
+    const ada = await signIn("Ada");
+    const response = await save(ada, subscription(endpoint));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error });
+    expect(await endpointsOf(ada)).toEqual([]);
+  });
+
+  it.each([
     [null, "A push subscription needs its endpoint and keys"],
     ["not JSON", "A push subscription needs its endpoint and keys"],
     [{ endpoint: subscription().endpoint, p256dhKey: subscription().p256dhKey }, "A push subscription needs its endpoint and keys"],

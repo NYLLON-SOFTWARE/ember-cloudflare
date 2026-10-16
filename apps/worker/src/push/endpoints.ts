@@ -1,6 +1,9 @@
 // Where a push subscription may send pushes, as ember-rust's `PushSubscription::validate` decides
 // (crates/db/src/models/push_subscription.rs), but for its check that the endpoint resolves to a public
 // address: a Worker can't resolve a name before fetching it, and can't reach a private network anyway.
+// Pushes go wherever `fetch` reads the endpoint as going, so `URL` must agree with ember-rust's parser on
+// its port and host: that parser reads on past a "\", where `URL` ends the host, and takes a port such
+// as "+443", which `URL` refuses.
 
 /** ember-rust's `PERMITTED_ENDPOINT_HOSTS`: the push services of Chrome, Firefox, Safari and Edge. */
 const PERMITTED_HOSTS = ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"];
@@ -17,10 +20,11 @@ const BLANK = new RegExp(`^${WHITESPACE.source}*$`, "u");
 export function endpointErrors(endpoint: string): string[] {
   const errors = BLANK.test(endpoint) ? ["can't be blank"] : [];
   const uri = parseEndpoint(endpoint);
-  if (!uri) errors.push("is not a valid URL");
+  const url = URL.parse(endpoint);
+  if (!uri || !url) errors.push("is not a valid URL");
   else if (uri.scheme !== "https") errors.push("must use HTTPS");
-  else if (uri.port !== 443) errors.push("must use the default HTTPS port");
-  else if (!isPermittedHost(uri.host)) errors.push("is not a permitted push service");
+  else if (uri.port !== 443 || url.port !== "") errors.push("must use the default HTTPS port");
+  else if (!isPermittedHost(uri.host) || !isPermittedHost(url.hostname)) errors.push("is not a permitted push service");
   return errors;
 }
 
