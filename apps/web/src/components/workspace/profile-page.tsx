@@ -6,12 +6,14 @@ import { useFlash } from "@/components/flash";
 import { Logout } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
+import { usePush } from "@/hooks/use-push";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeProfile, fetchProfile, isSignedOut } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { ConversationNotifications } from "./conversation-notifications";
+import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
@@ -59,13 +61,13 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 }
 
 /**
- * ember-rust's profile (users/profiles/show.html), as far as it's built: your name, email address, a
- * new password and your bio, which Save changes saves with the notice "✓", keeping the page where
- * ember-rust reloads it, then your notification level in each of your rooms and DMs, then a sign-in
- * link for you, a new one each time the page loads or saves, as each of ember-rust's pages has, and Log
- * out in the top bar. Go Back returns to the page it was opened from. Your name and bio reach
- * everyone's open pages at once, through the workspace socket, as your new name reaches the rail.
- * There's no photo picker until photos are stored, and no install instructions until those are built.
+ * ember-rust's profile (users/profiles/show.html), as far as it's built: how to install Ember, for the
+ * browsers ember-rust tells, then your name, email address, a new password and your bio, which Save
+ * changes saves with the notice "✓", keeping the page where ember-rust reloads it, then your
+ * notification level in each of your rooms and DMs, then a sign-in link for you, a new one each time the
+ * page loads or saves, as each of ember-rust's pages has, and Log out in the top bar. Go Back returns to
+ * the page it was opened from. Your name and bio reach everyone's open pages at once, through the
+ * workspace socket, as your new name reaches the rail. There's no photo picker until photos are stored.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
@@ -76,6 +78,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const back = useBackPath();
   const flash = useFlash();
   const mounted = useMounted();
+  const { platform } = usePush();
   useTitle(me.name);
 
   useEffect(() => {
@@ -132,6 +135,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     <SettingsPage back={back} links={logOut}>
       <Panel aria-busy={fields === null} className="flex flex-col gap-x-[1ch] gap-y-4">
         <PageHeading title="Your profile">Manage how you appear to the people in your workspace.</PageHeading>
+        <InstallInstructions platform={platform} />
         <form onSubmit={save} className={AUTH_FORM}>
           {/* Nothing is focused as the page opens, as in ember-rust. */}
           <Field id="user_name" label="Name" translation="user_name">

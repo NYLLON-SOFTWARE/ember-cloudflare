@@ -4,8 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, startingInvolvement, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
+import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { loadPage } from "@/lib/page";
+import { PUSH_ON } from "@/test-push";
 import { Workspace } from "./workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -113,16 +115,18 @@ function showWorkspace(path = "/") {
   const [onAccountChanged, onSignOut, onSessionChanged] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
   const { unmount } = render(
-    <FlashProvider workspace>
-      <Workspace
-        me={ada}
-        workspaceName="Analytical Engines"
-        version="0.1"
-        onAccountChanged={onAccountChanged}
-        onSignOut={onSignOut}
-        onSessionChanged={onSessionChanged}
-      />
-    </FlashProvider>,
+    <PushContext value={PUSH_ON}>
+      <FlashProvider workspace>
+        <Workspace
+          me={ada}
+          workspaceName="Analytical Engines"
+          version="0.1"
+          onAccountChanged={onAccountChanged}
+          onSignOut={onSignOut}
+          onSessionChanged={onSessionChanged}
+        />
+      </FlashProvider>
+    </PushContext>,
   );
   return { onAccountChanged, onSignOut, onSessionChanged, unmount, user: userEvent.setup() };
 }

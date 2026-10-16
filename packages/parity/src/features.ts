@@ -1778,13 +1778,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/involvements.rs", "crates/views/src/helpers/rooms.rs", "crates/views/templates/rooms/involvements/_bell.html", "crates/db/src/models/membership.rs", "reference/app/controllers/rooms/involvements_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/involvements_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "crates/views/tests/rooms_views.rs", "parity/screens.yml"],
-    notes: "`PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. There are no push notifications to turn on yet (`notifications.enable`), so the header shows the level's bell from the start, where ember-rust shows \"Enable notifications\" until this browser has turned them on, and the levels decide nothing but hiding rooms until pushes are sent (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.",
+    notes: "`PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. The header shows Enable notifications in its place until this browser has turned notifications on (`notifications.enable`), and the levels decide nothing but hiding rooms until pushes are sent (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.",
   },
   {
     id: "notifications.enable",
     title: "Turn on notifications",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Until this browser has notification permission and a push subscription, the room header shows a bell titled \"Enable notifications\". Once it has both, the bell becomes the room's level button by itself, without asking the server.",
       "Clicking asks for permission straight away, registers `/service-worker.js` (or reuses its registration) and waits for it to activate, reuses the browser's push subscription or makes one, saves it, and then shows the level button.",
@@ -1796,6 +1796,7 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/notifications_controller.js", "crates/views/templates/rooms/involvements/_bell.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
+    notes: "The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), and checks whether this browser has notifications on once as the workspace opens, where ember-rust's bell checks on every page, so a room never opens showing Enable notifications first. While it turns them on the bell is `aria-disabled` rather than disabled, so it keeps focus, and once they're on the level's bell takes focus from it if it had it. Should signing out fail once Log out has ended the subscription, the bell offers Enable notifications again, as ember-rust's next page would. Campfire pulses the bell until it's first pressed, which ember-rust's styles turn off (zz-ember.css), so the cookies that remember the press aren't ported.",
   },
   {
     id: "notifications.hide-room",
@@ -1900,7 +1901,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/service_worker.js", "crates/ember/src/controllers/pwa.rs", "reference/app/views/pwa/service_worker.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs"],
-    notes: "It's ember-rust's file byte for byte, after a comment, served from the app's static files, so `/service-worker` without `.js` is the 404 page where ember-rust serves it too. Nothing registers it until notifications can be turned on (`notifications.enable`).",
+    notes: "It's ember-rust's file byte for byte, after a comment, served from the app's static files, so `/service-worker` without `.js` is the 404 page where ember-rust serves it too. The bell registers it as it turns notifications on (`notifications.enable`).",
   },
   {
     id: "notifications.app-badge",
@@ -1918,7 +1919,7 @@ export const features = [
     id: "notifications.install-instructions",
     title: "Install as an app",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A collapsible \"Install Ember as a web app.\" sits on your profile and in the notification setup help, and is hidden inside the installed app.",
       "Browsers the user agent reports as Chrome (Chrome, Chromium Edge, Brave, Chrome on iPhone and iPad) and Firefox on a computer don't get it at all.",
@@ -1929,12 +1930,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/_install_instructions.html", "crates/ember/src/concerns/platform.rs", "crates/ember/src/concerns/user_agent.rs", "reference/app/javascript/controllers/pwa_install_controller.js"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "crates/views/tests/parity_a.rs"],
+    notes: "Install now is the ink button wherever it shows, where ember-rust's header styles leave the dialog's clear, its icon white on white, and it goes once pressed, since a browser prompts only once for each offer, where Campfire's stays and does nothing. Edge's step keeps its button apart from the next word, which ember-rust runs together. ember-rust's steps for Chrome on Android never show, since Chrome gets no install steps, so they aren't ported. Install now takes the place of the browser's own offer only in the browsers given the steps, as Campfire's controller does, but on every page once `/api/bootstrap` has said which browser this is, where the controller does on the pages that show the steps (every room's and your profile); an offer that comes before then is kept for Install now and left to the browser too.",
   },
   {
     id: "notifications.setup-help",
     title: "Notification setup help",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "The setup dialog's help has up to three collapsible sections chosen from the browser's user agent: \"Check your <Browser> settings\" (not for Safari or Chrome on iPhone and iPad), \"Check your <OS> settings\" (only inside the installed app) and \"Install Ember as a web app.\" (`notifications.install-instructions`). When only one is visible, it opens by itself.",
       "On a computer, Chrome, Firefox and EdgeHTML get \"Turn on notifications for this website.\" with that browser's site-permission steps, then \"Turn on notifications for <Browser>.\" with the steps in Windows Settings or macOS System Settings (starting from the Apple menu, labeled \"the Apple menu\").",
@@ -1944,6 +1946,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/_browser_settings.html", "crates/views/templates/pwa/_system_settings.html", "crates/assets/overrides/controllers/notifications_controller.js", "crates/ember/src/concerns/platform.rs", "crates/ember/src/concerns/user_agent.rs", "reference/app/views/pwa/_browser_settings.html.erb", "reference/app/views/pwa/_system_settings.html.erb"],
     upstreamTests: ["crates/views/tests/parity_a.rs", "crates/ember/src/concerns/platform.rs", "parity/screens.yml"],
+    notes: "The Worker reads the platform from the user agent as ember-rust does, checked against Rails' answers for ember-rust's 385 user agents, and gives it to the app with `/api/bootstrap` (`platform`). The help is checked against ember-rust's goldens of its partials for ten browsers (`apps/web/src/components/workspace/golden/`). The Apple menu's logo is named as a picture (`role=\"img\"`), since screen readers don't read the label ember-rust gives its `em`. Desktops other than Windows and macOS, such as Linux and ChromeOS, get ember-rust's sentence for a system it has no steps for (\"Ensure notifications are allowed for <browser> in your system settings.\") where ember-rust gives them macOS's steps.",
   },
   {
     id: "notifications.web-push-keys",
@@ -1958,7 +1961,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/vapid.rs", "crates/ember/src/integrations/jobs.rs", "crates/views/templates/layouts/application.html", "reference/config/initializers/vapid.rb"],
     upstreamTests: ["crates/ember/src/config.rs", "crates/ember/src/integrations/web_push/tests.rs"],
-    notes: "The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Nothing is pushed yet, so there's no VAPID token, `VAPID_SUBJECT` or test push (`notifications.push`, `notifications.test-page`), and no bell to explain that push is off (`notifications.enable`).",
+    notes: "The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Nothing is pushed yet, so there's no VAPID token, `VAPID_SUBJECT` or test push (`notifications.push`, `notifications.test-page`).",
   },
 
   // Bots and webhooks

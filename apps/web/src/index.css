@@ -76,6 +76,8 @@
   --menu-shadow: #00000012;
   /* The shadow under a starred room's row while it's dragged, `.mb-channel-dragging`, in both modes. */
   --drag-shadow: #0002;
+  /* Campfire's `.dialog::backdrop` (base.css), a sunset at 75%, which ember-rust keeps behind its Notification setup dialog, in both modes. */
+  --setup-backdrop: linear-gradient(45deg, #fff500, #ff9f00, #f00, #ec0061);
   /* Campfire's scrollbar thumb (base.css), the gray a Mac's are, in both modes. */
   --scrollbar: #c1c1c1;
   color-scheme: light;

@@ -28,6 +28,8 @@ describe(feature("auth.first-run"), () => {
       helpContact: null,
       version: "0.1",
       vapidPublicKey: null,
+      // What the useragent gem reads without a user agent, which it takes as "Mozilla/4.0 (compatible)".
+      platform: { ios: false, android: false, desktop: true, windows: false, chrome: false, firefox: false, safari: false, edge: false, browser: "Mozilla", operatingSystem: "" },
       user: null,
     });
     expect((await api("/api/bootstrap")).headers.get("Cache-Control")).toBe("no-store");

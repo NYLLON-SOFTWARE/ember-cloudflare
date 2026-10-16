@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
+import { CHROME_MAC } from "@/test-platforms";
 import { JoinPage } from "./join-page";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -18,6 +19,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
+  platform: CHROME_MAC,
 };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 

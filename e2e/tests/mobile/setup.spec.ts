@@ -9,6 +9,7 @@ const PENDING: Bootstrap = {
   helpContact: null,
   version: "0.1",
   vapidPublicKey: null,
+  platform: { ios: false, android: false, desktop: true, windows: false, chrome: false, firefox: false, safari: false, edge: false, browser: "Mozilla", operatingSystem: "" },
   user: null,
 };
 

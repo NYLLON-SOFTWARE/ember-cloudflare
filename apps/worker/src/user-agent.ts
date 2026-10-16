@@ -1,8 +1,11 @@
+import type { Platform } from "@ember/protocol";
+
 /**
- * Whether Campfire turns a browser away as too old, and whether a request is Apple Messages fetching a
- * link preview. Ports ember-rust's `ApplicationPlatform::browser_blocked` and `apple_messages`
- * (crates/ember/src/concerns/platform.rs) and the parts of its useragent gem port
- * (crates/ember/src/concerns/user_agent.rs) they read. Those port Rails' `allow_browser`
+ * Whether Campfire turns a browser away as too old, whether a request is Apple Messages fetching a
+ * link preview, and the platform the notification setup help is for. Ports ember-rust's
+ * `ApplicationPlatform` (crates/ember/src/concerns/platform.rs): `browser_blocked`, `apple_messages` and
+ * `to_view`, and the parts of its useragent gem port (crates/ember/src/concerns/user_agent.rs) they read.
+ * Those port Rails' `allow_browser`
  * (`ActionController::AllowBrowser::BrowserBlocker`) with Campfire's `AllowBrowser::VERSIONS`, Campfire's
  * `ApplicationPlatform#apple_messages?`, and the useragent gem 0.16.11, which reads the header for both.
  *
@@ -61,6 +64,170 @@ function normalizedBrowserName(browser: string): string {
 export function isAppleMessages(userAgent: string | null): boolean {
   const text = userAgent ?? "";
   return /facebookexternalhit/iu.test(text) && /Twitterbot/iu.test(text);
+}
+
+/**
+ * The browser and system the notification setup help gives steps for (`ApplicationPlatform#to_view`).
+ * Where Ruby raises on an agent, as `chrome?` does on one with no browser, the answer is false or "".
+ */
+export function platformOf(userAgent: string | null): Platform {
+  const text = userAgent ?? "";
+  const agent = parse(text);
+  const browser = browserOf(agent) ?? "";
+  const operatingSystem = operatingSystemOf(agent) ?? "";
+  const ios = text.includes("iPhone") || text.includes("iPad");
+  const android = text.includes("Android");
+  const browserIs = (...names: string[]) => names.some((name) => browser.includes(name));
+  return {
+    ios,
+    android,
+    desktop: !ios && !android,
+    windows: operatingSystem === "Windows",
+    chrome: browserIs("Chrome"),
+    firefox: browserIs("Firefox", "FxiOS"),
+    safari: browserIs("Safari"),
+    edge: browserIs("Edg"),
+    browser,
+    operatingSystem,
+  };
+}
+
+/** What `operating_system` calls the system each of these names in the gem's `platform`, in this order. */
+const OPERATING_SYSTEMS = [
+  ["Android", "Android"],
+  ["iPad", "iPad"],
+  ["iPhone", "iPhone"],
+  ["Macintosh", "macOS"],
+  ["Windows", "Windows"],
+  ["CrOS", "ChromeOS"],
+] as const;
+
+/** The gem raising, which leaves the system unnamed. */
+class NoMethodError extends Error {}
+
+/**
+ * `ApplicationPlatform#operating_system`: the system the gem's `platform` names, else its `os`, with any
+ * Linux called just that. Null when it reads none, or raises.
+ */
+function operatingSystemOf(agent: Agent): string | null {
+  try {
+    const platform = platformNameOf(agent) ?? "";
+    const named = OPERATING_SYSTEMS.find(([needle]) => platform.includes(needle));
+    if (named) return named[1];
+    const os = osOf(agent);
+    return os?.includes("Linux") ? "Linux" : os;
+  } catch (error) {
+    if (error instanceof NoMethodError) return null;
+    throw error;
+  }
+}
+
+/** `platform`: the device or system, mostly the first part of the application's comment. */
+function platformNameOf(agent: Agent): string | null {
+  const application = applicationOf(agent);
+  const comment = application?.comment ?? null;
+  const first = comment?.[0];
+  const mentions = (needle: string) => comment?.some((part) => part.includes(needle)) === true;
+  switch (agent.kind) {
+    case "Base":
+    case "Libavformat":
+      return null;
+    case "Edge":
+    case "InternetExplorer":
+    case "WindowsMediaPlayer":
+      return "Windows";
+    case "Opera":
+    case "AppleCoreMedia":
+      return first?.includes("Windows") ? "Windows" : (first ?? null);
+    case "WechatBrowser":
+      if (first?.includes("iPhone")) return "iPhone";
+      return mentions("Android") ? "Android" : (first ?? null);
+    case "Chrome":
+    case "Vivaldi":
+      if (first?.includes("Windows")) return "Windows";
+      if (mentions("CrOS")) return "ChromeOS";
+      return mentions("Android") ? "Android" : (first ?? null);
+    case "Webkit":
+    case "ITunes":
+      return webkitPlatform(application);
+    case "PlayStation":
+      return playStationPlatform(comment);
+    case "PodcastAddict": {
+      const os = podcastAddictOs(agent.products);
+      if (os === null) throw new NoMethodError();
+      return os.includes("Android") ? "Android" : null;
+    }
+    case "Gecko":
+      if (first === "compatible" || first === "Mobile") return null;
+      return first?.startsWith("Windows ") ? "Windows" : (first ?? null);
+  }
+}
+
+/**
+ * `os`, which is read only when the platform names no system. Edge's, Internet Explorer's and Windows
+ * Media Player's platform is always Windows, and so is iTunes' whenever its `os` would read a Windows
+ * version, so neither of those readings is ported.
+ */
+function osOf(agent: Agent): string | null {
+  const application = applicationOf(agent);
+  const comment = application?.comment ?? null;
+  switch (agent.kind) {
+    case "Opera":
+      if (comment === null) return null;
+      return comment[0]?.includes("Windows") ? normalizeOs(comment[0]) : (comment[1] ?? null);
+    case "WechatBrowser":
+    case "Chrome":
+    case "Vivaldi":
+    case "AppleCoreMedia":
+      return comment === null ? null : chromeOs(comment);
+    case "Webkit":
+    case "ITunes":
+      return webkitOs(application);
+    case "PlayStation":
+      return comment === null ? null : comment.join(" ");
+    case "PodcastAddict":
+      return podcastAddictOs(agent.products);
+    case "Gecko":
+      return comment === null ? null : geckoOs(comment);
+    default:
+      return null;
+  }
+}
+
+/** `PlayStation#platform`. */
+function playStationPlatform(comment: string[] | null): string | null {
+  const os = comment?.join(" ") ?? "";
+  if (os.includes("PLAYSTATION 3")) return "PlayStation 3";
+  if (os.includes("PlayStation 4")) return "PlayStation 4";
+  if (os.includes("PlayStation Vita")) return "PlayStation Vita";
+  return null;
+}
+
+/** `PodcastAddict#os`, from its fourth product, which raises when that's a Dalvik or Mozilla without a comment. */
+function podcastAddictOs(products: Product[]): string | null {
+  const device = products[3];
+  if (device === undefined || (device.product !== "Dalvik" && device.product !== "Mozilla")) return null;
+  if (device.comment === null) throw new NoMethodError();
+  if (device.comment.length > 3) return device.comment[2]!;
+  return device.comment.length === 3 ? "Android" : null;
+}
+
+/** `Chrome#os`, which WeChat's browser, Vivaldi and AppleCoreMedia share. */
+function chromeOs(comment: string[]): string | null {
+  const [first = "", second, third] = comment;
+  const os = first.includes("Windows NT") ? first : third === undefined || second?.includes("Android") ? second : third;
+  return os === undefined ? null : normalizeOs(os);
+}
+
+/** `Gecko#os`: the second part of the comment, or the third after a "U", or the first when it's Windows or Android. */
+function geckoOs(comment: string[]): string | null {
+  const [first, second] = comment;
+  let index = 1;
+  if (second === "U") index = 2;
+  else if (first?.startsWith("Windows ") || first?.startsWith("Android")) index = 0;
+  else if (first === "Mobile") return null;
+  const os = comment[index];
+  return os === undefined ? null : normalizeOs(os);
 }
 
 /** A product of the header, such as `Mozilla/5.0 (Windows NT 10.0; Win64; x64)`. */
@@ -375,12 +542,27 @@ const SAFARI_BUILDS = new Map([
 /** `OperatingSystems::IOS_VERSION_REGEX`. */
 const IOS_VERSION = /CPU (?:iPhone |iPod )?OS ([\d_]+) like Mac OS X/;
 
-/**
- * `OperatingSystems.normalize_os`, less the names it gives Windows versions: all that's read of an
- * operating system here is whether it mentions Android or iOS, and neither those names nor what they
- * replace do.
- */
+/** `OperatingSystems::Windows`: the names of Windows versions, by what they call themselves. */
+const WINDOWS_VERSIONS = new Map([
+  ["Windows NT 10.0", "Windows 10"],
+  ["Windows NT 6.3", "Windows 8.1"],
+  ["Windows NT 6.2", "Windows 8"],
+  ["Windows NT 6.1", "Windows 7"],
+  ["Windows NT 6.0", "Windows Vista"],
+  ["Windows NT 5.2", "Windows XP x64 Edition"],
+  ["Windows NT 5.1", "Windows XP"],
+  ["Windows NT 5.01", "Windows 2000, Service Pack 1 (SP1)"],
+  ["Windows NT 5.0", "Windows 2000"],
+  ["Windows NT 4.0", "Windows NT 4.0"],
+  ["Windows 98", "Windows 98"],
+  ["Windows 95", "Windows 95"],
+  ["Windows CE", "Windows CE"],
+]);
+
+/** `OperatingSystems.normalize_os`. */
 function normalizeOs(os: string): string {
+  const windows = WINDOWS_VERSIONS.get(os);
+  if (windows !== undefined) return windows;
   const macOsX = /(?:Intel|PPC) Mac OS X[ \t\n\v\f\r]*([\d_.]+)?/.exec(os);
   if (macOsX !== null) return macOsX[1] === undefined ? "OS X" : `OS X ${macOsX[1].replaceAll("_", ".")}`;
   const ios = IOS_VERSION.exec(os);

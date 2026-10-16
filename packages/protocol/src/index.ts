@@ -356,7 +356,33 @@ export interface Bootstrap {
    * Push is off, as ember-rust's `vapid-public-key` meta tag carries it.
    */
   vapidPublicKey: string | null;
+  /** The browser and system that asked, which choose the steps the notification setup help gives. */
+  platform: Platform;
   user: Me | null;
+}
+
+/**
+ * A browser and the system it runs on, as ember-rust's `ApplicationPlatform` reads them from the user
+ * agent with its port of the `useragent` gem, so Chromium Edge and Brave count as Chrome, for instance.
+ */
+export interface Platform {
+  /** An iPhone or an iPad, though iPadOS Safari says it's a Mac. */
+  ios: boolean;
+  android: boolean;
+  /** Neither an iPhone, an iPad nor Android. */
+  desktop: boolean;
+  windows: boolean;
+  /** Chrome, or a browser that says it is, such as Chromium Edge, Brave, and Chrome on iPhone and iPad. */
+  chrome: boolean;
+  /** Firefox, but for Firefox on iPhone and iPad, which counts as Safari. */
+  firefox: boolean;
+  safari: boolean;
+  /** Edge before it was built on Chrome. */
+  edge: boolean;
+  /** The browser's name, such as "Chrome", or "" when none can be read. */
+  browser: string;
+  /** The system's name, such as "macOS", "Windows", "iPhone", "Android" or "Linux", or "" when none can be read. */
+  operatingSystem: string;
 }
 
 /**

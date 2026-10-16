@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { PushSubscriptions } from "@ember/protocol";
 import type { Page } from "@playwright/test";
-import { administratorOn, logOut } from "../../fixtures";
+import { administratorOn, allowNotifications, logOut, PUSH_KEYS, uniqueEndpoint, VAPID_PUBLIC_KEY } from "../../fixtures";
 import { expect, startDirect, test, unique } from "./fixtures";
 
 const MENTIONS = "Notifying about @ mentions";
@@ -15,6 +15,9 @@ const headerBell = (page: Page) => page.getByRole("navigation", { name: "Page" }
 /** The sidebar's rows for rooms, top to bottom. */
 const roomRows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
 
+/** Signs a member in on a browser that has turned notifications on, so the room header's bell is their level's. */
+const notificationsOn = { beforeOpen: (page: Page) => allowNotifications(page.context()) };
+
 /** The rail's Activity, whose description counts the conversations marked unread. */
 const activity = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
 
@@ -27,8 +30,8 @@ async function openYourProfile(page: Page) {
 
 test.describe(feature("notifications.levels"), () => {
   test("goes round a room's levels from its header, which every tab of yours shows, and the server keeps", async ({ members, rooms }) => {
-    const ada = await members.signIn("Ada");
-    const grace = await members.signIn("Grace");
+    const ada = await members.signIn("Ada", notificationsOn);
+    const grace = await members.signIn("Grace", notificationsOn);
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
     const bell = headerBell(grace.page);
@@ -49,7 +52,7 @@ test.describe(feature("notifications.levels"), () => {
 
   test("goes between all messages and off in a DM", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
-    const grace = await members.signIn(unique("Grace"));
+    const grace = await members.signIn(unique("Grace"), notificationsOn);
     const roomId = await startDirect(request, ada, [grace]);
     await grace.page.goto(`/rooms/${roomId}`);
     await grace.connected();
@@ -65,7 +68,7 @@ test.describe(feature("notifications.levels"), () => {
 
 test.describe(feature("notifications.hide-room"), () => {
   test("hides the room shown from every tab's sidebar, keeping it open at its address, until it's shown again", async ({ members, rooms }) => {
-    const grace = await members.signIn("Grace");
+    const grace = await members.signIn("Grace", notificationsOn);
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.random.id}`);
     await expect(roomRows(secondTab)).toHaveText(["#general", "#random"]);
@@ -91,6 +94,60 @@ test.describe(feature("notifications.hide-room"), () => {
     await bell.click();
     await expect(bell).toHaveAccessibleName(MENTIONS);
     for (const page of [grace.page, secondTab]) await expect(roomRows(page)).toHaveText(["#general", "#random"]);
+  });
+});
+
+test.describe(feature("notifications.enable"), () => {
+  const enableButton = (page: Page) => page.getByRole("button", { name: "Enable notifications", exact: true });
+  const setup = (page: Page) => page.getByRole("dialog", { name: "Notification setup" });
+
+  test("Enable notifications explains that the server has no Web Push keys, and Close closes it", async ({ members }) => {
+    const grace = await members.signIn(unique("Grace"));
+    await expect(headerBell(grace.page)).toHaveCount(0);
+    await enableButton(grace.page).click();
+    const dialog = setup(grace.page);
+    await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Notifications aren’t configured");
+    await expect(dialog.getByRole("status")).toHaveText("Ask your workspace administrator to configure Web Push on this server.");
+    await expect(dialog.locator("details")).not.toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(enableButton(grace.page)).toBeVisible();
+  });
+
+  test("turns them on: registers the service worker, subscribes with the server's key and saves the subscription, then shows your level", async ({ members }) => {
+    const endpoint = uniqueEndpoint();
+    const grace = await members.signIn(unique("Grace"), { beforeOpen: (page) => allowNotifications(page.context(), { endpoint, on: false }) });
+    const saving = grace.page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/push-subscriptions");
+    await enableButton(grace.page).click();
+    expect((await saving).postDataJSON()).toEqual({ endpoint, p256dhKey: PUSH_KEYS.p256dh, authKey: PUSH_KEYS.auth });
+    // The level's bell takes over, and focus with it.
+    await expect(headerBell(grace.page)).toHaveAccessibleName(MENTIONS);
+    await expect(headerBell(grace.page)).toBeFocused();
+    await expect(setup(grace.page)).toBeHidden();
+
+    const browser = await grace.page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const key = (await registration!.pushManager.getSubscription())!.options.applicationServerKey!;
+      return { worker: registration!.active!.scriptURL, key: [...new Uint8Array(key)] };
+    });
+    expect(browser).toEqual({ worker: new URL("/service-worker.js", grace.page.url()).href, key: [...Buffer.from(VAPID_PUBLIC_KEY, "base64url")] });
+    const { subscriptions } = (await (await grace.page.request.get("/api/push-subscriptions")).json()) as PushSubscriptions;
+    expect(subscriptions.map(({ endpoint }) => endpoint)).toEqual([endpoint]);
+  });
+
+  test("gives the help for this browser when they aren't available, its one section open", async ({ members }) => {
+    const grace = await members.signIn(unique("Grace"), { beforeOpen: async (page) => void (await page.addInitScript(() => Reflect.deleteProperty(window, "PushManager"))) });
+    await enableButton(grace.page).click();
+    const dialog = setup(grace.page);
+    await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Notifications aren’t available here");
+    // Desktop Chrome says it's Chrome on Windows, whose own settings are the one section a browser tab gives.
+    const help = dialog.locator("details");
+    await expect(help).toHaveCount(1);
+    await expect(help).toHaveAttribute("open");
+    await expect(help.locator("summary")).toHaveText("Check your Chrome settings");
+    await expect(help.getByRole("heading", { level: 2 })).toHaveText(["Turn on notifications for this website.", "Turn on notifications for Chrome."]);
+    await expect(help.getByRole("listitem").filter({ hasText: "Start" })).toHaveText("Click Start, then Settings.");
   });
 });
 
@@ -128,9 +185,6 @@ test.describe(feature("notifications.profile-list"), () => {
     await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
   });
 });
-
-/** An endpoint at Chrome's push service that no other test's subscriptions have. */
-const uniqueEndpoint = () => `https://fcm.googleapis.com/fcm/send/${crypto.randomUUID()}`;
 
 test.describe(feature("notifications.subscriptions"), () => {
   test("Log out ends this browser's push subscription, and the server forgets it, but not another browser's", async ({ browser, baseURL, rooms }) => {
@@ -177,6 +231,8 @@ test.describe(feature("notifications.service-worker"), () => {
     const active = await page.evaluate(async () => {
       const registration = await navigator.serviceWorker.register("/service-worker.js");
       const { active } = await navigator.serviceWorker.ready;
+      // Ready as soon as it starts activating.
+      while (active && active.state !== "activated") await new Promise((settle) => active.addEventListener("statechange", settle, { once: true }));
       await registration.unregister();
       return active && { scriptURL: active.scriptURL, state: active.state };
     });

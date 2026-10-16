@@ -22,6 +22,7 @@ import {
   type PersonRole,
   type ProfileAnswer,
   type ProfileChanges,
+  type PushSubscriptionKeys,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -114,6 +115,11 @@ export async function signInWithLink(transferId: string): Promise<Me> {
 export async function signOut(pushSubscriptionEndpoint: string | null = null): Promise<void> {
   const body: SignOut = pushSubscriptionEndpoint === null ? {} : { pushSubscriptionEndpoint };
   await request("/api/session", { method: "DELETE", body: JSON.stringify(body) });
+}
+
+/** Saves this browser's push subscription for you, so that pushes reach it, or records that it was saved again. */
+export async function savePushSubscription(subscription: PushSubscriptionKeys): Promise<void> {
+  await request("/api/push-subscriptions", { method: "POST", body: JSON.stringify(subscription) });
 }
 
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
