@@ -8,7 +8,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import type { ConnectionStatus } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "./favorite-button";
-import { InvolvementButton } from "./involvement-button";
+import { NotificationBell } from "./notification-bell";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { UserAvatar } from "./user-avatar";
 
@@ -36,10 +36,9 @@ interface Props {
 }
 
 /**
- * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search, your
- * notification level's bell and its settings. A DM's has Campfire's `messages-outlined` in place of the
- * room's icon, and no star. ember-rust's bell offers to turn notifications on until they're on, then
- * loads the level's; there are no notifications to turn on yet, so this one is the level's from the start.
+ * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search, the
+ * bell, which turns notifications on until they're on and is then your notification level's, and its
+ * settings. A DM's has Campfire's `messages-outlined` in place of the room's icon, and no star.
  */
 export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -88,7 +87,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
-        <InvolvementButton room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
+        <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MenuDotsHorizontal className="size-5" />
           <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>

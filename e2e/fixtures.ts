@@ -1,5 +1,5 @@
 import { test as base, expect, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
-import { roomSocketQuery, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { roomSocketQuery, type Bootstrap, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
@@ -71,6 +71,56 @@ export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.va
 /** Starts the app already signed in, by giving the browser the session's cookie. */
 export async function signInAs(page: Page, session: Session): Promise<void> {
   await page.context().addCookies([session.cookie]);
+}
+
+/**
+ * A Web Push public key in URL-safe Base64 for the app to subscribe browsers with, standing in for the
+ * server's, since the test server runs without VAPID keys. Nothing is pushed with it.
+ */
+export const VAPID_PUBLIC_KEY = "BP79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eDf3t3c29rZ2NfW1dTT0tHQz87NzMvKycjHxsXEw8LBwL8";
+
+/** A browser's push subscription's keys, which nothing is pushed with either. */
+export const PUSH_KEYS = { p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" };
+
+/** An endpoint at Chrome's push service that no other test's subscriptions have. */
+export const uniqueEndpoint = () => `https://fcm.googleapis.com/fcm/send/${crypto.randomUUID()}`;
+
+export interface PushOptions {
+  /** Where the push service takes pushes for this browser. */
+  endpoint?: string;
+  /** Whether the browser has turned notifications on already, which makes the room header's bell your level's. */
+  on?: boolean;
+}
+
+/**
+ * Lets every page in `context` show notifications, with Web Push on, which the test server's isn't,
+ * and a stand-in for the browser's push service, which headless Chromium can't reach: a subscription
+ * at `endpoint` that nothing is pushed to.
+ */
+export async function allowNotifications(context: BrowserContext, { endpoint = uniqueEndpoint(), on = true }: PushOptions = {}): Promise<void> {
+  await context.grantPermissions(["notifications"]);
+  await context.route("**/api/bootstrap", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...((await response.json()) as Bootstrap), vapidPublicKey: VAPID_PUBLIC_KEY } });
+  });
+  await context.addInitScript(standInPushService, { endpoint, on, keys: PUSH_KEYS });
+}
+
+/** The push service `allowNotifications` stands in, for each page before the app loads. */
+function standInPushService({ endpoint, on, keys }: { endpoint: string; on: boolean; keys: typeof PUSH_KEYS }) {
+  if (!("PushManager" in window)) return;
+  let subscription: PushSubscription | null = null;
+  const subscribe = (options: PushSubscriptionOptionsInit = {}) => {
+    const made = { endpoint, options, toJSON: () => ({ endpoint, expirationTime: null, keys }), unsubscribe: async () => ((subscription = null), true) };
+    return (subscription = made as unknown as PushSubscription);
+  };
+  PushManager.prototype.getSubscription = async () => subscription;
+  PushManager.prototype.subscribe = async (options) => subscribe(options);
+  if (!on) return;
+  subscribe({ userVisibleOnly: true });
+  // The service worker turning them on registered, active.
+  const registration = { active: {}, pushManager: { getSubscription: async () => subscription } };
+  ServiceWorkerContainer.prototype.getRegistration = async () => registration as unknown as ServiceWorkerRegistration;
 }
 
 /** Creates an open room through the API as `session`'s person. Everyone is in it, whenever they sign in. */

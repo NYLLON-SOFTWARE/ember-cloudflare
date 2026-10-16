@@ -2,11 +2,14 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Profile, ProfileAnswer, ProfileChanges, SidebarRoom } from "@ember/protocol";
+import type { Account, Platform, Profile, ProfileAnswer, ProfileChanges, SidebarRoom } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
+import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
+import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
+import { PUSH_ON } from "@/test-push";
 import { ProfilePage } from "./profile-page";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
@@ -39,16 +42,18 @@ function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK
   });
 }
 
-/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads. */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null) {
+/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
+function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
   const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
   const page = (listed: SidebarRoom[] | null) => (
     <AccountContext value={shown}>
-      <FlashProvider workspace>
-        <Sheet>
-          <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
-        </Sheet>
-      </FlashProvider>
+      <PushContext value={{ ...PUSH_ON, platform }}>
+        <FlashProvider workspace>
+          <Sheet>
+            <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+          </Sheet>
+        </FlashProvider>
+      </PushContext>
     </AccountContext>
   );
   const { rerender } = render(page(rooms));
@@ -290,5 +295,23 @@ describe(feature("notifications.profile-list"), () => {
     await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
     expect(onFailed).toHaveBeenCalledOnce();
     expect(answered).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("notifications.install-instructions"), () => {
+  const install = () => screen.queryByText("Install Ember as a web app.")?.closest("details");
+
+  it("says how to install Ember under the page's heading, closed, to a browser ember-rust says it to", async () => {
+    showPage(account, null, SAFARI_MAC);
+    await loaded();
+    expect(install()).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { level: 1, name: "Your profile" }).compareDocumentPosition(install()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(install()!.compareDocumentPosition(field("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says nothing of it to Chrome, as ember-rust doesn't", async () => {
+    showPage(account, null, CHROME_MAC);
+    await loaded();
+    expect(install()).toBeUndefined();
   });
 });

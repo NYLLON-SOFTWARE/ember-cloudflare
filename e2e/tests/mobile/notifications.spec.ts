@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Sidebar, SidebarRoom } from "@ember/protocol";
-import { isolateRoom, openRoom, signInAs } from "../../fixtures";
+import { allowNotifications, isolateRoom, openRoom, signInAs } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const LONG_NAME = "quarterly-planning-and-retrospective-for-the-platform-team";
@@ -11,6 +11,7 @@ test.beforeEach(async ({ page, session }) => {
 
 test.describe(feature("notifications.levels"), () => {
   test("the header's bell fits the phone beside a long room name, and a tap moves it on", async ({ page, room, screenIsFine }) => {
+    await allowNotifications(page.context());
     const named = { ...room, name: LONG_NAME };
     await isolateRoom(page, named);
     await openRoom(page, named);
@@ -20,6 +21,23 @@ test.describe(feature("notifications.levels"), () => {
 
     await bell.tap();
     await expect(bell).toHaveAccessibleName("Notifying about all messages");
+    await screenIsFine();
+  });
+});
+
+test.describe(feature("notifications.enable"), () => {
+  test("Enable notifications fits the phone beside a long room name, and so does its setup dialog, with its help's one section open", async ({ page, room, screenIsFine }) => {
+    // As in Safari on an iPhone, which only has push once Ember is on the Home Screen.
+    await page.addInitScript(() => Reflect.deleteProperty(window, "PushManager"));
+    const named = { ...room, name: LONG_NAME };
+    await isolateRoom(page, named);
+    await openRoom(page, named);
+    await screenIsFine();
+
+    await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Enable notifications", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "Notification setup" });
+    await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Notifications aren’t available here");
+    await expect(dialog.locator("details[open]")).toHaveCount(1);
     await screenIsFine();
   });
 });

@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import messagesOutlined from "@/components/icons/campfire/messages-outlined.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
+import { PushContext, type Push } from "@/hooks/use-push";
+import { PUSH_ON } from "@/test-push";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
@@ -16,25 +18,30 @@ const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada",
 
 afterEach(() => history.replaceState(null, "", "/"));
 
-/** The header inside the drawer's Sheet, which its menu button opens, as in the workspace. */
-function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
+/**
+ * The header inside the drawer's Sheet, which its menu button opens, as in the workspace, on a browser
+ * with notifications on unless `push` says otherwise.
+ */
+function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void, push: Push = PUSH_ON) {
   return render(
-    <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader
-        room={general}
-        name="general"
-        present={[]}
-        status="open"
-        offline={false}
-        favorite={false}
-        onStarred={vi.fn()}
-        involvement="mentions"
-        askForRoom={() => vi.fn()}
-        onSessionChanged={vi.fn()}
-        onFailed={vi.fn()}
-        {...props}
-      />
-    </Sheet>,
+    <PushContext value={push}>
+      <Sheet onOpenChange={onOpenChange}>
+        <RoomHeader
+          room={general}
+          name="general"
+          present={[]}
+          status="open"
+          offline={false}
+          favorite={false}
+          onStarred={vi.fn()}
+          involvement="mentions"
+          askForRoom={() => vi.fn()}
+          onSessionChanged={vi.fn()}
+          onFailed={vi.fn()}
+          {...props}
+        />
+      </Sheet>
+    </PushContext>,
   );
 }
 

@@ -6,6 +6,7 @@ import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges } from "@
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
+import { CHROME_MAC } from "@/test-platforms";
 import { App } from "./App";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -111,7 +112,7 @@ function serve({
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, user: signedIn ? me : null });
+      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];

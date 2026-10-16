@@ -73,6 +73,7 @@ import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
+import { platformOf } from "./user-agent";
 import { versionOf } from "./version";
 import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace, type YourProfile } from "./workspace";
 
@@ -132,8 +133,9 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 }
 
 /**
- * What the app asks first: whether Ember is set up yet, who this browser is signed in as, and the key
- * browsers subscribe to push notifications with, which ember-rust puts in every page.
+ * What the app asks first: whether Ember is set up yet, who this browser is signed in as, the key
+ * browsers subscribe to push notifications with, which ember-rust puts in every page, and the platform
+ * its notification setup help is for, which ember-rust reads from each page's request.
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
@@ -149,6 +151,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     helpContact,
     version: versionOf(env),
     vapidPublicKey: push.on ? push.keys.publicKey : null,
+    platform: platformOf(request.headers.get("User-Agent")),
     user,
   };
   const headers = new Headers({ "Cache-Control": "no-store" });

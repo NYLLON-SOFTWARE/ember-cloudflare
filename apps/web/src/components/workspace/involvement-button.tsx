@@ -29,6 +29,8 @@ interface Props {
   askForRoom: () => (answer: RoomAnswer) => void;
   /** Says why a save failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
+  /** Whether it takes focus as it shows, as it does from the bell that turned notifications on. */
+  autoFocus?: boolean;
   className?: string;
 }
 
@@ -39,7 +41,7 @@ interface Props {
  * another tab saves a newer level before the answer comes. While it saves it's dimmed and ignores presses,
  * as the star does.
  */
-export function InvolvementButton({ room, involvement, askForRoom, onFailed, className }: Props) {
+export function InvolvementButton({ room, involvement, askForRoom, onFailed, autoFocus, className }: Props) {
   const label = useId();
   const [saving, setSaving] = useState(false);
   const mounted = useMounted();
@@ -65,6 +67,7 @@ export function InvolvementButton({ room, involvement, askForRoom, onFailed, cla
       aria-checked="true"
       aria-labelledby={label}
       aria-disabled={saving || undefined}
+      autoFocus={autoFocus}
       onClick={save}
       className={cn("cursor-pointer aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50", className)}
     >

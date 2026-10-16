@@ -1,7 +1,10 @@
 import { feature } from "@ember/parity";
+import type { Bootstrap } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { isAppleMessages, isUnsupportedBrowser } from "../src/user-agent";
-// Campfire's answers from ember-rust's vectors/campfire_user_agents.json (cfeb4c2): `blocked?` and `apple_messages?`.
+import { isAppleMessages, isUnsupportedBrowser, platformOf } from "../src/user-agent";
+import { api } from "./support";
+// Campfire's answers from ember-rust's vectors/campfire_user_agents.json (cfeb4c2): `blocked?`, `apple_messages?`
+// and the platform its views see, which is false or "" where Ruby raises.
 import vectors from "./fixtures/user-agents.json";
 
 /** Expects Campfire to answer each user agent with "Upgrade to a supported web browser". */
@@ -167,5 +170,101 @@ describe(feature("platform.browser-support"), () => {
     expect(isAppleMessages("facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)")).toBe(false);
     expect(isAppleMessages("Twitterbot/1.0")).toBe(false);
     expect(isAppleMessages(null)).toBe(false);
+  });
+});
+
+describe(feature("notifications.setup-help"), () => {
+  it("reads exactly the platforms the vectors' user agents have in ember-rust's views", () => {
+    expect(vectors.map(({ ua }) => ({ ua, platform: platformOf(ua) }))).toEqual(vectors.map(({ ua, platform }) => ({ ua, platform })));
+  });
+
+  it("counts Chromium Edge and Chrome on iPhone as Chrome, and Firefox and Edge on iPhone as Safari", () => {
+    const browserOf = (userAgent: string) => {
+      const { browser, chrome, firefox, safari, edge } = platformOf(userAgent);
+      return { browser, chrome, firefox, safari, edge };
+    };
+    const chrome = { browser: "Chrome", chrome: true, firefox: false, safari: false, edge: false };
+    const safari = { browser: "Safari", chrome: false, firefox: false, safari: true, edge: false };
+    expect(
+      browserOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.2478.51"),
+    ).toEqual(chrome);
+    expect(
+      browserOf("Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/124.0.6367.88 Mobile/15E148 Safari/604.1"),
+    ).toEqual(chrome);
+    expect(
+      browserOf("Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/124.0 Mobile/15E148 Safari/605.1.15"),
+    ).toEqual(safari);
+    expect(
+      browserOf(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/124.2478.50 Mobile/15E148 Safari/605.1.15",
+      ),
+    ).toEqual(safari);
+    // Only Edge from before it was built on Chrome is Edge.
+    expect(
+      browserOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.102 Safari/537.36 Edge/18.19582"),
+    ).toEqual({ browser: "Edge", chrome: false, firefox: false, safari: false, edge: true });
+  });
+
+  it("names the system from the device, else from the operating system, calling any Linux just Linux", () => {
+    const systemOf = (userAgent: string | null) => {
+      const { operatingSystem, windows, ios, android, desktop } = platformOf(userAgent);
+      return { operatingSystem, windows, ios, android, desktop };
+    };
+    expect(systemOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0")).toEqual({
+      operatingSystem: "Windows",
+      windows: true,
+      ios: false,
+      android: false,
+      desktop: true,
+    });
+    expect(systemOf("Mozilla/5.0 (Android 14; Mobile; rv:125.0) Gecko/125.0 Firefox/125.0")).toEqual({
+      operatingSystem: "Android",
+      windows: false,
+      ios: false,
+      android: true,
+      desktop: false,
+    });
+    expect(
+      systemOf("Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"),
+    ).toEqual({ operatingSystem: "iPad", windows: false, ios: true, android: false, desktop: false });
+    // iPadOS Safari says it's a Mac.
+    expect(
+      systemOf("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"),
+    ).toEqual({ operatingSystem: "macOS", windows: false, ios: false, android: false, desktop: true });
+    expect(systemOf("Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0").operatingSystem).toBe("Linux");
+    expect(systemOf("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0").operatingSystem).toBe("Ubuntu");
+    expect(
+      systemOf("Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36").operatingSystem,
+    ).toBe("ChromeOS 14541.0.0");
+    // No user agent reads as the gem's "Mozilla/4.0 (compatible)", which names no system.
+    expect(platformOf(null)).toEqual({
+      ios: false,
+      android: false,
+      desktop: true,
+      windows: false,
+      chrome: false,
+      firefox: false,
+      safari: false,
+      edge: false,
+      browser: "Mozilla",
+      operatingSystem: "",
+    });
+  });
+
+  it("tells the app the platform of the browser that asks, which its setup help is for", async () => {
+    const iPhone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+    const { platform } = (await (await api("/api/bootstrap", { headers: { "User-Agent": iPhone } })).json()) as Bootstrap;
+    expect(platform).toEqual({
+      ios: true,
+      android: false,
+      desktop: false,
+      windows: false,
+      chrome: false,
+      firefox: false,
+      safari: true,
+      edge: false,
+      browser: "Safari",
+      operatingSystem: "iPhone",
+    });
   });
 });

@@ -3,6 +3,7 @@ import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type Bootstrap } from "@ember/pro
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHROME_MAC } from "@/test-platforms";
 import { FlashProvider } from "./flash";
 import { SignInPage } from "./sign-in-page";
 
@@ -15,6 +16,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
+  platform: CHROME_MAC,
 };
 
 const respond = (status: number, body: unknown) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));

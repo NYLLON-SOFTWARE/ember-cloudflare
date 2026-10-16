@@ -8,6 +8,7 @@ import { TransferPage } from "@/components/transfer-page";
 import { Workspace } from "@/components/workspace/workspace";
 import { AccountContext } from "@/hooks/use-account";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
+import { PushProvider } from "@/hooks/use-push";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute, useTransferRoute } from "@/hooks/use-route";
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
@@ -135,15 +136,16 @@ export function App() {
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)
       return (
-        <Workspace
-          key={me.id}
-          me={me}
-          workspaceName={workspace.account.name}
-          version={workspace.version}
-          onAccountChanged={accountChanged}
-          onSignOut={signOutHere}
-          onSessionChanged={sessionChanged}
-        />
+        <PushProvider key={me.id} vapidPublicKey={workspace.vapidPublicKey} platform={workspace.platform}>
+          <Workspace
+            me={me}
+            workspaceName={workspace.account.name}
+            version={workspace.version}
+            onAccountChanged={accountChanged}
+            onSignOut={signOutHere}
+            onSessionChanged={sessionChanged}
+          />
+        </PushProvider>
       );
     if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
