@@ -16,14 +16,46 @@ export interface RoomEvent {
   userId: UserId;
   /** When, as an ISO time: a message's is its `createdAt`. */
   at: string;
+  /**
+   * A new message as it is when the room sends the event, for its pushes, unless it has been deleted
+   * since, as ember-rust's push job finds it again (jobs.rs), or was logged before events named it.
+   */
+  message?: PushedMessage;
 }
 
-/** The oldest events a room's log holds, up to a number of them, which are the ones the Workspace hasn't applied. */
-export const UNDELIVERED_EVENTS = `SELECT seq, kind, user_id AS userId, at FROM room_events WHERE room_id = ? ORDER BY seq LIMIT ?`;
+/** What a new message's pushes say, and whom they go to at @mentions. */
+export interface PushedMessage {
+  id: string;
+  plainText: string;
+  /** Everyone it mentions, once each. */
+  mentionIds: UserId[];
+}
 
-/** Logs an event, for the batch that makes the change it records. */
-export const logEvent = (roomId: RoomId, kind: RoomEvent["kind"], userId: UserId, at: string): Statement =>
-  statement(`INSERT INTO room_events (room_id, kind, user_id, at) VALUES (?, ?, ?, ?)`, roomId, kind, userId, at);
+/**
+ * The oldest events a room's log holds, up to a number of them, which are the ones the Workspace hasn't
+ * applied, with each new message's text and mentions as they are now, by the message's key.
+ */
+export const UNDELIVERED_EVENTS = `SELECT room_events.seq, room_events.kind, room_events.user_id AS userId, room_events.at,
+    messages.id AS messageId, messages.plain_text AS plainText, messages.mentions
+  FROM room_events LEFT JOIN messages ON messages.id = room_events.message_id
+  WHERE room_events.room_id = ? ORDER BY room_events.seq LIMIT ?`;
+
+interface EventRow extends Omit<RoomEvent, "message"> {
+  messageId: string | null;
+  plainText: string | null;
+  /** A JSON array of the people the message mentions, each `{ "id", "name" }`, or an id alone in a row from before mentions kept names. */
+  mentions: string | null;
+}
+
+function eventOf({ messageId, plainText, mentions, ...event }: EventRow): RoomEvent {
+  if (messageId === null) return event;
+  const mentioned = (JSON.parse(mentions!) as Array<{ id: UserId } | UserId>).map((person) => (typeof person === "string" ? person : person.id));
+  return { ...event, message: { id: messageId, plainText: plainText!, mentionIds: [...new Set(mentioned)] } };
+}
+
+/** Logs an event, for the batch that makes the change it records, naming the message a new message's is for. */
+export const logEvent = (roomId: RoomId, kind: RoomEvent["kind"], userId: UserId, at: string, messageId: string | null = null): Statement =>
+  statement(`INSERT INTO room_events (room_id, kind, user_id, at, message_id) VALUES (?, ?, ?, ?, ?)`, roomId, kind, userId, at, messageId);
 
 /** A message written, edited or deleted that the search index has yet to hear of. */
 export interface UnindexedMessage {
@@ -57,7 +89,7 @@ export class RoomLog {
 
   /** The oldest `limit` events the Workspace hasn't applied, oldest first. */
   async undelivered(limit: number): Promise<RoomEvent[]> {
-    return this.db.all<RoomEvent>(UNDELIVERED_EVENTS, this.roomId, limit);
+    return (await this.db.all<EventRow>(UNDELIVERED_EVENTS, this.roomId, limit)).map(eventOf);
   }
 
   /** Forgets the events up to `seq`, which the Workspace has applied. */

@@ -96,7 +96,8 @@ describe(feature("platform.health"), () => {
   it("reports that the Worker is up, which storage it uses, and whether push notifications are on", async () => {
     const response = await api("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND, push: { on: false, reason: KEYS_MISSING } });
+    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND, push: { on: true } });
+    expect(await (await healthWith({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined })).json()).toMatchObject({ ok: true, push: { on: false, reason: KEYS_MISSING } });
   });
 
   it("reaches the Workspace and a room's object, so a deploy can be checked without signing in", async () => {

@@ -4,9 +4,9 @@
 
 const encoder = new TextEncoder();
 
-/** The ETag of a body that reads `text`. */
-export async function etagOf(text: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
+/** The ETag of a body that reads `body`, or is its bytes. */
+export async function etagOf(body: string | Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", typeof body === "string" ? encoder.encode(body) : body));
   const hex = Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
   return `W/"${hex}"`;
 }

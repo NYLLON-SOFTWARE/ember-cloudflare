@@ -2,14 +2,13 @@ import { feature } from "@ember/parity";
 import type { RoomId, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatRoom } from "../src/chat-room";
-import type { Env } from "../src/env";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
 import { MARK_READ, MARK_UNREAD } from "../src/workspace-store";
 import {
   api,
   connect,
   createRoom,
+  cutOff,
   freshDeploy,
   freshRoom,
   openWorkspaceSocket,
@@ -62,29 +61,6 @@ async function sidebarOf(session: Session, room: RoomId, etag?: string) {
   if (response.status === 304) return { status: 304, etag };
   const sidebar = (await response.json()) as Sidebar;
   return { status: response.status, etag: response.headers.get("ETag")!, unread: sidebar.rooms.find(({ id }) => id === room)?.unread };
-}
-
-/**
- * Makes the Workspace unreachable from room `room`, as it is when it's restarting, until the function
- * this answers is called. The time of each call the room makes meanwhile goes in `calls`.
- */
-async function cutOff(room: RoomId, calls: number[] = []): Promise<() => Promise<void>> {
-  let original: Env | undefined;
-  await runInDurableObject(roomStub(room), (instance: ChatRoom) => {
-    const object = instance as unknown as { env: Env };
-    original = object.env;
-    const unreachable = {
-      applyRoomEvents: () => {
-        calls.push(Date.now());
-        return Promise.reject(new Error("The Workspace is unreachable"));
-      },
-    };
-    object.env = { ...original, WORKSPACE: { getByName: () => unreachable } as unknown as Env["WORKSPACE"] };
-  });
-  return () =>
-    runInDurableObject(roomStub(room), (instance: ChatRoom) => {
-      (instance as unknown as { env: Env }).env = original!;
-    });
 }
 
 const alarmOf = (room: RoomId) => runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.getAlarm());

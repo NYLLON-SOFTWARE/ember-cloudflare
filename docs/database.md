@@ -377,6 +377,16 @@ search index. On top of that schema it adds indexes and query changes for speed.
   unique index on the person, the endpoint and the keys (workspace migration 0024), so saving is one
   upsert, and the same index, led by the person, lists someone's subscriptions and finds the one a
   browser names as it signs out.
+- **A message's pushes are found as the Workspace applies its event.** ember-rust's push job loads
+  the message again once it's stored, then its room's memberships, people and subscriptions, and
+  counts each recipient's unread rooms for the badge (`crates/db/src/models/push_subscription.rs`).
+  Ours names the message in its `room_events` row (room migration 0025), so the query that reads the
+  room's log reads each message's plain text and mentions with it, by the message's key, as they are
+  then; a message deleted since has none, and isn't pushed. The Workspace finds a message's
+  recipients and badges in one query, in the batch that applies the room's events, just after the
+  message's unread marks, through the memberships' key, the subscriptions' index led by the person
+  and, for the badge, `index_memberships_on_user_id_and_room_id`. So pushes add no round trip to
+  either object.
 
 ## Writing SQL here
 

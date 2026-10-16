@@ -44,6 +44,11 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   /** The private half of the VAPID key pair: its scalar, up to 32 bytes, in URL-safe Base64. */
   VAPID_PRIVATE_KEY?: string;
+  /**
+   * Whom push services may contact about this deployment's pushes, a `mailto:` or `https:` address, as
+   * ember-rust's `VAPID_SUBJECT` says it. Unset, it's this project's address.
+   */
+  VAPID_SUBJECT?: string;
   /** What to call this deployment's version, as ember-rust's `APP_VERSION` does. */
   APP_VERSION?: string;
   /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */

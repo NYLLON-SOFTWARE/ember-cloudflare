@@ -232,7 +232,7 @@ export class MessageStore {
         now,
         seq,
       ),
-      logEvent(this.roomId, "message", creator.id, now),
+      logEvent(this.roomId, "message", creator.id, now, id),
       logIndexing(this.roomId, id),
     ]);
     return {

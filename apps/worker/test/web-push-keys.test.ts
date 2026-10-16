@@ -27,6 +27,9 @@ const SMALLEST = {
   VAPID_PRIVATE_KEY: toBase64url(Uint8Array.of(1)),
 };
 
+/** Neither key, where this suite's Worker has a pair. */
+const UNSET: Keys = { VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined };
+
 /** What /api/health says of push from a Worker with `keys`. */
 async function healthWith(keys: Keys): Promise<unknown> {
   const response = await apiWith(keys, "/api/health");
@@ -59,9 +62,9 @@ describe(feature("notifications.web-push-keys"), () => {
   });
 
   it.each([
-    ["neither is set", {}],
+    ["neither is set", UNSET],
     ["they're blank", { VAPID_PUBLIC_KEY: " ", VAPID_PRIVATE_KEY: "" }],
-    ["only one is set", { VAPID_PUBLIC_KEY: SMALLEST.VAPID_PUBLIC_KEY }],
+    ["only one is set", { ...UNSET, VAPID_PUBLIC_KEY: SMALLEST.VAPID_PUBLIC_KEY }],
   ])("turns push off when %s, giving the app no key, though the Worker is healthy", async (_, keys) => {
     expect(await healthWith(keys)).toEqual({ on: false, reason: KEYS_MISSING });
     expect(await keyGivenWith(keys)).toBeNull();
