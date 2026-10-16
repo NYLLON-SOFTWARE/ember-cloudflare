@@ -86,6 +86,8 @@ export function useSidebar(
   onGone: (roomId: RoomId) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
+  // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
+  const [answered, setAnswered] = useState(false);
   // How many of the workspace socket's frames have said what became of a room or of this person's level
   // in it, and the number of the last to speak of each room.
   const roomFrames = useRef({ count: 0, lastOf: new Map<RoomId, number>() });
@@ -97,6 +99,7 @@ export function useSidebar(
       try {
         copy = await fetchSidebar(copy);
         change({ type: "loaded", list: copy.sidebar });
+        setAnswered(true);
       } catch (error) {
         change({ type: "unanswered" });
         throw error;
@@ -245,5 +248,5 @@ export function useSidebar(
     };
   }, []);
 
-  return { list, change, refresh, askForRoom };
+  return { list, answered, change, refresh, askForRoom };
 }

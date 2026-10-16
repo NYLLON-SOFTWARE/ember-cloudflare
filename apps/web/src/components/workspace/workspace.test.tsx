@@ -1539,4 +1539,12 @@ describe(feature("notifications.app-badge"), () => {
     await waitFor(() => expect(roomListRequests()).toBe(1));
     expect(badges).toEqual([]);
   });
+
+  it("leaves the badge as it is when the list fails to come, which says nothing of what's unread", async () => {
+    const badges = badgeTheApp();
+    serve({ "GET /api/sidebar": () => Promise.reject(new TypeError("Failed to fetch")) });
+    showWorkspace("/rooms/general");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember");
+    expect(badges).toEqual([]);
+  });
 });
