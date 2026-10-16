@@ -23,11 +23,13 @@ import {
   type ProfileAnswer,
   type ProfileChanges,
   type PushSubscriptionKeys,
+  type PushSubscriptions,
   type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
   type RoomSocketParams,
+  type SavedPushSubscription,
   type SearchResults,
   type SharedRoom,
   type Sidebar,
@@ -120,6 +122,21 @@ export async function signOut(pushSubscriptionEndpoint: string | null = null): P
 /** Saves this browser's push subscription for you, so that pushes reach it, or records that it was saved again. */
 export async function savePushSubscription(subscription: PushSubscriptionKeys): Promise<void> {
   await request("/api/push-subscriptions", { method: "POST", body: JSON.stringify(subscription) });
+}
+
+/** Your browsers' push subscriptions, oldest first, with the browsers that saved them. */
+export async function fetchPushSubscriptions(): Promise<SavedPushSubscription[]> {
+  return (await request<PushSubscriptions>("/api/push-subscriptions")).subscriptions;
+}
+
+/** Deletes your push subscription `id`, which does nothing if there's no such subscription of yours. */
+export async function deletePushSubscription(id: number): Promise<void> {
+  await request(`/api/push-subscriptions/${id}`, { method: "DELETE" });
+}
+
+/** Pushes "Ember Test" to your push subscription `id` at once. Fails with a 500 ApiError if the push does. */
+export async function sendTestNotification(id: number): Promise<void> {
+  await request(`/api/push-subscriptions/${id}/test-notifications`, { method: "POST" });
 }
 
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */

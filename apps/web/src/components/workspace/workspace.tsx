@@ -20,6 +20,7 @@ import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { PersonPage } from "./person-page";
 import { ProfilePage } from "./profile-page";
+import { PushSubscriptionsPage } from "./push-subscriptions-page";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView, type RoomViewHandle } from "./room-view";
@@ -31,8 +32,9 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
  * a room's page and the pages that go on to one, Search on search, your avatar on your profile, and
- * nothing on a room's forms, a DM's settings or the Custom CSS page, whose addresses none of its links
- * have, nor on New direct message's, which goes on to the last room visited at once.
+ * nothing on a room's forms, a DM's settings, the Custom CSS page or your push subscriptions, whose
+ * addresses none of its links have, nor on New direct message's, which goes on to the last room visited
+ * at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -46,6 +48,7 @@ const RAIL_PAGES = {
   "workspace-settings": "workspace",
   "custom-styles": null,
   profile: "profile",
+  "push-subscriptions": null,
   person: null,
   search: "search",
 } as const satisfies Record<Route["page"], RailPage>;
@@ -421,6 +424,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       case "profile":
         return <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />;
+      case "push-subscriptions":
+        return <PushSubscriptionsPage back={back} onFailed={failed} />;
       case "search":
         return <SearchPage me={me} back={back} onFailed={failed} />;
       case "person":

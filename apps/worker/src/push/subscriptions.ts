@@ -1,21 +1,28 @@
-import { parsePushSubscription, type PushSubscriptions } from "@ember/protocol";
+import { parsePushSubscription, PUSH_SUBSCRIPTIONS_PATH, type PushSubscriptions } from "@ember/protocol";
 import { credentialsOf } from "../auth";
 import type { Env } from "../env";
+import { browserNamesOf } from "../user-agent";
 import { workspace } from "../workspace";
+import { sendTestPush } from "./delivery";
 import { endpointErrors } from "./endpoints";
 
 // Your browsers' push subscriptions, as ember-rust's `push_subscriptions` controller keeps them
-// (crates/ember/src/controllers/users/push_subscriptions.rs).
+// (crates/ember/src/controllers/users/push_subscriptions.rs), and the test pushes its
+// `test_notifications` controller sends them (push_subscriptions/test_notifications.rs).
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
 const NOT_SIGNED_IN = "Not signed in";
 
-/** `GET /api/push-subscriptions`: yours, oldest first, as ember-rust's `index` lists them. */
+/**
+ * `GET /api/push-subscriptions`: yours, oldest first, each with the browser that saved it as its user
+ * agent names it, as ember-rust's `index` lists them.
+ */
 export async function listPushSubscriptions(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const subscriptions = credentials && (await workspace(env).pushSubscriptions(credentials));
-  if (!subscriptions) return problem(401, NOT_SIGNED_IN);
+  const saved = credentials && (await workspace(env).pushSubscriptions(credentials));
+  if (!saved) return problem(401, NOT_SIGNED_IN);
+  const subscriptions = saved.map(({ id, endpoint, userAgent }) => ({ id, endpoint, ...browserNamesOf(userAgent) }));
   return Response.json({ subscriptions } satisfies PushSubscriptions, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -49,5 +56,22 @@ export async function deletePushSubscription(request: Request, env: Env, id: str
   // An id that isn't a number names no subscription.
   const deleted = credentials && (await workspace(env).deletePushSubscription(credentials, /^\d{1,15}$/.test(id) ? Number(id) : null));
   if (!deleted) return problem(401, NOT_SIGNED_IN);
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * `POST /api/push-subscriptions/:id/test-notifications`: pushes "Ember Test" to your subscription `id`
+ * at once, with a random text, your unread count as its badge, and this page to open, as ember-rust's
+ * `test_notifications#create` does, answering 204 where it redirects to the list. Someone else's
+ * subscription is 404, and Web Push being off, or the push failing, is 500, without forgetting a
+ * subscription whose push service says it's gone.
+ */
+export async function sendTestNotification(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const delivery = credentials && (await workspace(env).testPushDelivery(credentials, /^\d{1,15}$/.test(id) ? Number(id) : null));
+  if (!delivery) return problem(401, NOT_SIGNED_IN);
+  if (delivery === "missing") return problem(404, "Push subscription not found");
+  const path = new URL(PUSH_SUBSCRIPTIONS_PATH, request.url).href;
+  await sendTestPush(env, { title: "Ember Test", body: crypto.randomUUID(), path }, delivery);
   return new Response(null, { status: 204 });
 }

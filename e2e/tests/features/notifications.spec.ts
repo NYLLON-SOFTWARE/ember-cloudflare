@@ -221,6 +221,35 @@ test.describe(feature("notifications.subscriptions"), () => {
   });
 });
 
+test.describe(feature("notifications.test-page"), () => {
+  test("lists the browser that turned them on at /users/me/push_subscriptions, where a test push fails while the server has no Web Push keys, and deletes it", async ({ members }) => {
+    const endpoint = uniqueEndpoint();
+    const grace = await members.signIn(unique("Grace"), { beforeOpen: (page) => allowNotifications(page.context(), { endpoint, on: false }) });
+    const saved = grace.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/push-subscriptions");
+    await grace.page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+    expect((await saved).status()).toBe(204);
+
+    // Loaded from the Worker, which answers the page's address with the app.
+    await grace.page.goto("/users/me/push_subscriptions");
+    await expect(grace.page).toHaveTitle("Push notification subscriptions");
+    await expect(grace.page.getByRole("heading", { level: 1 })).toHaveText("Push Notification Subscriptions");
+    const rows = grace.page.getByRole("list", { name: "Push Notification Subscriptions" }).getByRole("listitem");
+    await expect(rows).toHaveCount(1);
+    // Desktop Chrome, as the user_agent gem names it.
+    await expect(rows.locator("strong")).toHaveText(/^Chrome [\d.]+ on Windows$/);
+    await expect(rows).toContainText(endpoint);
+
+    await rows.getByRole("button", { name: "Send test notification" }).click();
+    await expect(grace.page.getByRole("alert")).toHaveText("Something went wrong");
+
+    await rows.getByRole("button", { name: "Delete subscription" }).click();
+    await expect(rows).toHaveCount(0);
+    await grace.page.reload();
+    await expect(grace.page.locator("main section")).toHaveAttribute("aria-busy", "false");
+    await expect(rows).toHaveCount(0);
+  });
+});
+
 test.describe(feature("notifications.service-worker"), () => {
   test("is public at /service-worker.js, as JavaScript a page can register", async ({ page, request }) => {
     const response = await request.get("/service-worker.js");

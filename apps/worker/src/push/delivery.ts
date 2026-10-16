@@ -3,7 +3,7 @@ import type { Env } from "../env";
 import type { MessagePush, PushDelivery } from "../workspace-store";
 import { endpointErrors } from "./endpoints";
 import { webPush, type VapidKeys } from "./keys";
-import { encodedPush } from "./payload";
+import { encodedPush, type PushPayload } from "./payload";
 import { encryptPush, InvalidPushKeyError, PushArgumentError, vapidAuthorization } from "./web-push";
 
 // Sending pushes as ember-rust's push pool delivers them (crates/ember/src/integrations/web_push.rs and
@@ -24,28 +24,61 @@ const encoder = new TextEncoder();
 
 /**
  * Sends `pushes`, as long as Web Push is on, and answers the subscriptions to forget: those whose push
- * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. An endpoint
- * that's no longer at a permitted push service is skipped. `send` stands in for `fetch` in tests.
+ * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
+ * failure is logged. An endpoint that's no longer at a permitted push service is skipped. `send` stands
+ * in for `fetch` in tests.
  */
 export async function sendPushes(env: Env, pushes: MessagePush[], send: typeof fetch = fetch): Promise<number[]> {
   const push = await webPush(env);
   if (!push.on) return [];
-  const subject = env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJECT;
   const deliveries = pushes.flatMap(({ payload, deliveries }) => deliveries.map((delivery) => ({ message: encodedPush(payload, delivery.badge), delivery })));
   const gone: number[] = [];
   await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery }) => {
-    if (await isGone(message, delivery, push.keys, subject, send)) gone.push(delivery.subscriptionId);
+    try {
+      await deliver(message, delivery, push.keys, subjectOf(env), send);
+    } catch (error) {
+      if (!(error instanceof PushFailure)) throw error;
+      if (error.gone) gone.push(delivery.subscriptionId);
+      else console.error(`Error in WebPush::Pool.deliver: ${error.message}`);
+    }
   });
   return gone;
 }
 
-/** Sends `message` to a subscription, as the gem's `payload_send` does, answering whether to forget the subscription. */
-async function isGone(message: string, { endpoint, p256dhKey, authKey }: PushDelivery, keys: VapidKeys, subject: string, send: typeof fetch): Promise<boolean> {
-  if (endpointErrors(endpoint).length > 0) return false;
+/**
+ * Sends a test push to a subscription at once, as ember-rust's `deliver_test_notification` does, and
+ * throws if Web Push is off or the push fails, leaving a subscription whose push service says it's gone.
+ * An endpoint that's no longer at a permitted push service is skipped, as if it were sent.
+ */
+export async function sendTestPush(env: Env, payload: PushPayload, delivery: PushDelivery, send: typeof fetch = fetch): Promise<void> {
+  const push = await webPush(env);
+  if (!push.on) throw new Error("Web Push is off (no valid VAPID keys)");
+  await deliver(encodedPush(payload, delivery.badge), delivery, push.keys, subjectOf(env), send);
+}
+
+const subjectOf = (env: Env) => env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJECT;
+
+/** Why a push failed, as the gem's error class and message name it, and whether its subscription is gone for good. */
+class PushFailure extends Error {
+  constructor(
+    detail: string,
+    readonly gone: boolean,
+  ) {
+    super(detail);
+  }
+}
+
+/**
+ * Sends `message` to a subscription, as the gem's `payload_send` does, throwing a `PushFailure` if it
+ * fails. An endpoint that's no longer at a permitted push service is skipped.
+ */
+async function deliver(message: string, { endpoint, p256dhKey, authKey }: PushDelivery, keys: VapidKeys, subject: string, send: typeof fetch): Promise<void> {
+  if (endpointErrors(endpoint).length > 0) return;
   const { origin, hostname } = new URL(endpoint);
+  let response: Response;
   try {
     const body = await encryptPush(encoder.encode(message), p256dhKey, authKey);
-    const response = await send(endpoint, {
+    response = await send(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
@@ -60,15 +93,13 @@ async function isGone(message: string, { endpoint, p256dhKey, authKey }: PushDel
       signal: AbortSignal.timeout(DEADLINE_MS),
     });
     await response.body?.cancel();
-    const failure = failureOf(response);
-    if (failure === null || failure.gone) return failure !== null;
-    logFailure(failure.kind, `host: ${hostname}, status: ${response.status}`);
-    return false;
   } catch (error) {
-    if (error instanceof InvalidPushKeyError) return true;
-    logFailure(classOf(error), error instanceof Error ? error.message : String(error));
-    return false;
+    const detail = error instanceof Error ? error.message : String(error);
+    if (error instanceof InvalidPushKeyError) throw new PushFailure(`OpenSSL::PKey::EC::Point::Error ${detail}`, true);
+    throw new PushFailure(`${classOf(error)} ${detail}`, false);
   }
+  const failure = failureOf(response);
+  if (failure) throw new PushFailure(`${failure.kind} host: ${hostname}, status: ${response.status}`, failure.gone);
 }
 
 /** What the gem's `verify_response` raises for a push service's answer, and whether it means the subscription is gone; null for a push it took. */
@@ -90,4 +121,3 @@ function classOf(error: unknown): string {
   return "SystemCallError";
 }
 
-const logFailure = (kind: string, detail: string) => console.error(`Error in WebPush::Pool.deliver: ${kind} ${detail}`);

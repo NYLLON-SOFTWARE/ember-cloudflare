@@ -64,6 +64,17 @@ describe(feature("users.profile"), () => {
   });
 });
 
+describe(feature("notifications.test-page"), () => {
+  it("shows your push subscriptions at anyone's address for them, as ember-rust ignores whose it names", () => {
+    for (const path of ["/users/me/push_subscriptions", "/users/01J9Z3/push_subscriptions"]) {
+      expect(workspacePageOf(path), path).toEqual({ page: "push-subscriptions" });
+    }
+    for (const path of ["/users/me/push_subscriptions/", "/users/me/push_subscriptions/new", "/users/me/push_subscriptions/1"]) {
+      expect(workspacePageOf(path), path).toBeNull();
+    }
+  });
+});
+
 describe(feature("users.show"), () => {
   it("shows someone's page at /users/<id>, whatever the id, as ember-rust's router reads one", () => {
     expect(workspacePageOf("/users/0mgk3x2a9b4c5d")).toEqual({ page: "person", userId: "0mgk3x2a9b4c5d" });

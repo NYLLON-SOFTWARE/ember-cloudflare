@@ -64,7 +64,7 @@ import { manifest, manifestFormatOf } from "./manifest";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
-import { deletePushSubscription, listPushSubscriptions, savePushSubscription } from "./push/subscriptions";
+import { deletePushSubscription, listPushSubscriptions, savePushSubscription, sendTestNotification } from "./push/subscriptions";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
@@ -664,6 +664,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
   const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
   if (pushSubscription && request.method === "DELETE") return () => deletePushSubscription(request, env, pushSubscription[1]!);
+  const testNotification = pathname.match(/^\/api\/push-subscriptions\/([^/]+)\/test-notifications$/);
+  if (testNotification && request.method === "POST") return () => sendTestNotification(request, env, testNotification[1]!);
 
   const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
   if (socket) {

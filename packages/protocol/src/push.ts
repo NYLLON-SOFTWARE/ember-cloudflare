@@ -16,12 +16,17 @@ export interface PushSubscriptionKeys {
   authKey: string;
 }
 
-/** One of your saved subscriptions, as `GET /api/push-subscriptions` lists them. */
+/**
+ * One of your saved subscriptions, as `GET /api/push-subscriptions` lists them, with the browser that
+ * saved it as ember-rust's push subscriptions page names it from its user agent: each name is "" where
+ * the agent gives none.
+ */
 export interface SavedPushSubscription {
   id: number;
   endpoint: string;
-  /** The user agent of the browser that saved it, if it sent one. */
-  userAgent: string | null;
+  browser: string;
+  version: string;
+  platform: string;
 }
 
 /** What `GET /api/push-subscriptions` answers: your subscriptions, oldest first. */
