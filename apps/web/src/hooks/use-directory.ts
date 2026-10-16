@@ -10,6 +10,12 @@ export type People = ReadonlyMap<UserId, DirectoryUser>;
 export const PeopleContext = createContext<People>(new Map());
 
 /**
+ * Whether the people directory has loaded, and so lists everyone. Until then it lists no one, or only
+ * those the workspace socket said had changed.
+ */
+export const DirectoryLoaded = createContext(false);
+
+/**
  * Someone's name as the people directory lists them now, which follows a rename since their name was
  * copied into a message, a boost or a room's frame, or the copy's until the directory lists them.
  */
@@ -38,10 +44,11 @@ function withChanges(people: People, changed: DirectoryUser[]): People {
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
  * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
  * here says they are now. The people stay as they were when a load fails or the server says they
- * haven't changed.
+ * haven't changed. It has `loaded` once a load has come.
  */
-export function useDirectory(): { people: People; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
+export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
+  const [loaded, setLoaded] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
@@ -54,6 +61,7 @@ export function useDirectory(): { people: People; reload: () => Promise<void>; u
         if (loaded === copy) return;
         copy = loaded;
         setPeople(withChanges(new Map(loaded.directory.users.map((user) => [user.id, user])), changed));
+        setLoaded(true);
       } finally {
         changedSince = null;
       }
@@ -64,5 +72,5 @@ export function useDirectory(): { people: People; reload: () => Promise<void>; u
     };
     return { reload: load, update };
   });
-  return { people, ...directory };
+  return { people, loaded, ...directory };
 }
