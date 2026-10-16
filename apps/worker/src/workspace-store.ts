@@ -117,6 +117,8 @@ export interface SavedRoomChange {
   addedIds: UserId[];
   /** Who it took out, whose sockets there it queued closing. */
   removedIds: UserId[];
+  /** Whether the shared order ranks the room, which the sidebars of the people it put in have left out. */
+  ranked: boolean;
 }
 
 /** What applying events from a room's log changed. */
@@ -258,6 +260,9 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** Whether `ROOM_RANKED` found that the shared order ranks the room. */
+const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ranked === 1;
 
 /** A DM's people, as the app has them, from the rows naming them. */
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
@@ -718,6 +723,9 @@ export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = 
 
 /** Who's in a room, which the memberships' key finds. */
 export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
+
+/** Whether the shared order ranks a room. */
+const ROOM_RANKED = `SELECT shared_position IS NOT NULL AS ranked FROM rooms WHERE id = ?`;
 
 /**
  * Renames a room, changes its kind and sets its icon, keeping whichever is null as it is, and records
@@ -1295,28 +1303,38 @@ export class WorkspaceStore {
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
    * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers what
-   * it changed, and who's in the room then.
+   * it changed, who's in the room then, and whether the shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
     const members = statement(ROOM_MEMBERS, roomId);
+    const ranked = statement(ROOM_RANKED, roomId);
     if (changes.kind === "open") {
-      const [updated, added, after] = (await this.db.batch([update, statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now), members])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [] };
+      const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
+      const [updated, added, after, rank] = (await this.db.batch([update, grant, members, ranked])) as UserIdRow[][];
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], ranked: isRanked(rank!) };
     }
     if (changes.kind !== "closed") {
       const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [] };
+      // Nobody new is in it, so nobody's sidebar has left it out.
+      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    const [updated, added, , removed, after] = (await this.db.batch([
+    const [updated, added, , removed, after, rank] = (await this.db.batch([
       update,
       statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
       members,
+      ranked,
     ])) as UserIdRow[][];
-    return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: userIdsOf(removed!) };
+    return {
+      roomChanged: updated!.length > 0,
+      memberIds: userIdsOf(after!),
+      addedIds: userIdsOf(added!),
+      removedIds: userIdsOf(removed!),
+      ranked: isRanked(rank!),
+    };
   }
 
   /** The kind of room `roomId`, DMs included, and whether someone can change it, unless they aren't in it. */

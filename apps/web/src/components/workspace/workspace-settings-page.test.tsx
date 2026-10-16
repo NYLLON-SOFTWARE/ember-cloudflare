@@ -695,6 +695,28 @@ describe(feature("sidebar.shared-order"), () => {
       expect(button("Save order")).toBeDisabled();
     });
 
+    it("puts a row being dragged back when Cancel or Save order is pressed, so what's put back, or saved, is what shows", async () => {
+      await showList();
+      altArrow("random", "ArrowUp");
+      pressGrip("Design");
+      dragTo(2 * 52 + 40);
+      expect(ordered()).toEqual(["#random", "#general", "#Design"]);
+      fireEvent.click(button("Cancel"));
+      fireEvent.pointerUp(window);
+      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(button("Save order")).toBeDisabled();
+
+      altArrow("random", "ArrowUp");
+      pressGrip("Design");
+      dragTo(2 * 52 + 40);
+      fireEvent.click(button("Save order"));
+      fireEvent.pointerUp(window);
+      expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+      expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
+      await act(() => vi.runAllTimersAsync());
+      expect(status()).toHaveTextContent("Room order saved for everyone.");
+    });
+
     it("drags with a finger on its grip at once, the page not scrolling", async () => {
       await showList();
       fireEvent.touchStart(grip("Design"), { touches: [{ clientX: 20, clientY: 26 }] });

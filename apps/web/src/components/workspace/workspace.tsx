@@ -237,7 +237,14 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
-  const reorderedRooms = useCallback((sharedOrder: RoomId[]) => changeRooms({ type: "reordered", sharedOrder }), []);
+  // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
+  const reorderedRooms = useCallback(
+    (sharedOrder: RoomId[]) => {
+      changeRooms({ type: "reordered", sharedOrder });
+      void refresh().catch((error) => mounted.current && isSignedOut(error) && onSessionChanged(null));
+    },
+    [refresh, onSessionChanged, mounted],
+  );
 
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
   // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings

@@ -31,6 +31,10 @@ const sidebarOf = async (session: Session) => (await (await api("/api/sidebar", 
 const stored = async () =>
   ((await workspaceSql("SELECT id FROM rooms WHERE shared_position IS NOT NULL ORDER BY shared_position")) as Array<{ id: RoomId }>).map((row) => row.id);
 
+/** Changes room `roomId` as `session`, as its settings' Save does. */
+const change = (roomId: RoomId, session: Session, body: unknown) =>
+  api(`/api/rooms/${roomId}`, { method: "PATCH", headers: { Cookie: session.cookie }, body: JSON.stringify(body) });
+
 /** Makes `userId` an administrator, as `administrator`'s crown does. */
 const promote = (administrator: Session, userId: UserId, role = "administrator") =>
   api(`/api/account/users/${userId}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ role }) });
@@ -130,6 +134,35 @@ describe(feature("sidebar.shared-order"), () => {
 
     await order(administrator, [design.id]);
     for (const socket of sockets) expect(await socket.next()).toEqual({ type: "rooms.reordered" } satisfies WorkspaceServerFrame);
+  });
+
+  it("has the sidebars of the people a ranked room takes in load again, as the order they have left it out", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+    const [plans, design, ops] = [
+      await createRoom("Plans", { closedTo: [administrator.user.id], as: administrator }),
+      await createRoom("Design", { closedTo: [administrator.user.id], as: administrator }),
+      await createRoom("Ops", { closedTo: [administrator.user.id], as: administrator }),
+    ];
+    await answered(order(administrator, [plans.id, design.id]));
+    const [adasTab, gracesTab] = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
+
+    expect((await change(plans.id, administrator, { kind: "closed", memberIds: [administrator.user.id, grace.user.id] })).status).toBe(200);
+    expect(await gracesTab.next()).toEqual({ type: "room.saved", room: plans });
+    expect(await gracesTab.next()).toEqual({ type: "rooms.reordered" } satisfies WorkspaceServerFrame);
+    expect((await sidebarOf(grace)).sharedOrder).toEqual([plans.id]);
+
+    // Opened to everyone, it's shown as it is now to the people already in it, who hear nothing more.
+    expect((await change(design.id, administrator, { kind: "open" })).status).toBe(200);
+    expect(await gracesTab.next()).toEqual({ type: "room.saved", room: { ...design, kind: "open" } });
+    expect(await gracesTab.next()).toEqual({ type: "rooms.reordered" });
+    expect(await adasTab.next()).toEqual({ type: "room.saved", room: { ...design, kind: "open" } });
+    expect(await adasTab.answers()).toBe(true);
+
+    // A room the order doesn't rank takes people in without it.
+    expect((await change(ops.id, administrator, { kind: "open" })).status).toBe(200);
+    expect(await gracesTab.next()).toEqual({ type: "room.saved", room: { ...ops, kind: "open" } });
+    expect(await gracesTab.answers()).toBe(true);
   });
 
   it("keeps everyone's stars, and their order", async () => {

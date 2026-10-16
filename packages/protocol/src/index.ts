@@ -554,7 +554,8 @@ export type WorkspaceServerFrame =
   /**
    * An administrator saved the shared room order, so the sidebar loads again, as ember-rust's
    * `room_order_changed` has every sidebar reload (broadcasts.rs). It names no rooms, since some aren't
-   * everyone's. Sent to everyone.
+   * everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose sidebars'
+   * order left it out.
    */
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */

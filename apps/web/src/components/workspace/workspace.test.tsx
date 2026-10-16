@@ -1153,10 +1153,11 @@ describe(feature("sidebar.favorites"), () => {
 describe(feature("sidebar.shared-order"), () => {
   it("puts the sidebar's rooms in the order an administrator saves on workspace settings, after their stars", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    let sharedOrder: RoomId[] = ["general"];
     serve({
-      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], ["random"], ["general"])),
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], ["random"], sharedOrder)),
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
-      "PUT /api/account/room_order": () => Response.json({ sharedOrder: ["design", "general", "random"] }),
+      "PUT /api/account/room_order": () => Response.json({ sharedOrder: (sharedOrder = ["design", "general", "random"]) }),
     });
     const { user } = showWorkspace("/account/edit");
     const order = await screen.findByRole("list", { name: "Room order" });
@@ -1167,6 +1168,34 @@ describe(feature("sidebar.shared-order"), () => {
     await user.click(screen.getByRole("button", { name: "Save order" }));
     await waitFor(() => expect(sidebarRooms()).toEqual(["random★", "Design", "general"]));
     expect(within(order).getAllByRole("listitem").map((row) => row.textContent)).toEqual(["#Design", "#general", "#random"]);
+  });
+
+  it("loads the rooms again once a save is answered, so an answer that comes after a newer order has loaded doesn't stay", async () => {
+    WorkspaceSocket.last = null;
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    // So a new order loads at once, rather than at a random time up to 5 seconds later.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+    let sharedOrder: RoomId[] = [];
+    let answer = (_: Response) => {};
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], [], sharedOrder)),
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "PUT /api/account/room_order": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/account/edit");
+    const order = await screen.findByRole("list", { name: "Room order" });
+    await waitFor(() => expect(roomListRequests()).toBe(2));
+    fireEvent.keyDown(within(order).getAllByRole("listitem")[1]!, { key: "ArrowUp", altKey: true });
+    await user.click(screen.getByRole("button", { name: "Save order" }));
+
+    // Another administrator saves after this one, and their order loads before this one's answer comes.
+    sharedOrder = ["random", "general", "design"];
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "rooms.reordered" }) }));
+    await waitFor(() => expect(sidebarRooms()).toEqual(["random", "general", "Design"]));
+    await act(async () => answer(Response.json({ sharedOrder: ["general", "design", "random"] })));
+    await waitFor(() => expect(roomListRequests()).toBe(4));
+    await waitFor(() => expect(sidebarRooms()).toEqual(["random", "general", "Design"]));
   });
 });
 

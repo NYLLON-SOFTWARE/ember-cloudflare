@@ -61,9 +61,10 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
     onCancel: () => setStatus({ message: "Room move canceled.", error: false }),
   });
 
-  /** Saves the order staged as the shared order. */
+  /** Saves the order staged as the shared order, putting back a row being dragged, so what's saved is what shows. */
   async function save() {
     if (saved.current || !changed) return;
+    drag.release();
     saved.current = true;
     setSaving(true);
     setStatus({ message: "Saving room order…", error: false });
@@ -83,9 +84,10 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
     }
   }
 
-  /** Puts the rows back in the order saved. */
+  /** Puts the rows back in the order saved, a row being dragged included. */
   function reset() {
     if (saved.current) return;
+    drag.release();
     setStaged(null);
     setStatus(null);
   }

@@ -1103,6 +1103,9 @@ export class Workspace extends DurableObject<Env> {
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
+      // The shared order their sidebars have leaves out the rooms they weren't in, so they load it again,
+      // where ember-rust's list the room by name until their next page.
+      if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
       return changed;
     });
   }
