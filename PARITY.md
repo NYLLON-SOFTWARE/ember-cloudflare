@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 80 ported and 47 partial of 172 features; 39 not started, 6 not applicable.
+**Overall:** 81 ported and 49 partial of 172 features; 36 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -30,12 +30,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
-| [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
+| [Notifications](#notifications) | 1 | 2 | 10 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **80** | **47** | **39** | **6** | **172** |
+| **Total** | **81** | **49** | **36** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1736,10 +1736,10 @@ ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-S
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Notification levels | `notifications.levels` | Campfire | ⬜ Not started |  |
+| Notification levels | `notifications.levels` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [involvement](apps/worker/test/involvement.test.ts)<br>Web: [involvement-button](apps/web/src/components/workspace/involvement-button.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts), [notifications](e2e/tests/mobile/notifications.spec.ts) |
 | Turn on notifications | `notifications.enable` | Ember | ⬜ Not started |  |
-| Hide a room | `notifications.hide-room` | Campfire | ⬜ Not started |  |
-| Levels on your profile | `notifications.profile-list` | Campfire | ⬜ Not started |  |
+| Hide a room | `notifications.hide-room` | Campfire | 🟡 Partial | Worker: [involvement](apps/worker/test/involvement.test.ts)<br>Web: [sidebar](apps/web/src/components/workspace/sidebar.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
+| Levels on your profile | `notifications.profile-list` | Campfire | ✅ Ported | Web: [conversation-notifications](apps/web/src/components/workspace/conversation-notifications.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts), [notifications](e2e/tests/mobile/notifications.spec.ts) |
 | Who gets a push | `notifications.push` | Campfire | ⬜ Not started |  |
 | What a push says | `notifications.payload` | Campfire | ⬜ Not started |  |
 | Save push subscriptions | `notifications.subscriptions` | Campfire | ⬜ Not started |  |
@@ -1753,13 +1753,15 @@ ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-S
 <details>
 <summary>Behaviors and sources</summary>
 
-**Notification levels** (`notifications.levels`) ⬜
+**Notification levels** (`notifications.levels`) 🟡
 
 - Each room you're in has a level, cycled by its button: rooms go @mentions, all messages, off, off and hidden, then @mentions again; DMs go all messages and off.
 - The labels are "Notifying about @ mentions", "Notifying about all messages", "Notifications are off" and "Notifications are off and room invisible in sidebar".
 - The button has `role="checkbox"` and `aria-checked="true"`, is named by its label, and shows the level's bell icon.
 - The room header shows the button only once this browser has notification permission and a push subscription (`notifications.enable`). Until then, and whenever push is off, levels are changed on your profile (`notifications.profile-list`).
 - Rooms start at @mentions and DMs at all messages. Members change only their own level, non-members get 404, and any other non-blank value is refused without changing anything.
+
+Note: `PUT /api/rooms/:id/involvement` saves your level in a room or DM and answers it, and every tab of yours hears it (`room.involvement`), as your sidebar's list carries each room's level. The bell sits in the room header, between Search messages and the room's settings, and on your profile (`notifications.profile-list`); it's dimmed while it saves and ignores presses, as the star is. There are no push notifications to turn on yet (`notifications.enable`), so the header shows the level's bell from the start, where ember-rust shows "Enable notifications" until this browser has turned them on, and the levels decide nothing but hiding rooms until pushes are sent (`notifications.push`). A blank level is refused (422) with the rest, where ember-rust stores it as none at all, leaving the room out of the sidebar with no level shown.
 
 Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/views/src/helpers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/rooms.rs) · [`crates/views/templates/rooms/involvements/_bell.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/involvements/_bell.html) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
 
@@ -1779,21 +1781,25 @@ Sources: [`crates/assets/overrides/controllers/notifications_controller.js`](htt
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Hide a room** (`notifications.hide-room`) ⬜
+**Hide a room** (`notifications.hide-room`) 🟡
 
 - Setting a room to off and hidden takes it out of your sidebar in every tab you have open, and changing its level again puts it back in your rooms list the same way.
 - A hidden room is still reachable by link and searchable, and your profile lists it, dimmed.
 - Hidden rooms get no new unread marks or pushes, and starring one is refused (403). An unread mark from before hiding stays, and still counts in a push's badge.
 
+Note: Hiding a room takes it out of your sidebar in every tab, the room shown included, which stays open, and showing it again puts it back in its place. It still opens at its address, is searched, and is listed on your profile, dimmed. It gets no new unread marks, and a mark from before it was hidden stays, left out of Activity's count until it's shown again, as ember-rust's `unread_memberships` leaves it out. Hiding a starred room takes it out of your stars, and showing it again brings its star back in its place (`favorites.changed`); starring a hidden room is refused (403). Pushes, and the badge that counts hidden rooms' marks, come with `notifications.push`.
+
 Sources: [`crates/ember/src/controllers/rooms/involvements.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/involvements.rs) · [`crates/ember/src/channels/broadcasts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/broadcasts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/controllers/rooms/involvements_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/involvements_controller.rb)
 
 ember-rust tests: [`crates/ember/src/channels/tests/broadcasts_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/channels/tests/broadcasts_test.rs) · [`reference/test/controllers/rooms/involvements_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/rooms/involvements_controller_test.rb)
 
-**Levels on your profile** (`notifications.profile-list`) ⬜
+**Levels on your profile** (`notifications.profile-list`) ✅
 
 - Your profile's "Conversation notifications" lists every room you're in by name (case ignored for ASCII letters only), hidden ones dimmed, then your DMs, with a separator only when there are both.
 - Each row links to its conversation, named in bold (a DM by its other members, "Ann and Bob" or "Ann, Bob, and Cat", or by your own name when you're alone in it), followed by its level button, which cycles in place.
 - The buttons are there whether or not this browser has turned on notifications, so levels can always be changed here.
+
+Note: Each room's pill takes taps 44px tall on touch screens, past its 29px, where ember-rust's take its own size.
 
 Sources: [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`crates/views/templates/users/profiles/_membership.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/_membership.html) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/membership.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/membership.rs)
 

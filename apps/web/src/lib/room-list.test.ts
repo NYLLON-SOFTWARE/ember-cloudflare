@@ -15,7 +15,7 @@ import {
 } from "./room-list";
 
 const NOON = "2026-10-15T12:00:00.000Z";
-const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread });
+const room = (id: string, name: string, unread = false): SharedSidebarRoom => ({ id, kind: "open", name, icon: null, unread, involvement: "mentions" });
 /** A DM between the people `names` names, as active as it started, at noon. */
 const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
   id,
@@ -23,6 +23,7 @@ const direct = (id: string, ...names: string[]): DirectSidebarRoom => ({
   members: names.map((name) => ({ id: name.toLowerCase(), name })),
   activeAt: NOON,
   unread: false,
+  involvement: "everything",
 });
 const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
@@ -281,5 +282,41 @@ describe(feature("dms.suggestions"), () => {
     expect(suggestedPeople(many, [])).toHaveLength(19);
     expect(suggestedPeople(many, [direct("d1", "Ada")])).toHaveLength(18);
     expect(suggestedPeople(many, [direct("d1", "Ada", "Grace"), direct("d2", "Ada", "Grace", "Linus")])).toHaveLength(16);
+  });
+});
+
+describe(feature("notifications.levels"), () => {
+  const list = sidebar([room("r1", "Design"), direct("d1", "Ada")]);
+  const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
+
+  it("changes a room's level in place, keeps it as the room's saved, and starts a new room at its kind's", () => {
+    const involved = roomListReducer(loaded, { type: "involved", roomId: "r1", involvement: "everything" });
+    expect(involved.list!.rooms).toEqual([{ ...room("r1", "Design"), involvement: "everything" }, direct("d1", "Ada")]);
+
+    const renamed: Room = { id: "r1", kind: "open", name: "Product design", icon: null };
+    expect(withRoom(involved.list!.rooms, renamed)[0]).toEqual({ ...room("r1", "Product design"), involvement: "everything" });
+    const ops: Room = { id: "r2", kind: "closed", name: "Ops", icon: null };
+    expect(withRoom(involved.list!.rooms, ops).at(-1)).toEqual({ ...ops, unread: false, involvement: "mentions" });
+    expect(withRoom([], { id: "d2", kind: "direct", members: [{ id: "grace", name: "Grace" }], activeAt: NOON })[0]!.involvement).toBe("everything");
+  });
+
+  it("keeps a level changed while a list is on its way over the one the list has", () => {
+    const asked = roomListReducer(loaded, { type: "asked" });
+    const involved = roomListReducer(asked, { type: "involved", roomId: "d1", involvement: "nothing" });
+    expect(roomListReducer(involved, { type: "loaded", list }).list!.rooms).toEqual([room("r1", "Design"), { ...direct("d1", "Ada"), involvement: "nothing" }]);
+  });
+});
+
+describe(feature("notifications.hide-room"), () => {
+  const hidden = <T extends SidebarRoom>(listed: T): T => ({ ...listed, involvement: "invisible" });
+
+  it("leaves the rooms and DMs you've hidden out of the sidebar, which lists them for you to open", () => {
+    const rooms = [hidden(room("r1", "Design")), room("r2", "general"), direct("d1", "Ada"), hidden(direct("d2", "Ada", "Grace"))];
+    expect(apart(rooms)).toEqual({ shared: [room("r2", "general")], directs: [direct("d1", "Ada")] });
+  });
+
+  it("marks no row of a room you've hidden unread, so Activity leaves it out", () => {
+    expect(markedUnread(hidden(room("r1", "Design", true)), null)).toBe(false);
+    expect(markedUnread({ ...room("r1", "Design", true), involvement: "nothing" }, null)).toBe(true);
   });
 });

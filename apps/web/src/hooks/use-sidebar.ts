@@ -180,6 +180,8 @@ export function useSidebar(
         case "user.updated":
           if (!isSomeoneElse(frame.user)) toldOf.you = true;
           return changed(frame.user);
+        case "room.involvement":
+          return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
         case "rooms.reordered":

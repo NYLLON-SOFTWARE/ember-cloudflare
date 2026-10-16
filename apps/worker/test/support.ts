@@ -1,6 +1,7 @@
 import {
   ROOM_PROTOCOL,
   roomSocketQuery,
+  startingInvolvement,
   type ClientFrame,
   type DirectRoom,
   type Me,
@@ -194,8 +195,8 @@ export async function deactivatedPerson(name: string): Promise<UserId> {
   return id;
 }
 
-/** `room` as the sidebar lists it to someone it isn't marked unread for. */
-export const listedRoom = <T extends Room>(room: T) => ({ ...room, unread: false });
+/** `room` as the sidebar lists it to someone it isn't marked unread for, at the level they start at. */
+export const listedRoom = <T extends Room>(room: T) => ({ ...room, unread: false, involvement: startingInvolvement(room) });
 
 /** A new open room, so tests never share a ChatRoom. Everyone is in it, whenever they sign in. */
 export const freshRoom = async (label: string): Promise<RoomId> => (await createRoom(label)).id;

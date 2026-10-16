@@ -1,6 +1,6 @@
 import type { Sidebar } from "@ember/protocol";
-import type { BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, createRoom, createSession, editorField, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
+import type { APIRequestContext, BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
+import { test as app, cookieHeader, createRoom, createSession, editorField, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
 
@@ -101,6 +101,14 @@ export class Member {
   typingIndicator(): Locator {
     return this.page.locator("footer").filter({ has: this.composer() }).locator(".spinner");
   }
+}
+
+/** Starts a DM between `member` and `others` through the API, as New direct message does, and returns its id. */
+export async function startDirect(request: APIRequestContext, member: Member, others: Member[]): Promise<string> {
+  const userIds = others.map(({ session }) => session.user.id);
+  const response = await request.post("/api/directs", { data: { userIds }, headers: { Cookie: cookieHeader(member.session) } });
+  expect(response.status(), await response.text()).toBe(201);
+  return ((await response.json()) as { room: { id: string } }).room.id;
 }
 
 /** Pastes `text` into the composer, and `html` if given, as Campfire's tests do. */

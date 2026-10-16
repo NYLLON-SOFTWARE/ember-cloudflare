@@ -6,8 +6,8 @@ import { RELOAD_AFTER_HIDDEN_MS, REORDER_SPREAD_MS, useSidebar } from "./use-sid
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
-const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
-const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false } satisfies SidebarRoom;
+const design = { id: "r1", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
+const general = { id: "r2", name: "general", kind: "open", icon: null, unread: false, involvement: "mentions" } satisfies SidebarRoom;
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [] });
 const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
@@ -230,7 +230,7 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
   });
 
-  it("adds the rooms the workspace socket brings as they're saved, and changes the ones it has, keeping their marks", async () => {
+  it("adds the rooms the workspace socket brings as they're saved, and changes the ones it has, keeping their marks and levels", async () => {
     const { result } = await showSidebar();
     socket().connect();
     await settle();
@@ -238,8 +238,9 @@ describe(feature("sidebar.live-updates"), () => {
     expect(result.current.list?.rooms).toEqual([design, general]);
 
     socket().receive({ type: "room.unread", roomId: design.id });
+    socket().receive({ type: "room.involvement", roomId: design.id, involvement: "nothing" });
     socket().receive({ type: "room.saved", room: { id: design.id, name: "Roadmap", kind: "closed", icon: "rocket" } });
-    expect(result.current.list?.rooms).toEqual([{ id: design.id, name: "Roadmap", kind: "closed", icon: "rocket", unread: true }, general]);
+    expect(result.current.list?.rooms).toEqual([{ id: design.id, name: "Roadmap", kind: "closed", icon: "rocket", unread: true, involvement: "nothing" }, general]);
   });
 
   it("takes out each room the workspace socket says is gone, saying which", async () => {
@@ -320,8 +321,20 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
+describe(feature("notifications.levels"), () => {
+  it("changes a room's level as the workspace socket says one of Ada's tabs saved it", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.involvement", roomId: design.id, involvement: "invisible" });
+    expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "invisible" }]);
+    socket().receive({ type: "room.involvement", roomId: design.id, involvement: "everything" });
+    expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "everything" }]);
+  });
+});
+
 describe(feature("sidebar.dm-order"), () => {
-  const withGrace = { id: "d1", kind: "direct", members: [ada, { id: grace.id, name: grace.name }], activeAt: "2026-10-15T12:00:00.000Z", unread: false } satisfies SidebarRoom;
+  const withGrace = { id: "d1", kind: "direct", members: [ada, { id: grace.id, name: grace.name }], activeAt: "2026-10-15T12:00:00.000Z", unread: false, involvement: "everything" } satisfies SidebarRoom;
 
   it("moves a DM as the workspace socket says a message came in it", async () => {
     server.sidebar = unstarred([design, withGrace]);

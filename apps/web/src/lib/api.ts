@@ -9,6 +9,7 @@ import {
   type Directory,
   type DirectoryUser,
   type Favorites,
+  type Involvement,
   type LinkPreview,
   type Me,
   type NewDirect,
@@ -253,6 +254,15 @@ export async function changeRoom(roomId: RoomId, changes: RoomChanges): Promise<
  */
 export async function setFavorite(roomId: RoomId, favorite: boolean): Promise<Favorites> {
   return (await request<{ favorites: Favorites }>(`/api/rooms/${encodeURIComponent(roomId)}/favorite`, { method: "PUT", body: JSON.stringify({ favorite }) })).favorites;
+}
+
+/**
+ * Gives this person level `involvement` in a room, answering it. Fails with a 404 ApiError for a room
+ * they aren't in.
+ */
+export async function setInvolvement(roomId: RoomId, involvement: Involvement): Promise<Involvement> {
+  return (await request<{ involvement: Involvement }>(`/api/rooms/${encodeURIComponent(roomId)}/involvement`, { method: "PUT", body: JSON.stringify({ involvement }) }))
+    .involvement;
 }
 
 /**

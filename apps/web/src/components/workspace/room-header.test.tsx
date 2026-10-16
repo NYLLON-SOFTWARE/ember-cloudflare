@@ -20,7 +20,20 @@ afterEach(() => history.replaceState(null, "", "/"));
 function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, onOpenChange?: (open: boolean) => void) {
   return render(
     <Sheet onOpenChange={onOpenChange}>
-      <RoomHeader room={general} name="general" present={[]} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} {...props} />
+      <RoomHeader
+        room={general}
+        name="general"
+        present={[]}
+        status="open"
+        offline={false}
+        favorite={false}
+        onStarred={vi.fn()}
+        involvement="mentions"
+        onInvolved={vi.fn()}
+        onSessionChanged={vi.fn()}
+        onFailed={vi.fn()}
+        {...props}
+      />
     </Sheet>,
   );
 }
@@ -40,7 +53,19 @@ describe(feature("realtime.who-is-here"), () => {
     render(
       <PeopleContext value={new Map([[renamed.id, renamed]])}>
         <Sheet>
-          <RoomHeader room={general} name="general" present={people(2)} status="open" offline={false} favorite={false} onStarred={vi.fn()} onSessionChanged={vi.fn()} />
+          <RoomHeader
+            room={general}
+            name="general"
+            present={people(2)}
+            status="open"
+            offline={false}
+            favorite={false}
+            onStarred={vi.fn()}
+            involvement="mentions"
+            onInvolved={vi.fn()}
+            onSessionChanged={vi.fn()}
+            onFailed={vi.fn()}
+          />
         </Sheet>
       </PeopleContext>,
     );
@@ -170,5 +195,36 @@ describe(feature("rooms.icons"), () => {
 
     renderHeader();
     expect(screen.getByText("#")).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+describe(feature("notifications.levels"), () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("puts the bell for your level between Search and the settings, in rooms and DMs alike", () => {
+    for (const [room, name, involvement, label] of [
+      [general, "general", "mentions", "Notifying about @ mentions"],
+      [adaDirect, "Ada", "everything", "Notifying about all messages"],
+    ] as const) {
+      const { unmount } = renderHeader({ room, name, involvement });
+      const bell = screen.getByRole("checkbox", { name: label });
+      expect(bell).toHaveClass("size-9", "[&>img]:size-5");
+      const following = (a: Element, b: Element) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(following(screen.getByRole("link", { name: "Search messages" }), bell)).toBeTruthy();
+      expect(following(bell, screen.getByRole("link", { name: /^Settings for this/ }))).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("hands on the level its bell saves, and why it couldn't", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "everything" }));
+    const [onInvolved, onFailed] = [vi.fn(), vi.fn()];
+    renderHeader({ onInvolved, onFailed });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
+    expect(onInvolved).toHaveBeenCalledWith("general", "everything");
+
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Something went wrong" }, { status: 500 }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
+    expect(onFailed).toHaveBeenCalledOnce();
   });
 });

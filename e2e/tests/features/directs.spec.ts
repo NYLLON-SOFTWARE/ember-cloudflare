@@ -1,16 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
-import type { APIRequestContext } from "@playwright/test";
 import { cookieHeader } from "../../fixtures";
-import { expect, test, unique, type Member } from "./fixtures";
-
-/** Starts a DM between `member` and `others` through the API, as New direct message does, and returns its id. */
-async function startDirect(request: APIRequestContext, member: Member, others: Member[]): Promise<string> {
-  const userIds = others.map(({ session }) => session.user.id);
-  const response = await request.post("/api/directs", { data: { userIds }, headers: { Cookie: cookieHeader(member.session) } });
-  expect(response.status(), await response.text()).toBe(201);
-  return ((await response.json()) as { room: { id: string } }).room.id;
-}
+import { expect, startDirect, test, unique, type Member } from "./fixtures";
 
 /** `member`'s sidebar row for their DM with `others`, named for them in the order the DM lists them, which is by id. */
 function directRow(member: Member, others: Member[]) {

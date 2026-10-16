@@ -39,7 +39,7 @@ const change = (roomId: RoomId, session: Session, body: unknown) =>
 const promote = (administrator: Session, userId: UserId, role = "administrator") =>
   api(`/api/account/users/${userId}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ role }) });
 
-/** Hides room `roomId` from `session`'s person, as setting its involvement to Invisible will. */
+/** Hides room `roomId` from `session`'s person, as its bell does at off and hidden. */
 const hide = (session: Session, roomId: RoomId) =>
   workspaceSql("UPDATE memberships SET involvement = 'invisible' WHERE room_id = ? AND user_id = ?", roomId, session.user.id);
 

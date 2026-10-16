@@ -1,4 +1,16 @@
-import { suggestedCount, type Favorites, type Room, type RoomId, type SharedRoom, type Sidebar, type SidebarRoom, type User } from "@ember/protocol";
+import {
+  startingInvolvement,
+  suggestedCount,
+  type Favorites,
+  type Involvement,
+  type Room,
+  type RoomId,
+  type SharedRoom,
+  type Sidebar,
+  type SidebarRoom,
+  type User,
+} from "@ember/protocol";
+import { isHidden } from "./involvement";
 
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms they've
@@ -6,18 +18,21 @@ import { suggestedCount, type Favorites, type Room, type RoomId, type SharedRoom
 // its order, then the rest by name, as ember-rust's channel_order_controller.js sorts its rows: each
 // name lowercased and compared as `localeCompare` compares it, in the browser's language, then by id.
 // Their DMs go by when each was last active, latest first, as ember-rust's sorted_list_controller.js
-// sorts them.
+// sorts them. The rooms someone has hidden are listed too, for them to open, but their sidebar leaves
+// them out, as ember-rust's leaves out every room whose level is "invisible" (`visible_with_ordered_room`,
+// membership.rs).
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
 /** A row in the sidebar's DMs. */
 export type DirectSidebarRoom = Exclude<SidebarRoom, SharedSidebarRoom>;
 
-/** `rooms` apart, as the sidebar lists them: the rooms, then the DMs, each in the order given. */
+/** `rooms` apart, as the sidebar lists them: the rooms, then the DMs, each in the order given, but none hidden. */
 export function apart(rooms: SidebarRoom[]): { shared: SharedSidebarRoom[]; directs: DirectSidebarRoom[] } {
   const shared: SharedSidebarRoom[] = [];
   const directs: DirectSidebarRoom[] = [];
   for (const room of rooms) {
+    if (isHidden(room)) continue;
     if (room.kind === "direct") directs.push(room);
     else shared.push(room);
   }
@@ -77,20 +92,22 @@ export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | 
 
 /**
  * Whether the sidebar marks `room` unread, as rooms_list_controller.js marks its row: never the room
- * the tab shows, `currentRoomId`, which counts as read while it's open.
+ * the tab shows, `currentRoomId`, which counts as read while it's open, or one it leaves out, hidden
+ * after it was marked.
  */
-export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId;
+export const markedUnread = (room: SidebarRoom, currentRoomId: RoomId | null) => room.unread && room.id !== currentRoomId && !isHidden(room);
 
 /**
- * `rooms` with `room` as it is now, in place of what it was, keeping its mark, or last and read, as the
- * room made most recently, which a room someone has just been put in counts as until the list loads again.
+ * `rooms` with `room` as it is now, in place of what it was, keeping its mark and level, or last, read
+ * and at the level a room starts at, as the room made most recently, which a room someone has just been
+ * put in counts as until the list loads again.
  * A DM keeps the later of the two times it was last active, since a message can come between the server
  * reading it and its answer arriving.
  */
 export function withRoom(rooms: SidebarRoom[], room: Room): SidebarRoom[] {
   return rooms.some((r) => r.id === room.id)
-    ? rooms.map((r) => (r.id === room.id ? { ...room, ...laterActivity(r, room), unread: r.unread } : r))
-    : [...rooms, { ...room, unread: false }];
+    ? rooms.map((r) => (r.id === room.id ? { ...room, ...laterActivity(r, room), unread: r.unread, involvement: r.involvement } : r))
+    : [...rooms, { ...room, unread: false, involvement: startingInvolvement(room) }];
 }
 
 /** `listed`'s time last active, when it's a DM and that's later than `room`'s. */
@@ -104,15 +121,16 @@ const withActivity = (rooms: SidebarRoom[], roomId: RoomId, at: string): Sidebar
 /**
  * A change to someone's rooms, which the server's list shows the next time it's asked: a room as it was
  * saved, here or anywhere else, one that's gone for this person, deleted or no longer theirs, a room the
- * workspace socket says has been marked unread or read, a DM it says a message has come in, their
- * stars, as a star saved in any of their tabs leaves them, or the shared order, as saving it here leaves
- * their rooms in it.
+ * workspace socket says has been marked unread or read, a DM it says a message has come in, a room's
+ * level, as one saved in any of their tabs leaves it, their stars, as a star saved in any of their tabs
+ * leaves them, or the shared order, as saving it here leaves their rooms in it.
  */
 export type RoomChange =
   | { type: "saved"; room: Room }
   | { type: "gone"; roomId: RoomId }
   | { type: "marked"; roomId: RoomId; unread: boolean }
   | { type: "active"; roomId: RoomId; at: string }
+  | { type: "involved"; roomId: RoomId; involvement: Involvement }
   | { type: "starred"; favorites: Favorites }
   | { type: "reordered"; sharedOrder: RoomId[] };
 
@@ -153,6 +171,8 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, unread: change.unread } : room)) };
     case "active":
       return { ...list, rooms: withActivity(list.rooms, change.roomId, change.at) };
+    case "involved":
+      return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, involvement: change.involvement } : room)) };
     case "join code":
       return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
     // Stars come from a star's answer, the socket and the list itself, in whatever order they arrive,

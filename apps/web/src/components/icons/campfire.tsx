@@ -25,6 +25,10 @@ import messagesEmpty from "./campfire/messages-empty.svg";
 import messagesOutlined from "./campfire/messages-outlined.svg";
 import minus from "./campfire/minus.svg";
 import mobilePhone from "./campfire/mobile-phone.svg";
+import notificationBellEverything from "./campfire/notification-bell-everything.svg";
+import notificationBellInvisible from "./campfire/notification-bell-invisible.svg";
+import notificationBellMentions from "./campfire/notification-bell-mentions.svg";
+import notificationBellNothing from "./campfire/notification-bell-nothing.svg";
 import pencil from "./campfire/pencil.svg";
 import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
@@ -155,6 +159,22 @@ export function Minus(props: CampfireIconProps) {
 
 export function MobilePhone(props: CampfireIconProps) {
   return <CampfireIcon src={mobilePhone} {...props} />;
+}
+
+export function NotificationBellEverything(props: CampfireIconProps) {
+  return <CampfireIcon src={notificationBellEverything} {...props} />;
+}
+
+export function NotificationBellInvisible(props: CampfireIconProps) {
+  return <CampfireIcon src={notificationBellInvisible} {...props} />;
+}
+
+export function NotificationBellMentions(props: CampfireIconProps) {
+  return <CampfireIcon src={notificationBellMentions} {...props} />;
+}
+
+export function NotificationBellNothing(props: CampfireIconProps) {
+  return <CampfireIcon src={notificationBellNothing} {...props} />;
 }
 
 export function Pencil(props: CampfireIconProps) {

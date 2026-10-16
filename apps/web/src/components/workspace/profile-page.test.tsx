@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Profile, ProfileAnswer, ProfileChanges } from "@ember/protocol";
+import type { Account, Profile, ProfileAnswer, ProfileChanges, SidebarRoom } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -39,18 +39,20 @@ function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK
   });
 }
 
-function showPage(shown = account) {
-  const [onSignOut, onFailed] = [vi.fn(), vi.fn()];
-  render(
+/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads. */
+function showPage(shown = account, rooms: SidebarRoom[] | null = null) {
+  const [onSignOut, onFailed, onInvolved] = [vi.fn(), vi.fn(), vi.fn()];
+  const page = (listed: SidebarRoom[] | null) => (
     <AccountContext value={shown}>
       <FlashProvider workspace>
         <Sheet>
-          <ProfilePage me={ada} onSignOut={onSignOut} onFailed={onFailed} />
+          <ProfilePage me={ada} rooms={listed} onInvolved={onInvolved} onSignOut={onSignOut} onFailed={onFailed} />
         </Sheet>
       </FlashProvider>
-    </AccountContext>,
+    </AccountContext>
   );
-  return { onSignOut, onFailed, user: userEvent.setup() };
+  const { rerender } = render(page(rooms));
+  return { onSignOut, onFailed, onInvolved, user: userEvent.setup(), showRooms: (listed: SidebarRoom[]) => rerender(page(listed)) };
 }
 
 const field = (label: string) => screen.getByLabelText(label);
@@ -258,5 +260,35 @@ describe(feature("auth.sign-in-link"), () => {
     await user.type(field("Bio"), "!");
     await user.click(saveButton());
     await waitFor(() => expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers/${SAVED_LINK}`));
+  });
+});
+
+describe(feature("notifications.profile-list"), () => {
+  const design: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
+  const notifications = () => screen.queryByRole("list", { name: "Conversation notifications" });
+
+  it("lists your level in each of your rooms between the form and your sign-in link, once your rooms have loaded", async () => {
+    const { showRooms } = showPage();
+    await loaded();
+    expect(notifications()).toBeNull();
+
+    showRooms([design]);
+    expect(notifications()).toHaveTextContent("Design");
+    const signInLink = screen.getByRole("textbox", { name: "Use this link to login automatically on another device" });
+    expect(saveButton().compareDocumentPosition(notifications()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(notifications()!.compareDocumentPosition(signInLink)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says why a bell couldn't save a level", async () => {
+    vi.mocked(fetch).mockImplementation(async (input, init) =>
+      String(input) === "/api/rooms/design/involvement"
+        ? Response.json({ error: "Something went wrong" }, { status: 500 })
+        : Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    );
+    const { onInvolved, onFailed, user } = showPage(account, [design]);
+    await loaded();
+    await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
+    expect(onFailed).toHaveBeenCalledOnce();
+    expect(onInvolved).not.toHaveBeenCalled();
   });
 });

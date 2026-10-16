@@ -5,6 +5,7 @@ import {
   parseAccountChanges,
   parseCustomStyles,
   parseFavoriteOrder,
+  parseInvolvementChange,
   parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
@@ -19,6 +20,7 @@ import {
   type CustomStyles,
   type Directory,
   type Favorites,
+  type Involvement,
   type NewJoinCode,
   type NewRoomForm,
   type PersonAnswer,
@@ -80,6 +82,7 @@ export { Workspace } from "./workspace";
 const MAX_NAME_LENGTH = 48;
 /** ember-rust's alert for a room someone can't open, whether it's missing or they aren't in it. */
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
+const INVOLVEMENT_REFUSED = "Notification level must be mentions, everything, nothing or invisible";
 
 const json = (data: unknown, init?: ResponseInit) => Response.json(data, init);
 const problem = (status: number, message: string) => json({ error: message }, { status });
@@ -512,6 +515,22 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
 }
 
 /**
+ * Gives the signed-in person another notification level in a room, as its bell does, answering it, as
+ * ember-rust's `involvements#update` does (rooms/involvements.rs): 404 when they aren't in the room,
+ * whatever's sent, then 422 for anything but a level. ember-rust stores a blank level as none at all
+ * and fails on any other.
+ */
+async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const involvement = await workspace(env).setInvolvement(credentials, roomId, parseInvolvementChange(await request.json().catch(() => null)));
+  if (!involvement) return problem(401, "Not signed in");
+  if (involvement === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (involvement === "invalid") return problem(422, INVOLVEMENT_REFUSED);
+  return json({ involvement } satisfies { involvement: Involvement });
+}
+
+/**
  * Puts the signed-in person's starred rooms in the order listed, as dragging one in their sidebar does,
  * answering their stars, where ember-rust's `sidebars#update_order` answers 204 (users/sidebars.rs): 400
  * for a list it can't read, and 403 for one that isn't exactly the rooms they've starred.
@@ -637,6 +656,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
   const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
   if (favorite && request.method === "PUT") return () => setFavorite(request, env, favorite[1]!);
+  const involvement = pathname.match(/^\/api\/rooms\/([^/]+)\/involvement$/);
+  if (involvement && request.method === "PUT")
+    return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return () => (isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
   if (room && request.method === "DELETE") return () => (isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));

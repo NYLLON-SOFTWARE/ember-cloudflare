@@ -45,13 +45,13 @@ const asAda: Me = { id: ada.id, name: ada.name, administrator: true };
 const asLinus: Me = { id: linus.id, name: linus.name, administrator: false };
 
 /** A room shared by name, as the sidebar lists it. */
-const shared = (id: string, name: string): SidebarRoom => ({ id, name, kind: id.startsWith("secret") ? "closed" : "open", icon: null, unread: false });
+const shared = (id: string, name: string): SidebarRoom => ({ id, name, kind: id.startsWith("secret") ? "closed" : "open", icon: null, unread: false, involvement: "mentions" });
 /** Ada's rooms, in the order she joined them, as her sidebar lists them, with a DM, which isn't put in order. */
 const adasRooms: SidebarRoom[] = [
   shared("general", "general"),
   shared("random", "random"),
   shared("secret", "Design"),
-  { id: "dm", kind: "direct", members: [asAda, { id: grace.id, name: grace.name }], activeAt: "2026-10-16T12:00:00.000Z", unread: false },
+  { id: "dm", kind: "direct", members: [asAda, { id: grace.id, name: grace.name }], activeAt: "2026-10-16T12:00:00.000Z", unread: false, involvement: "everything" },
 ];
 
 interface Answers {

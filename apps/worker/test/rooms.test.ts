@@ -198,7 +198,7 @@ describe(feature("rooms.legacy-rooms"), () => {
     await workspaceStub().registerLegacyRooms([room.id]);
     const grace = await signIn("Grace");
 
-    const expected = { id: room.id, kind: "open", name: room.id, icon: null, unread: false };
+    const expected = { id: room.id, kind: "open", name: room.id, icon: null, unread: false, involvement: "mentions" };
     expect(await listed(ada, room.id)).toEqual([expected]);
     expect(await listed(grace, room.id)).toEqual([expected]);
     const { welcome } = await connect(room.id, grace);

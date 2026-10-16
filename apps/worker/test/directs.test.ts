@@ -11,6 +11,7 @@ import {
   deactivatedPerson,
   direct,
   freshDeploy,
+  listedRoom,
   openWorkspaceSocket,
   post,
   roomSql,
@@ -134,7 +135,7 @@ describe(feature("dms.create"), () => {
     // Opening it again changes nothing, so nobody hears of it.
     await direct(grace, ada);
     for (const tab of [adasTab, gracesTab]) await heardNothing(tab);
-    for (const member of [ada, grace]) expect(await directsOf(member)).toEqual([{ ...room, unread: false }]);
+    for (const member of [ada, grace]) expect(await directsOf(member)).toEqual([listedRoom(room)]);
     expect(await directsOf(linus)).toEqual([]);
   });
 
@@ -315,7 +316,7 @@ describe(feature("dms.naming"), () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await direct(ada, grace);
     await workspaceSql("UPDATE users SET name = 'Grace Hopper' WHERE id = ?", grace.user.id);
-    expect(await directsOf(ada)).toEqual([{ ...room, members: everyone(ada.user, { ...grace.user, name: "Grace Hopper" }), unread: false }]);
+    expect(await directsOf(ada)).toEqual([listedRoom({ ...room, members: everyone(ada.user, { ...grace.user, name: "Grace Hopper" }) })]);
   });
 });
 
