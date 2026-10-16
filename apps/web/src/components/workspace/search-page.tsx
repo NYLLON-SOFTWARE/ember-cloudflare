@@ -36,11 +36,14 @@ interface Props {
  * composer would be. Searching records the search as your newest and goes to its address, and Escape
  * goes to `/searches`, as the field's × does. Each visit asks for its address's search afresh, as each
  * of ember-rust's pages is drawn, but the one a search goes to, which shows what the search answered.
+ * Until a visit's search answers, the page, its field too, goes on showing the last one, marked busy, as
+ * ember-rust's stays until Turbo draws the next, and drops it if the search fails.
  */
 export function SearchPage({ me, back, onFailed }: Props) {
   const q = useQueryParam("q");
   const visit = useVisit();
-  const [results, setResults] = useState<SearchResults | null>(null);
+  // What the page shows: what a search answered, and the visit and address's search it answered for.
+  const [shown, setShown] = useState<{ results: SearchResults; visit: number; q: string | null } | null>(null);
   // What the form's last search answered, and the visit it went on to, once that has shown it.
   const answered = useRef<{ query: string; results: SearchResults; visit?: number } | null>(null);
   const [searching, setSearching] = useState(false);
@@ -53,17 +56,25 @@ export function SearchPage({ me, back, onFailed }: Props) {
     const answer = answered.current;
     if (answer?.query === q && (answer.visit ?? visit) === visit) {
       answer.visit = visit;
-      setResults(answer.results);
+      setShown({ results: answer.results, visit, q });
       return;
     }
     answered.current = null;
     let stopped = false;
     fetchSearch(q).then(
-      (found) => !stopped && setResults(found),
-      (error: unknown) => (!stopped || isSignedOut(error)) && onFailed(error),
+      (found) => !stopped && setShown({ results: found, visit, q }),
+      (error: unknown) => {
+        if (stopped && !isSignedOut(error)) return;
+        // What another search found doesn't stay at this one's address.
+        if (!stopped) setShown(null);
+        onFailed(error);
+      },
     );
     return () => void (stopped = true);
   }, [q, visit, onFailed]);
+  const results = shown?.results ?? null;
+  // The field holds the search the page shows, or the address's while it shows none.
+  const drawn = shown ?? { visit, q };
 
   // As ember-rust's search_results_controller.js does, the newest message shows, at the bottom.
   useLayoutEffect(() => {
@@ -117,7 +128,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
         {results?.query != null && <SearchedFor query={results.query} count={messages.length} />}
       </PageHeader>
       <MainContent
-        aria-busy={results === null || undefined}
+        aria-busy={shown?.visit !== visit || undefined}
         className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]"
       >
         {results && results.recent.length > 0 && <RecentSearches searches={results.recent} onClear={clear} />}
@@ -149,10 +160,10 @@ export function SearchPage({ me, back, onFailed }: Props) {
             {/* Campfire's `.input--actor`: the field's border holds the hint, the field, its × and the button. */}
             <div className="flex min-h-11 w-full min-w-0 items-center gap-[1ch] rounded-[9px] border px-[0.8em] py-[0.5em] text-base focus-within:border-muted-foreground max-md:px-2">
               <Search className="size-5 shrink-0 max-md:hidden" />
-              {/* Afresh each visit, with its address's search, and focused, as ember-rust's `autofocus` field is on each page.
+              {/* Afresh with each search shown, holding it, and focused, as ember-rust's `autofocus` field is on each page drawn.
                   It takes taps from the top of its box to the bottom, which ember-rust's leaves to the box around it. */}
               <input
-                key={visit}
+                key={drawn.visit}
                 name="q"
                 type="text"
                 role="searchbox"
@@ -160,7 +171,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
                 placeholder="Search messages…"
                 required
                 autoFocus
-                defaultValue={q ?? ""}
+                defaultValue={drawn.q ?? ""}
                 className="peer -my-[0.5em] min-w-0 flex-1 self-stretch bg-transparent py-[0.5em] placeholder:text-muted-foreground focus-visible:outline-none"
               />
               {/* Hidden while the field is empty, as Campfire's `.searches__input:required:invalid ~ .searches__reset` is,

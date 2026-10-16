@@ -115,6 +115,36 @@ describe(feature("search.page"), () => {
     expect(screen.getByRole("heading", { name: "No messages found" })).toBeVisible();
   });
 
+  it("goes on showing the last search, its field too, busy, until the next has answered, and drops it if that fails", async () => {
+    const [zebra, newt] = [held(), held()];
+    serve((_, url) =>
+      url.endsWith("=zebra") ? zebra.promise : url.endsWith("=newt") ? newt.promise : Response.json(results("hello", [message("m1", general, "Hello")])),
+    );
+    const { onFailed } = showPage(searchPath("hello"));
+    await found();
+
+    act(() => navigate(searchPath("zebra")));
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("region", { name: "Search results" })).toHaveTextContent("Hello");
+    expect(field()).toHaveValue("hello");
+    await zebra.answer(Response.json(results("zebra")));
+    expect(screen.getByRole("main")).not.toHaveAttribute("aria-busy");
+    expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/“zebra”0$/);
+    expect(field()).toHaveValue("zebra");
+    expect(field()).toHaveFocus();
+
+    act(() => navigate(searchPath("newt")));
+    expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("heading", { name: "No messages found" })).toBeVisible();
+    expect(field()).toHaveValue("zebra");
+    await newt.answer(Response.json({ error: "Something went wrong" }, { status: 500 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    // What another search found doesn't stay at this one's address.
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("“");
+    expect(field()).toHaveValue("newt");
+  });
+
   it("goes to the page without a search on Escape, as the field's × does, and back to the room it was opened from on Exit", async () => {
     serve((_, url) => Response.json(url === "/api/searches" ? results(null) : results("hello", [message("m1", general, "Hello")])));
     const { user } = showPage(searchPath("hello"));
