@@ -6,7 +6,9 @@ import arrowDown from "./campfire/arrow-down.svg";
 import arrowLeft from "./campfire/arrow-left.svg";
 import arrowUp from "./campfire/arrow-up.svg";
 import art from "./campfire/art.svg";
+import attachment from "./campfire/attachment.svg";
 import boost from "./campfire/boost.svg";
+import bot from "./campfire/bot.svg";
 import broom from "./campfire/broom.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
@@ -100,8 +102,16 @@ export function Art(props: CampfireIconProps) {
   return <CampfireIcon src={art} {...props} />;
 }
 
+export function Attachment(props: CampfireIconProps) {
+  return <CampfireIcon src={attachment} {...props} />;
+}
+
 export function Boost(props: CampfireIconProps) {
   return <CampfireIcon src={boost} {...props} />;
+}
+
+export function Bot(props: CampfireIconProps) {
+  return <CampfireIcon src={bot} {...props} />;
 }
 
 export function Broom(props: CampfireIconProps) {

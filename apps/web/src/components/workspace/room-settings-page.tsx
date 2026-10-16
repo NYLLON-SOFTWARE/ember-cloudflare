@@ -184,20 +184,17 @@ export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissi
   );
 }
 
+/** Campfire's `.btn.btn--negative` (buttons.css): red, with its icon white in both modes as zz-ember.css makes it, and 36px tall in a panel. */
+export const NEGATIVE_BUTTON =
+  "inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50";
+
 /**
  * ember-rust's `button_to_delete_room` (crates/views/src/rooms.rs), and a DM's Delete Ping
- * (rooms/directs/edit.html): Campfire's `.btn.btn--negative` (buttons.css), red with a white trash can in
- * both modes as zz-ember.css makes it, and 36px tall in a panel.
+ * (rooms/directs/edit.html): a negative button with a trash can.
  */
 export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50"
-    >
+    <button type="button" aria-label={label} disabled={disabled} onClick={onClick} className={NEGATIVE_BUTTON}>
       <Trash tone="white" width={20} height={20} className="size-[1.3em] shrink-0" />
       <span className="truncate">{text}</span>
     </button>

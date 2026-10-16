@@ -12,7 +12,7 @@ import {
 } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Art, Crown } from "@/components/icons/campfire";
+import { Add, Art, Bot, Crown } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -20,7 +20,7 @@ import { Version } from "@/components/version";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
-import { CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
+import { BOTS_PATH, CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removePerson } from "@/lib/api";
 import { apart } from "@/lib/room-list";
@@ -233,13 +233,18 @@ export function WorkspaceSettingsPage({
     [onPersonChanged, onFailed, mounted, listPeople],
   );
 
-  // ember-rust's top bar links to Chat bots too, which isn't built yet.
+  // zz-ember.css leaves only their icons on screen at 500px wide and below.
   const links = settings?.canAdminister && (
-    <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
-      <Art width={20} height={20} className="h-5 w-[1.3em]" />
-      {/* zz-ember.css leaves only the icon on screen at 500px wide and below. */}
-      <span className="max-[500px]:sr-only">Custom styles</span>
-    </PageLink>
+    <>
+      <PageLink href={BOTS_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
+        <Bot width={20} height={20} className="h-5 w-[1.3em]" />
+        <span className="max-[500px]:sr-only">Chat bots</span>
+      </PageLink>
+      <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
+        <Art width={20} height={20} className="h-5 w-[1.3em]" />
+        <span className="max-[500px]:sr-only">Custom styles</span>
+      </PageLink>
+    </>
   );
 
   return (

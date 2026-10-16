@@ -32,6 +32,12 @@ export type WorkspacePage =
   | { page: "workspace-settings" }
   /** The Custom CSS page, which only administrators may open. */
   | { page: "custom-styles" }
+  /** The Chat bots page, at `/account/bots`, which only administrators may open, as the next two. */
+  | { page: "bots" }
+  /** Add a chat bot, at `/account/bots/new`. */
+  | { page: "new-bot" }
+  /** A bot's settings, at `/account/bots/<id>/edit`. */
+  | { page: "bot-settings"; userId: UserId }
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
   | { page: "profile" }
   /**
@@ -50,6 +56,8 @@ export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "direct
 const SIGN_IN_PATH = "/session/new";
 export const WORKSPACE_SETTINGS_PATH = "/account/edit";
 export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
+export const BOTS_PATH = "/account/bots";
+export const NEW_BOT_PATH = "/account/bots/new";
 export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
@@ -74,6 +82,11 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
+  if (pathname === BOTS_PATH) return { page: "bots" };
+  if (pathname === NEW_BOT_PATH) return { page: "new-bot" };
+  const bot = pathname.match(/^\/account\/bots\/([^/]+)\/edit$/);
+  const botId = bot && decoded(bot[1]!);
+  if (botId) return { page: "bot-settings", userId: botId };
   if (pathname === SEARCHES_PATH) return { page: "search" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };

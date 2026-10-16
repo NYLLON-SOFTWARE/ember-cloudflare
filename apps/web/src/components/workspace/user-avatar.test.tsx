@@ -28,7 +28,15 @@ describe(feature("users.avatars"), () => {
   });
 
   it("draws the initials while the directory doesn't list someone", () => {
-    expect(picture(<UserAvatar user={ada} />, new Map()).image).toHaveAttribute("src", drawn);
+    expect(picture(<UserAvatar user={{ id: ada.id, name: ada.name }} />, new Map()).image).toHaveAttribute("src", drawn);
+  });
+
+  it("shows the image the user it's given has until the directory lists them, as a bot just added", () => {
+    const { image, rerender } = picture(<UserAvatar user={ada} />, new Map());
+    expect(image).toHaveAttribute("src", ada.avatarUrl);
+    const changed = { ...ada, avatarUrl: "/users/u1.abc/avatar?v=20261015120000" };
+    rerender(new Map([[ada.id, changed]]));
+    expect(image).toHaveAttribute("src", changed.avatarUrl);
   });
 
   it("draws the initials of the name the directory lists, which follows a rename since the user was copied", () => {

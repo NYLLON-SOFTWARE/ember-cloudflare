@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
@@ -1511,6 +1511,44 @@ describe(feature("notifications.test-page"), () => {
     }
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await roomHeading()).toHaveTextContent("random");
+  });
+});
+
+describe(feature("bots.list"), () => {
+  const bot: Bot = { id: "b1", name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: "/users/b0t/avatar?v=1", key: "b1-Ab3dEf5hiJ7k", rooms: [] };
+
+  it("shows the bot pages at their addresses, marking nothing on the rail, with Go Back to the bots page, and from there to workspace settings", async () => {
+    serve({
+      "GET /api/account/bots": () => Response.json({ bots: [bot] }),
+      "GET /api/account/bots/b1": () => Response.json({ bot: { ...bot, webhookUrl: null } }),
+    });
+    const { user } = showWorkspace("/account/bots");
+    expect(await screen.findByRole("heading", { level: 1, name: "Chat bots" })).toBeInTheDocument();
+    expect(railCurrent()).toEqual([]);
+
+    await user.click(await screen.findByRole("link", { name: "Edit Build Bot" }));
+    expect(await screen.findByRole("textbox", { name: "Bot name" })).toHaveValue("Build Bot");
+    expect(document.title).toBe("Edit bot");
+    expect(railCurrent()).toEqual([]);
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Chat bots" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
+  });
+
+  it("loads a bot's settings again when no active bot has the id, for the Worker to answer Campfire's 404 page", async () => {
+    vi.mocked(loadPage).mockClear();
+    serve({ "GET /api/account/bots/nobody": () => Response.json({ error: "Not found" }, { status: 404 }) });
+    showWorkspace("/account/bots/nobody/edit");
+    await waitFor(() => expect(loadPage).toHaveBeenCalledExactlyOnceWith("/account/bots/nobody/edit"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("sends a member from Add a chat bot to workspace settings, saying why", async () => {
+    showWorkspace("/account/bots/new");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
+    expect(location.pathname).toBe("/account/edit");
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
   });
 });
 

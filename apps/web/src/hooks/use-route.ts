@@ -5,7 +5,7 @@ import { KIND_SEGMENTS, transferIdFromPath, workspacePageOf, type RoomAccess, ty
 // small typed router over the History API rather than a library. A page with changes to lose can
 // hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
-export { CUSTOM_STYLES_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { BOTS_PATH, CUSTOM_STYLES_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -21,6 +21,8 @@ export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(ro
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
 /** A room's settings page, at the address for its kind, as ember-rust's `edit_path` gives it. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
+/** A bot's settings page, as ember-rust's `edit_account_bot_path` gives it. */
+export const botSettingsPath = (botId: UserId) => `/account/bots/${encodeURIComponent(botId)}/edit`;
 
 /**
  * Asked before the app leaves the page shown, with the address it's going to, its path and any query

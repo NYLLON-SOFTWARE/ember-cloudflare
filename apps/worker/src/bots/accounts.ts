@@ -1,6 +1,8 @@
-import { parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings, type UserId } from "@ember/protocol";
+import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings, type UserId } from "@ember/protocol";
 import { credentialsOf } from "../auth";
 import type { Env } from "../env";
+import { notFound } from "../error-pages";
+import { anyOtherPage } from "../pages";
 import { workspace } from "../workspace";
 
 // Chat bots, as administrators add, change and delete them, as ember-rust's `accounts/bots` and
@@ -10,7 +12,6 @@ import { workspace } from "../workspace";
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
 const NOT_SIGNED_IN = "Not signed in";
-const FORBIDDEN = "Only administrators can manage bots";
 /** Keys are secrets, which no cache should keep. */
 const PRIVATE = { "Cache-Control": "no-store" };
 
@@ -19,8 +20,19 @@ export async function listBots(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const bots = credentials && (await workspace(env).bots(credentials));
   if (!bots) return problem(401, NOT_SIGNED_IN);
-  if (bots === "forbidden") return problem(403, FORBIDDEN);
+  if (bots === "forbidden") return problem(403, BOTS_FORBIDDEN);
   return Response.json({ bots } satisfies Bots, { headers: PRIVATE });
+}
+
+/**
+ * A bot's settings page, `/account/bots/<id>/edit`, as ember-rust answers it: Campfire's 404 page for an
+ * administrator when `id` isn't an active bot's, and otherwise the app's page, which sends anyone signed
+ * out to sign in, and anyone else to workspace settings.
+ */
+export async function botPage(request: Request, env: Env, pathname: string, botId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const found = credentials && (await workspace(env).bot(credentials, botId));
+  return found === "not found" ? notFound(request) : anyOtherPage(request, env, pathname);
 }
 
 /**
@@ -35,11 +47,11 @@ export async function createBot(request: Request, env: Env): Promise<Response> {
   if (typeof bot === "string") {
     const administrator = await workspace(env).canAdminister(credentials);
     if (administrator === null) return problem(401, NOT_SIGNED_IN);
-    return administrator ? problem(422, bot) : problem(403, FORBIDDEN);
+    return administrator ? problem(422, bot) : problem(403, BOTS_FORBIDDEN);
   }
   const created = await workspace(env).createBot(credentials, bot);
   if (!created) return problem(401, NOT_SIGNED_IN);
-  if (created === "forbidden") return problem(403, FORBIDDEN);
+  if (created === "forbidden") return problem(403, BOTS_FORBIDDEN);
   return Response.json({ bot: created } satisfies BotAnswer, { status: 201, headers: PRIVATE });
 }
 
@@ -72,7 +84,7 @@ export async function deleteBot(request: Request, env: Env, botId: UserId): Prom
   const credentials = await credentialsOf(request, env);
   const deleted = credentials && (await workspace(env).deleteBot(credentials, botId));
   if (!deleted) return problem(401, NOT_SIGNED_IN);
-  if (deleted === "forbidden") return problem(403, FORBIDDEN);
+  if (deleted === "forbidden") return problem(403, BOTS_FORBIDDEN);
   if (deleted === "not found") return problem(404, "Not found");
   return new Response(null, { status: 204 });
 }
@@ -85,7 +97,7 @@ export async function resetBotKey(request: Request, env: Env, botId: UserId): Pr
 
 function botAnswer(bot: BotSettings | "forbidden" | "not found" | null): Response {
   if (!bot) return problem(401, NOT_SIGNED_IN);
-  if (bot === "forbidden") return problem(403, FORBIDDEN);
+  if (bot === "forbidden") return problem(403, BOTS_FORBIDDEN);
   if (bot === "not found") return problem(404, "Not found");
   return Response.json({ bot } satisfies BotAnswer, { headers: PRIVATE });
 }
