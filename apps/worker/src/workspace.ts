@@ -18,6 +18,7 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
+  type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
@@ -28,6 +29,7 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { openDb, type Db } from "./db";
@@ -67,12 +69,10 @@ const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
 /**
  * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first and then purges. Each room it calls may count as a subrequest, of which an invocation on the
- * Free plan can make 50, its queries included.
+ * first, then purges, then reindexes. Each room it calls may count as a subrequest, of which an
+ * invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
-/** How many rooms the outbox calls at once: as many outgoing connections as an invocation can have open. */
-const ROOMS_AT_ONCE = 6;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 
@@ -155,15 +155,6 @@ const encoder = new TextEncoder();
 function isCode(code: string, joinCode: string): boolean {
   const [given, expected] = [encoder.encode(code), encoder.encode(joinCode)];
   return given.length === expected.length && crypto.subtle.timingSafeEqual(given, expected);
-}
-
-/** Runs `work` on each of `items`, `limit` at a time. */
-async function eachAtMost<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) await work(items[next++]!);
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 /** Sends `frame` on a workspace socket, unless it has closed since. */
@@ -1167,6 +1158,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The rooms the person `credentials` signs in is in, the ones they've hidden and DMs too, whose
+   * messages they can search, as ember-rust's `reachable_messages` reach them (message.rs), or null
+   * without a valid session.
+   */
+  async searchableRooms(credentials: Credentials): Promise<Room[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.roomsOf(user.id);
+  }
+
+  /**
    * The people of `ids` who exist, whatever their status, for a room naming the people a message
    * mentions, as ember-rust finds a mention's user (`User::find_by_id`).
    */
@@ -1221,7 +1222,8 @@ export class Workspace extends DurableObject<Env> {
    */
   override async alarm(): Promise<void> {
     const revocations = await this.deliverRevocations(DELIVERIES_PER_RUN);
-    await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+    const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
+    await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.scheduleDelivery();
   }
 
@@ -1258,14 +1260,14 @@ export class Workspace extends DurableObject<Env> {
    * even while it's asking. A room that has more of theirs left is asked again at once, and one that
    * can't be reached later, as a revocation is. A room is asked only once the sockets queued to close
    * there have closed, as those delivered just before may have, so a banned person can't write through
-   * one after it's done.
+   * one after it's done. Answers how many it read.
    */
-  private async deliverPurges(limit: number): Promise<void> {
-    if (limit <= 0) return;
+  private async deliverPurges(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
     // The purges it reads know of every ban lifted before.
     this.liftedBans.clear();
     const due = await this.store.duePurges(Date.now(), limit);
-    if (due.length === 0) return;
+    if (due.length === 0) return 0;
     const finished: number[] = [];
     const unfinished: number[] = [];
     const failed: number[] = [];
@@ -1280,6 +1282,30 @@ export class Workspace extends DurableObject<Env> {
       }
     });
     await this.store.settlePurges(finished, unfinished, failed, Date.now());
+    return due.length;
+  }
+
+  /**
+   * Asks rooms to have the search index take all their messages, up to `limit` rooms, as each room the
+   * workspace had when the index was new is asked once (migrations/0022_pending_reindexes.sql). One that
+   * can't be reached is asked again later, as a revocation is.
+   */
+  private async deliverReindexes(limit: number): Promise<void> {
+    if (limit <= 0) return;
+    const due = await this.store.dueReindexes(Date.now(), limit);
+    if (due.length === 0) return;
+    const delivered: RoomId[] = [];
+    const failed: RoomId[] = [];
+    await eachAtMost(due, ROOMS_AT_ONCE, async (roomId) => {
+      try {
+        await this.env.CHAT_ROOM.getByName(roomId).reindex(roomId);
+        delivered.push(roomId);
+      } catch (error) {
+        console.error(`Could not have room ${roomId} index its messages; trying again later`, error);
+        failed.push(roomId);
+      }
+    });
+    await this.store.settleReindexes(delivered, failed, Date.now());
   }
 
   /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
@@ -1297,13 +1323,16 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Registers rooms from before the Workspace kept a list as open rooms everyone is in, so their old
    * addresses keep their messages, and keeps the people who wrote or reacted in them as deactivated
-   * guests. Rooms already registered are left alone, so this runs again harmlessly.
+   * guests. Their messages go in the search index through the outbox. Rooms already registered are
+   * left alone, so this runs again harmlessly.
    */
   async registerLegacyRooms(ids: RoomId[]): Promise<void> {
-    for (const id of await this.store.unregisteredRooms(ids)) {
+    const unregistered = await this.store.unregisteredRooms(ids);
+    for (const id of unregistered) {
       const authors = await this.env.CHAT_ROOM.getByName(id).authors(id);
       await this.store.registerLegacyRoom(id, authors, new Date().toISOString());
     }
+    if (unregistered.length > 0) await this.wakeAt(Date.now());
   }
 }
 

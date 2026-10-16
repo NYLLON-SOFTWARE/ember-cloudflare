@@ -20,6 +20,7 @@ import { expect } from "vitest";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "../src/chat-room";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { searchIndex } from "../src/search-index";
 import { workspace } from "../src/workspace";
 
 export const origin = "https://ember.test";
@@ -136,6 +137,9 @@ export const closeOf = (ws: WebSocket) => new Promise<CloseEvent>((resolve) => w
 /** The Workspace's Durable Object. */
 export const workspaceStub = () => workspace(env as unknown as Env);
 
+/** The search index's Durable Object. */
+export const searchIndexStub = () => searchIndex(env as unknown as Env);
+
 /** Runs SQL against a Durable Object's own SQLite storage, whichever backend this suite is using. */
 export function objectSql(stub: DurableObjectStub, query: string, ...params: Array<string | number>): Promise<unknown[]> {
   return runInDurableObject(stub, (_object, state: DurableObjectState) => state.storage.sql.exec(query, ...params).toArray());
@@ -153,6 +157,9 @@ export const roomSql = (room: string, query: string, ...params: Array<string | n
 
 /** Runs SQL against the Workspace's tables, whichever backend this suite is using. */
 export const workspaceSql = (query: string, ...params: Array<string | number>) => tablesSql(workspaceStub(), query, ...params);
+
+/** Runs SQL against the search index's tables, which it keeps in its own storage on either backend. */
+export const searchSql = (query: string, ...params: Array<string | number>) => objectSql(searchIndexStub(), query, ...params);
 
 /** Who creates rooms for the tests, signed in once per test file. */
 let host: Promise<Session> | undefined;

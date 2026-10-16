@@ -96,6 +96,15 @@ function collect({ backend, web }: Results): Map<string, Metric> {
       add(`${storage} history: welcome p50 ms`, r.history.welcome?.p50, { floor: 2, ...SWINGY });
       add(`${storage} history: page p50 ms`, r.history.page?.p50, { floor: 2, ...SWINGY });
     }
+    if (r.search) {
+      // Catch-up is left out: runs of the same code have put it anywhere from 16 to 154 ms on D1, and
+      // from 254 to 530 ms on DO SQLite, as it hangs on how far the index happens to be behind.
+      // A new message is found by searching every 10 ms, so a smaller move says nothing.
+      add(`${storage} search: new message p50 ms`, r.search.newMessage?.p50, { floor: 10, ...SWINGY });
+      add(`${storage} search: common p50 ms`, r.search.common?.p50, { floor: 3, noise: 25 });
+      add(`${storage} search: rare p50 ms`, r.search.rare?.p50, { floor: 3, ...SWINGY });
+      add(`${storage} search: none p50 ms`, r.search.none?.p50, { floor: 2, noise: 25 });
+    }
   }
 
   if (web) {

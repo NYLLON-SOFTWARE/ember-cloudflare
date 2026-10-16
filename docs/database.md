@@ -6,24 +6,30 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts, recent revocations and deletions, and the changes the Workspace has
-yet to hear of live in that room's Durable Object SQLite storage, and the account, people, their
-sessions and bans, rooms, memberships and the outbox of revocations and purges in the Workspace
-object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
-`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
-`apps/worker/src/db.ts`.
+each room's messages, boosts, recent revocations and deletions, and the changes the Workspace and
+the search index have yet to hear of live in that room's Durable Object SQLite storage, and the
+account, people, their sessions and bans, rooms, memberships and the outbox of revocations, purges
+and reindexes in the Workspace object's. With `d1`, all of them live in one D1 database. Both
+backends use the schema in `apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`,
+run through the driver in `apps/worker/src/db.ts`. The search index is the exception: it keeps its
+tables in the `SearchIndex` object's own SQLite storage on either backend, since D1 can't export a
+database that holds a virtual table, as its FTS5 table is.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log and its recent deletions, and `workspace` for the workspace-wide tables (the
-account, people, sessions, bans, rooms, memberships, pending revocations and purges, and the rooms
-deleted). On DO SQLite, an object applies only its own scope's files, so a room's storage never
-holds workspace tables. Wrangler applies every file to D1, where all the tables share one database
-and each room's rows carry its `room_id`.
+room's change log, its log of messages for the search index and its recent deletions, and
+`workspace` for the workspace-wide tables (the account, people, sessions, bans, rooms, memberships,
+stars, pending revocations, purges and reindexes, and the rooms deleted). On DO SQLite, an object
+applies only its own scope's files, so a room's storage never holds workspace tables. Wrangler
+applies every file to D1, where all the tables share one database and each room's rows carry its
+`room_id`. The search index's schema is in `apps/worker/search-migrations/`, which only the index
+applies, listed in `SEARCH_MIGRATIONS`.
 
-So far rooms keep `messages`, `boosts`, `revocations`, `room_events` and `message_deletions`, and
-the Workspace keeps `accounts`, `users`, `sessions`, `bans`, `rooms`, `memberships`,
-`pending_revocations`, `pending_purges` and `deleted_rooms`. A room's id also names its Durable
+So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages` and
+`message_deletions`, the Workspace keeps `accounts`, `users`, `sessions`, `bans`, `rooms`,
+`memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes` and
+`deleted_rooms`, and the search index keeps `search_messages`, `search_rooms` and the FTS5 table
+`search_index`. A room's id also names its Durable
 Object, and the Worker asks the Workspace whether someone is a member before it wakes the room for
 their socket. First run creates the account and its administrator, who signs in with an email
 address and password, found through the unique index on `users.email_address`, as do the people who
@@ -92,6 +98,24 @@ search index. On top of that schema it adds indexes and query changes for speed.
   the only writer of its messages, so it counts from the latest number once it has read it, and reads
   it again after a batch fails, which D1 may have saved all the same. Our "(edited)" label reads
   `edited_at`, so a reaction leaves its message's times alone.
+- **Search is one FTS5 table, read from its newest match.** As ember-rust's `message_search_index`
+  (`crates/db/src/schema.sql`), it's an FTS5 table with the porter tokenizer holding each message's
+  plain text, and a search quotes each word, so that every word has to match and none is read as
+  FTS5's syntax, such as `NOT` or `NEAR`. As ember-rust's search does since
+  [`4c2ac40`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/4c2ac40), it reads the newest
+  1,000 matches off the index, wherever they are, keeps the newest 100 in rooms the searcher is in,
+  and only when those 1,000 hold fewer and there may be more does it ask for just those rooms'
+  matches, by whatever plan SQLite picks. The rooms go to it as one JSON value. ember-rust numbers
+  the index's rows by message id, which grows with time. Ours are strings, and each room's messages
+  reach the index on their own schedule, so the index numbers the messages it takes itself
+  (`search_messages`): a message's time in milliseconds, times 1,024, plus its place among that
+  millisecond's. Walking the index from its largest number then goes from the newest message,
+  whichever room it's in and however late it came, with nothing to sort, which a test checks with
+  `EXPLAIN QUERY PLAN`, and an edit keeps its number. The index reads the first query a match at a
+  time, as ember-rust's loop does, and stops at a full page. Over 100,000 messages in 50 rooms, a
+  search for a word in a quarter of them takes 0.3 ms of SQLite for someone in every room, where
+  reading all 1,000 matches took 1.2 ms; for someone in one of the 50, reading the 1,000 and then
+  their room's matches takes about 12 ms. A word in one message takes 0.03 ms.
 
 ### Already equivalent
 
@@ -104,15 +128,6 @@ search index. On top of that schema it adds indexes and query changes for speed.
 
 ### To adopt with the feature that needs it
 
-- **Search:** an FTS5 table with the porter tokenizer, keyed by message id, written when a message is
-  created, edited or deleted. Search walks the index from its newest match and stops once a page is
-  full ([`4c2ac40`](https://github.com/NYLLON-SOFTWARE/ember-rust/commit/4c2ac40)), and quotes each
-  word so `AND`, `OR` or `NEAR` can't break the query.
-- **Integer ids**, with search. FTS5 keys its rows on integer ids, and ours are 16-character
-  sortable strings. At 100,000 messages, `INTEGER PRIMARY KEY AUTOINCREMENT` made the database 25%
-  smaller (19.7 MB against 26.2 MB), with about the same write speed and the same rows written per
-  insert.
-  Switching takes a migration that renumbers stored messages and their boosts.
 - **Names from the users table.** People have their own table now, but we still copy the sender's
   name into each message and boost. That's fine while names can't change, but renaming someone would
   leave the old name on their messages.
@@ -125,6 +140,12 @@ search index. On top of that schema it adds indexes and query changes for speed.
   key cascades, so the database does it in the same statement.
 - **SQLite tuning:** WAL checkpoints off the writer thread, the prepared-statement cache, no memory
   mapping. Cloudflare runs SQLite for both backends, so there's nothing for us to set.
+- **Integer message ids.** ember-rust's search index is numbered by message id, an integer. Ours
+  numbers its messages itself (above), so ids stay 16-character sortable strings, which each room
+  makes alone, where integers shared by every room's messages would need one counter they all ask.
+  At 100,000 messages, `INTEGER PRIMARY KEY AUTOINCREMENT` made a room's storage 25% smaller
+  (19.7 MB against 26.2 MB), which isn't worth renumbering every stored message, its boosts and the
+  links to it.
 
 ### Ours alone
 
@@ -309,6 +330,38 @@ search index. On top of that schema it adds indexes and query changes for speed.
   100,000-message room takes 0.06 ms, where room migration 0002's `(room_id, client_message_id)`
   would read the whole room's, 7.8 ms. Room migration 0019 put it in that index's place, so a new
   message writes one index, as before: about 80 bytes of it, 20 more than before, in the same 4 µs.
+- **The search index is a Durable Object of its own, with its own storage.** ember-rust's index is a
+  table in its one database. Ours is the `SearchIndex` object, as an FTS5 query over a big index can
+  take milliseconds that no room or the Workspace should wait for, and its tables stay in that
+  object's SQLite storage on either backend: D1 can't export a database that holds a virtual table,
+  which would leave a D1 deployment with no export. So its schema is in
+  `apps/worker/search-migrations/`, which wrangler never applies to D1, listed in `SEARCH_MIGRATIONS`.
+- **Rooms send the search index their changes through a log of their own.** ember-rust writes its
+  index after the transaction that changes a message commits (`crates/db/src/models/message.rs`).
+  Ours is in another object, so the batch that writes, edits or deletes a message logs its id in
+  `unindexed_messages` (room migration 0021), and the room sends the index those messages as they are
+  by then, the same way it sends the Workspace its change log (above): 50 at a time, one call out,
+  and its alarm trying a failed call again, deleting them once the index has them. But it waits its
+  250 ms before each call rather than after, so a search finds a new message about a quarter of a
+  second after it's written, rather than as the Workspace hears of it. With the index's calls going at
+  once, timing each step of the perf suite's `unread` scenario on D1 showed the Workspace's call for a
+  quiet room's first message starting 8 ms later, behind the index's. With them waiting, it starts as
+  it did before the index, and the first unread mark took 28 ms (median of eight runs) against 25
+  before, inside the 20 to 40 ms it spreads over between runs of either. The index takes a call in one
+  batch and records the last entry it took from each room in `search_rooms`, so a call that arrives
+  after a later one changes nothing, and a deleted room's is set past any number, so a late call can't
+  bring its messages back. A message the room no longer has leaves the index.
+- **Messages from before the index are logged once, through the Workspace's outbox.** Workspace
+  migration 0022 queues a `pending_reindexes` row for every room, as registering a legacy room does,
+  and the Workspace's alarm asks each room to log all its messages, after the revocations and purges
+  it delivers, putting off a room it can't reach as it does a purge, but never giving up.
+- **Search results are read where their messages are.** ember-rust reads the matching messages in
+  the query that finds them. Ours are elsewhere, so on DO SQLite the Worker asks each room with
+  matches for its own, six rooms at a time, and on D1 it reads them all in one query, by id. Either
+  way, a message deleted since the index heard of it is left out. In the perf suite's `search`
+  scenario, searching ten rooms of 100 messages for a word in a quarter of them took 14 ms (p50) on DO
+  SQLite, against 6 ms for a word in none, so reading the newest 100 from their rooms is about half of
+  it; on D1, where one query reads them, 11 ms against 8.
 
 ## Writing SQL here
 

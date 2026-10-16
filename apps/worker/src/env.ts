@@ -1,5 +1,6 @@
 import type { ChatRoom } from "./chat-room";
 import type { PasswordHasher } from "./passwords";
+import type { SearchIndex } from "./search-index";
 import type { Unfurler } from "./unfurl";
 import type { Workspace } from "./workspace";
 
@@ -11,6 +12,7 @@ export interface Env {
   WORKSPACE: DurableObjectNamespace<Workspace>;
   PASSWORD_HASHER: DurableObjectNamespace<PasswordHasher>;
   UNFURLER: DurableObjectNamespace<Unfurler>;
+  SEARCH_INDEX: DurableObjectNamespace<SearchIndex>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   STORAGE_BACKEND: StorageBackend;

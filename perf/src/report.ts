@@ -210,6 +210,35 @@ function backendSection(backend: Results["backend"]): string[] {
       ),
     );
   }
+
+  const search = runs.filter(([, r]) => r.search);
+  if (search.length) {
+    const { rooms, messages } = search[0]![1].search!;
+    out.push(
+      "",
+      "### Search",
+      "",
+      `${num(messages)} messages written in each of ${rooms} rooms at once, then searched for by someone in all of them. Catch-up is the last of them being acknowledged until a search finds it. New message is a message in a quiet room being acknowledged until a search finds it, searching every 10 ms. Then each search is timed alone: common is a word in a quarter of the messages, whose newest 100 are read from every room, rare a word in one message in each room, and none a word in no message.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Storage", "Catch-up", "New message p50", "p95", "Common p50", "p95", "Rare p50", "p95", "None p50", "p95"],
+        search.map(([storage, { search: r }]) => [
+          STORAGE_NAMES[storage],
+          `${ms(r!.catchUpMs)} ms`,
+          p(r!.newMessage, "p50"),
+          p(r!.newMessage, "p95"),
+          p(r!.common, "p50"),
+          p(r!.common, "p95"),
+          p(r!.rare, "p50"),
+          p(r!.rare, "p95"),
+          p(r!.none, "p50"),
+          p(r!.none, "p95"),
+        ]),
+      ),
+    );
+  }
   return out;
 }
 

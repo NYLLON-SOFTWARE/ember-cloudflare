@@ -12,7 +12,7 @@ behave; this one rebuilds it on Workers and Durable Objects.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers and Campfire's error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `PasswordHasher` and `Unfurler` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers and Campfire's error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher` and `Unfurler` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both, and the addresses of the app's pages. |
 | `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against ember-rust's corpus of Rails outputs. |
 
@@ -21,6 +21,8 @@ browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
    │                ├─────▶ Workspace Durable Object (one: the account, people, sessions, rooms, memberships,
    │                │        each tab's workspace socket, and the outbox that closes sockets in every room
    │                │        when access ends)
+   │                ├─────▶ SearchIndex Durable Object (one: every message's plain text in an FTS5 table,
+   │                │        in its own SQLite storage, which each room sends its changes)
    │                │
    └──WebSocket─────┴──▶ ChatRoom Durable Object (one per room, by id)
                             ├─ sockets, presence, typing (hibernation API)
@@ -93,7 +95,7 @@ isn't listed, or when PARITY.md is out of date. After changing a feature or its 
 ## Performance
 
 `pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,
-throughput, fan-out, room size, history paging) and measures how the web app loads and renders a
+throughput, fan-out, room size, history paging, search) and measures how the web app loads and renders a
 busy room. `perf/README.md` explains the scenarios and how to compare two runs; the numbers the
 suite started with are in `perf/baseline/report.md`.
 
@@ -103,15 +105,16 @@ suite started with are in `perf/baseline/report.md`.
 
 - **`do-sqlite`** (default): each room's Durable Object keeps its messages in its own SQLite
   storage. Nothing to provision, and reads and writes never leave the object.
-- **`d1`**: messages go to one shared D1 database, which makes cross-room queries (search,
-  activity, exports) straightforward. Create the database with `wrangler d1 create ember`,
+- **`d1`**: messages go to one shared D1 database, which makes cross-room queries (activity,
+  exports) straightforward. Create the database with `wrangler d1 create ember`,
   uncomment the `d1_databases` block, set `STORAGE_BACKEND` to `"d1"`, and apply
   `apps/worker/migrations/` with `pnpm --filter @ember/worker d1:migrate:local` (or `--remote`).
 
 Both use the same schema (`apps/worker/migrations/`) and the same queries
 (`apps/worker/src/store.ts`); only the driver (`apps/worker/src/db.ts`) differs. The Workspace
-object's tables follow the same setting. [`docs/database.md`](docs/database.md) compares them with
-ember-rust's database.
+object's tables follow the same setting. The search index's don't: it keeps every room's messages in
+one FTS5 table in the `SearchIndex` object's own storage, since D1 can't export a database that holds
+one. [`docs/database.md`](docs/database.md) compares them with ember-rust's database.
 
 ## Deploying
 

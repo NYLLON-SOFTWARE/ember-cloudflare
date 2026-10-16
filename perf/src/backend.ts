@@ -3,12 +3,13 @@ import { connections, type ConnectionsResult } from "./scenarios/connections.ts"
 import { fanoutAt, type FanoutResult } from "./scenarios/fanout.ts";
 import { history, type HistoryResult } from "./scenarios/history.ts";
 import { latency, type LatencyResult } from "./scenarios/latency.ts";
+import { searchAt, type SearchResult } from "./scenarios/search.ts";
 import { tabs, type TabsResult } from "./scenarios/tabs.ts";
 import { throughput, type ThroughputResult } from "./scenarios/throughput.ts";
 import { unreadAt, type UnreadResult } from "./scenarios/unread.ts";
 import { existingServer, startServer, type Server, type Storage } from "./server.ts";
 
-export const SCENARIOS = ["latency", "throughput", "fanout", "connections", "tabs", "unread", "history"] as const;
+export const SCENARIOS = ["latency", "throughput", "fanout", "connections", "tabs", "unread", "history", "search"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 export interface BackendResults {
@@ -19,6 +20,7 @@ export interface BackendResults {
   tabs?: TabsResult;
   unread?: UnreadResult[];
   history?: HistoryResult;
+  search?: SearchResult;
 }
 
 interface Target {
@@ -73,6 +75,9 @@ export async function runBackend(target: Target, profile: Profile, scenarios: re
         break;
       case "history":
         results.history = await withServer(target, (server) => history(server, profile.history));
+        break;
+      case "search":
+        results.search = await withServer(target, (server) => searchAt(server, profile.search));
         break;
     }
   }

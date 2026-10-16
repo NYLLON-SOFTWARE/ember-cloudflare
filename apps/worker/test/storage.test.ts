@@ -5,14 +5,38 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
-import { MIGRATIONS, migrate, type Scope } from "../src/migrations";
-import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, workspaceStub } from "./support";
+import { MIGRATIONS, migrate, SEARCH_MIGRATIONS, type Scope } from "../src/migrations";
+import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, searchIndexStub, workspaceStub } from "./support";
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
-const TABLES: Record<Scope, string[]> = {
-  room: ["boosts", "message_deletions", "messages", "revocations", "room_events"],
-  workspace: ["accounts", "bans", "deleted_rooms", "favorites", "memberships", "pending_purges", "pending_revocations", "rooms", "sessions", "users"],
+const TABLES: Record<Exclude<Scope, "search">, string[]> = {
+  room: ["boosts", "message_deletions", "messages", "revocations", "room_events", "unindexed_messages"],
+  workspace: [
+    "accounts",
+    "bans",
+    "deleted_rooms",
+    "favorites",
+    "memberships",
+    "pending_purges",
+    "pending_reindexes",
+    "pending_revocations",
+    "rooms",
+    "sessions",
+    "users",
+  ],
 };
+
+/** The tables the search index keeps in its own storage, on either backend: the FTS5 table, the tables it keeps itself in, and the index's own. */
+const SEARCH_TABLES = [
+  "search_index",
+  "search_index_config",
+  "search_index_content",
+  "search_index_data",
+  "search_index_docsize",
+  "search_index_idx",
+  "search_messages",
+  "search_rooms",
+];
 
 /** The tables migrations made, leaving out SQLite's, Cloudflare's and the record of migrations. */
 const MIGRATED_TABLES = `SELECT name FROM sqlite_master WHERE type = 'table'
@@ -39,13 +63,15 @@ describe(feature("platform.storage"), () => {
   });
 
   it("lists every migration file, oldest first", () => {
-    // vitest.config.ts reads TEST_MIGRATIONS from the migrations directory.
-    const files = (env as unknown as { TEST_MIGRATIONS: Array<{ name: string }> }).TEST_MIGRATIONS.map((m) => m.name);
-    expect(MIGRATIONS.map((m) => m.name)).toEqual(files);
+    // vitest.config.ts reads them from the migrations and search-migrations directories.
+    const { TEST_MIGRATIONS, TEST_SEARCH_MIGRATIONS } = env as unknown as Record<string, Array<{ name: string }>>;
+    expect(MIGRATIONS.map((m) => m.name)).toEqual(TEST_MIGRATIONS!.map((m) => m.name));
+    expect(SEARCH_MIGRATIONS.map((m) => m.name)).toEqual(TEST_SEARCH_MIGRATIONS!.map((m) => m.name));
   });
 
   it("gives each kind of object only its own tables, and D1 every kind's", async () => {
     const names = (tables: string[]) => tables.map((name) => ({ name }));
+    expect(await objectSql(searchIndexStub(), MIGRATED_TABLES)).toEqual(names(SEARCH_TABLES));
     const db = (env as { DB?: D1Database }).DB;
     if (db) {
       expect((await db.prepare(MIGRATED_TABLES).all()).results).toEqual(names(Object.values(TABLES).flat().sort()));
@@ -63,6 +89,7 @@ describe(feature("platform.storage"), () => {
     const db = (env as { DB?: D1Database }).DB;
     const recorded = (db ? MIGRATIONS : roomMigrations).map(({ name }) => ({ name }));
     expect(await roomSql(room, "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
+    expect(await objectSql(searchIndexStub(), "SELECT name FROM d1_migrations ORDER BY id")).toEqual(SEARCH_MIGRATIONS.map(({ name }) => ({ name })));
     if (!db) {
       await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => migrate(state.storage, "room"));
       expect(await roomSql(room, "SELECT name FROM d1_migrations ORDER BY id")).toEqual(recorded);
