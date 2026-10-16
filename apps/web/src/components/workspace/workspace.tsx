@@ -23,15 +23,16 @@ import { ProfilePage } from "./profile-page";
 import { Rail, type RailPage } from "./rail";
 import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView, type RoomViewHandle } from "./room-view";
+import { SearchPage } from "./search-page";
 import { Sidebar } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
- * a room's page and the pages that go on to one, your avatar on your profile, and nothing on a room's
- * forms, a DM's settings or the Custom CSS page, whose addresses none of its links have, nor on New
- * direct message's, which goes on to the last room visited at once.
+ * a room's page and the pages that go on to one, Search on search, your avatar on your profile, and
+ * nothing on a room's forms, a DM's settings or the Custom CSS page, whose addresses none of its links
+ * have, nor on New direct message's, which goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -46,6 +47,7 @@ const RAIL_PAGES = {
   "custom-styles": null,
   profile: "profile",
   person: null,
+  search: "search",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
@@ -419,6 +421,8 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
       case "profile":
         return <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />;
+      case "search":
+        return <SearchPage me={me} back={back} onFailed={failed} />;
       case "person":
         return (
           <PersonPage

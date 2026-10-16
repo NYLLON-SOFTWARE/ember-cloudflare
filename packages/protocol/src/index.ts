@@ -14,6 +14,7 @@ export {
   MAX_ID_LENGTH,
   NEW_DIRECT_PATH,
   PROFILE_PATH,
+  SEARCHES_PATH,
   transferIdFromPath,
   transferPath,
   WORKSPACE_SETTINGS_PATH,
@@ -21,7 +22,18 @@ export {
   type RoomAccess,
   type WorkspacePage,
 } from "./pages.ts";
-export { isSearchable, MAX_SEARCH_LENGTH, sanitizeSearch, SEARCH_LIMIT, SEARCH_TOO_LONG, searchTerms, type SearchResults } from "./search.ts";
+export {
+  isSearchable,
+  MAX_SEARCH_LENGTH,
+  parseSearch,
+  RECENT_SEARCHES,
+  sanitizeSearch,
+  SEARCH_LIMIT,
+  SEARCH_TOO_LONG,
+  searchPath,
+  searchTerms,
+  type SearchResults,
+} from "./search.ts";
 
 export type UserId = string;
 export type RoomId = string;

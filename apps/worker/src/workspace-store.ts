@@ -1,6 +1,7 @@
 import {
   MAX_FAVORITES,
   MAX_SHARED_ORDER,
+  RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
   suggestedCount,
   type Account,
@@ -613,6 +614,25 @@ const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORD
 /** Someone active, as the directory lists them, as ember-rust finds whom to change (`User.active.find`, accounts/users.rs). */
 const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status = ${ACTIVE}`;
 
+/**
+ * Records a search as someone's newest, as ember-rust's `Search::record` does (search.rs): a search they
+ * have already moves to the front, rather than being added again.
+ */
+const RECORD_SEARCH = `INSERT INTO searches (user_id, query, position)
+  VALUES (?1, ?2, (SELECT coalesce(max(position), 0) + 1 FROM searches WHERE user_id = ?1))
+  ON CONFLICT (user_id, query) DO UPDATE SET position = excluded.position`;
+
+/**
+ * Forgets someone's searches past their newest ?2 + 1, as ember-rust's `trim_recent_searches` does
+ * (search.rs), which it runs as it adds one. With no more than that, the subquery finds none to keep the
+ * rest newer than, and nothing goes.
+ */
+const TRIM_SEARCHES = `DELETE FROM searches WHERE user_id = ?1
+  AND position < (SELECT position FROM searches WHERE user_id = ?1 ORDER BY position DESC LIMIT 1 OFFSET ?2)`;
+
+/** Someone's recent searches, newest first, as ember-rust's `ordered_for_user` lists them (search.rs). */
+const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? ORDER BY position DESC LIMIT ?`;
+
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
@@ -966,9 +986,10 @@ export class WorkspaceStore {
   /**
    * Removes someone from the workspace, as ember-rust's `User#deactivate` does (user.rs), in one
    * transaction: queues closing each of their sessions' sockets with `code` in every room they're in,
-   * DMs included, due at `dueAt`, takes them out of every room but their DMs, ends their sessions, and
-   * marks them removed, recording when, with `-deactivated-<uuid>` before each "@" of their email
-   * address. Their messages, boosts, DMs, role and avatar stay. Answers whether it queued any.
+   * DMs included, due at `dueAt`, takes them out of every room but their DMs, ends their sessions,
+   * forgets their recent searches, and marks them removed, recording when, with `-deactivated-<uuid>`
+   * before each "@" of their email address. Their messages, boosts, DMs, role and avatar stay. Answers
+   * whether it queued any.
    */
   async removePerson(userId: UserId, uuid: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -976,6 +997,7 @@ export class WorkspaceStore {
       statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(LEAVE_SHARED_ROOMS, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`DELETE FROM searches WHERE user_id = ?`, userId),
       statement(DEACTIVATE, `-deactivated-${uuid}@`, now, userId),
     ]);
     return queued!.length > 0;
@@ -1130,11 +1152,27 @@ export class WorkspaceStore {
     return due.length > 0 ? Math.min(...due) : null;
   }
 
-  /** The rooms someone is in, with the people in their DMs, as their sidebar lists them. */
-  async roomsOf(userId: UserId): Promise<Room[]> {
-    const [rows, members] = (await this.db.batch([statement(ROOMS_FOR_USER, userId), statement(DIRECT_MEMBERS_FOR_USER, userId)])) as [SidebarRow[], DirectMemberRow[]];
+  /**
+   * What someone's search page needs: the rooms they're in, with the people in their DMs, as their
+   * sidebar lists them, and their recent searches, newest first, having first recorded `recording` as
+   * their newest, when it's given, in the same transaction.
+   */
+  async searcherOf(userId: UserId, recording: string | null): Promise<{ rooms: Room[]; recent: string[] }> {
+    const records = recording === null ? [] : [statement(RECORD_SEARCH, userId, recording), statement(TRIM_SEARCHES, userId, RECENT_SEARCHES - 1)];
+    const results = await this.db.batch([
+      ...records,
+      statement(ROOMS_FOR_USER, userId),
+      statement(DIRECT_MEMBERS_FOR_USER, userId),
+      statement(RECENT_SEARCHES_FOR_USER, userId, RECENT_SEARCHES),
+    ]);
+    const [rows, members, recent] = results.slice(records.length) as [SidebarRow[], DirectMemberRow[], Array<{ query: string }>];
     const membersByRoom = Map.groupBy(members, (member) => member.room_id);
-    return rows.map((row) => roomOf(row, membersByRoom.get(row.id)));
+    return { rooms: rows.map((row) => roomOf(row, membersByRoom.get(row.id))), recent: recent.map((row) => row.query) };
+  }
+
+  /** Forgets all of someone's recent searches, as ember-rust's `destroy_all_for_user` does (search.rs). */
+  async clearSearches(userId: UserId): Promise<void> {
+    await this.db.run(`DELETE FROM searches WHERE user_id = ?`, userId);
   }
 
   /**

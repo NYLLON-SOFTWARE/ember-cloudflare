@@ -5,7 +5,7 @@ import { KIND_SEGMENTS, transferIdFromPath, workspacePageOf, type RoomAccess, ty
 // small typed router over the History API rather than a library. A page with changes to lose can
 // hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
 
-export { CUSTOM_STYLES_PATH, NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { CUSTOM_STYLES_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -23,8 +23,8 @@ export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
 
 /**
- * Asked before the app leaves the page shown, with the path it's going to, or null for leaving the app,
- * as signing out does. It answers true to hold the app on the page, and then calls `proceed` if the
+ * Asked before the app leaves the page shown, with the address it's going to, its path and any query
+ * string, or null for leaving the app, as signing out does. It answers true to hold the app on the page, and then calls `proceed` if the
  * person decides to go after all, which for leaving the app settles with whether it left.
  */
 export type LeaveGuard = (path: string | null, proceed: () => unknown) => boolean;
@@ -91,16 +91,25 @@ function openedFrom(state: unknown): string | null {
 let position = positionOf(history.state) ?? 0;
 history.replaceState({ ...history.state, position }, "");
 
+/** The address the browser shows, but for any fragment: its path and query string, which together name a page. */
+const currentAddress = () => location.pathname + location.search;
+
 // While the guard turns Back or Forward around, the address briefly names where the person was going,
 // and the app goes on showing the page it was on.
 let turningBack = false;
-let shown = location.pathname;
+let shown = currentAddress();
 
-/** The path of the page the app shows. */
-function shownPath(): string {
-  if (!turningBack) shown = location.pathname;
+/** The address of the page the app shows: its path, and its query string, if it has one. */
+function shownAddress(): string {
+  if (!turningBack) shown = currentAddress();
   return shown;
 }
+
+/** The path of the page the app shows, without its query string, which starts at the first "?". */
+const shownPath = () => shownAddress().split("?", 1)[0]!;
+
+/** The query string of the page the app shows, from its "?", or nothing. */
+const shownQuery = () => shownAddress().slice(shownPath().length);
 
 // Each page asked for is numbered, so what's to follow the last one asked for runs only if the app goes
 // there: not while the page's guard holds it, nor if the person stays or another page is asked for.
@@ -125,7 +134,7 @@ window.addEventListener("popstate", (event) => {
     proceeding = true;
     history.go(distance);
   };
-  if (!proceeding && distance !== 0 && guard?.(location.pathname, proceed)) {
+  if (!proceeding && distance !== 0 && guard?.(currentAddress(), proceed)) {
     turningBack = true;
     returning = true;
     history.go(-distance);
@@ -138,13 +147,13 @@ window.addEventListener("popstate", (event) => {
 });
 
 /**
- * Shows `path`, as a new entry in the browser's history unless `replace` says to take the current one's
- * place, once the page's guard lets it.
+ * Shows `path`, which can have a query string, as a new entry in the browser's history unless `replace`
+ * says to take the current one's place, once the page's guard lets it.
  */
 export function navigate(path: string, { replace = false } = {}): void {
   const navigation = ++asked;
   followUp = null;
-  if (shownPath() === path) {
+  if (shownAddress() === path) {
     gone = navigation;
     notify();
     return;
@@ -152,7 +161,7 @@ export function navigate(path: string, { replace = false } = {}): void {
   const go = () => {
     // A page that takes another's place was opened from where that one was, as a redirect keeps the referrer.
     if (replace) history.replaceState({ position, from: openedFrom(history.state) }, "", path);
-    else history.pushState({ position: ++position, from: shownPath() }, "", path);
+    else history.pushState({ position: ++position, from: shownAddress() }, "", path);
     gone = navigation;
     if (navigation === asked) {
       followUp?.();
@@ -191,7 +200,7 @@ export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ??
  */
 export function useBackPath(): string {
   const from = useSyncExternalStore(subscribe, () => openedFrom(history.state));
-  const here = useSyncExternalStore(subscribe, shownPath);
+  const here = useSyncExternalStore(subscribe, shownAddress);
   return from !== null && from !== here ? from : "/";
 }
 
@@ -204,6 +213,11 @@ export function useVisit(): number {
 export function useRoute(): Route {
   const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
+}
+
+/** The value `name` has in the query string of the page shown, or null where it has none, re-rendering when it changes. */
+export function useQueryParam(name: string): string | null {
+  return useSyncExternalStore(subscribe, () => new URLSearchParams(shownQuery()).get(name));
 }
 
 /**

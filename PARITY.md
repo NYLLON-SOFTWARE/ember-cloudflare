@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 77 ported and 48 partial of 172 features; 41 not started, 6 not applicable.
+**Overall:** 80 ported and 47 partial of 172 features; 39 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -25,17 +25,17 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Sidebar and navigation](#sidebar-and-navigation) | 8 | 2 | 0 | 0 | 10 |
 | [Messages](#messages) | 8 | 10 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
-| [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
+| [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
-| [Search](#search) | 0 | 1 | 2 | 0 | 3 |
+| [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **77** | **48** | **41** | **6** | **172** |
+| **Total** | **80** | **47** | **39** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1330,7 +1330,7 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | @-mention people | `mentions.autocomplete` | Campfire | 🟡 Partial | Rich text: [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [mentions](apps/worker/test/mentions.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
-| Highlight mentions of you | `mentions.highlight` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
+| Highlight mentions of you | `mentions.highlight` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [search-page](apps/web/src/components/workspace/search-page.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 | How mentions look | `mentions.render` | Campfire | ✅ Ported | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 
 <details>
@@ -1348,12 +1348,12 @@ Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/
 
 ember-rust tests: [`reference/test/controllers/autocompletable/users_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/autocompletable/users_controller_test.rb) · [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
-**Highlight mentions of you** (`mentions.highlight`) 🟡
+**Highlight mentions of you** (`mentions.highlight`) ✅
 
 - Messages that mention you get a 2px left border and a light tint, in rooms and in search results.
 - Only a mention picked from the list counts; "@Name" typed out by hand is plain text.
 
-Note: Unlike ember-rust, this port shows the highlight, on any message that mentions you, your own included, wiggling as it shows unless motion is reduced, as Campfire's message_formatter.js and messages.css mean it to: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches. Search results come with the search page (`search.page`).
+Note: Unlike ember-rust, this port shows the highlight, on any message that mentions you, your own included, wiggling as it shows unless motion is reduced, as Campfire's message_formatter.js and messages.css mean it to: ember-rust's looks for the mention's avatar at `/users/<id>/avatar`, but mention avatars have signed paths, so it never matches. Search results highlight them as rooms do.
 
 Sources: [`reference/app/models/message/mentionee.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/mentionee.rb) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
@@ -1596,9 +1596,9 @@ ember-rust tests: [`reference/test/lib/rails_ext/actiontext_opengraph_embeds_tes
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Search messages | `search.messages` | Campfire | 🟡 Partial | Protocol: [search](packages/protocol/src/search.test.ts)<br>Worker: [search](apps/worker/test/search.test.ts) |
-| Search page | `search.page` | Ember | ⬜ Not started |  |
-| Recent searches | `search.recent` | Campfire | ⬜ Not started |  |
+| Search messages | `search.messages` | Campfire | 🟡 Partial | Protocol: [search](packages/protocol/src/search.test.ts)<br>Worker: [search](apps/worker/test/search.test.ts)<br>Web: [search-page](apps/web/src/components/workspace/search-page.test.tsx)<br>E2E: [search](e2e/tests/features/search.spec.ts) |
+| Search page | `search.page` | Ember | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [room-header](apps/web/src/components/workspace/room-header.test.tsx), [search-page](apps/web/src/components/workspace/search-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [search](e2e/tests/features/search.spec.ts) |
+| Recent searches | `search.recent` | Campfire | ✅ Ported | Protocol: [search](packages/protocol/src/search.test.ts)<br>Worker: [search](apps/worker/test/search.test.ts)<br>Web: [search-page](apps/web/src/components/workspace/search-page.test.tsx)<br>E2E: [search](e2e/tests/features/search.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1612,13 +1612,13 @@ ember-rust tests: [`reference/test/lib/rails_ext/actiontext_opengraph_embeds_tes
 - Results look like messages without actions, author grouping or day separators. Your own are marked as yours, mentions of you aren't highlighted (the highlight never fires in ember-rust; see `mentions.highlight`), and the list opens scrolled to the newest.
 - Each result names its room as "· &lt;room&gt;", a DM by all its members with you included ("Ann and Bob", "Ann, Bob, and Cat"), and its time and room both link to the message in its room.
 
-Note: `GET /api/searches?q=` answers the query as searched, the newest 100 matches, oldest first, in the rooms you're in, hidden rooms and DMs included, and those rooms; the page that shows them comes with `search.page`, and until then the rail shows Search, disabled. Every room's messages are in one FTS5 table with the porter tokenizer, searched with ember-rust's two queries, in a `SearchIndex` object of its own (`docs/database.md`). Each room sends it the messages it writes, edits and deletes through a log, so a search finds a message about a quarter of a second after it's sent rather than once its transaction commits; the messages from before the index were sent once, by the Workspace. Results are read from their rooms, so one deleted since the index heard of it drops out. A search longer than 1,000 characters is refused (422), where ember-rust searches any. A mention is searched by the name its person had when the message was written or last edited: unlike ember-rust, a reaction doesn't index the message again. Files' names come with files (`attachments.upload`).
+Note: `GET /api/searches?q=` answers the query as searched, the newest 100 matches, oldest first, in the rooms you're in, hidden rooms and DMs included, and those rooms, which the search page shows (`search.page`). Every room's messages are in one FTS5 table with the porter tokenizer, searched with ember-rust's two queries, in a `SearchIndex` object of its own (`docs/database.md`). Each room sends it the messages it writes, edits and deletes through a log, so a search finds a message about a quarter of a second after it's sent rather than once its transaction commits; the messages from before the index were sent once, by the Workspace. Results are read from their rooms, so one deleted since the index heard of it drops out. A search longer than 1,000 characters is refused (422), where ember-rust searches any. A mention is searched by the name its person had when the message was written or last edited: unlike ember-rust, a reaction doesn't index the message again. Results that mention you are highlighted, as they are in rooms (`mentions.highlight`). Files' names come with files (`attachments.upload`).
 
 Sources: [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/ember/src/integrations/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/search.rs) · [`crates/views/templates/searches/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/index.html) · [`reference/app/controllers/searches_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/searches_controller.rb) · [`reference/app/models/message/searchable.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/searchable.rb) · [`reference/app/javascript/controllers/search_results_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/search_results_controller.js)
 
 ember-rust tests: [`reference/test/controllers/searches_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/searches_controller_test.rb) · [`reference/test/models/message/searchable_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/searchable_test.rb) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/ember/src/integrations/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/search.rs) · [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs)
 
-**Search page** (`search.page`) ⬜
+**Search page** (`search.page`) ✅
 
 - The rail's Search and the room header's Search messages, placed before the notification bell, open `/searches`, titled "Search" and headed "Search messages", with Search marked current on the rail.
 - Before searching it says "Find a conversation" / "Search messages across your rooms and direct messages.", and with no results "No messages found" / "Try a different word or phrase."
@@ -1627,16 +1627,20 @@ ember-rust tests: [`reference/test/controllers/searches_controller_test.rb`](htt
 - Exit search returns to the last room visited, or to your oldest room when you can no longer reach that one.
 - On wide screens and phones, the box and Exit search line up vertically, the box shows no focus ring, and nothing scrolls sideways.
 
+Note: The room header's notification bell comes with `notifications.levels`, so Search messages sits just before the settings link for now. As ember-rust draws each page afresh, every visit to `/searches`, Back and Forward included, asks for its search again, but for the one a search goes to, which shows what the search answered. Unlike ember-rust, the field's × is 44px for fingers, as the buttons beside it are, the field takes taps across its whole height, the footer clears a phone's home indicator as the composer does, and the results are a region named "Search results".
+
 Sources: [`crates/views/templates/searches/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/index.html) · [`crates/views/templates/rooms/show/_nav.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_nav.html) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`reference/app/javascript/controllers/form_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/form_controller.js)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`crates/views/tests/searches_views.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/searches_views.rs)
 
-**Recent searches** (`search.recent`) ⬜
+**Recent searches** (`search.recent`) ✅
 
 - Submitting a search remembers its query as searched (punctuation turned to spaces), and your latest 10 show newest first above the results, as links reading “&lt;query&gt;” in a strip labeled "Recent searches".
 - Searching for a remembered query again moves it to the top, and queries that differ only in case are kept apart. Following a recent search's link doesn't move it.
 - Clear recent searches, shown only when there are some, asks "Are you sure you want to clear your recent searches?" in the browser's own confirmation, then forgets them all and shows Search without a query.
 - Each person sees only their own. Removing a person deletes theirs; a ban keeps them.
+
+Note: The Workspace keeps them in its `searches` table, one row for each person's search (`docs/database.md`). `POST /api/searches` remembers one and keeps the newest 10 in one batch, then answers what it finds, and `DELETE /api/searches` forgets them. Unlike ember-rust, a search with no words left once it's sanitized isn't remembered, since it searches nothing, where ember-rust remembers it as blank; a search that isn't text is refused with 422, where ember-rust answers 500; and the links are 44px tall for fingers.
 
 Sources: [`crates/db/src/models/search.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/search.rs) · [`crates/views/templates/searches/_recents.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/searches/_recents.html) · [`crates/ember/src/controllers/searches.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/searches.rs) · [`reference/app/models/search.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/search.rb)
 

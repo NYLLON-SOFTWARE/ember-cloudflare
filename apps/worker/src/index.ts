@@ -62,7 +62,7 @@ import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
-import { searchMessages } from "./searches";
+import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
@@ -624,6 +624,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (joining && request.method === "POST") return () => join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return () => unfurlLink(request, env);
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
+  if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
+  if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
 
   const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
   if (socket) {

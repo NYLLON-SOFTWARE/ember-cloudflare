@@ -32,6 +32,7 @@ describe(feature("ui.rail"), () => {
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/rooms/directs/new");
+    expect(within(rail).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/searches");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
   });
@@ -87,10 +88,18 @@ describe(feature("ui.rail"), () => {
     expect(screen.queryAllByRole("link", { current: "page" })).toEqual([]);
   });
 
-  it("disables what isn't built yet, and says so", () => {
-    render(railAt("home"));
-    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Search" })).toHaveAttribute("title", "Search isn't built yet");
+});
+
+describe(feature("search.page"), () => {
+  it("links Search to the search page, marked while it shows, whatever's searched for", async () => {
+    const { rerender } = render(railAt("home"));
+    const search = screen.getByRole("link", { name: "Search" });
+    expect(search).toHaveAttribute("href", "/searches");
+    expect(search).not.toHaveAttribute("aria-current");
+    rerender(railAt("search"));
+    expect(screen.queryAllByRole("link", { current: "page" })).toEqual([search]);
+    await userEvent.click(search);
+    expect(location.pathname).toBe("/searches");
   });
 });
 

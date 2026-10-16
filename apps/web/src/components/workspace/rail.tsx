@@ -2,7 +2,7 @@ import type { ComponentType, MouseEvent } from "react";
 import type { Me } from "@ember/protocol";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
-import { NEW_DIRECT_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { opensNewDirect } from "./new-direct-dialog";
@@ -69,22 +69,12 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
   );
 }
 
-/** A place on the rail that isn't built yet, which says so. */
-function UnbuiltRailLink({ icon: Icon, label }: { icon: Icon; label: string }) {
-  return (
-    <button type="button" disabled title={`${label} isn't built yet`} className={cn(RAIL_LINK, "disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground")}>
-      <Icon className="size-[22px]" />
-      <span>{label}</span>
-    </button>
-  );
-}
-
 /**
  * The page shown, whose links the rail marks as ember-rust's shell.js does: every link to the page's
- * own path (the logo and Home at home, Admin or Workspace on workspace settings, your avatar on your
- * profile), and Home on a room's page, but none while Activity is on.
+ * own path (the logo and Home at home, Search on search, whatever's searched for, Admin or Workspace on
+ * workspace settings, your avatar on your profile), and Home on a room's page, but none while Activity is on.
  */
-export type RailPage = "home" | "room" | "workspace" | "profile" | null;
+export type RailPage = "home" | "room" | "search" | "workspace" | "profile" | null;
 
 interface Props {
   me: Me;
@@ -118,7 +108,7 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
       {/* Never marked, since its address opens New direct message over the last room visited. */}
       <RailLink icon={Messages} label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
-      <UnbuiltRailLink icon={Search} label="Search" />
+      <RailLink icon={Search} label="Search" href={SEARCHES_PATH} current={marked === "search"} />
       <hr className="my-1 w-8 border-t" />
       <RailLink icon={Settings} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
       <AppearanceMenu />
