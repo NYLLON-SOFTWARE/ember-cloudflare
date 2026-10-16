@@ -18,7 +18,7 @@ import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@embe
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { sortableId } from "./ids";
-import { EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
+import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore } from "./store";
@@ -32,6 +32,8 @@ interface Attachment extends Viewing {
   protocol?: number;
   /** Set once the room has closed the socket for a revocation, which announced that it left. */
   revoked?: true;
+  /** Set when a ban blocks the IP address the socket comes from: it can read, but not change anything. */
+  banned?: true;
 }
 
 export const USER_HEADER = "X-Ember-User";
@@ -39,6 +41,10 @@ export const ROOM_HEADER = "X-Ember-Room";
 export const SESSION_HEADER = "X-Ember-Session";
 /** When the Workspace checked the socket's session and membership, in milliseconds since the epoch. */
 export const AUTHORIZED_AT_HEADER = "X-Ember-Authorized-At";
+/** The IP address the socket comes from, which the room tags it with, so banning the address can find it. */
+export const ADDRESS_HEADER = "X-Ember-Address";
+/** "true" when a ban blocks the IP address the socket comes from. */
+export const BANNED_HEADER = "X-Ember-Banned";
 
 /** What a deleted room's object keeps in its own storage until its alarm: the room's id, whose records the alarm erases. */
 const DELETED_ROOM = "deletedRoom";
@@ -50,6 +56,13 @@ const UNREADABLE = "That message couldn't be saved.";
 const EMPTY = "Your message is empty.";
 /** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
 const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
+/**
+ * What the room tells a socket from a banned IP address that tries to change something, as the app
+ * says of the 429 that ember-rust, and the Worker, answer such a request with.
+ */
+const BANNED = "Request failed (429)";
+/** The frames that change something, which a banned address's sockets can't send, as ember-rust's are all requests it refuses. */
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -108,16 +121,18 @@ export class ChatRoom extends DurableObject<Env> {
     const sessionId = request.headers.get(SESSION_HEADER);
     const authorizedAt = Number(request.headers.get(AUTHORIZED_AT_HEADER) ?? NaN);
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
+    const address = request.headers.get(ADDRESS_HEADER);
+    const banned = request.headers.get(BANNED_HEADER) === "true";
     const { visible, since, around, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
 
     return this.serially(async () => {
-      const tags = [user.id, sessionTag(sessionId)];
+      const tags = [user.id, sessionTag(sessionId), ...(address ? [addressTag(address)] : [])];
       // Read side by side, so a room that has just woken waits on D1 once.
       const [refused, opening] = await Promise.all([this.revocationsFor(roomId).refuse(tags, authorizedAt), this.opening(roomId, since, around)]);
       if (refused) return closedAtOnce(CloseCode.Reconnect);
       const { 0: client, 1: server } = new WebSocketPair();
       this.ctx.acceptWebSocket(server, tags);
-      server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now() } satisfies Attachment);
+      server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now(), ...(banned && { banned }) } satisfies Attachment);
 
       this.send(server, { ...opening, you: user, present: this.present() });
       // A tab running an older app hears at once that it has to reload, rather than once it sends something.
@@ -277,6 +292,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   private async handle(ws: WebSocket, user: User, store: MessageStore, frame: ClientFrame): Promise<void> {
     const now = new Date().toISOString();
+    if (CHANGES.has(frame.type) && (ws.deserializeAttachment() as Attachment).banned) {
+      const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
+      return this.send(ws, { type: "error", message: BANNED, clientMessageId, failed: frame.type });
+    }
 
     switch (frame.type) {
       case "message.create": {

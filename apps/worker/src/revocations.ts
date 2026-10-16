@@ -7,7 +7,7 @@ import { statement, type Db } from "./db";
 
 /** The sockets one revocation closes in a room, and what it closes them with. */
 export interface Revocation {
-  /** A person's id, for all their sockets, `sessionTag(id)` for one session's, or `EVERYONE`. */
+  /** A person's id, for all their sockets, `sessionTag(id)` for one session's, `addressTag(ip)` for those from an IP address, or `EVERYONE`. */
   tag: string;
   code: CloseCode;
 }
@@ -17,6 +17,15 @@ export const SESSION_TAG_PREFIX = "s:";
 
 /** The tag on the sockets a session opens, besides its person's id, so revoking the session can find them. */
 export const sessionTag = (sessionId: string) => `${SESSION_TAG_PREFIX}${sessionId}`;
+
+/** What the tag on the sockets from an IP address starts with. */
+export const ADDRESS_TAG_PREFIX = "ip:";
+
+/** The tag on the sockets from an IP address, so banning it, or lifting the ban, can find them. */
+export const addressTag = (ipAddress: string) => `${ADDRESS_TAG_PREFIX}${ipAddress}`;
+
+/** The longest an IP address is written, as IPv6 ending in IPv4's form: no tag needs to be longer. */
+export const MAX_ADDRESS_LENGTH = "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255".length;
 
 /**
  * The tag a revocation names to close every socket in a room, which deleting the room does. No socket

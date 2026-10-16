@@ -116,6 +116,17 @@ export interface ShownPerson {
   transferable: boolean;
 }
 
+/** What the Workspace says about opening a room's socket. */
+export interface RoomAccess {
+  user: User;
+  sessionId: string;
+  member: boolean;
+  /** Whether a ban blocks the IP address the socket comes from, which lets it read but not change anything. */
+  banned: boolean;
+  /** When the Workspace checked, in milliseconds since the epoch. */
+  authorizedAt: number;
+}
+
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
 
@@ -194,6 +205,10 @@ export class Workspace extends DurableObject<Env> {
    * that overlapped one isn't kept.
    */
   private helpContactChanges = 0;
+  /** Every IP address a ban blocks, once read. Banning someone and lifting a ban forget it. */
+  private knownBannedAddresses: Set<string> | null = null;
+  /** Counts the starts and ends of bans and lifted bans, so a read of the banned addresses that overlapped one isn't kept. */
+  private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
@@ -844,7 +859,10 @@ export class Workspace extends DurableObject<Env> {
    * they're in through the outbox, and the outbox has every room they can have written in delete their
    * messages. Everyone's workspace sockets hear of it.
    */
-  async banPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | BanProblem | "forbidden" | "not found" | "yourself" | null> {
+  async banPerson(
+    credentials: Credentials,
+    userId: UserId,
+  ): Promise<DirectoryUser | BanProblem | "your address" | "forbidden" | "not found" | "yourself" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
@@ -855,6 +873,9 @@ export class Workspace extends DurableObject<Env> {
       const ipAddresses = await this.store.sessionIpAddresses(userId);
       const problem = ipAddresses.map(banProblem).find((problem) => problem !== null);
       if (problem) return problem;
+      // Unlike ember-rust, a ban can't block the address the administrator is using, which would stop
+      // them changing anything, lifting the ban included.
+      if (credentials.client.ip !== null && ipAddresses.includes(credentials.client.ip)) return "your address";
 
       const now = Date.now();
       const bannedAt = new Date(now).toISOString();
@@ -862,12 +883,15 @@ export class Workspace extends DurableObject<Env> {
       const banned = person.status === "banned" ? null : { ...person, status: "banned" as const, updatedAt: bannedAt };
       // As when removing someone, until the database says it queued nothing.
       let queued = true;
+      this.banChanges++;
       try {
         queued = await this.sessions.change(
           (session) => session.user.id === userId,
-          () => this.store.banPerson(userId, ipAddresses, CloseCode.Revoked, now, bannedAt),
+          () => this.store.banPerson(userId, ipAddresses, CloseCode.Revoked, CloseCode.Reconnect, now, bannedAt),
         );
       } finally {
+        this.banChanges++;
+        this.knownBannedAddresses = null;
         this.closeSockets(userId, CloseCode.Revoked);
         if (queued) await this.wakeAt(now);
       }
@@ -892,13 +916,23 @@ export class Workspace extends DurableObject<Env> {
       const person = await this.store.person(userId);
       if (!person) return "not found";
 
-      const now = new Date().toISOString();
+      const now = Date.now();
+      const unbannedAt = new Date(now).toISOString();
       // Someone active stays as they are, as when banning someone banned.
-      const unbanned = person.status === "active" ? null : { ...person, status: "active" as const, updatedAt: now };
-      await this.store.unbanPerson(userId, now);
-      // Once saved, as the outbox could otherwise forget it and then read their purges from before. Lifting
-      // it again keeps the first time, as their purges do.
-      if (!this.liftedBans.has(userId)) this.liftedBans.set(userId, now);
+      const unbanned = person.status === "active" ? null : { ...person, status: "active" as const, updatedAt: unbannedAt };
+      // As when banning someone, until the database says it queued nothing.
+      let queued = true;
+      this.banChanges++;
+      try {
+        queued = await this.store.unbanPerson(userId, CloseCode.Reconnect, now, unbannedAt);
+        // Once saved, as the outbox could otherwise forget it and then read their purges from before.
+        // Lifting it again keeps the first time, as their purges do.
+        if (!this.liftedBans.has(userId)) this.liftedBans.set(userId, unbannedAt);
+      } finally {
+        this.banChanges++;
+        this.knownBannedAddresses = null;
+        if (queued) await this.wakeAt(now);
+      }
       const listed = await this.directoryUser(unbanned ?? person);
       if (unbanned) this.broadcast({ type: "user.updated", user: listed });
       return listed;
@@ -1094,15 +1128,36 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Who `credentials` signs in, with their session, and whether they're in room `roomId`, as of
-   * `authorizedAt`, or null without a valid session.
+   * Who `credentials` signs in, with their session, whether they're in room `roomId` and whether a ban
+   * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session.
    */
-  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<{ user: User; sessionId: string; member: boolean; authorizedAt: number } | null> {
+  async roomAccess(credentials: Credentials, roomId: RoomId): Promise<RoomAccess | null> {
     // Before anything is read, so that a revocation saved while this checks counts as later than it,
     // and the room turns the socket away if it arrives after the revocation does.
     const authorizedAt = Date.now();
     const session = await this.session(credentials);
-    return session && { user: session.user, sessionId: session.id, member: await this.store.isMember(roomId, session.user.id), authorizedAt };
+    if (!session) return null;
+    // From the database rather than what `isBanned` keeps, which a ban saving now hasn't changed yet.
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    return { user: session.user, sessionId: session.id, member, banned, authorizedAt };
+  }
+
+  /**
+   * Whether a ban blocks the IP address `ipAddress`, as ember-rust's `Ban.banned?` decides (ban.rs): that
+   * exact address, however else it could be written. The Worker asks before every request that changes
+   * something, so the addresses are read once and kept until a ban changes.
+   */
+  async isBanned(ipAddress: string): Promise<boolean> {
+    return (await this.bannedAddresses()).has(ipAddress);
+  }
+
+  private async bannedAddresses(): Promise<Set<string>> {
+    if (this.knownBannedAddresses) return this.knownBannedAddresses;
+    const changes = this.banChanges;
+    const addresses = new Set(await this.store.bannedAddresses());
+    // On D1, a ban can be saved while this reads, and then what it found is older.
+    if (changes === this.banChanges) this.knownBannedAddresses = addresses;
+    return addresses;
   }
 
   /**

@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
@@ -178,6 +178,28 @@ describe(feature("realtime.reconnect"), () => {
     expect(screen.getByRole("log")).toHaveAttribute("aria-busy", "true");
     rerender(list({ status: "gone", messages: [message("m1")] }));
     expect(screen.getByRole("log")).not.toHaveAttribute("aria-busy");
+  });
+});
+
+describe(feature("boosts.remove"), () => {
+  it("brings back a reaction shown as going once the room refuses to delete one, or lets the page in again", async () => {
+    const boosted: Message = { ...message("m1"), boosts: [{ id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" }] };
+    const pill = () => within(screen.getByRole("list", { name: "Reactions" })).getByRole("listitem");
+    const remove = async () => {
+      actions.unboost.mockReturnValueOnce(true);
+      await userEvent.click(within(pill()).getByRole("button", { name: "Delete this boost" }));
+    };
+    const { rerender } = render(list({ messages: [boosted], connections: 1 }));
+    await userEvent.click(screen.getByRole("button", { name: "👍" }));
+    await remove();
+    expect(pill()).toHaveClass("animate-scale-fade-out");
+    rerender(list({ messages: [boosted], connections: 1, refusedUnboosts: 1 }));
+    expect(pill()).not.toHaveClass("animate-scale-fade-out");
+
+    await remove();
+    expect(pill()).toHaveClass("animate-scale-fade-out");
+    rerender(list({ messages: [boosted], connections: 2, refusedUnboosts: 1 }));
+    expect(pill()).not.toHaveClass("animate-scale-fade-out");
   });
 });
 

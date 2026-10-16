@@ -419,6 +419,11 @@ export interface Message {
   boosts: Boost[];
 }
 
+/**
+ * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
+ * answers each frame that would change messages or boosts with an `error`, as ember-rust answers such
+ * requests with 429.
+ */
 export type ClientFrame =
   /** A new message, its body markup, as the composer writes it. The room keeps what it can show of it, or refuses it. */
   | { type: "message.create"; clientMessageId: string; body: string }

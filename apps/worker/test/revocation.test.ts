@@ -6,26 +6,10 @@ import type { Env } from "../src/env";
 import { AUTHORIZATION_TTL_MS, EVERYONE, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "../src/revocations";
 import type { Workspace } from "../src/workspace";
 import { DUE_REVOCATIONS, type WorkspaceStore } from "../src/workspace-store";
-import { closeOf, connect, forwardUpgrade, freshDeploy, freshRoom, post, roomSql, roomStub, settle, signIn, workspaceSql, workspaceStub, type Access } from "./support";
+import { closeOf, connect, freshDeploy, freshRoom, outcome, post, roomSql, roomStub, settle, signIn, workspaceSql, workspaceStub } from "./support";
 
 /** A time so far ahead that the runtime never runs an alarm set for it during a test. */
 const LATER = Date.now() + 365 * 24 * 60 * 60 * 1000;
-
-/**
- * What a socket the Worker sends on to the room comes to: let in and welcomed, or closed at once,
- * with a code and reason. A socket let in is closed again once it's welcomed.
- */
-async function outcome(room: RoomId, access: Access): Promise<"welcome" | { code: number; reason: string }> {
-  const ws = (await forwardUpgrade(room, access)).webSocket!;
-  ws.accept();
-  let welcomed = false;
-  ws.addEventListener("message", (event) => {
-    welcomed = (JSON.parse(event.data as string) as { type: string }).type === "welcome";
-    ws.close(1000);
-  });
-  const { code, reason } = await closeOf(ws);
-  return welcomed ? "welcome" : { code, reason };
-}
 
 const reconnect = { code: CloseCode.Reconnect, reason: "Reconnect" };
 

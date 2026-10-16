@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { HISTORY_PAGE_SIZE, type Message, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
 import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type RoomState } from "./room-state";
@@ -296,6 +296,19 @@ describe(feature("boosts.add"), () => {
     expect(state.messages[0]!.boosts).toEqual([boost]);
     state = frame(state, { type: "frame", frame: { type: "boost.deleted", boostId: "b1", messageId: "m1", seq: 1 }, now: 0 });
     expect(state.messages[0]!.boosts).toEqual([]);
+  });
+});
+
+describe(feature("boosts.remove"), () => {
+  it("counts the times the room answers a reaction's deletion with an error, so reactions shown as going can come back", () => {
+    const refused = (state: RoomState, failed?: ClientFrame["type"]) => frame(state, { type: "frame", frame: { type: "error", message: "Request failed (429)", failed }, now: 0 });
+    expect(initialRoomState.refusedUnboosts).toBe(0);
+    let state = refused(initialRoomState, "boost.delete");
+    expect(state.refusedUnboosts).toBe(1);
+    // An error about anything else, or about nothing it names, leaves them going.
+    state = refused(refused(state, "boost.create"));
+    expect(state.refusedUnboosts).toBe(1);
+    expect(refused(state, "boost.delete").refusedUnboosts).toBe(2);
   });
 });
 

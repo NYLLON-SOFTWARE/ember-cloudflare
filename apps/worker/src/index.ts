@@ -48,7 +48,7 @@ import {
 import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
-import { AUTHORIZED_AT_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
+import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
@@ -60,6 +60,7 @@ import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
+import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
@@ -246,16 +247,21 @@ async function removePerson(request: Request, env: Env, userId: UserId): Promise
   return json({ user: person } satisfies ChangedPerson);
 }
 
-/** What a ban that can't block an IP address someone signed in from answers, which ember-rust's 422 page leaves unsaid. */
-const BAN_PROBLEMS: Record<BanProblem, string> = {
+/**
+ * What a ban that can't block an IP address someone signed in from answers, which ember-rust's 422 page
+ * leaves unsaid, or one that would block the administrator's own, which ember-rust allows.
+ */
+const BAN_PROBLEMS: Record<BanProblem | "your address", string> = {
   invalid: "They signed in from an IP address that isn't valid, which a ban can't block",
   internal: "They signed in from a private or internal IP address, which a ban can't block",
+  "your address": "They signed in from your IP address, which a ban would block for you too",
 };
 
 /**
  * Bans someone, as Ban on their page does, answering them as the people directory then lists them. As
  * in ember-rust, someone who isn't an administrator hears so first, then an id nobody has isn't found,
- * whatever their status (users/bans.rs). Unlike there, nobody can ban themselves.
+ * whatever their status (users/bans.rs). Unlike there, nobody can ban themselves, or the address
+ * they're using.
  */
 async function banPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -531,8 +537,75 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
   headers.set(ROOM_HEADER, roomId);
   headers.set(SESSION_HEADER, access.sessionId);
   headers.set(AUTHORIZED_AT_HEADER, String(access.authorizedAt));
+  headers.set(BANNED_HEADER, String(access.banned));
+  // An address longer than any IP address isn't one a ban can hold, and would make too long a tag.
+  const { ip } = clientOf(request);
+  if (ip !== null && ip.length <= MAX_ADDRESS_LENGTH) headers.set(ADDRESS_HEADER, ip);
+  else headers.delete(ADDRESS_HEADER);
   return env.CHAT_ROOM.getByName(roomId).fetch(new Request(request, { headers }));
 }
+
+/** What answers an API request, if one of the API's routes takes it. */
+function apiAction(request: Request, env: Env, pathname: string): (() => Response | Promise<Response>) | null {
+  if (pathname === "/api/bootstrap" && request.method === "GET") return () => bootstrap(request, env);
+  if (pathname === "/api/first_run" && request.method === "POST") return () => firstRun(request, env);
+  if (pathname === "/api/session" && request.method === "POST") return () => signIn(request, env);
+  if (pathname === "/api/session" && request.method === "DELETE") return () => endSession(request, env);
+  const transfer = pathname.match(/^\/api\/session\/transfers\/([^/]+)$/);
+  if (transfer && request.method === "PUT") return () => transferSession(request, env, segmentText(transfer[1]!));
+  if (pathname === "/api/me") return () => me(request, env);
+  if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
+  if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
+  if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
+  if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
+  if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
+  // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
+  const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
+  if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);
+  if (person && request.method === "DELETE") return () => removePerson(request, env, person[1]!);
+  if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
+  if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
+  if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
+  if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
+  if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
+  if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  const someone = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (someone && request.method === "GET") return () => showPerson(request, env, segmentText(someone[1]!));
+  const ban = pathname.match(/^\/api\/users\/([^/]+)\/ban$/);
+  if (ban && request.method === "POST") return () => banPerson(request, env, segmentText(ban[1]!));
+  if (ban && request.method === "DELETE") return () => unbanPerson(request, env, segmentText(ban[1]!));
+  if (pathname === "/api/socket") return () => connectToWorkspace(request, env);
+  if (pathname === "/api/rooms" && request.method === "POST") return () => createRoom(request, env);
+  if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
+  if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
+  const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
+  if (joining && request.method === "POST") return () => join(request, env, joining[1]!);
+  if (pathname === "/api/unfurl" && request.method === "POST") return () => unfurlLink(request, env);
+
+  const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
+  if (socket) {
+    // Room ids never need percent-encoding, so an encoded segment can only be an unknown room.
+    const roomId = socket[1]!;
+    return () => (isRoomId(roomId) ? connectToRoom(request, env, roomId) : problem(404, ROOM_NOT_FOUND));
+  }
+  const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
+  if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
+  const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
+  if (favorite && request.method === "PUT") return () => setFavorite(request, env, favorite[1]!);
+  const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+  if (room && request.method === "PATCH") return () => (isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
+  if (room && request.method === "DELETE") return () => (isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
+  return null;
+}
+
+/** Whether the request comes from an IP address a ban blocks. */
+async function isFromBannedAddress(request: Request, env: Env): Promise<boolean> {
+  const { ip } = clientOf(request);
+  return ip !== null && (await workspace(env).isBanned(ip));
+}
+
+/** What a banned IP address's requests to change something answer, as ember-rust's `head(TOO_MANY_REQUESTS)` does. */
+const tooManyRequests = () => new Response(null, { status: 429, headers: { "Content-Type": "text/html" } });
 
 /** What the app's routes answer, before the headers every answer gets. */
 async function route(request: Request, env: Env, pathname: string): Promise<Response> {
@@ -541,61 +614,16 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is password recovery's script, whose token another site's page can't send, since its header
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
-  // First, where ember-rust checks after sign-in and the forgery check: a browser too old for the
-  // app has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
-  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
   const write = request.method !== "GET" && request.method !== "HEAD";
+  const action = apiAction(request, env, pathname);
+  // First, as ember-rust's `reject_banned_ip` (concerns.rs): once a route is found, so an unknown
+  // address still answers 404, a banned IP address can't change anything, sign in or join.
+  if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
+  // Then, where ember-rust checks after sign-in and the forgery check: a browser too old for the app
+  // has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
+  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
-
-  if (pathname === "/api/bootstrap" && request.method === "GET") return bootstrap(request, env);
-  if (pathname === "/api/first_run" && request.method === "POST") return firstRun(request, env);
-  if (pathname === "/api/session" && request.method === "POST") return signIn(request, env);
-  if (pathname === "/api/session" && request.method === "DELETE") return endSession(request, env);
-  const transfer = pathname.match(/^\/api\/session\/transfers\/([^/]+)$/);
-  if (transfer && request.method === "PUT") return transferSession(request, env, segmentText(transfer[1]!));
-  if (pathname === "/api/me") return me(request, env);
-  if (pathname === "/api/account" && request.method === "GET") return workspaceSettings(request, env);
-  if (pathname === "/api/account" && request.method === "PATCH") return changeAccount(request, env);
-  if (pathname === "/api/account/join_code" && request.method === "POST") return regenerateJoinCode(request, env);
-  if (pathname === "/api/account/custom_styles" && request.method === "GET") return customStyles(request, env);
-  if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return changeCustomStyles(request, env);
-  // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
-  const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
-  if (person && request.method === "PATCH") return changeRole(request, env, person[1]!);
-  if (person && request.method === "DELETE") return removePerson(request, env, person[1]!);
-  if (pathname === "/api/sidebar" && request.method === "GET") return sidebar(request, env);
-  if (pathname === "/api/users" && request.method === "GET") return directory(request, env);
-  if (pathname === "/api/autocompletable/users" && request.method === "GET") return mentionable(request, env);
-  if (pathname === "/api/sidebar/order" && request.method === "PUT") return setFavoriteOrder(request, env);
-  if (pathname === "/api/users/me/profile" && request.method === "GET") return profile(request, env);
-  if (pathname === "/api/users/me/profile" && request.method === "PATCH") return changeProfile(request, env);
-  const someone = pathname.match(/^\/api\/users\/([^/]+)$/);
-  if (someone && request.method === "GET") return showPerson(request, env, segmentText(someone[1]!));
-  const ban = pathname.match(/^\/api\/users\/([^/]+)\/ban$/);
-  if (ban && request.method === "POST") return banPerson(request, env, segmentText(ban[1]!));
-  if (ban && request.method === "DELETE") return unbanPerson(request, env, segmentText(ban[1]!));
-  if (pathname === "/api/socket") return connectToWorkspace(request, env);
-  if (pathname === "/api/rooms" && request.method === "POST") return createRoom(request, env);
-  if (pathname === "/api/rooms/new" && request.method === "GET") return newRoomForm(request, env);
-  if (pathname === "/api/directs" && request.method === "POST") return startDirect(request, env);
-  const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
-  if (joining && request.method === "POST") return join(request, env, joining[1]!);
-  if (pathname === "/api/unfurl" && request.method === "POST") return unfurlLink(request, env);
-
-  const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
-  if (socket) {
-    // Room ids never need percent-encoding, so an encoded segment can only be an unknown room.
-    const roomId = socket[1]!;
-    return isRoomId(roomId) ? connectToRoom(request, env, roomId) : problem(404, ROOM_NOT_FOUND);
-  }
-  const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
-  if (settings && request.method === "GET") return isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND);
-  const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
-  if (favorite && request.method === "PUT") return setFavorite(request, env, favorite[1]!);
-  const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
-  if (room && request.method === "PATCH") return isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
-  if (room && request.method === "DELETE") return isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND);
-
+  if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);

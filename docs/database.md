@@ -175,11 +175,20 @@ search index. On top of that schema it adds indexes and query changes for speed.
   to arrive, and any socket let through over a minute before it arrives, which a revocation the room
   has since forgotten could cover.
 - **Bans are ember-rust's `bans`.** Banning someone records each address on their sessions in a
-  `bans` row (workspace migration 0018), with ember-rust's indexes: by address, which blocking a
-  banned address's requests will read (`accounts.ban-enforcement`), and by person, which lifting the
-  ban deletes. They're written in the batch that ends the person's sessions, marks them banned and
-  queues closing their sockets and deleting their messages, the addresses going to the `INSERT` as
-  one JSON value, so it binds the same few values however many sessions there were.
+  `bans` row (workspace migration 0018), with ember-rust's indexes: by address, which a room socket's
+  check reads, and by person, which lifting the ban deletes. They're written in the batch that ends
+  the person's sessions, marks them banned and queues closing their sockets and deleting their
+  messages, the addresses going to the `INSERT` as one JSON value, so it binds the same few values
+  however many sessions there were.
+- **Banned addresses are kept in memory.** ember-rust reads `bans` for every request that would
+  change something (`crates/ember/src/concerns.rs`). Here the Worker asks the Workspace before each
+  such request, and the Workspace answers from the set of banned addresses it keeps, so the check
+  costs that call but never a database read, even on D1. It reads the set again after a ban or a
+  lifted ban, and doesn't keep a read that one overtook. A room socket's check reads the address's
+  ban in the statement that already reads the person's membership, so it costs nothing more and
+  never waits on that set. Banning addresses, or lifting
+  their ban, queues closing the sockets from each in every room: one `INSERT ... SELECT` joins
+  `rooms` with the addresses, sent as one JSON value, writing a `pending_revocations` row for each.
 - **A ban deletes messages through the outbox, a page at a time.** ember-rust's
   `RemoveBannedContentJob` (`crates/ember/src/jobs.rs`) finds a banned person's messages through
   `index_messages_on_creator_id` and deletes them one by one. Ours are spread over rooms, so the

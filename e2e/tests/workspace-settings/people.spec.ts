@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
-import type { Directory } from "@ember/protocol";
+import { SIGN_IN_REFUSED, type Directory } from "@ember/protocol";
 import { expect, test, type Page } from "@playwright/test";
-import { editorField, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** The sign-in page's heading, which names the workspace, which another test here may have renamed. */
@@ -151,5 +151,58 @@ test.describe(feature("accounts.ban"), () => {
     await page.reload();
     await expect(ban).toBeVisible();
     await grace.context().close();
+  });
+});
+
+/** The status of the request to change something at an address ending in `path` that `act` has `tab` send. */
+async function statusOfChange(tab: Page, path: string, act: () => Promise<unknown>): Promise<number> {
+  const response = tab.waitForResponse((response) => response.request().method() !== "GET" && new URL(response.url()).pathname.endsWith(path));
+  await act();
+  return (await response).status();
+}
+
+test.describe(feature("accounts.ban-enforcement"), () => {
+  // Browsers don't send a test's address when they open a WebSocket (see `useOwnAddress`), so the
+  // Worker's tests cover what a banned address's room sockets can do.
+  test("nobody at a banned address can sign in or change anything, though they can still read, until the ban is lifted", async ({ page, browser, baseURL }) => {
+    await useOwnAddress(page);
+    await page.goto("/account/edit");
+    await signInAsAdministrator(page);
+    const joinUrl = await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue();
+    const tag = crypto.randomUUID().slice(0, 8);
+    // Hal joins from Grace's address, as someone on her network would, and someone else there is about to sign in.
+    const shared = newAddress();
+    const graceName = `Grace ${tag}`;
+    const grace = await join(browser, baseURL!, joinUrl, graceName, shared);
+    const hal = await join(browser, baseURL!, joinUrl, `Hal ${tag}`, shared);
+    const visitor = await (await browser.newContext({ baseURL, ignoreHTTPSErrors: true })).newPage();
+    await useOwnAddress(visitor, shared);
+    await visitor.goto("/session/new");
+    const star = hal.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+
+    const { users } = (await (await page.request.get("/api/users")).json()) as Directory;
+    await page.goto(`/users/${users.find((user) => user.name === graceName)!.id}`);
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: `Ban ${graceName}` }).click();
+    await expect(page.getByRole("button", { name: "Remove ban" })).toBeVisible();
+    await expect(signInHeading(grace)).toBeVisible();
+
+    // Hal's room still loads, but starring it is refused, and so is signing in there.
+    await hal.reload();
+    await expect(hal.getByRole("log")).not.toHaveAttribute("aria-busy");
+    expect(await statusOfChange(hal, "/favorite", () => star.click())).toBe(429);
+    await expect(hal.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+    await expect(star).toHaveAttribute("aria-pressed", "false");
+    expect(await statusOfChange(visitor, "/api/session", () => signInAsAdministrator(visitor))).toBe(429);
+    await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Remove ban" }).click();
+    await expect(page.getByRole("button", { name: `Ban ${graceName}` })).toBeVisible();
+    await star.click();
+    await expect(star).toHaveAttribute("aria-pressed", "true");
+    await signInAsAdministrator(visitor);
+    await expect(visitor.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
+    for (const tab of [grace, hal, visitor]) await tab.context().close();
   });
 });
