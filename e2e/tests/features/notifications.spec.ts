@@ -1,5 +1,7 @@
 import { feature } from "@ember/parity";
+import type { PushSubscriptions } from "@ember/protocol";
 import type { Page } from "@playwright/test";
+import { administratorOn, logOut } from "../../fixtures";
 import { expect, startDirect, test, unique } from "./fixtures";
 
 const MENTIONS = "Notifying about @ mentions";
@@ -124,5 +126,60 @@ test.describe(feature("notifications.profile-list"), () => {
     await expect(general).toHaveCSS("opacity", "1");
     await expect(roomRows(grace.page)).toHaveText(["#general", "#random"]);
     await expect(activity(grace.page)).toHaveAccessibleDescription("1 unread");
+  });
+});
+
+/** An endpoint at Chrome's push service that no other test's subscriptions have. */
+const uniqueEndpoint = () => `https://fcm.googleapis.com/fcm/send/${crypto.randomUUID()}`;
+
+test.describe(feature("notifications.subscriptions"), () => {
+  test("Log out ends this browser's push subscription, and the server forgets it, but not another browser's", async ({ browser, baseURL, rooms }) => {
+    const laptop = await administratorOn(browser, baseURL!, rooms.general);
+    const phone = await administratorOn(browser, baseURL!, rooms.general);
+    try {
+      const [laptops, phones] = [uniqueEndpoint(), uniqueEndpoint()];
+      for (const endpoint of [laptops, phones]) {
+        const keys = { p256dhKey: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", authKey: "BTBZMqHH6r4Tts7J_aSIgg" };
+        const response = await laptop.request.post("/api/push-subscriptions", { data: { endpoint, ...keys } });
+        expect(response.status(), await response.text()).toBe(204);
+      }
+      // The laptop's browser is subscribed at its endpoint, as turning notifications on leaves it.
+      let unsubscribed = false;
+      await laptop.exposeFunction("unsubscribed", () => (unsubscribed = true));
+      await laptop.evaluate((endpoint) => {
+        const subscription = { endpoint, unsubscribe: () => (window as unknown as { unsubscribed(): Promise<boolean> }).unsubscribed() };
+        Object.defineProperty(navigator.serviceWorker, "getRegistration", { value: async () => ({ pushManager: { getSubscription: async () => subscription } }) });
+      }, laptops);
+
+      const signingOut = laptop.waitForRequest((request) => request.method() === "DELETE" && new URL(request.url()).pathname === "/api/session");
+      await logOut(laptop);
+      expect((await signingOut).postDataJSON()).toEqual({ pushSubscriptionEndpoint: laptops });
+      await expect(laptop.getByRole("heading", { name: "Sign in to Ember" })).toBeVisible();
+      expect(unsubscribed).toBe(true);
+
+      const { subscriptions } = (await (await phone.request.get("/api/push-subscriptions")).json()) as PushSubscriptions;
+      const phonesOnly = subscriptions.filter(({ endpoint }) => endpoint === laptops || endpoint === phones);
+      expect(phonesOnly.map(({ endpoint }) => endpoint)).toEqual([phones]);
+      expect((await phone.request.delete(`/api/push-subscriptions/${phonesOnly[0]!.id}`)).status()).toBe(204);
+    } finally {
+      await Promise.all([laptop.context().close(), phone.context().close()]);
+    }
+  });
+});
+
+test.describe(feature("notifications.service-worker"), () => {
+  test("is public at /service-worker.js, as JavaScript a page can register", async ({ page, request }) => {
+    const response = await request.get("/service-worker.js");
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toBe("text/javascript; charset=utf-8");
+
+    await page.goto("/session/new");
+    const active = await page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.register("/service-worker.js");
+      const { active } = await navigator.serviceWorker.ready;
+      await registration.unregister();
+      return active && { scriptURL: active.scriptURL, state: active.state };
+    });
+    expect(active).toEqual({ scriptURL: new URL("/service-worker.js", page.url()).href, state: "activated" });
   });
 });

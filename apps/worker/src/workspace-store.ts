@@ -12,11 +12,13 @@ import {
   type Involvement,
   type PersonRole,
   type Profile,
+  type PushSubscriptionKeys,
   type Role,
   type Room,
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SavedPushSubscription,
   type SharedRoom,
   type SidebarRoom,
   type User,
@@ -654,6 +656,22 @@ const TRIM_SEARCHES = `DELETE FROM searches WHERE user_id = ?1
 /** Someone's recent searches, newest first, as ember-rust's `ordered_for_user` lists them (search.rs). */
 const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? ORDER BY position DESC LIMIT ?`;
 
+/**
+ * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
+ * with its user agent, or, when they've saved the same endpoint and keys before, records that it was
+ * saved again, as ember-rust touches it.
+ */
+const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+  ON CONFLICT (user_id, endpoint, p256dh_key, auth_key) DO UPDATE SET updated_at = excluded.updated_at`;
+
+/**
+ * Forgets the subscriptions with endpoint ?2 of whoever's session has the token digest ?1, as signing out
+ * does in ember-rust (`destroy_by_endpoint`), before the session ends.
+ */
+const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
+  WHERE user_id = (SELECT user_id FROM sessions WHERE token_digest = ?1) AND endpoint = ?2`;
+
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
@@ -970,11 +988,14 @@ export class WorkspaceStore {
 
   /**
    * Ends the session a token's digest names, and in the same transaction queues closing its sockets
-   * with `code` in every room its person is in, due at `dueAt`. Answers whether it queued any.
+   * with `code` in every room its person is in, due at `dueAt`, and forgets its person's push
+   * subscriptions with the endpoint `pushEndpoint`, the browser's that's signing out. Answers whether it
+   * queued any.
    */
-  async endSession(tokenDigest: string, code: CloseCode, dueAt: number): Promise<boolean> {
+  async endSession(tokenDigest: string, code: CloseCode, dueAt: number, pushEndpoint: string | null): Promise<boolean> {
     const [queued] = await this.db.batch([
       statement(QUEUE_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, tokenDigest),
+      ...(pushEndpoint === null ? [] : [statement(FORGET_SESSION_PUSH_ENDPOINT, tokenDigest, pushEndpoint)]),
       statement(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest),
     ]);
     return queued!.length > 0;
@@ -1008,9 +1029,9 @@ export class WorkspaceStore {
    * Removes someone from the workspace, as ember-rust's `User#deactivate` does (user.rs), in one
    * transaction: queues closing each of their sessions' sockets with `code` in every room they're in,
    * DMs included, due at `dueAt`, takes them out of every room but their DMs, ends their sessions,
-   * forgets their recent searches, and marks them removed, recording when, with `-deactivated-<uuid>`
-   * before each "@" of their email address. Their messages, boosts, DMs, role and avatar stay. Answers
-   * whether it queued any.
+   * forgets their recent searches and push subscriptions, and marks them removed, recording when, with
+   * `-deactivated-<uuid>` before each "@" of their email address. Their messages, boosts, DMs, role and
+   * avatar stay. Answers whether it queued any.
    */
   async removePerson(userId: UserId, uuid: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -1019,6 +1040,7 @@ export class WorkspaceStore {
       statement(LEAVE_SHARED_ROOMS, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`DELETE FROM searches WHERE user_id = ?`, userId),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(DEACTIVATE, `-deactivated-${uuid}@`, now, userId),
     ]);
     return queued!.length > 0;
@@ -1194,6 +1216,25 @@ export class WorkspaceStore {
   /** Forgets all of someone's recent searches, as ember-rust's `destroy_all_for_user` does (search.rs). */
   async clearSearches(userId: UserId): Promise<void> {
     await this.db.run(`DELETE FROM searches WHERE user_id = ?`, userId);
+  }
+
+  /** Saves a browser's push subscription for someone, with its user agent, or records that they saved it again. */
+  async savePushSubscription(userId: UserId, { endpoint, p256dhKey, authKey }: PushSubscriptionKeys, userAgent: string | null, now: string): Promise<void> {
+    await this.db.run(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now);
+  }
+
+  /** Someone's push subscriptions, oldest first. */
+  async pushSubscriptionsOf(userId: UserId): Promise<SavedPushSubscription[]> {
+    const rows = await this.db.all<{ id: number; endpoint: string; user_agent: string | null }>(
+      `SELECT id, endpoint, user_agent FROM push_subscriptions WHERE user_id = ? ORDER BY id`,
+      userId,
+    );
+    return rows.map((row) => ({ id: row.id, endpoint: row.endpoint, userAgent: row.user_agent }));
+  }
+
+  /** Deletes someone's push subscription `id`, if it's theirs, as ember-rust's `push_subscriptions#destroy` does. */
+  async deletePushSubscription(userId: UserId, id: number): Promise<void> {
+    await this.db.run(`DELETE FROM push_subscriptions WHERE id = ? AND user_id = ?`, id, userId);
   }
 
   /**

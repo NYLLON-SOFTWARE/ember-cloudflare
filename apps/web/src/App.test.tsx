@@ -111,7 +111,7 @@ function serve({
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", user: signedIn ? me : null });
+      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -622,6 +622,25 @@ describe(feature("auth.sign-out"), () => {
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
     expect(loadPage).toHaveBeenCalledOnce();
     expect(sessionStorage.getItem("ember:return-to")).toBeNull();
+  });
+
+  it("first ends this browser's push subscription, which the server forgets with the session", async () => {
+    const subscription = { endpoint: "https://fcm.googleapis.com/fcm/send/abc", unsubscribe: vi.fn(async () => true) };
+    const registration = { pushManager: { getSubscription: async () => subscription } };
+    Object.defineProperty(navigator, "serviceWorker", { value: { getRegistration: async () => registration }, configurable: true });
+    try {
+      const fetch = serve({ signedIn: true });
+      render(<App />);
+      await roomHeading();
+      await openYourProfile();
+      await logOut();
+      await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new"));
+      expect(subscription.unsubscribe).toHaveBeenCalled();
+      const body = JSON.stringify({ pushSubscriptionEndpoint: subscription.endpoint });
+      expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "DELETE", body }));
+    } finally {
+      Reflect.deleteProperty(navigator, "serviceWorker");
+    }
   });
 
   it("stays signed in when signing out can't reach the server", async () => {

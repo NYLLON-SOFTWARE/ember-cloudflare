@@ -130,7 +130,7 @@ describe(feature("realtime.connection"), () => {
     const [{ id, token_digest }] = (await workspaceSql("SELECT id, token_digest FROM sessions WHERE user_id = ?", ada.user.id)) as [{ id: string; token_digest: string }];
     const endSession = () =>
       runInDurableObject(workspaceStub(), (workspace: Workspace) =>
-        (workspace as unknown as { store: WorkspaceStore }).store.endSession(token_digest, CloseCode.Reconnect, LATER),
+        (workspace as unknown as { store: WorkspaceStore }).store.endSession(token_digest, CloseCode.Reconnect, LATER, null),
       );
 
     expect(await endSession()).toBe(true);

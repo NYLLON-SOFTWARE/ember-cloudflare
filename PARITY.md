@@ -13,11 +13,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 81 ported and 49 partial of 172 features; 36 not started, 6 not applicable.
+**Overall:** 84 ported and 49 partial of 172 features; 33 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
-| [Sign-in and sessions](#sign-in-and-sessions) | 6 | 6 | 0 | 0 | 12 |
+| [Sign-in and sessions](#sign-in-and-sessions) | 7 | 5 | 0 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 11 | 2 | 1 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 2 | 2 | 1 | 0 | 5 |
 | [Rooms](#rooms) | 8 | 10 | 0 | 0 | 18 |
@@ -30,12 +30,12 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
-| [Notifications](#notifications) | 1 | 2 | 10 | 0 | 13 |
+| [Notifications](#notifications) | 3 | 3 | 7 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 0 | 0 | 15 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **81** | **49** | **36** | **6** | **172** |
+| **Total** | **84** | **49** | **33** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -48,7 +48,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | Sign-in attempt limit | `auth.rate-limit` | Campfire | ✅ Ported | Worker: [rate-limit](apps/worker/test/rate-limit.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [sign-in-page](apps/web/src/components/sign-in-page.test.tsx) |
 | Pages need a signed-in person | `auth.require-sign-in` | Campfire | 🟡 Partial | Worker: [api](apps/worker/test/api.test.ts) |
 | Stay signed in, per device | `auth.sessions` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [session-cache](apps/worker/test/session-cache.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
-| Sign out | `auth.sign-out` | Campfire | 🟡 Partial | Worker: [auth](apps/worker/test/auth.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
+| Sign out | `auth.sign-out` | Campfire | ✅ Ported | Worker: [auth](apps/worker/test/auth.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Private sign-in link | `auth.sign-in-link` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [transfers](apps/worker/test/transfers.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [transfer-page](apps/web/src/components/transfer-page.test.tsx), [person-page](apps/web/src/components/workspace/person-page.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [sign-in-link](apps/web/src/components/workspace/sign-in-link.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Sign up with the join link | `auth.sign-up` | Ember | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [App](apps/web/src/App.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
 | Help contact on sign-in pages | `auth.help-contact` | Campfire | ✅ Ported | Worker: [removal](apps/worker/test/removal.test.ts), [roles](apps/worker/test/roles.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [join-page](apps/web/src/components/join-page.test.tsx), [sign-in-page](apps/web/src/components/sign-in-page.test.tsx)<br>E2E: [auth](e2e/tests/features/auth.spec.ts) |
@@ -149,13 +149,13 @@ Sources: [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`reference/test/controllers/sessions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/sessions_controller_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`crates/db/src/tests/callbacks_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/callbacks_test.rs) · [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/user_test.rs)
 
-**Sign out** (`auth.sign-out`) 🟡
+**Sign out** (`auth.sign-out`) ✅
 
 - The profile page's header has a "Log out" button (logout icon) that sends `DELETE /session`: it deletes the session, its cookie and the rest of the browser's session data, then goes to `/`, which redirects to sign-in.
 - Before submitting, the page unsubscribes this browser from push and sends the subscription's endpoint, and the server deletes that subscription if it's the person's own.
 - The person's open connections are told to reconnect, so their other devices carry on with their own sessions; signing out still completes if they can't be disconnected.
 
-Note: "Log out" loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's sockets, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed. The rooms close them just after signing out answers, through the Workspace's outbox (`realtime.connection`), which tries a room it can't reach again later rather than holding up the sign-out. There's no push subscription to remove until push notifications are ported.
+Note: "Log out" loads `/session/new` itself rather than going by `/`. If the server can't be reached, the browser stays signed in. Rather than telling all the person's connections to reconnect, the server closes only this session's sockets, in every room they're in, so this browser's other tabs go to sign-in at once and other devices aren't disturbed. The rooms close them just after signing out answers, through the Workspace's outbox (`realtime.connection`), which tries a room it can't reach again later rather than holding up the sign-out. "Log out" sends the push subscription's endpoint as JSON (`pushSubscriptionEndpoint`), and the server forgets the person's subscriptions with it in the change that ends the session. A browser that can't end its subscription still signs out, and the server still forgets it, where ember-rust's page stops and stays signed in.
 
 Sources: [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`crates/ember/src/concerns.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns.rs) · [`crates/views/templates/users/profiles/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/profiles/show.html) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
@@ -1743,13 +1743,13 @@ ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-S
 | Levels on your profile | `notifications.profile-list` | Campfire | ✅ Ported | Web: [conversation-notifications](apps/web/src/components/workspace/conversation-notifications.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts), [notifications](e2e/tests/mobile/notifications.spec.ts) |
 | Who gets a push | `notifications.push` | Campfire | ⬜ Not started |  |
 | What a push says | `notifications.payload` | Campfire | ⬜ Not started |  |
-| Save push subscriptions | `notifications.subscriptions` | Campfire | ⬜ Not started |  |
+| Save push subscriptions | `notifications.subscriptions` | Campfire | ✅ Ported | Worker: [push-subscriptions](apps/worker/test/push-subscriptions.test.ts)<br>Web: [push](apps/web/src/lib/push.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | Push subscriptions page | `notifications.test-page` | Campfire | ⬜ Not started |  |
-| Service worker | `notifications.service-worker` | Campfire | ⬜ Not started |  |
+| Service worker | `notifications.service-worker` | Campfire | ✅ Ported | Web: [service-worker](apps/web/src/service-worker.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | App icon badge | `notifications.app-badge` | Campfire | ⬜ Not started |  |
 | Install as an app | `notifications.install-instructions` | Campfire | ⬜ Not started |  |
 | Notification setup help | `notifications.setup-help` | Campfire | ⬜ Not started |  |
-| Web Push configuration | `notifications.web-push-keys` | Ember | ⬜ Not started |  |
+| Web Push configuration | `notifications.web-push-keys` | Ember | 🟡 Partial | Worker: [web-push-keys](apps/worker/test/web-push-keys.test.ts)<br>Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts), [vapid-keys](apps/worker/scripts/vapid-keys.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1832,13 +1832,15 @@ Sources: [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON
 
 ember-rust tests: [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs) · [`crates/db/src/tests/push_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/push_test.rs)
 
-**Save push subscriptions** (`notifications.subscriptions`) ⬜
+**Save push subscriptions** (`notifications.subscriptions`) ✅
 
 - A browser's push endpoint and keys are saved for the signed-in person, whatever user the URL names, along with the browser's user agent. Saving the same three values again checks them again and refreshes the row; a changed key adds a new row.
 - Endpoints must be HTTPS on the standard port at a known push service (fcm.googleapis.com, jmt17.google.com, updates.push.services.mozilla.com, web.push.apple.com, notify.windows.com, or their subdomains) on a public address; anything else is 422.
 - The endpoint's errors are "can't be blank" (which comes with "is not a valid URL"), "is not a valid URL", "must use HTTPS", "must use the default HTTPS port", "is not a permitted push service" and "resolves to a private or invalid IP address".
 - You can delete only your own subscriptions; asking to delete someone else's does nothing.
 - Signing out unsubscribes the browser and deletes your subscriptions with its endpoint. Removing a person deletes all of theirs; a ban keeps them.
+
+Note: The API is `/api/push-subscriptions`, which takes JSON `{endpoint, p256dhKey, authKey}`, all three required (where ember-rust saves a missing key as none at all), with the endpoint at most 2,048 characters and each key 256. Saving answers 204, a refusal 422 with the errors as one message ("Endpoint can't be blank and is not a valid URL"), and deleting 204 whether or not anything was deleted, where ember-rust answers 200, an empty 422 and a redirect. The list gives each subscription's id, endpoint and user agent. The endpoint's host isn't looked up, so "resolves to a private or invalid IP address" never comes up: the `global_fetch_strictly_public` flag sends a Worker's every fetch over the public Internet, where a private address can't be reached, and a lookup on each save would be one more thing to fail. Until notifications can be turned on (`notifications.enable`), nothing in the app saves one.
 
 Sources: [`crates/ember/src/controllers/users/push_subscriptions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/push_subscriptions.rs) · [`crates/db/src/models/push_subscription.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/push_subscription.rs) · [`crates/ember/src/controllers/sessions.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/sessions.rs) · [`reference/app/models/push/subscription.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/push/subscription.rb) · [`reference/app/javascript/controllers/sessions_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/sessions_controller.js)
 
@@ -1855,12 +1857,14 @@ Sources: [`crates/views/templates/users/push_subscriptions/index.html`](https://
 
 ember-rust tests: [`reference/test/controllers/users/push_subscriptions_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/users/push_subscriptions_controller_test.rb) · [`crates/ember/src/integrations/web_push/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/tests.rs)
 
-**Service worker** (`notifications.service-worker`) ⬜
+**Service worker** (`notifications.service-worker`) ✅
 
 - `/service-worker.js` is public and sent as `text/javascript; charset=utf-8`; it's the worker the page registers.
 - On a push it shows a notification with the push's title and options, and sets the app badge to the push's count, clearing it when that's 0 or missing.
 - A click closes the notification and sends the focused window to the push's page, or opens a new window when none is focused.
 - It has no install, activate or fetch handlers, so it caches nothing and the app doesn't work offline.
+
+Note: It's ember-rust's file byte for byte, after a comment, served from the app's static files, so `/service-worker` without `.js` is the 404 page where ember-rust serves it too. Nothing registers it until notifications can be turned on (`notifications.enable`).
 
 Sources: [`crates/views/templates/pwa/service_worker.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/service_worker.js) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`reference/app/views/pwa/service_worker.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/service_worker.js)
 
@@ -1900,12 +1904,14 @@ Sources: [`crates/views/templates/pwa/_browser_settings.html`](https://github.co
 
 ember-rust tests: [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs) · [`crates/ember/src/concerns/platform.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/concerns/platform.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Web Push configuration** (`notifications.web-push-keys`) ⬜
+**Web Push configuration** (`notifications.web-push-keys`) 🟡
 
 - `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, a P-256 key pair in URL-safe Base64, turn Web Push on. Without them (a blank value counts as unset) push is off, and "Web Push is off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY aren't set" is logged.
 - A pair that doesn't parse or doesn't match also turns push off, logging "Web Push is off: " followed by "VAPID_PUBLIC_KEY isn't a Base64 P-256 public key", "VAPID_PRIVATE_KEY isn't a Base64 P-256 private key" or "VAPID_PUBLIC_KEY isn't the public key of VAPID_PRIVATE_KEY".
 - With push off, nothing is pushed, pages carry no public key, the bell explains "Notifications aren’t configured", and test pushes fail.
 - Each push carries a VAPID token signed with the key pair (ES256, valid for 12 hours) whose contact is `VAPID_SUBJECT`, by default `https://` and the deployment's domain, or the project's own URL when it has none.
+
+Note: The keys are Worker secrets, read once per isolate. The app gets the public key from `/api/bootstrap` (`vapidPublicKey`), where ember-rust puts it in a meta tag, and always uncompressed, which is what browsers subscribe with, where ember-rust passes on a compressed key as it's given. `/api/health` says whether push is on and why not (`push`), which ember-rust only logs, without failing the check. `pnpm vapid:keys` prints a new pair, and the preview's first deploy makes one (`platform.deploy-secrets`). Nothing is pushed yet, so there's no VAPID token, `VAPID_SUBJECT` or test push (`notifications.push`, `notifications.test-page`), and no bell to explain that push is off (`notifications.enable`).
 
 Sources: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/integrations/web_push/vapid.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/web_push/vapid.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`reference/config/initializers/vapid.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/vapid.rb)
 
@@ -2456,6 +2462,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 
 - A deploy without `SESSION_SECRET` generates one, and later deploys keep it; a failed lookup of the Worker's secrets stops the deploy rather than replacing one.
 - `EMBER_SETUP_TOKEN` comes from the repository secret when one is set. Otherwise the first deploy stores a random one that nobody sees, so setup stays locked rather than open.
+- A deploy without either VAPID key generates a pair, and later deploys keep it, so browsers' push subscriptions outlast deploys; a Worker with just one key keeps it.
 - Secrets go live with the code in a single deploy, and neither the token nor the setup link appears in logs or the run summary.
 - The deploy check fails when setup is pending and unprotected.
 

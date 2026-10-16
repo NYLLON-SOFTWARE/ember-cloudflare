@@ -30,6 +30,7 @@ import {
   type SearchResults,
   type SharedRoom,
   type Sidebar,
+  type SignOut,
   type SignUp,
   type StartedDirect,
   type UserId,
@@ -106,9 +107,13 @@ export async function signInWithLink(transferId: string): Promise<Me> {
   return (await request<{ user: Me }>(`/api/session/transfers/${encodeURIComponent(transferId)}`, { method: "PUT" })).user;
 }
 
-/** Ends this browser's session. */
-export async function signOut(): Promise<void> {
-  await request("/api/session", { method: "DELETE" });
+/**
+ * Ends this browser's session, and forgets your push subscriptions with `pushSubscriptionEndpoint`, the
+ * endpoint of the one this browser just ended, if it had one.
+ */
+export async function signOut(pushSubscriptionEndpoint: string | null = null): Promise<void> {
+  const body: SignOut = pushSubscriptionEndpoint === null ? {} : { pushSubscriptionEndpoint };
+  await request("/api/session", { method: "DELETE", body: JSON.stringify(body) });
 }
 
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */

@@ -8,6 +8,7 @@ const PENDING: Bootstrap = {
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
   helpContact: null,
   version: "0.1",
+  vapidPublicKey: null,
   user: null,
 };
 

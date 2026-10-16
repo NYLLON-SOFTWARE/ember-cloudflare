@@ -8,6 +8,9 @@ EMBER_GUEST_SIGN_IN=true
 # Lets apps/worker/scripts/reset-password.ts reset anyone's password, given the same token in its own
 # EMBER_RECOVERY_TOKEN; make one with `openssl rand -hex 32`, and leave it out once you're done.
 # EMBER_RECOVERY_TOKEN=
+# Turns push notifications on: the key pair `pnpm vapid:keys` prints, which browsers subscribe with.
+# VAPID_PUBLIC_KEY=
+# VAPID_PRIVATE_KEY=
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true

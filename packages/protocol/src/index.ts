@@ -23,6 +23,16 @@ export {
   type WorkspacePage,
 } from "./pages.ts";
 export {
+  MAX_PUSH_ENDPOINT_LENGTH,
+  MAX_PUSH_KEY_LENGTH,
+  parsePushSubscription,
+  signOutEndpointOf,
+  type PushSubscriptionKeys,
+  type PushSubscriptions,
+  type SavedPushSubscription,
+  type SignOut,
+} from "./push.ts";
+export {
   isSearchable,
   MAX_SEARCH_LENGTH,
   parseSearch,
@@ -341,6 +351,11 @@ export interface Bootstrap {
   helpContact: HelpContact | null;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
   version: string;
+  /**
+   * The public key browsers subscribe to push notifications with, in URL-safe Base64, or null while Web
+   * Push is off, as ember-rust's `vapid-public-key` meta tag carries it.
+   */
+  vapidPublicKey: string | null;
   user: Me | null;
 }
 

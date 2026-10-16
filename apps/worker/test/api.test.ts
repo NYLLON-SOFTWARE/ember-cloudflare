@@ -3,6 +3,7 @@ import { listDurableObjectIds } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
+import { KEYS_MISSING } from "../src/push/keys";
 import { api, apiWith, cookieOf, signIn, upgrade } from "./support";
 
 const bindings = env as unknown as Env;
@@ -92,10 +93,10 @@ describe(feature("platform.health"), () => {
   /** /api/health from a Worker whose bindings differ from this suite's by `changes`. */
   const healthWith = (changes: Partial<Env>) => apiWith(changes, "/api/health");
 
-  it("reports that the Worker is up and which storage it uses", async () => {
+  it("reports that the Worker is up, which storage it uses, and whether push notifications are on", async () => {
     const response = await api("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND });
+    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND, push: { on: false, reason: KEYS_MISSING } });
   });
 
   it("reaches the Workspace and a room's object, so a deploy can be checked without signing in", async () => {

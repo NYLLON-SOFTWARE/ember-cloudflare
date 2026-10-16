@@ -13,6 +13,7 @@ import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
 import { loadPage } from "@/lib/page";
+import { unsubscribeFromPush } from "@/lib/push";
 import { forgetReturnPath, rememberThisPage, takeReturnPath } from "@/lib/return-path";
 
 const MAX_RETRY_MS = 15_000;
@@ -93,9 +94,10 @@ export function App() {
   }, []);
   // As in ember-rust, a sign-out that doesn't reach the server leaves this browser signed in; one
   // that does goes to sign in, from where signing in again goes home. It settles with whether it did.
+  // First, as there, the browser stops taking pushes, whether or not signing out goes on to work.
   const signOutHere = useCallback(() => {
     signingOut.current = true;
-    return signOut().then(
+    return unsubscribeFromPush().then(signOut).then(
       () => {
         forgetReturnPath();
         loadPage(SIGN_IN_PATH);

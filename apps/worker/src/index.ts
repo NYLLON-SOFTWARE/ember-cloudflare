@@ -13,6 +13,7 @@ import {
   parseRoleChange,
   parseRoomChanges,
   SIGN_IN_REFUSED,
+  signOutEndpointOf,
   transferIdFromPath,
   workspacePageOf,
   type Bootstrap,
@@ -61,6 +62,8 @@ import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
+import { webPush } from "./push/keys";
+import { deletePushSubscription, listPushSubscriptions, savePushSubscription } from "./push/subscriptions";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
@@ -128,10 +131,16 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
-/** What the app asks first: whether Ember is set up yet, and who this browser is signed in as. */
+/**
+ * What the app asks first: whether Ember is set up yet, who this browser is signed in as, and the key
+ * browsers subscribe to push notifications with, which ember-rust puts in every page.
+ */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const { account, helpContact, user } = await workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null);
+  const [{ account, helpContact, user }, push] = await Promise.all([
+    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null),
+    webPush(env),
+  ]);
   const body: Bootstrap = {
     setup: account ? "complete" : "pending",
     setupProtected: isSetupProtected(env),
@@ -139,6 +148,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     account: account ?? ACCOUNT_BEFORE_SETUP,
     helpContact,
     version: versionOf(env),
+    vapidPublicKey: push.on ? push.keys.publicKey : null,
     user,
   };
   const headers = new Headers({ "Cache-Control": "no-store" });
@@ -330,10 +340,11 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
  * Signs this browser out. Its session's sockets close in every room its person is in, so its other
  * tabs go to sign in at once; ember-rust tells all the person's connections to reconnect instead,
  * which their other devices survive (concerns.rs). The rooms close them once this has answered, so
- * as there, a room that can't be reached doesn't keep anyone signed in.
+ * as there, a room that can't be reached doesn't keep anyone signed in. The app sends the endpoint of
+ * the push subscription it ended first, if there was one, and the person's subscriptions with it go too.
  */
 async function endSession(request: Request, env: Env): Promise<Response> {
-  await signOut(request, env);
+  await signOut(request, env, signOutEndpointOf(await request.json().catch(() => null)));
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
@@ -645,6 +656,10 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
+  if (pathname === "/api/push-subscriptions" && request.method === "GET") return () => listPushSubscriptions(request, env);
+  if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
+  const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
+  if (pushSubscription && request.method === "DELETE") return () => deletePushSubscription(request, env, pushSubscription[1]!);
 
   const socket = pathname.match(/^\/api\/rooms\/([^/]+)\/socket$/);
   if (socket) {
