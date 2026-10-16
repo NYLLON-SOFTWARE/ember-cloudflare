@@ -51,9 +51,9 @@ describe(feature("mentions.render"), () => {
   it("opens a stored body for editing with each mention's content, dropping a mention of someone unknown", () => {
     const david = { id: id(1), name: "David", avatarUrl: "/users/1.x/avatar?v=1" };
     const content = mentionContent(david).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-    const editable = editableBody(parseHtml, `<p>Hi ${mention(1)} and ${mention(2)}</p>`, (userId) => (userId === david.id ? david : undefined));
+    const editable = editableBody(parseHtml, `<p>Hi ${mention(1)} and ${mention(2)}</p>`, (userId) => (userId === david.id ? david : undefined), "");
     expect(editable).toBe(`<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id(1)}" content="${content}"></action-text-attachment> and </p>`);
-    expect(editableBody(parseHtml, "<p>Hi <strong>all</strong></p>", () => david)).toBe("<p>Hi <strong>all</strong></p>");
+    expect(editableBody(parseHtml, "<p>Hi <strong>all</strong></p>", () => david, "")).toBe("<p>Hi <strong>all</strong></p>");
   });
 
   it("skips what's past the parser's limits", () => {

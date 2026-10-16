@@ -106,7 +106,7 @@ export function withParser(parse: HtmlParser) {
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
-    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined) => editableBody(parse, stored, card),
+    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string) => editableBody(parse, stored, card, host),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
   };

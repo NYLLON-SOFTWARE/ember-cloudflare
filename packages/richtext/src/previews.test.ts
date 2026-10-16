@@ -276,8 +276,14 @@ describe(feature("unfurl.render"), () => {
 
     it("keeps it in the editor, with the content it shows", () => {
       const body = `<p>Hi <action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(1))}"></action-text-attachment></p>${preview({ href: "https://example.com/", filename: "E" })}`;
-      const editable = editableBody(parseHtml, body, () => undefined);
+      const editable = editableBody(parseHtml, body, () => undefined, "ember.example");
       expect(editable).toBe(`<p>Hi </p>${preview({ href: "https://example.com/", filename: "E" })}`);
+    });
+
+    it("leaves its link and image out of the editor when they're on the page's own host, as the message does", () => {
+      const { html } = stored(preview({ href: "https://Ember.example./rooms", url: "https://ember.example/qr_code/1", filename: "E", description: "D" }));
+      expect(editableBody(parseHtml, html, () => undefined, "ember.example")).toBe(preview({ filename: "E", description: "D" }));
+      expect(editableBody(parseHtml, html, () => undefined, "other.example")).toBe(html);
     });
   });
 

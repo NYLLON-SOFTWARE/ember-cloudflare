@@ -47,6 +47,7 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
     replace: (markup) => {
       const text = box.current!;
       text.value = writtenBody(markup).plainText;
+      attach([]);
       onChange?.();
       text.focus();
       text.setSelectionRange(text.value.length, text.value.length);
