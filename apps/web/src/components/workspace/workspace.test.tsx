@@ -7,6 +7,7 @@ import { FlashProvider } from "@/components/flash";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { loadPage } from "@/lib/page";
+import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
 import { Workspace } from "./workspace";
 
@@ -1510,5 +1511,40 @@ describe(feature("notifications.test-page"), () => {
     }
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await roomHeading()).toHaveTextContent("random");
+  });
+});
+
+describe(feature("notifications.app-badge"), () => {
+  it("badges the app with Activity's count, the conversations marked unread but the one shown, as it changes, and clears the badge at none", async () => {
+    const badges = badgeTheApp();
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    await waitFor(() => expect(badges).toEqual(["cleared"]));
+
+    await workspaceSends({ type: "room.unread", roomId: "random" });
+    await workspaceSends({ type: "room.unread", roomId: withGrace.id });
+    // The room shown counts as read.
+    await workspaceSends({ type: "room.unread", roomId: "general" });
+    await workspaceSends({ type: "room.read", roomId: "random" });
+    await workspaceSends({ type: "room.read", roomId: withGrace.id });
+    expect(badges).toEqual(["cleared", 1, 2, 1, "cleared"]);
+  });
+
+  it("leaves the badge as it is until the list has come, as a push may have set it", async () => {
+    const badges = badgeTheApp();
+    serve({ "GET /api/sidebar": () => new Promise<Response>(() => {}) });
+    showWorkspace("/rooms/general");
+    await waitFor(() => expect(roomListRequests()).toBe(1));
+    expect(badges).toEqual([]);
+  });
+
+  it("leaves the badge as it is when the list fails to come, which says nothing of what's unread", async () => {
+    const badges = badgeTheApp();
+    serve({ "GET /api/sidebar": () => Promise.reject(new TypeError("Failed to fetch")) });
+    showWorkspace("/rooms/general");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember");
+    expect(badges).toEqual([]);
   });
 });

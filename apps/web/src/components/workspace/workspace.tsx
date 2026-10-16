@@ -5,6 +5,7 @@ import { Close } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -169,7 +170,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -365,6 +366,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => setUnreadOnly((on) => !on),
   };
+  // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
+  // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
+  useAppBadge(answered ? activity.unread : null);
   const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onNewDirect={openNewDirect} />;
   const sidebar = (
     <Sidebar
