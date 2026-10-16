@@ -98,12 +98,14 @@ describe(feature("notifications.test-page"), () => {
     stop();
   });
 
-  it("settles without saying so when the browser can't end it", async () => {
+  it("says so even when the browser can't end it, as the server has forgotten it all the same", async () => {
     const ended = vi.fn();
     const stop = subscribeToPushEnding(ended);
     registered(subscribed(vi.fn(() => Promise.reject(new DOMException("Failed", "AbortError")))).registration);
     await expect(endPushSubscriptionAt(ENDPOINT)).resolves.toBeUndefined();
-    expect(ended).not.toHaveBeenCalled();
+    registered(subscribed(vi.fn(async () => false)).registration);
+    await endPushSubscriptionAt(ENDPOINT);
+    expect(ended).toHaveBeenCalledTimes(2);
     stop();
   });
 });

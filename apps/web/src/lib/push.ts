@@ -100,11 +100,16 @@ function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
 
 const endingListeners = new Set<() => void>();
 
-/** Calls `listener` whenever this browser's push subscription is ended here, by `unsubscribeFromPush` or `endPushSubscriptionAt`. */
+/**
+ * Calls `listener` whenever notifications end in this browser: `unsubscribeFromPush` ends its push
+ * subscription, or `endPushSubscriptionAt` hears the server has deleted it.
+ */
 export function subscribeToPushEnding(listener: () => void): () => void {
   endingListeners.add(listener);
   return () => endingListeners.delete(listener);
 }
+
+const sayEnded = () => endingListeners.forEach((listener) => listener());
 
 /**
  * Ends this browser's push subscription, as ember-rust's Log out does before it signs out, answering its
@@ -115,23 +120,21 @@ export async function unsubscribeFromPush(): Promise<string | null> {
   const subscription = await pushSubscription().catch(() => null);
   if (!subscription) return null;
   // The server forgets it even if the browser can't end it, where ember-rust doesn't sign out at all.
-  await end(subscription);
+  if (await subscription.unsubscribe().catch(() => false)) sayEnded();
   return subscription.endpoint;
 }
 
 /**
  * Ends this browser's push subscription if it's the one at `endpoint`, which the server has just
  * deleted, so the bell offers to turn notifications on again, where ember-rust's keeps passing for on
- * with nothing to push to.
+ * with nothing to push to. It does even if the browser can't end it, since turning them on then saves
+ * the subscription the browser kept.
  */
 export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
   const subscription = await pushSubscription().catch(() => null);
-  if (subscription?.endpoint === endpoint) await end(subscription);
-}
-
-/** Ends `subscription`, telling the listeners once the browser has. */
-async function end(subscription: PushSubscription): Promise<void> {
-  if (await subscription.unsubscribe().catch(() => false)) for (const listener of endingListeners) listener();
+  if (subscription?.endpoint !== endpoint) return;
+  await subscription.unsubscribe().catch(() => false);
+  sayEnded();
 }
 
 async function pushSubscription(): Promise<PushSubscription | null> {
