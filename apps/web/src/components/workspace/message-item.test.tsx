@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PeopleContext } from "@/hooks/use-directory";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import type { PendingMessage } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
@@ -793,19 +793,34 @@ describe(feature("mentions.highlight"), () => {
 });
 
 describe(feature("mentions.render"), () => {
-  it("edits a message with its mentions as the people directory lists them now, dropping those of no one", async () => {
-    const mention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id}"></action-text-attachment>`;
-    const hopper: User = { id: "0123456789abcdef", name: "Grace" };
-    const body = `<p>Thanks ${mention(hopper.id)} and ${mention("fedcba9876543210")}!</p>`;
+  const mention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id}"></action-text-attachment>`;
+  const hopper: User = { id: "0123456789abcdef", name: "Grace" };
+  const listed = { ...hopper, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "" } as const;
+
+  /** A message open in its editor, seen by Ada with `people` in the people directory. */
+  const editing = (m: Message, people: People) => {
     const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(), remove: vi.fn() };
     const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
-    const listed = { ...hopper, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "" } as const;
-    render(
-      <PeopleContext value={new Map([[hopper.id, listed]])}>
-        <MessageItem message={message({ body, plainText: "Thanks @Grace and !", mentions: [hopper] })} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
-      </PeopleContext>,
+    return (
+      <PeopleContext value={people}>
+        <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
+      </PeopleContext>
     );
+  };
+
+  it("edits a message with its mentions as the people directory lists them now, dropping those of no one", async () => {
+    const body = `<p>Thanks ${mention(hopper.id)} and ${mention("fedcba9876543210")}!</p>`;
+    render(editing(message({ body, plainText: "Thanks @Grace and !", mentions: [hopper] }), new Map([[hopper.id, listed]])));
     expect(await editBox()).toHaveValue("Thanks @Grace Hopper and !");
+  });
+
+  it("waits for the people directory to edit a message from before messages named the people they mention", async () => {
+    const old = message({ body: `<p>Thanks ${mention(hopper.id)}!</p>`, plainText: "Thanks @Grace!", mentions: [{ id: hopper.id, name: "" }] });
+    const { rerender } = render(editing(old, new Map()));
+    await act(() => Promise.resolve());
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    rerender(editing(old, new Map([[hopper.id, listed]])));
+    expect(await editBox()).toHaveValue("Thanks @Grace Hopper!");
   });
 });
 

@@ -42,13 +42,17 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
-  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now.
-  const [editable] = useState(() =>
+  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now. It drops a
+  // mention of no one, and a message from before messages named the people they mention knows them only from the
+  // directory, so for such a message the editor waits for the directory, which lists everyone once it's loaded.
+  const knowsMentions = people.size > 0 || message.mentions.every((person) => person.name !== "");
+  const editableNow = () =>
     editableBody(message.body, (userId) => {
       const person = mentionedPerson(people, message.mentions, userId);
       return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
-    }),
-  );
+    });
+  const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
+  if (editable === null && knowsMentions) setEditable(editableNow());
 
   useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
 
@@ -57,6 +61,8 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
     const frame = requestAnimationFrame(() => container.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
     return () => cancelAnimationFrame(frame);
   }, []);
+
+  const loading = <div className="min-h-6" />;
 
   const save = () => {
     const written = editor.current;
@@ -94,15 +100,19 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
         >
           <div className="rounded-[9px] border bg-background px-[0.8em] py-[0.5em] text-base transition-shadow duration-150 focus-within:ring-2 focus-within:ring-selected-dark">
             {/* The composer has loaded the editor by the time a message can be edited. */}
-            <Suspense fallback={<div className="min-h-6" />}>
-              <RichTextEditor
-                ref={editor}
-                label="Edit message"
-                rows={1}
-                initialValue={editable}
-                mentionsFrom={mentionPromptSrc(message.roomId)}
-                autoFocus
-              />
+            <Suspense fallback={loading}>
+              {editable === null ? (
+                loading
+              ) : (
+                <RichTextEditor
+                  ref={editor}
+                  label="Edit message"
+                  rows={1}
+                  initialValue={editable}
+                  mentionsFrom={mentionPromptSrc(message.roomId)}
+                  autoFocus
+                />
+              )}
             </Suspense>
           </div>
           <div className="flex items-center justify-between pt-2">
