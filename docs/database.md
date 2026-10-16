@@ -376,7 +376,10 @@ search index. On top of that schema it adds indexes and query changes for speed.
   at once can add it twice. Ours requires the endpoint and keys, which its columns don't, and has one
   unique index on the person, the endpoint and the keys (workspace migration 0024), so saving is one
   upsert, and the same index, led by the person, lists someone's subscriptions and finds the one a
-  browser names as it signs out.
+  browser names as it signs out. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
+  migration 0026), since a push service answers that a subscription is gone only after the push to it
+  went out, and the Workspace then forgets it by its number, which SQLite would otherwise give the
+  next subscription saved once the newest is deleted.
 - **A message's pushes are found as the Workspace applies its event.** ember-rust's push job loads
   the message again once it's stored, then its room's memberships, people and subscriptions, and
   counts each recipient's unread rooms for the badge (`crates/db/src/models/push_subscription.rs`).

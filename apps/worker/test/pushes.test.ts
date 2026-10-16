@@ -222,7 +222,7 @@ describe(feature("notifications.push"), () => {
     const room = await freshRoom("plans");
     // Which makes the room's tables, on Durable Object SQLite.
     await connect(room, "Ada");
-    const details =async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
+    const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
     const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_keys (user_id=?)");
@@ -230,6 +230,18 @@ describe(feature("notifications.push"), () => {
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
     const undelivered = await details(roomSql(room, `EXPLAIN QUERY PLAN ${UNDELIVERED_EVENTS}`, room, 50));
     expect(undelivered).not.toMatch(/SCAN|TEMP B-TREE/);
+  });
+
+  it("never numbers a subscription as one deleted before it, so a push service answering late that that one is gone can't forget it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const [grace, lin] = await people("Grace", "Lin");
+    const gone = await subscribe(grace, "gone");
+    const [{ id }] = (await workspaceSql("SELECT id FROM push_subscriptions WHERE endpoint = ?", gone)) as [{ id: number }];
+    expect((await api(`/api/push-subscriptions/${id}`, { method: "DELETE", headers: { Cookie: grace.cookie } })).status).toBe(204);
+    await subscribe(lin, "lin");
+
+    await workspaceStub().forgetPushSubscriptions([id]);
+    expect(await workspaceSql("SELECT id > ? AS later, endpoint FROM push_subscriptions", id)).toEqual([{ later: 1, endpoint: "https://fcm.googleapis.com/fcm/send/lin" }]);
   });
 });
 
