@@ -37,13 +37,17 @@ interface Props {
  * goes to `/searches`, as the field's × does. Each visit asks for its address's search afresh, as each
  * of ember-rust's pages is drawn, but the one a search goes to, which shows what the search answered.
  * Until a visit's search answers, the page, its field too, goes on showing the last one, marked busy, as
- * ember-rust's stays until Turbo draws the next, and drops it if the search fails.
+ * ember-rust's stays until Turbo draws the next, and drops it if the search fails. What the person types
+ * in the field meanwhile stays there, where Turbo's next page would draw over it.
  */
 export function SearchPage({ me, back, onFailed }: Props) {
   const q = useQueryParam("q");
   const visit = useVisit();
-  // What the page shows: what a search answered, and the visit and address's search it answered for.
-  const [shown, setShown] = useState<{ results: SearchResults; visit: number; q: string | null } | null>(null);
+  // The page as last drawn: the visit and address's search it was drawn for, what that search found, or
+  // null if it failed, and the visit its field was drawn afresh for.
+  const [page, setPage] = useState<{ visit: number; q: string | null; results: SearchResults | null; field: number } | null>(null);
+  // The visit the person last typed in the field during, before that visit's search had answered.
+  const typedDuring = useRef<number | null>(null);
   // What the form's last search answered, and the visit it went on to, once that has shown it.
   const answered = useRef<{ query: string; results: SearchResults; visit?: number } | null>(null);
   const [searching, setSearching] = useState(false);
@@ -53,28 +57,32 @@ export function SearchPage({ me, back, onFailed }: Props) {
   useTitle("Search");
 
   useEffect(() => {
+    // Draws what this visit's search found, and its field afresh, but for one the person has typed in since the visit began.
+    const draw = (results: SearchResults | null) =>
+      setPage((last) => ({ visit, q, results, field: typedDuring.current === visit ? (last?.field ?? visit) : visit }));
     const answer = answered.current;
     if (answer?.query === q && (answer.visit ?? visit) === visit) {
       answer.visit = visit;
-      setShown({ results: answer.results, visit, q });
+      draw(answer.results);
       return;
     }
     answered.current = null;
     let stopped = false;
     fetchSearch(q).then(
-      (found) => !stopped && setShown({ results: found, visit, q }),
+      (found) => !stopped && draw(found),
       (error: unknown) => {
         if (stopped && !isSignedOut(error)) return;
         // What another search found doesn't stay at this one's address.
-        if (!stopped) setShown(null);
+        if (!stopped) draw(null);
         onFailed(error);
       },
     );
     return () => void (stopped = true);
   }, [q, visit, onFailed]);
-  const results = shown?.results ?? null;
-  // The field holds the search the page shows, or the address's while it shows none.
-  const drawn = shown ?? { visit, q };
+  const busy = page?.visit !== visit;
+  const results = page?.results ?? null;
+  // The field holds the search the page was drawn for, or the address's until it's drawn.
+  const drawn = page ?? { q, field: visit };
 
   // As ember-rust's search_results_controller.js does, the newest message shows, at the bottom.
   useLayoutEffect(() => {
@@ -128,7 +136,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
         {results?.query != null && <SearchedFor query={results.query} count={messages.length} />}
       </PageHeader>
       <MainContent
-        aria-busy={shown?.visit !== visit || undefined}
+        aria-busy={busy || undefined}
         className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]"
       >
         {results && results.recent.length > 0 && <RecentSearches searches={results.recent} onClear={clear} />}
@@ -160,10 +168,11 @@ export function SearchPage({ me, back, onFailed }: Props) {
             {/* Campfire's `.input--actor`: the field's border holds the hint, the field, its × and the button. */}
             <div className="flex min-h-11 w-full min-w-0 items-center gap-[1ch] rounded-[9px] border px-[0.8em] py-[0.5em] text-base focus-within:border-muted-foreground max-md:px-2">
               <Search className="size-5 shrink-0 max-md:hidden" />
-              {/* Afresh with each search shown, holding it, and focused, as ember-rust's `autofocus` field is on each page drawn.
-                  It takes taps from the top of its box to the bottom, which ember-rust's leaves to the box around it. */}
+              {/* Afresh with each search drawn, holding it, and focused, as ember-rust's `autofocus` field is on each page drawn,
+                  but for one typed in while it loaded. It takes taps from the top of its box to the bottom, which ember-rust's
+                  leaves to the box around it. */}
               <input
-                key={drawn.visit}
+                key={drawn.field}
                 name="q"
                 type="text"
                 role="searchbox"
@@ -172,6 +181,9 @@ export function SearchPage({ me, back, onFailed }: Props) {
                 required
                 autoFocus
                 defaultValue={drawn.q ?? ""}
+                onChange={() => {
+                  if (busy) typedDuring.current = visit;
+                }}
                 className="peer -my-[0.5em] min-w-0 flex-1 self-stretch bg-transparent py-[0.5em] placeholder:text-muted-foreground focus-visible:outline-none"
               />
               {/* Hidden while the field is empty, as Campfire's `.searches__input:required:invalid ~ .searches__reset` is,

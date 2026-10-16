@@ -142,7 +142,32 @@ describe(feature("search.page"), () => {
     // What another search found doesn't stay at this one's address.
     expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
     expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("“");
+    expect(screen.getByRole("main")).not.toHaveAttribute("aria-busy");
     expect(field()).toHaveValue("newt");
+  });
+
+  it("keeps what's typed in the field while the next search loads, whether that answers or fails", async () => {
+    const [zebra, newt] = [held(), held()];
+    serve((_, url) =>
+      url.endsWith("=zebra") ? zebra.promise : url.endsWith("=newt") ? newt.promise : Response.json(results("hello", [message("m1", general, "Hello")])),
+    );
+    const { onFailed, user } = showPage(searchPath("hello"));
+    await found();
+
+    act(() => navigate(searchPath("zebra")));
+    await user.clear(field());
+    await user.type(field(), "quokka");
+    await zebra.answer(Response.json(results("zebra")));
+    expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/“zebra”0$/);
+    expect(field()).toHaveValue("quokka");
+    expect(field()).toHaveFocus();
+
+    act(() => navigate(searchPath("newt")));
+    await user.type(field(), "s");
+    await newt.answer(Response.json({ error: "Something went wrong" }, { status: 500 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(screen.getByRole("main")).not.toHaveAttribute("aria-busy");
+    expect(field()).toHaveValue("quokkas");
   });
 
   it("goes to the page without a search on Escape, as the field's × does, and back to the room it was opened from on Exit", async () => {
