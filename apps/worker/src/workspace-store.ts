@@ -370,9 +370,19 @@ export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pen
 const QUEUE_PURGES = `INSERT INTO pending_purges (room_id, user_id, due_at)
   SELECT id, ?1, ?2 FROM rooms WHERE kind <> 'direct' OR id IN (SELECT room_id FROM memberships WHERE user_id = ?1) RETURNING id`;
 
-/** Purges due by a time, those due longest first, up to a number of them. */
+/**
+ * The purges a room can take: none while it has sockets left to close, which may be the banned person's,
+ * who could write through one after their purge had finished. The outbox holds a revocation only until
+ * its room answers, so this reads them all rather than keep an index.
+ */
+const PURGEABLE = `room_id NOT IN (SELECT room_id FROM pending_revocations)`;
+
+/** Purges due by a time that their rooms can take, those due longest first, up to a number of them. */
 export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId, lifted_at AS liftedAt FROM pending_purges
-  WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
+  WHERE due_at <= ? AND ${PURGEABLE} ORDER BY due_at, id LIMIT ?`;
+
+/** When the next purge a room can take is due. One waiting on its room's revocations is due once they've gone. */
+export const NEXT_PURGE_DUE = `SELECT due_at FROM pending_purges WHERE ${PURGEABLE} ORDER BY due_at LIMIT 1`;
 
 /** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
@@ -908,7 +918,7 @@ export class WorkspaceStore {
     return (await this.db.all<{ ip_address: string }>(SESSION_IP_ADDRESSES, userId)).map((row) => row.ip_address);
   }
 
-  /** Up to `limit` of the purges due by `now`, those due longest first. */
+  /** Up to `limit` of the purges due by `now` whose rooms have no sockets left to close, those due longest first. */
   async duePurges(now: number, limit: number): Promise<PendingPurge[]> {
     return this.db.all<PendingPurge>(DUE_PURGES, now, limit);
   }
@@ -967,10 +977,13 @@ export class WorkspaceStore {
     return abandoned;
   }
 
-  /** When the outbox's next revocation or purge is due, if any is waiting. */
+  /**
+   * When the outbox's next revocation or purge is due, if any is waiting, leaving out the purges waiting
+   * on their rooms' revocations, which are due no sooner.
+   */
   async nextDeliveryDue(): Promise<number | null> {
     const [row] = await this.db.all<{ revocation: number | null; purge: number | null }>(
-      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (SELECT min(due_at) FROM pending_purges) AS purge`,
+      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge`,
     );
     const due = [row?.revocation, row?.purge].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;

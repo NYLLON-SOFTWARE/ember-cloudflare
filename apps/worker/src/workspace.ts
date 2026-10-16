@@ -1138,7 +1138,8 @@ export class Workspace extends DurableObject<Env> {
    * Asks rooms to delete the messages of the people banned since, up to `limit` rooms, each
    * `MESSAGES_PER_PURGE` at a time, and only those written before the ban was lifted, if it has been. A
    * room that has more of theirs left is asked again at once, and one that can't be reached later, as a
-   * revocation is.
+   * revocation is. A room is asked only once the sockets queued to close there have closed, as those
+   * delivered just before may have, so a banned person can't write through one after it's done.
    */
   private async deliverPurges(limit: number): Promise<void> {
     if (limit <= 0) return;

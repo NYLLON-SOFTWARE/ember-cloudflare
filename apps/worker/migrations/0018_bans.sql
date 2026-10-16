@@ -17,7 +17,8 @@ CREATE INDEX IF NOT EXISTS index_bans_on_user_id ON bans (user_id);
 -- beside pending_revocations (migration 0007): banning someone writes a row for each room they may
 -- have written in, in the same batch, and the Workspace's alarm asks each room to delete their
 -- messages a page at a time, as ember-rust's `RemoveBannedContentJob` deletes them one by one
--- (crates/ember/src/jobs.rs), until it has none of theirs left (src/workspace.ts).
+-- (crates/ember/src/jobs.rs), until it has none of theirs left (src/workspace.ts). A room is asked only
+-- once it has no sockets left to close, so none of theirs can write there after it's done.
 CREATE TABLE IF NOT EXISTS pending_purges (
   -- What the alarm settles each purge by once its room has answered. AUTOINCREMENT never hands out an
   -- id again, so a ban while it waits can't give a new purge the id of the one it's asking about, which

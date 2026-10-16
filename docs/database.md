@@ -188,7 +188,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   each room to delete 100 of their messages at a time, each deletion a change of its own that tabs
   catch up on, and asks again at once while the room has more, so a big room never holds the room's
   object for long. It delivers revocations first, and 40 rows a run in all, and puts off a room it
-  can't reach as it does a revocation, but never gives up, which would leave the messages up.
+  can't reach as it does a revocation, but never gives up, which would leave the messages up. Nor does
+  it ask a room while that room has sockets left to close, so a banned person can't write through one
+  after their purge there is done; the room's purges wait for its revocations, and are due no sooner.
   Deleting a room drops its purges, since its messages all go anyway, so their ids are
   `AUTOINCREMENT`, never handed out again: the alarm settles a purge by its id once the room has
   answered, and a ban meanwhile could otherwise give a new purge the id of one deleted with its room.

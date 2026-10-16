@@ -7,7 +7,7 @@ import type { Env } from "../src/env";
 import type { Revocation } from "../src/revocations";
 import { MESSAGES_BY, MESSAGES_BY_UNTIL } from "../src/store";
 import type { Workspace } from "../src/workspace";
-import { DUE_PURGES, type WorkspaceStore } from "../src/workspace-store";
+import { DUE_PURGES, NEXT_PURGE_DUE, type WorkspaceStore } from "../src/workspace-store";
 import {
   api,
   closeOf,
@@ -89,6 +89,10 @@ const written = async (room: RoomId, userId: UserId) =>
 
 /** Waits for the Workspace's outbox to have asked every room to delete what it was asked to. */
 const purged = () => vi.waitFor(async () => expect(await workspaceSql("SELECT * FROM pending_purges")).toEqual([]), { timeout: 5_000 });
+
+/** Waits until room `room` has nothing left in its log, which it forgets once the Workspace has applied it. */
+const delivered = (room: RoomId) =>
+  vi.waitFor(async () => expect(await roomSql(room, "SELECT seq FROM room_events WHERE room_id = ?", room)).toEqual([]), { timeout: 5_000 });
 
 const alarm = () => runInDurableObject(workspaceStub(), (_workspace, state: DurableObjectState) => state.storage.getAlarm());
 
@@ -422,6 +426,8 @@ describe(feature("accounts.ban"), () => {
     await post(await connect(lobby, member), "Gone for good");
     await ban(administrator, member.user.id);
     await purged();
+    // The lobby has told the Workspace of the message, which marks it unread, before anyone's socket opens to hear it.
+    await delivered(lobby);
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", "2026-01-01T00:00:00.000Z", member.user.id);
     const banned = await listed(administrator, member.user.id);
     const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(await signIn("Linus Torvalds"))];
@@ -591,6 +597,39 @@ describe(feature("accounts.ban"), () => {
     expect(await alarm()).toBeNull();
   });
 
+  it("asks a room to delete their messages only once it has no sockets left to close, which they could write through", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await workspaceSql("INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES ('lobby', 's:1', ?, ?)", CloseCode.Revoked, LATER);
+    await queuePurge("lobby", "u1", LATER);
+    await queuePurge("annex", "u1", LATER);
+    let reachable = false;
+    const calls: RoomId[] = [];
+    const rooms: Rooms = {
+      revoke: async () => {
+        if (!reachable) throw new Error("The lobby isn't answering");
+      },
+      removeMessagesBy: async (roomId) => {
+        calls.push(roomId);
+        return false;
+      },
+    };
+
+    await runAlarm(rooms);
+    expect(calls).toEqual(["annex"]);
+    expect(await purges()).toEqual([{ room_id: "lobby", user_id: "u1", attempts: 0, due_at: LATER }]);
+    // When the revocation is tried again, rather than at once for a purge the lobby can't take yet.
+    expect(await alarm()).toBe(LATER + 1000);
+
+    vi.setSystemTime(LATER + 1000);
+    reachable = true;
+    await runAlarm(rooms);
+    expect(calls).toEqual(["annex", "lobby"]);
+    expect(await purges()).toEqual([]);
+    expect(await alarm()).toBeNull();
+    expect(errors).toHaveBeenCalledOnce();
+  });
+
   it("forgets a deleted room's purges, its messages gone with it", async () => {
     const administrator = await setUp();
     const room = await createRoom("doomed", { as: administrator });
@@ -618,10 +657,12 @@ describe(feature("accounts.ban"), () => {
     expect(await purges()).toEqual([{ room_id: "lobby", user_id: "u2", attempts: 0, due_at: LATER }]);
   });
 
-  it("finds the purges that are due by their index, however many are waiting", async () => {
-    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${DUE_PURGES}`, 0, 40)).map((row) => (row as { detail: string }).detail).join("; ");
-    expect(plan).toContain("USING INDEX index_pending_purges_on_due_at (due_at<?)");
-    expect(plan).not.toContain("TEMP B-TREE");
+  it("finds the purges that are due, and when the next is, by their index, however many are waiting", async () => {
+    for (const [query, ...params] of [[DUE_PURGES, 0, 40], [NEXT_PURGE_DUE]] as const) {
+      const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
+      expect(plan, query).toContain("USING INDEX index_pending_purges_on_due_at");
+      expect(plan, query).not.toContain("TEMP B-TREE");
+    }
   });
 
   it("finds someone's messages in a room by the room's index, however many others wrote, before a time or not", async () => {
