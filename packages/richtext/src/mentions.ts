@@ -3,11 +3,12 @@
 // signature protects nothing; and Lexxy, the composer, drops an sgid that starts like a URL, as
 // `gid://` does, since DOMPurify vets every attribute's value as one.
 
-import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH } from "./content";
+import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH, sanitizeContentAttribute } from "./content";
 import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
-import type { MentionUser, ResolveMention } from "./attachments";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, type MentionUser, type ResolveMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 import { isPlainParagraph } from "./plain-paragraph";
+import { previewContent } from "./previews";
 import { htmlEscape } from "./ruby";
 import { toHtml } from "./serialize";
 
@@ -57,12 +58,19 @@ export function mentionPromptItem(person: MentionCard): string {
 /**
  * ember-rust's `editable_value` (lib.rs) for a body Ember stored: the markup the editor opens with,
  * each mention given the content Lexxy shows it by, since Lexxy drops an attachment without content. A
- * mention of someone `card` doesn't know goes, as one of someone deleted does there.
+ * mention of someone `card` doesn't know goes, as one of someone deleted does there. Each link preview
+ * is written again from what it shows on `host`, the one the page is served from, so that the editor
+ * no more loads an image from this Ember than the message does.
  */
-export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined): string {
+export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined, host: string): string {
   if (isPlainParagraph(stored)) return stored;
   const content = parse(stored, BODY);
   for (const attachment of attachmentNodes(content)) {
+    if (getAttr(attachment, "content-type") === OPENGRAPH_EMBED_CONTENT_TYPE) {
+      sanitizeContentAttribute(parse, attachment);
+      setAttr(attachment, "content", previewContent(opengraphEmbedFromNode(parse, attachment, host)));
+      continue;
+    }
     const userId = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
     const person = userId === undefined ? undefined : card(userId);
     if (person) setAttr(attachment, "content", mentionContent(person));

@@ -36,11 +36,17 @@ export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMen
 /**
  * What markup the editor wrote says: its plain text, and whom it mentions, once each, in order, named as
  * their mentions show them. It's what the room makes of it but for renames since, so it stands in for that
- * until the room says. Throws `ParseLimitError` past the parser's limits.
+ * until the room says. A body with a link preview that raises as Rails reads it, which the room refuses,
+ * has no plain text. Throws `ParseLimitError` past the parser's limits.
  */
 export function writtenBody(parse: HtmlParser, markup: string): { plainText: string; mentions: MentionUser[] } {
   const mentions = writtenMentions(parse, markup);
-  return { plainText: plainText(parse, markup, (sgid) => mentions.find((person) => person.id === userIdFromSgid(sgid))), mentions };
+  try {
+    return { plainText: plainText(parse, markup, (sgid) => mentions.find((person) => person.id === userIdFromSgid(sgid))), mentions };
+  } catch (error) {
+    if (error instanceof RenderError) return { plainText: "", mentions };
+    throw error;
+  }
 }
 
 /**
@@ -100,8 +106,8 @@ export function withParser(parse: HtmlParser) {
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
-    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined) => editableBody(parse, stored, card),
+    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string) => editableBody(parse, stored, card, host),
     autoLink: (html: string) => autoLink(parse, html),
-    displayBody: (html: string) => displayBody(parse, html),
+    displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
   };
 }

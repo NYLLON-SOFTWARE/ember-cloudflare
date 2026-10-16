@@ -4,6 +4,7 @@
 
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
+import { OPENGRAPH_EMBED_CONTENT_TYPE } from "./attachments";
 import { autoLink } from "./autolink";
 import { plainText, prepareBody, type PreparedBody } from "./body";
 import { mentionedUsers } from "./mentions";
@@ -11,6 +12,7 @@ import { parseHtml } from "./parse";
 import { filterMessage, presentMessage } from "./render";
 import { AUTO_LINK, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
+import { descendants, getAttr, isElement, removeAttr } from "./tree";
 import {
   corpus,
   corpusUser,
@@ -78,7 +80,7 @@ describe(feature("messages.rich-text"), () => {
   it("filters every body as Rails did", () => {
     expectRailsReadings("filtered", (body) => ({
       expected: expectedOutcome(body.filtered, (html) => withoutStyles(withPortDivergences(html))),
-      actual: attempt(() => withoutStyles(toHtml(filterMessage(parseHtml, body.body, railsUser), { escapeAttributeBrackets: true }))),
+      actual: attempt(() => withoutStyles(toHtml(filterMessage(parseHtml, body.body, railsUser, body.host), { escapeAttributeBrackets: true }))),
     }));
   });
 
@@ -86,7 +88,7 @@ describe(feature("messages.rich-text"), () => {
     expectRailsReadings("presentation", (body) => {
       let actual: string;
       try {
-        actual = autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial));
+        actual = autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial, body.host));
       } catch (error) {
         // message_presentation rescues and shows nothing, unless logging the error raises too
         actual = error instanceof UnloggableRailsError ? "(unrenderable)" : "";
@@ -105,7 +107,7 @@ describe(feature("messages.rich-text"), () => {
     // auto_link's own links add `target`
     const shown: SafeList = { tags: AUTO_LINK.tags, attributes: new Set([...AUTO_LINK.attributes, "target"]) };
     const violations = corpus.cases.flatMap((body) => {
-      const html = attempt(() => autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial)));
+      const html = attempt(() => autoLink(parseHtml, presentMessage(parseHtml, body.body, railsUser, railsMentionPartial, body.host)));
       return html === RAISES ? [] : securityViolations(html, shown).map((violation) => `${body.name}: ${violation}`);
     });
     expect(violations).toEqual([]);
@@ -136,6 +138,11 @@ describe(feature("messages.rich-text"), () => {
     tags: new Set([...[...AUTO_LINK.tags].filter((tag) => tag !== "img"), "action-text-attachment"]),
     attributes: new Set([...[...AUTO_LINK.attributes].filter((name) => name !== "class"), "content-type", "sgid"]),
   };
+  /** What `previewContent` writes. */
+  const PREVIEW_CONTENT: SafeList = {
+    tags: new Set(["actiontext-opengraph-embed", "div", "a", "img"]),
+    attributes: new Set(["class", "href", "rel", "target", "src", "alt"]),
+  };
 
   it("stores every body it renders in a safe form that comes back the same when stored again", () => {
     const problems: string[] = [];
@@ -146,9 +153,15 @@ describe(feature("messages.rich-text"), () => {
       if (refused === renders) problems.push(`${body.name}: ${renders ? "renders, but was refused" : "doesn't render, but was stored"}`);
       if (refused) continue;
       const stored = (JSON.parse(prepared) as PreparedBody).html;
-      for (const violation of securityViolations(stored, STORED)) problems.push(`${body.name}: ${violation}`);
-      for (const [, attributes] of stored.matchAll(/<action-text-attachment([^>]*)>/g)) {
-        if (!/^ content-type="application\/vnd\.campfire\.mention" sgid="[0-9a-z]{16}"$/.test(attributes!)) {
+      const fragment = parseHtml(stored);
+      for (const node of descendants(fragment)) {
+        if (!isElement(node, "action-text-attachment") || getAttr(node, "content-type") !== OPENGRAPH_EMBED_CONTENT_TYPE) continue;
+        for (const violation of securityViolations(removeAttr(node, "content") ?? "", PREVIEW_CONTENT)) problems.push(`${body.name}: preview's ${violation}`);
+      }
+      const rest = toHtml(fragment, { escapeAttributeBrackets: true });
+      for (const violation of securityViolations(rest, STORED)) problems.push(`${body.name}: ${violation}`);
+      for (const [, attributes] of rest.matchAll(/<action-text-attachment([^>]*)>/g)) {
+        if (!/^ content-type="application\/vnd\.(?:campfire\.mention" sgid="[0-9a-z]{16}|actiontext\.opengraph-embed)"$/.test(attributes!)) {
           problems.push(`${body.name}: <action-text-attachment${attributes}>`);
         }
       }

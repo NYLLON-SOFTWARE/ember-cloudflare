@@ -42,12 +42,17 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
-  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now.
+  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now, and its
+  // link previews as the message shows them here.
   const [editable] = useState(() =>
-    editableBody(message.body, (userId) => {
-      const person = mentionedPerson(people, message.mentions, userId);
-      return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
-    }),
+    editableBody(
+      message.body,
+      (userId) => {
+        const person = mentionedPerson(people, message.mentions, userId);
+        return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
+      },
+      location.hostname,
+    ),
   );
 
   useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);

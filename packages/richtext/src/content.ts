@@ -73,7 +73,7 @@ export function contentToPlainText(parse: HtmlParser, content: Fragment, resolve
   const representations = new Map<Node, Node[]>();
   for (const node of attachmentNodes(content)) {
     sanitizeContentAttribute(parse, node);
-    const representation = attachmentPlainText(attachmentFromNode(node, resolve));
+    const representation = attachmentPlainText(attachmentFromNode(parse, node, resolve));
     representations.set(
       node,
       typeof representation === "string"

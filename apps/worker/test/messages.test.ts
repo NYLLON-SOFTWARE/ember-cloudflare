@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type NewWorkspace, type PersonRole, type UserId } from "@ember/protocol";
-import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
 import { MESSAGES_AFTER, MESSAGES_BEFORE, NEWEST_MESSAGES } from "../src/store";
 import { api, connect, cookieOf, freshDeploy, freshRoom, post, roomSql, settle, shown, signIn, workspaceSql, type Session } from "./support";
@@ -162,6 +162,27 @@ describe(feature("mentions.render"), () => {
 
     await roomSql(room, "UPDATE messages SET mentions = ? WHERE id = ?", JSON.stringify([grace.me.id]), message.id);
     expect((await connect(room, "Katherine")).welcome.messages.find(({ id }) => id === message.id)?.mentions).toEqual([{ id: grace.me.id, name: "" }]);
+  });
+});
+
+/** `value` in an attribute, as the room writes it. */
+const attribute = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+describe(feature("unfurl.render"), () => {
+  it("keeps a link preview as Lexxy writes the composer's, with the link's text, which is all of the plain text", async () => {
+    const ada = await connect(await freshRoom("previews"), "Ada");
+    const card = previewContent({ href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm & organized" });
+    const link = '<p><a href="https://basecamp.com/">https://basecamp.com/</a></p>';
+    const message = await post(ada, `${link}<action-text-attachment content="${attribute(card)}" content-type="${OPENGRAPH_EMBED_CONTENT_TYPE}"></action-text-attachment>`);
+    const stored = `${link}<action-text-attachment content-type="${OPENGRAPH_EMBED_CONTENT_TYPE}" content="${attribute(card)}"></action-text-attachment>`;
+    expect(message).toMatchObject({ body: stored, plainText: "https://basecamp.com/" });
+    expect((await post(ada, stored)).body).toBe(stored);
+  });
+
+  it("refuses a preview Rails can't read, as it refuses other bodies it can't render", async () => {
+    const ada = await connect(await freshRoom("unreadable-preview"), "Ada");
+    ada.send({ type: "message.create", clientMessageId: "c1", body: `<action-text-attachment content-type="${OPENGRAPH_EMBED_CONTENT_TYPE}" href="mailto:nobody" filename="Mail"></action-text-attachment>` });
+    expect(await ada.next("error")).toEqual({ type: "error", message: "That message couldn't be saved.", clientMessageId: "c1", failed: "message.create" });
   });
 });
 

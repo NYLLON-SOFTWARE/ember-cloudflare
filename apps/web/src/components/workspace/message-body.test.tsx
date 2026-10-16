@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
-import { displayBody } from "@ember/richtext/dom";
-import { render, screen } from "@testing-library/react";
+import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,10 +10,13 @@ import { MessageBody } from "./message-body";
 
 afterEach(() => history.replaceState(null, "", "/"));
 
+/** What a stored body shows on this page, its plain text `plainText`. */
+const shown = (html: string, plainText = "") => displayBody(html, plainText, location.hostname);
+
 /** Shows a stored body as a message shows it, returning its content. */
-function show(html: string, trailing?: ReactNode) {
-  const { container } = render(<MessageBody nodes={displayBody(html)} mentions={[]} trailing={trailing} />);
-  return container.querySelector(".message-content")!;
+function show(html: string, trailing?: ReactNode, plainText?: string) {
+  const { container } = render(<MessageBody nodes={shown(html, plainText)} mentions={[]} trailing={trailing} />);
+  return container.querySelector<HTMLElement>(".message-content")!;
 }
 
 /** Waits for highlight.js to load and highlight the code block shown last. */
@@ -50,7 +53,7 @@ describe(feature("messages.rich-text"), () => {
   });
 
   it("builds the message itself rather than setting markup on the page", () => {
-    const nodes = displayBody('<p>Hi <img src="x" onerror="alert(1)"> <a href="https://example.com">there</a></p><pre>puts 1</pre>');
+    const nodes = shown('<p>Hi <img src="x" onerror="alert(1)"> <a href="https://example.com">there</a></p><pre>puts 1</pre>');
     const setInnerHtml = vi.spyOn(Element.prototype, "innerHTML", "set");
     render(<MessageBody nodes={nodes} mentions={[]} />);
     expect(setInnerHtml.mock.contexts.filter((element) => (element as Element).ownerDocument === document)).toEqual([]);
@@ -102,7 +105,7 @@ const GRACE_MENTION = `<action-text-attachment content-type="application/vnd.cam
 function mention(people: People, mentions: User[], body = `<p>Hi ${GRACE_MENTION}!</p>`) {
   const { container } = render(
     <PeopleContext value={people}>
-      <MessageBody nodes={displayBody(body)} mentions={mentions} />
+      <MessageBody nodes={shown(body)} mentions={mentions} />
     </PeopleContext>,
   );
   return container.querySelector(".message-content")!;
@@ -183,5 +186,46 @@ describe(feature("messages.autolink"), () => {
     expect(new URL(lookalike).origin).not.toBe(location.origin);
     show(`<p>${lookalike}</p>`);
     expect(screen.getByRole("link")).toHaveAttribute("target", "_blank");
+  });
+});
+
+/** A link preview as the composer adds one. */
+function preview(details: Parameters<typeof previewContent>[0]): string {
+  const attachment = document.createElement("action-text-attachment");
+  attachment.setAttribute("content-type", OPENGRAPH_EMBED_CONTENT_TYPE);
+  attachment.setAttribute("content", previewContent(details));
+  return attachment.outerHTML;
+}
+
+describe(feature("unfurl.render"), () => {
+  const basecamp = { href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm, at https://basecamp.com/calm" };
+
+  it("shows a preview as a card: its title linking to the page in a new tab, its description, and its image", () => {
+    const content = show(`<p>Look</p>${preview(basecamp)}`);
+    const title = within(content).getByRole("link", { name: "Basecamp" });
+    expect(title).toHaveAttribute("href", "https://basecamp.com/");
+    expect(title).toHaveAttribute("target", "_blank");
+    expect(within(content).getByRole("link", { name: "https://basecamp.com/calm" })).toHaveAttribute("href", "https://basecamp.com/calm");
+    const image = content.querySelector("img")!;
+    expect(image).toHaveAttribute("src", "https://basecamp.com/og.png");
+    expect(image).toHaveAttribute("alt", "");
+    expect(image).toHaveAttribute("loading", "lazy");
+  });
+
+  it("shows an X avatar small and round", () => {
+    const content = show(preview({ href: "https://twitter.com/dhh/status/1", url: "https://pbs.twimg.com/profile_images/1/dhh.jpg", filename: "DHH" }));
+    expect(content.querySelector("img")!.parentElement).toHaveClass("size-[2lh]", "rounded-full");
+  });
+
+  it("shows the title as text when the preview has no link, or is in one", () => {
+    const content = show(`${preview({ filename: "Free cookies" })}<a href="https://example.com/">${preview(basecamp)}</a>`);
+    expect(content).toHaveTextContent("Free cookies");
+    expect(within(content).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["https://example.com/", "https://basecamp.com/calm"]);
+  });
+
+  it("shows only the preview of a message that's only its link", () => {
+    const content = show(`<p><a href="https://basecamp.com/">https://basecamp.com/</a></p>${preview(basecamp)}`, undefined, "https://basecamp.com/");
+    expect(content.querySelector("p")).toBeNull();
+    expect(within(content).getByRole("link", { name: "Basecamp" })).toBeInTheDocument();
   });
 });

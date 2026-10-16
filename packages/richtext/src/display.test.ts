@@ -1,26 +1,30 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
-import { bodyFromPlainText, plainText, prepareBody } from "./body";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
+import { bodyFromPlainText, plainText, prepareBody, type PreparedBody } from "./body";
 import { displayBody, displayMarkup, type DisplayNode } from "./display";
 import { MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 import { mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
+import { removeSoloUnfurledLinkText } from "./previews";
 import { AUTO_LINK } from "./sanitize";
 import { toHtml } from "./serialize";
-import { descendants, removeAttr } from "./tree";
+import { descendants, getAttr, isElement, removeAttr } from "./tree";
 import { corpus, corpusUser, RailsError } from "./testing/corpus";
 import { securityViolations } from "./testing/security";
 
-const display = (html: string) => displayBody(parseHtml, html);
+const display = (html: string, plain = "") => displayBody(parseHtml, html, plain, "");
 const MENTION = 'content-type="application/vnd.campfire.mention"';
+const PREVIEW = 'content-type="application/vnd.actiontext.opengraph-embed"';
 
-/** The markup of what shows, a mention as the attachment it's stored as. */
+/** The markup of what shows, a mention as the attachment it's stored as, and a preview as one without its content. */
 function markupOf(nodes: DisplayNode[]): string {
   return nodes
     .map((node) => {
       if (node.kind === "text") return toHtml(parseHtml(node.value.replace(/[&<> ]/g, (c) => `&#${c.charCodeAt(0)};`)));
       if (node.kind === "mention") return `<action-text-attachment ${MENTION} sgid="${mentionSgid(node.userId)}"></action-text-attachment>`;
+      if (node.kind === "preview") return `<action-text-attachment ${PREVIEW}></action-text-attachment>`;
       const attrs = Object.entries(node.attrs).map(([name, value]) => ` ${name}="${value.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`);
       const inner = markupOf(node.children);
       return ["br", "hr"].includes(node.name) ? `<${node.name}${attrs.join("")}>` : `<${node.name}${attrs.join("")}>${inner}</${node.name}>`;
@@ -28,14 +32,24 @@ function markupOf(nodes: DisplayNode[]): string {
     .join("");
 }
 
-/** The form a corpus body is stored in, or undefined for one that's refused, or that Rails raised on. */
-function storedForm(body: string): string | undefined {
+/** How a corpus body is stored, or undefined for one that's refused, or that Rails raised on. */
+function storedForm(body: string): PreparedBody | undefined {
   try {
-    return prepareBody(parseHtml, body, corpusUser)?.html;
+    return prepareBody(parseHtml, body, corpusUser) ?? undefined;
   } catch (error) {
     if (error instanceof RailsError) return undefined;
     throw error;
   }
+}
+
+/** A stored body without the text of a link that's all there is to it but its preview, and its previews without their content. */
+function shownForm({ html, plainText }: PreparedBody): string {
+  const fragment = parseHtml(html);
+  removeSoloUnfurledLinkText(parseHtml, fragment, plainText, "");
+  for (const node of descendants(fragment)) {
+    if (isElement(node, "action-text-attachment") && getAttr(node, "content-type") === OPENGRAPH_EMBED_CONTENT_TYPE) removeAttr(node, "content");
+  }
+  return toHtml(fragment, { escapeAttributeBrackets: true });
 }
 
 /**
@@ -56,8 +70,8 @@ describe(feature("messages.rich-text"), () => {
     for (const { name, body } of corpus.cases) {
       const stored = storedForm(body);
       if (stored === undefined) continue;
-      const shown = toHtml(parseHtml(markupOf(display(stored))));
-      const expected = linkedAsShown(stored);
+      const shown = toHtml(parseHtml(markupOf(display(stored.html, stored.plainText))));
+      const expected = linkedAsShown(shownForm(stored));
       if (shown !== expected) differences.push(`${name}\n  shows:    ${shown}\n  expected: ${expected}`);
     }
     expect(differences).toEqual([]);
@@ -78,12 +92,12 @@ describe(feature("messages.rich-text"), () => {
     const shown = { tags: AUTO_LINK.tags, attributes: AUTO_LINK.attributes };
     const violations: string[] = [];
     for (const { name, body } of corpus.cases) {
-      for (const html of [body, storedForm(body) ?? ""]) {
+      for (const html of [body, storedForm(body)?.html ?? ""]) {
         let markup;
         try {
           markup = markupOf(display(html)).replaceAll(/<action-text-attachment [^>]*><\/action-text-attachment>/g, "");
         } catch (error) {
-          if (error instanceof ParseLimitError) continue;
+          if (error instanceof ParseLimitError || error instanceof RenderError) continue;
           throw error;
         }
         violations.push(...securityViolations(markup, shown).map((violation) => `${name}: ${violation}`));
@@ -118,11 +132,12 @@ describe(feature("messages.rich-text"), () => {
 });
 
 describe(feature("messages.reply"), () => {
-  /** `nodes` with each mention as `text`. */
+  /** `nodes` with each mention as `text`, and without previews. */
   const mentionsAs = (nodes: DisplayNode[], text: string): DisplayNode[] =>
-    nodes.map((node) => {
-      if (node.kind === "mention") return { kind: "text", value: text };
-      return node.kind === "element" ? { ...node, children: mentionsAs(node.children, text) } : node;
+    nodes.flatMap((node): DisplayNode[] => {
+      if (node.kind === "mention") return [{ kind: "text", value: text }];
+      if (node.kind === "preview") return [];
+      return [node.kind === "element" ? { ...node, children: mentionsAs(node.children, text) } : node];
     });
 
   it("writes what a message shows as markup, a mention as the text given for it", () => {
@@ -139,7 +154,7 @@ describe(feature("messages.reply"), () => {
     for (const { name, body } of corpus.cases) {
       const stored = storedForm(body);
       if (stored === undefined) continue;
-      const nodes = display(stored);
+      const nodes = display(stored.html, stored.plainText);
       const written = toHtml(parseHtml(displayMarkup(nodes, () => "Ada")));
       const expected = toHtml(parseHtml(markupOf(mentionsAs(nodes, "Ada"))));
       if (written !== expected) differences.push(`${name}\n  writes:   ${written}\n  expected: ${expected}`);

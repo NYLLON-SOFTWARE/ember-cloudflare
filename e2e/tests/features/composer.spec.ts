@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
-import { expect, test, type Member } from "./fixtures";
+import { expect, paste, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
@@ -22,18 +22,6 @@ const toolbar = (member: Member) => member.page.locator("form.composer lexxy-too
 
 /** A button of the formatting toolbar, by its title. */
 const tool = (member: Member, name: string) => toolbar(member).getByRole("button", { name, exact: true });
-
-/** Pastes `text` into the composer, and `html` if given, as Campfire's tests do. */
-const paste = (member: Member, text: string, html?: string) =>
-  member.composer().evaluate(
-    (content, [text, html]) => {
-      const clipboardData = new DataTransfer();
-      clipboardData.setData("text/plain", text);
-      if (html) clipboardData.setData("text/html", html);
-      content.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
-    },
-    [text, html] as const,
-  );
 
 /** Replaces what's in the composer with `markup`, as Lexxy holds what's typed. */
 const write = (member: Member, markup: string) =>

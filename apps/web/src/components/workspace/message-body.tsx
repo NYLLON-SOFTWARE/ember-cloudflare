@@ -1,6 +1,6 @@
 import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
 import { isAppPage, type User, type UserId } from "@ember/protocol";
-import type { DisplayElement, DisplayNode } from "@ember/richtext/dom";
+import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,7 @@ export function MessageBody({ nodes, mentions, emoji = false, trailing, classNam
 function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false): ReactNode {
   if (node.kind === "text") return node.value;
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
+  if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
   const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a"));
   if (trailing !== undefined) children.push(" ", trailing);
@@ -76,6 +77,46 @@ function Mention({ userId, mentions, inLink }: { userId: UserId; mentions: User[
       {inLink ? <UserAvatar user={person} className={avatar} /> : <AvatarLink user={person} reach="none" className={avatar} />}
       {person.name}
     </span>
+  );
+}
+
+/**
+ * A link preview, as Campfire's _opengraph_embed.html.erb lays one out and its embeds.css styles it: a card
+ * with the page's title in semibold, linking to it, and its description, cut at six lines, then its image,
+ * 16:9 under the text, or beside it at 100ch wide and up. An X avatar is small and round, beside the text at
+ * any width. Unlike Campfire's, the image loads as it nears the screen, as a room can hold a lot of them.
+ * In a link, the title is only text, as a link can't hold another.
+ */
+function LinkPreview({ preview, mentions, inLink }: { preview: DisplayPreview; mentions: User[]; inLink: boolean }) {
+  const linked = preview.href !== undefined && !inLink;
+  const title = preview.title.map((node) => nodeOf(node, mentions, undefined, inLink || linked));
+  return (
+    <div
+      className={cn(
+        "mt-4 mb-2 flex gap-x-[1ch] gap-y-4 overflow-clip rounded-[0.5em] border bg-background px-[1.5ch] py-4 min-[100ch]:items-start",
+        preview.avatar ? "flex-row" : "flex-col min-[100ch]:flex-row",
+      )}
+    >
+      <div className="line-clamp-6 whitespace-normal">
+        <div className="font-semibold">{linked ? createElement(MessageLink, { href: preview.href }, ...title) : title}</div>
+        <div className="text-foreground">{preview.description.map((node) => nodeOf(node, mentions, undefined, inLink))}</div>
+      </div>
+      {preview.image !== undefined && (
+        <div
+          className={cn(
+            "flex max-w-full shrink-0 overflow-clip",
+            preview.avatar ? "aspect-square size-[2lh] rounded-full" : "aspect-video min-[100ch]:w-[15dvw]",
+          )}
+        >
+          <img
+            src={preview.image}
+            alt=""
+            loading="lazy"
+            className="h-auto w-full rounded-none object-contain object-right-top max-[100ch]:object-left-top"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

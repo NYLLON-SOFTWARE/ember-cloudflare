@@ -9,6 +9,7 @@ import {
   type Directory,
   type DirectoryUser,
   type Favorites,
+  type LinkPreview,
   type Me,
   type NewDirect,
   type NewJoinCode,
@@ -273,6 +274,15 @@ export async function setSharedOrder(roomIds: RoomId[]): Promise<RoomId[]> {
 /** Deletes a room, with its messages. */
 export async function deleteRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
+}
+
+/**
+ * The preview of the page `url` goes to, for a link pasted in the composer, or null when it has none, as
+ * ember-rust's unfurl_controller.js asks for it. The page has none when it answers 204.
+ */
+export async function fetchLinkPreview(url: string, signal: AbortSignal): Promise<LinkPreview | null> {
+  const preview = await request<Partial<LinkPreview>>("/api/unfurl", { method: "POST", body: JSON.stringify({ url }), signal });
+  return preview.title && preview.url ? (preview as LinkPreview) : null;
 }
 
 /**

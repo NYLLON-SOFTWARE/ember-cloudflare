@@ -1,6 +1,6 @@
 import { lazy } from "react";
 
-export type { RichTextEditorHandle } from "./rich-text-editor";
+export type { PastedLink, RichTextEditorHandle } from "./rich-text-editor";
 
 let loaded = false;
 

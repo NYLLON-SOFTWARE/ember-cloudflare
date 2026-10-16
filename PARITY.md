@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 75 ported and 47 partial of 172 features; 44 not started, 6 not applicable.
+**Overall:** 77 ported and 47 partial of 172 features; 42 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -27,7 +27,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 1 | 2 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
-| [Link previews](#link-previews) | 2 | 0 | 2 | 0 | 4 |
+| [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 0 | 0 | 3 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 0 | 0 | 13 | 0 | 13 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **75** | **47** | **44** | **6** | **172** |
+| **Total** | **77** | **47** | **42** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1069,7 +1069,7 @@ ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://git
 - Code blocks holding only text, with no links, are highlighted: in their language when it's one of bash, css, diff, go, java, javascript, json, python, ruby, rust, sql and xml, and otherwise in whichever of those fits best. Inline code isn't highlighted.
 - While a message is sending, its pending copy shows the formatting as typed.
 
-Note: What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for link previews, which show nothing until they're ported, and Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.
+Note: What a body shows is what Rails' last sanitizing pass keeps of its stored form, less images, and then linked (`displayBody`), which the web app builds into the page rather than setting it as markup. Code blocks are highlighted with highlight.js 11.9.0 and Campfire's 12 languages, which load when the first one shows. Table header cells turn dark in dark mode, where ember-rust's stay light. `packages/richtext` has the sanitizing, and reads all 658 bodies of ember-rust's corpus of Rails outputs as Rails did, but for Trix's attachment figures, which stay figures (its `src/testing/known-differences.ts` says why for each). The room stores each body as it renders, less `class` attributes, the pictures of remote image attachments and the blank lines a code block starts with, and refuses one Rails can't render, such as markup nested past 400 levels, which ember-rust stores and shows as failing to load, or empty. It also refuses a body that reopens more than 1,000 formatting elements as it's parsed, which Rails renders but which lets a few KB grow into megabytes. Messages sent before rich text became the paragraph Lexxy sends for typed text: each line on a line of its own, and runs of spaces collapsed, as in ember-rust. Formatting is written in Lexxy 0.9.24, ember-rust's editor, set up as Campfire sets it up.
 
 Sources: [`reference/app/helpers/content_filters.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters.rb) · [`reference/app/helpers/messages_helper.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages_helper.rb) · [`crates/richtext/src/sanitizer.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/sanitizer.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`reference/app/javascript/models/message_formatter.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/models/message_formatter.js) · [`reference/app/javascript/initializers/highlight.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/initializers/highlight.js)
 
@@ -1096,7 +1096,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Saving without changes leaves the message as it was, its update time included.
 - Up Arrow pressed anywhere on the page, while the composer is blank and the newest messages are loaded, edits your latest loaded message.
 
-Note: Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: link previews (`unfurl.composer`), file messages (`attachments.upload`), search (`search.messages`) and bots.
+Note: Edit shows on your own messages and, for administrators, on everyone's. The room asks the Workspace whether someone is still an administrator each time they change someone else's message, so a new role counts at once, and the socket refuses anyone else's change rather than answering 403. The editor matches ember-rust's edit form in light and dark at desktop and phone sizes, except that its text isn't outlined inside the field's focus ring, which ember-rust means it not to be (zz-ember.css hides the outline of every field in such a box, but its rule misses Lexxy's text), that its buttons are 44px on any touch screen, as Ember's are, where ember-rust's are 36px on wide ones, and that where the toolbar doesn't show, its text takes the field's padding and is at least 44px tall, so a tap anywhere in the field lands in it and the field is 4px taller than ember-rust's. Up Arrow works from the composer or with nothing focused, not from other fields or another message's editor, and while your newest message's editor is open it returns there, keeping what's written, where ember-rust's does nothing. Saving, discarding or deleting puts focus back in the composer, where ember-rust loses it, except on touch screens. Saving a message left blank only closes the editor, as saving it unchanged does. An edit is refused as a new message is, and one too long isn't sent, so the editor keeps it. Edited messages say "(edited)", read from when their text last changed, which ember-rust's don't; a message grouped under the one before has no header, so its mark follows the text. Still to come: file messages (`attachments.upload`), search (`search.messages`) and bots.
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html) · [`reference/app/controllers/messages_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/messages_controller.rb) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/composer.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/composer.css)
 
@@ -1184,7 +1184,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Reply replaces whatever is in the composer with the message as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.
 - Mentions in the quote become the person's name without "@", and link previews are dropped; a message that was only a preview is quoted as its address. File messages offer Download and Share instead.
 
-Note: A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting link previews (`unfurl.render`) and files (`attachments.upload`).
+Note: A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. Still to come: quoting files (`attachments.upload`).
 
 Sources: [`reference/app/javascript/controllers/reply_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/reply_controller.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html)
 
@@ -1241,7 +1241,7 @@ ember-rust tests: [`crates/db/src/tests/message_test.rs`](https://github.com/NYL
 - Mentions read "@Name", images "[caption]" or "[Image]", and link previews add nothing. A message with no text reads as its file's name, and one whose body can't be converted is empty.
 - Search indexes this text, push notifications and webhooks carry it, and emoji-only and /play detection read it.
 
-Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text, and two malformed link previews, on which Rails raised. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it, and /play needn't, since its sounds are left out (`messages.sounds`). Nothing searches, pushes or sends it to bots yet.
+Note: `packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection reads it, and /play needn't, since its sounds are left out (`messages.sounds`). Nothing searches, pushes or sends it to bots yet.
 
 Sources: [`crates/richtext/src/plain_text.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/plain_text.rs) · [`crates/richtext/src/content.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/content.rs) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs)
 
@@ -1520,15 +1520,15 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Link previews while writing | `unfurl.composer` | Campfire | ⬜ Not started |  |
+| Link previews while writing | `unfurl.composer` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [link-previews](e2e/tests/features/link-previews.spec.ts) |
 | Link preview lookup | `unfurl.endpoint` | Campfire | ✅ Ported | Worker: [unfurl-cases](apps/worker/test/unfurl-cases.test.ts), [unfurl-parsing](apps/worker/test/unfurl-parsing.test.ts), [unfurl](apps/worker/test/unfurl.test.ts) |
 | Link preview safety limits | `unfurl.guard` | Campfire | ✅ Ported | Worker: [unfurl-guard](apps/worker/test/unfurl-guard.test.ts), [unfurl-parsing](apps/worker/test/unfurl-parsing.test.ts), [unfurl](apps/worker/test/unfurl.test.ts) |
-| Link previews in messages | `unfurl.render` | Campfire | ⬜ Not started |  |
+| Link previews in messages | `unfurl.render` | Campfire | ✅ Ported | Rich text: [previews](packages/richtext/src/previews.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx)<br>E2E: [link-previews](e2e/tests/features/link-previews.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**Link previews while writing** (`unfurl.composer`) ⬜
+**Link previews while writing** (`unfurl.composer`) ✅
 
 - Pasting a lone URL (`<scheme>://…` or `www.…`) with nothing selected asks for its preview, and so does pasting a single link whose text is its own URL. Pasting over selected text links the selection instead, typed links never preview, and nothing previews inside a code block.
 - When a preview comes back with a title and a URL, a card with a "Remove" button is added below the link's paragraph. `www.` and non-http(s) links are asked about but never get one, and failures add nothing.
@@ -1536,6 +1536,8 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - A newer paste cancels the pending request, and every pasted link adds its own card, even a repeated one.
 - The server's already-escaped values are escaped again, so "&" shows as "&amp;".
 - Editing a message keeps its cards, which can be removed, but never adds new ones, and drafts keep cards.
+
+Note: Previews come from `POST /api/unfurl` (`unfurl.endpoint`), whose titles and descriptions are plain text, so "&" shows as written. The card is written as the room stores it, its title and description cut by characters, as Rails cuts them when it shows them, where Campfire's composer counts UTF-16 code units, so a title of emoji keeps up to twice as many. A preview that comes back after the composer has gone, as when you've moved to another room, is dropped.
 
 Sources: [`reference/app/javascript/controllers/unfurl_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/unfurl_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`reference/app/javascript/helpers/string_helpers.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/helpers/string_helpers.js) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html)
 
@@ -1574,13 +1576,15 @@ Sources: [`crates/ember/src/integrations/net/guard.rs`](https://github.com/NYLLO
 
 ember-rust tests: [`crates/ember/src/integrations/opengraph/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/opengraph/tests.rs) · [`reference/test/models/opengraph/fetch_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/opengraph/fetch_test.rb) · [`reference/test/lib/restricted_http/private_network_guard_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/lib/restricted_http/private_network_guard_test.rb) · [`crates/ember/src/integrations/net/guard.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/net/guard.rs)
 
-**Link previews in messages** (`unfurl.render`) ⬜
+**Link previews in messages** (`unfurl.render`) ✅
 
 - A preview shows as a card: the title linking to the page in a new tab (the link itself when there's no title, plain text when there's no link), the description, and the image kept 16:9 and contained. Titles over 280 characters and descriptions over 560 are cut with "…", and a Twitter avatar is drawn round.
 - The card is redrawn from the stored preview each time it renders, and its link and image must be absolute http(s) URLs on a named host other than this Ember's (one with a dot, whose last label has a letter), or they're left out.
 - A message whose whole text is exactly its only preview's link shows just the card; any difference, such as an `og:url` without the pasted link's tracking parameters, keeps the text.
 - Before that comparison, URLs containing `x.com` or `twitter.com` (case-sensitively, so `box.com` counts and `X.com` doesn't) lose their query and read the host x.com as twitter.com.
 - Previews add nothing to search or push text, and replies drop them.
+
+Note: `packages/richtext` reads previews as Rails does, with a port of uri 1.1's parser, Campfire's, checked against Ruby on 800,000 generated addresses, and shows the 31 previews of ember-rust's corpus as Rails rendered them. The room stores each preview as the composer writes one, Trix's included, so storing it again gives the same, and refuses one Rails raises on reading, such as a `mailto:` address that doesn't parse, as it refuses other bodies Rails can't render. The browser leaves out links and images on the host it's served from, in the editor as in the message, and compares a message with its preview's link as it shows it; a message Rails raises on comparing, such as one reading `mailto:x.com`, shows as written, where Rails shows nothing of it. An x.com address loses its userinfo as it's read as twitter.com, as in uri 1.1, where ember-rust keeps it. The card is drawn by the app with embeds.css's styles, and its image loads as it nears the screen, as a room can hold a lot of them.
 
 Sources: [`reference/lib/rails_ext/actiontext_opengraph_embeds.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/lib/rails_ext/actiontext_opengraph_embeds.rb) · [`reference/app/helpers/content_filters/remove_solo_unfurled_link_text.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/content_filters/remove_solo_unfurled_link_text.rb) · [`crates/richtext/src/attachables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/attachables.rs) · [`crates/richtext/src/filters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/richtext/src/filters.rs) · [`reference/app/assets/stylesheets/embeds.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/embeds.css)
 
@@ -2112,7 +2116,7 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 |---|---|---|---|---|
 | Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
 | Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
+| Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [link-previews](e2e/tests/features/link-previews.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
 | Formatting toolbar | `composer.formatting-toolbar` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Pasting into the composer | `composer.paste` | Campfire | 🟡 Partial | E2E: [composer](e2e/tests/features/composer.spec.ts) |
 
@@ -2173,7 +2177,7 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 - Pasted text that looks like Markdown is converted, keeping its line breaks; other text goes in as it is, and anything pasted into a code block stays raw.
 - Pasted formatting, tables included, is kept as far as messages allow.
 
-Note: Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`), and an address's preview waits for `unfurl.composer`.
+Note: Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until messages can carry them (`attachments.upload`).
 
 Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
