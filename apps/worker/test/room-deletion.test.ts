@@ -3,6 +3,8 @@ import { CloseCode, type RoomId, type Sidebar } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatRoom } from "../src/chat-room";
+import type { Courier } from "../src/courier";
 import type { Env } from "../src/env";
 import { EVERYONE, REVOCATIONS_KEPT_MS } from "../src/revocations";
 import type { Workspace } from "../src/workspace";
@@ -122,7 +124,8 @@ describe(feature("rooms.delete"), () => {
     expect(await countIn(room.id, "messages")).toBe(0);
     expect(await countIn(room.id, "boosts")).toBe(0);
     expect(await countIn(room.id, "message_deletions")).toBe(0);
-    expect(await countIn(room.id, "blobs")).toBe(0);
+    // Its files' records go once R2 has deleted the files (purge.test.ts).
+    await vi.waitFor(async () => expect(await countIn(room.id, "blobs")).toBe(0), { timeout: 5_000 });
     // Its file's message, and "Staying".
     expect(await countIn(annex.id, "messages")).toBe(2);
     expect(await countIn(annex.id, "message_deletions")).toBe(1);
@@ -298,6 +301,41 @@ describe(feature("rooms.delete"), () => {
       expect(await roomSql(room.id, "SELECT tag FROM revocations WHERE room_id = ?", room.id)).toEqual([]);
       expect(await countIn(room.id, "messages")).toBe(0);
     }
+  });
+
+  it.each([
+    ["the Workspace", "workspace", "sendEvents"],
+    ["the search index", "index", "sendMessages"],
+  ] as const)("erases the room once its call to %s is done, which would make its tables again", async (_, courier, send) => {
+    const ada = await signIn("Ada");
+    const room = await createRoom("Design", { as: ada });
+    const inRoom = await connect(room.id, ada);
+    await post(inRoom, "Gone soon");
+    const closed = closeOf(inRoom.ws);
+    expect((await remove(room.id, ada)).status).toBe(204);
+    await closed;
+    await delivered();
+    // Holds a call that goes as the alarm does until the alarm is done, or for a second if it's waiting for the call.
+    const race = { alarmIsDone: false, called: false };
+    await runInDurableObject(roomStub(room.id), (instance: ChatRoom) => {
+      const object = instance as unknown as Record<typeof send, (roomId: RoomId) => Promise<number>> & { couriersFor(roomId: RoomId): Record<typeof courier, Courier> };
+      const call = object[send].bind(object);
+      object[send] = async (roomId) => {
+        for (let waited = 0; !race.alarmIsDone && waited < 1_000; waited += 10) await scheduler.wait(10);
+        const sent = await call(roomId);
+        race.called = true;
+        return sent;
+      };
+      object.couriersFor(room.id)[courier].deliver();
+    });
+
+    expect(await runDurableObjectAlarm(roomStub(room.id))).toBe(true);
+    race.alarmIsDone = true;
+    await vi.waitFor(() => expect(race.called).toBe(true));
+    const tables = await runInDurableObject(roomStub(room.id), (_room, state: DurableObjectState) =>
+      state.storage.sql.exec(`SELECT name FROM sqlite_master WHERE name NOT LIKE '\\_cf\\_%' ESCAPE '\\'`).toArray(),
+    );
+    expect(tables).toEqual([]);
   });
 });
 

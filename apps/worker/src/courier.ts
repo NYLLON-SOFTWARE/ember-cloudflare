@@ -72,6 +72,11 @@ export class Courier {
   async retry(): Promise<void> {
     this.retryAt = 0;
     this.deliver();
+    await this.settled();
+  }
+
+  /** Waits until the courier has no call out, nor one to make once it's done. */
+  async settled(): Promise<void> {
     while (this.delivering) await this.delivering;
   }
 

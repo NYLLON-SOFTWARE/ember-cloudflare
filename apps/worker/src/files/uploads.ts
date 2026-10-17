@@ -116,6 +116,18 @@ const posted = (finished: { message: Message; posted: boolean } | null) =>
   finished ? Response.json(finished.message, { status: finished.posted ? 201 : 200 }) : problem(404, UPLOAD_NOT_FOUND);
 
 /**
+ * Has the room post `uploader`'s upload `key`, which R2 has all of now, answering as `posted` does. When
+ * the room no longer has the upload, as when it deleted the upload while this request put the file
+ * together, has R2 delete the file and its preview, which nothing else would.
+ */
+async function finish(env: Env, files: R2Bucket, roomId: RoomId, uploader: Uploader, key: string, identified?: Identified): Promise<Response> {
+  const room = env.CHAT_ROOM.getByName(roomId);
+  const finished = await room.finishUpload(roomId, uploader, key, identified);
+  if (!finished && !(await room.uploadOf(roomId, uploader.user.id, key))) await files.delete([objectKey(key), previewKey(key)]);
+  return posted(finished);
+}
+
+/**
  * `PUT /api/rooms/<room>/uploads/<key>/parts/<n>`, the part's bytes, which have to be as many as the
  * part carries: stores part `n` of one of the uploader's own uploads, answering 204 while there are
  * parts to come, then 201 with the message the room posts the file as once R2 has all of it, or 200
@@ -162,7 +174,7 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   // Again, as for the first part.
   uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
-  if (!part) return posted(await room.finishUpload(roomId, uploader, key));
+  if (!part) return finish(env, files, roomId, uploader, key);
   const recorded = await room.recordUploadPart(roomId, uploader, key, part);
   if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
   if (recorded.completedAt) return posted(await room.finishUpload(roomId, uploader, key));
@@ -174,7 +186,7 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
     // Another request put the parts together first.
     if (!(await isWhole(files, recorded))) throw error;
   }
-  return posted(await room.finishUpload(roomId, uploader, key));
+  return finish(env, files, roomId, uploader, key);
 }
 
 /**
@@ -213,7 +225,11 @@ export async function uploadPreview(request: Request, env: Env, roomId: RoomId, 
   if (unposted.completedAt) return problem(409, ALREADY_POSTED);
   await files.put(previewKey(key), bytes, { httpMetadata: { contentType }, customMetadata: { filename: previewName(upload.filename, contentType) } });
   const recorded = await room.recordUploadPreview(roomId, arrived, key, size);
-  if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
+  if (!recorded) {
+    // When the room has deleted the upload meanwhile, nothing else would have R2 delete this.
+    if (!(await room.uploadOf(roomId, arrived.user.id, key))) await files.delete(previewKey(key));
+    return problem(404, UPLOAD_NOT_FOUND);
+  }
   return recorded.completedAt ? problem(409, ALREADY_POSTED) : new Response(null, { status: 204 });
 }
 
@@ -235,7 +251,7 @@ async function storeFirstPart(env: Env, files: R2Bucket, roomId: RoomId, uploade
 
   if (uploadParts(upload.byteSize) === 1) {
     await files.put(key, bytes, options);
-    return posted(await room.finishUpload(roomId, uploader, upload.id, identified));
+    return finish(env, files, roomId, uploader, upload.id, identified);
   }
   const multipart = await files.createMultipartUpload(key, options);
   const { partNumber, etag } = await multipart.uploadPart(1, bytes);
