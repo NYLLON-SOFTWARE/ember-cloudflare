@@ -60,6 +60,7 @@ pnpm --filter @ember/e2e exec playwright install chromium   # once
 pnpm test:e2e       # every suite
 pnpm test:features  # just the feature-by-feature suite, on a desktop browser
 pnpm test:mobile    # just the phones
+pnpm screenshots    # remakes the web app manifest's screenshots
 ```
 
 Before the other suites start, the `first-run` project sets up the test server through the Set up
@@ -75,6 +76,10 @@ The mobile suite (`e2e/tests/mobile/`) emulates seven phones, from a 320px iPhon
 screen it checks that nothing overflows sideways or sits under the notch, that every control is a
 44px tap target, and that text fields are 16px so iOS doesn't zoom in on focus. Where a browser is
 already installed, point Playwright at it with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/chrome`.
+
+The screenshots suite (`e2e/tests/screenshots/`) makes the screenshots the web app manifest lists,
+which an install prompt shows: a few people chatting, on a phone. `pnpm screenshots` saves them over
+`apps/web/public/screenshots/`, and every other run with the test's results, so they keep working.
 
 ## Parity with ember-rust
 

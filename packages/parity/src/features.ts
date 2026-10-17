@@ -2602,7 +2602,7 @@ export const features = [
     id: "platform.manifest",
     title: "Web app manifest",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/webmanifest.json` answers JSON without sign-in. It names the app after the workspace (\"Ember\" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.",
       "It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description \"A chat app from the makers of Basecamp and HEY.\" and the categories social, business and productivity.",
@@ -2611,7 +2611,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
-    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Its icons are the workspace's logo, the 192-pixel variant first, as ember-rust's are (`accounts.logo`), or while there's none, Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`, where ember-rust's list `/account/logo`, which serves them. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile your profile (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Its icons are the workspace's logo, the 192-pixel variant first, as ember-rust's are (`accounts.logo`), or while there's none, Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`, where ember-rust's list `/account/logo`, which serves them. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\" ember-rust's screenshots show Campfire's Android app, so Ember's are its own, with the same sizes and labels: a room, the conversations drawer and a room in dark mode on a phone, which `pnpm screenshots` makes. New chat room opens the New room page, and My profile your profile (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",

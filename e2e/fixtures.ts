@@ -287,10 +287,15 @@ export class Participant {
   }
 
   /** Posts a message, sending its text as the composer does, and resolves once the room has stored it. */
-  async say(text: string): Promise<Message> {
+  say(text: string): Promise<Message> {
+    return this.post(bodyFromPlainText(text));
+  }
+
+  /** Posts a message whose body is `body`, rich text as the composer sends it, such as a mention's, and resolves once the room has stored it. */
+  async post(body: string): Promise<Message> {
     const clientMessageId = crypto.randomUUID();
     const created = this.next((frame) => frame.type === "message.created" && frame.message.clientMessageId === clientMessageId);
-    this.send({ type: "message.create", clientMessageId, body: bodyFromPlainText(text) });
+    this.send({ type: "message.create", clientMessageId, body });
     const frame = await created;
     return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
   }

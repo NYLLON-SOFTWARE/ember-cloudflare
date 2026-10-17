@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 165 ported and 1 partial of 172 features; 0 not started, 6 not applicable.
+**Overall:** 166 ported and 0 partial of 172 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 15 | 0 | 0 | 0 | 15 |
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
-| [Platform](#platform) | 10 | 1 | 0 | 4 | 15 |
-| **Total** | **165** | **1** | **0** | **6** | **172** |
+| [Platform](#platform) | 11 | 0 | 0 | 4 | 15 |
+| **Total** | **166** | **0** | **0** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -2431,7 +2431,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Security headers and HTTPS | `platform.security-headers` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Deploy secrets and the private setup link | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
-| Web app manifest | `platform.manifest` | Ember | 🟡 Partial | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts) |
+| Web app manifest | `platform.manifest` | Ember | ✅ Ported | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts), [manifest](e2e/tests/screenshots/manifest.spec.ts) |
 | Installable page head | `platform.head-tags` | Campfire | ✅ Ported | E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
 | Install commands and the private setup link | `platform.install-commands` | Ember | ➖ Not applicable |  |
@@ -2538,14 +2538,14 @@ Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/emb
 
 ember-rust tests: [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs) · [`deploy/installer/tests/test_installer.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_installer.py) · [`deploy/installer/tests/test_install_recovery.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/tests/test_install_recovery.py)
 
-**Web app manifest** (`platform.manifest`) 🟡
+**Web app manifest** (`platform.manifest`) ✅
 
 - `/webmanifest.json` answers JSON without sign-in. It names the app after the workspace ("Ember" before setup, and for a workspace named Campfire or Matchbox) and lists the workspace logo, or the stock icon without one, at 192 and 512px and again at 512px as maskable, at addresses that change whenever the workspace does.
 - It sets start URL and scope `/`, standalone display, white (#ffffff) theme and background colors, the description "A chat app from the makers of Basecamp and HEY." and the categories social, business and productivity.
 - Its shortcuts are New chat room (`rooms/opens/new`, "Open Ember and start a new chat room") and My profile (`/users/me/profile`, "Open Ember and view your profile"), each with an icon.
 - It lists three 1080×2400 narrow screenshots labelled "Ember is an installable, self-hosted group chat system.", "Easily invite people. Make rooms. @mentions, DMs, and mobile support." and "Full support for dark mode, customizable to your brand."
 
-Note: The app is named after the workspace, which first run names "Ember", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Its icons are the workspace's logo, the 192-pixel variant first, as ember-rust's are (`accounts.logo`), or while there's none, Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`, where ember-rust's list `/account/logo`, which serves them. The description is this project's own, "A real-time chat app that runs entirely on Cloudflare.", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile your profile (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.
+Note: The app is named after the workspace, which first run names "Ember", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Its icons are the workspace's logo, the 192-pixel variant first, as ember-rust's are (`accounts.logo`), or while there's none, Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`, where ember-rust's list `/account/logo`, which serves them. The description is this project's own, "A real-time chat app that runs entirely on Cloudflare." ember-rust's screenshots show Campfire's Android app, so Ember's are its own, with the same sizes and labels: a room, the conversations drawer and a room in dark mode on a phone, which `pnpm screenshots` makes. New chat room opens the New room page, and My profile your profile (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.
 
 Sources: [`crates/views/templates/pwa/manifest.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/pwa/manifest.json) · [`crates/ember/src/controllers/pwa.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/pwa.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/db/src/models/account.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/account.rs) · [`reference/app/views/pwa/manifest.json.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/pwa/manifest.json.erb)
 
