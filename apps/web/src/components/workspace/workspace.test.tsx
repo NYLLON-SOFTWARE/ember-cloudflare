@@ -500,7 +500,7 @@ describe(feature("messages.permalink"), () => {
     sent: unknown[] = [];
     onopen: (() => void) | null = null;
     onmessage: ((event: { data: string }) => void) | null = null;
-    constructor(url: string) {
+    constructor(readonly url: string) {
       if (url.includes("/api/rooms/")) RoomSocket.last = this;
     }
     send(data: string) {
@@ -525,6 +525,25 @@ describe(feature("messages.permalink"), () => {
     expect(room.sent).toEqual([]);
     room.letIn();
     expect(room.sent).toContainEqual({ type: "history.around", messageId: "m1" });
+  });
+
+  it("goes from a message's own address to its permalink, which opens the room around it", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    showWorkspace("/rooms/general/messages/m1");
+    expect(await roomHeading()).toHaveTextContent("general");
+    expect(location.pathname).toBe("/rooms/general/@m1");
+    expect(RoomSocket.last!.url).toContain("&around=m1");
+    expect(railCurrent()).toEqual(["Home"]);
+  });
+
+  it("goes from the address of a message with a malformed id to its room, and from one in a room you can't see home with the alert", async () => {
+    showWorkspace("/rooms/random/messages/%FF");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(location.pathname).toBe("/rooms/random");
+
+    act(() => navigate("/rooms/secret/messages/m1"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
   });
 });
 

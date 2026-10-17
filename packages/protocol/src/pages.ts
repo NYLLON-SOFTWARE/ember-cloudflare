@@ -21,6 +21,11 @@ export type WorkspacePage =
    * opens it around that message.
    */
   | { page: "room"; roomId: RoomId; messageId?: string }
+  /**
+   * A message at its own address, `/rooms/<id>/messages/<message id>`, where ember-rust shows the message
+   * alone, which goes on to its permalink.
+   */
+  | { page: "message"; roomId: RoomId; messageId?: string }
   /** A room at the address for a kind of room, such as `/rooms/opens/<id>`, which goes on to the room's own. */
   | { page: "room-of-kind"; kind: RoomKind; roomId: RoomId }
   | { page: "new-room"; access: RoomAccess }
@@ -107,13 +112,14 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
   // ember-rust matches /rooms/new, one of Rails' unused resource actions, before /rooms/<id>, and
   // answers 404 for it.
-  const room = pathname.match(/^\/rooms\/([^/]+)(?:\/@([^/]+))?$/);
+  const room = pathname.match(/^\/rooms\/([^/]+)(?:\/@([^/]+)|\/messages\/([^/]+))?$/);
   const roomId = room && room[1] !== "new" ? decoded(room[1]!) : null;
   if (!room || !roomId) return null;
-  // A permalink whose message id is malformed, or longer than any message's, opens the room at its
-  // newest messages, as one naming a message the room doesn't have does.
-  const messageId = room[2] === undefined ? null : decoded(room[2]);
-  return messageId && messageId.length <= MAX_ID_LENGTH ? { page: "room", roomId, messageId } : { page: "room", roomId };
+  const page = room[3] === undefined ? "room" : "message";
+  // A permalink or message address whose message id is malformed, or longer than any message's, opens
+  // the room at its newest messages, as one naming a message the room doesn't have does.
+  const messageId = decoded(room[2] ?? room[3] ?? "");
+  return messageId && messageId.length <= MAX_ID_LENGTH ? { page, roomId, messageId } : { page, roomId };
 }
 
 /**

@@ -586,6 +586,19 @@ test.describe(feature("messages.permalink"), () => {
     await expect(grace.page.getByRole("heading", { level: 1 })).toContainText(rooms.general.name);
     expect(new URL(grace.page.url()).pathname).toBe(path);
   });
+
+  test("goes from a message's own address, as ember-rust's bot API gives it, to its permalink", async ({ members, participant, rooms }) => {
+    await (await participant("Grace")).say("Find me again");
+    const ada = await members.signIn("Ada");
+    await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await (await ada.actions("Find me again")).getByRole("button", { name: "Copy link" }).click();
+    const permalink = new URL(await ada.page.evaluate(() => navigator.clipboard.readText())).pathname;
+
+    const grace = await members.signIn("Grace", { path: permalink.replace("/@", "/messages/") });
+    await expect(grace.message("Find me again")).toBeVisible();
+    await expect(grace.page.getByRole("heading", { level: 1 })).toContainText(rooms.general.name);
+    expect(new URL(grace.page.url()).pathname).toBe(permalink);
+  });
 });
 
 test.describe(feature("messages.edit"), () => {

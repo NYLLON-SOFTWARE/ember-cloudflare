@@ -1221,15 +1221,15 @@ export const features = [
     id: "messages.permalink",
     title: "Link to a message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/rooms/<room>/@<message>` opens the room around that message (up to 40 before and after), centered and outlined for a second before the outline fades; scrolling down then loads newer messages.",
       "An unknown message opens the newest page, and a room you can't see goes to `/` with the alert. The room stays marked in the sidebar.",
       "`/rooms/<room>/messages/<id>` shows a single message, or 404 when it isn't in that room.",
     ],
-    sources: ["crates/ember/src/controllers/rooms.rs", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/messages.css"],
+    sources: ["crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/messages.rs", "crates/assets/overrides/controllers/messages_controller.js", "reference/app/assets/stylesheets/messages.css"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "crates/ember/src/controllers/messages/tests.rs", "parity/screens.yml"],
-    notes: "`/rooms/<room>/@<message>` opens its room on the page around the message, centered and outlined, and following one in the room goes there again each time, loading its page when the timeline doesn't hold it. The outline is drawn outside the message rather than as its border, so nothing moves, and a mention of you keeps its own border, where ember-rust's highlight replaces it. `/rooms/<room>/messages/<id>`, ember-rust's page of a single message, isn't built, since nothing in this app asks for one.",
+    notes: "`/rooms/<room>/@<message>` opens its room on the page around the message, centered and outlined, and following one in the room goes there again each time, loading its page when the timeline doesn't hold it. The outline is drawn outside the message rather than as its border, so nothing moves, and a mention of you keeps its own border, where ember-rust's highlight replaces it. `/rooms/<room>/messages/<id>`, the address ember-rust's bot API gives a message, where it shows the message alone, goes on to the message's permalink, so a message the room doesn't have opens the room at its newest messages, where ember-rust answers 404.",
   },
   {
     id: "messages.emoji-only",
@@ -1357,7 +1357,7 @@ export const features = [
     id: "mentions.autocomplete",
     title: "@-mention people",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Typing @ at the start of a line or after a space, outside code, lists the room's active members whose name contains what follows, bots and you included, or \"No matches\". Only the first 20 are offered.",
       "Up and Down move through the list; Enter, Tab, Space and comma pick; Escape closes it. Picking inserts a mention shown as the person's avatar and name.",
@@ -1365,7 +1365,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/autocompletable.rs", "reference/app/controllers/autocompletable/users_controller.rb", "crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js"],
     upstreamTests: ["reference/test/controllers/autocompletable/users_controller_test.rb", "reference/test/system/composer_test.rb"],
-    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only, where ember-rust's also answers JSON, 20 a page: the DM picker searches the people directory instead (`dms.picker`), so nothing here reads JSON. On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.",
+    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items for the first 20 people, where ember-rust's also answers JSON and later pages: nothing here reads either, since Lexxy asks for the first page alone and the DM picker searches the people directory instead (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.",
   },
   {
     id: "mentions.highlight",

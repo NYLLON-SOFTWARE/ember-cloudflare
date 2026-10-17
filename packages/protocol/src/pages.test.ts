@@ -55,6 +55,16 @@ describe(feature("messages.permalink"), () => {
     const longest = "m".repeat(MAX_ID_LENGTH);
     expect(workspacePageOf(`/rooms/general/@${longest}`)).toEqual({ page: "room", roomId: "general", messageId: longest });
   });
+
+  it("reads a message's own address, which goes on to its permalink", () => {
+    expect(workspacePageOf("/rooms/caf%C3%A9/messages/m%2D1")).toEqual({ page: "message", roomId: "café", messageId: "m-1" });
+    for (const path of ["/rooms/general/messages/%FF", `/rooms/general/messages/${"m".repeat(MAX_ID_LENGTH + 1)}`]) {
+      expect(workspacePageOf(path), path).toEqual({ page: "message", roomId: "general" });
+    }
+    for (const path of ["/rooms/general/messages", "/rooms/general/messages/", "/rooms/general/messages/m-1/extra", "/rooms/new/messages/m-1"]) {
+      expect(isAppPage(path), path).toBe(false);
+    }
+  });
 });
 
 describe(feature("users.profile"), () => {

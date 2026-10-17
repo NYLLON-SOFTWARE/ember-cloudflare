@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 162 ported and 4 partial of 172 features; 0 not started, 6 not applicable.
+**Overall:** 164 ported and 2 partial of 172 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,9 +23,9 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 18 | 0 | 0 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 10 | 0 | 0 | 0 | 10 |
-| [Messages](#messages) | 17 | 1 | 0 | 1 | 19 |
+| [Messages](#messages) | 18 | 0 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
-| [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
+| [Mentions](#mentions) | 3 | 0 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 9 | 1 | 0 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 10 | 1 | 0 | 4 | 15 |
-| **Total** | **162** | **4** | **0** | **6** | **172** |
+| **Total** | **164** | **2** | **0** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1042,7 +1042,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Message action bar | `messages.actions` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Reply with a quote | `messages.reply` | Campfire | ✅ Ported | Rich text: [display](packages/richtext/src/display.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Copy a link to a message | `messages.copy-link` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
-| Link to a message | `messages.permalink` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [use-route](apps/web/src/hooks/use-route.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
+| Link to a message | `messages.permalink` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [use-route](apps/web/src/hooks/use-route.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
 | Emoji-only messages | `messages.emoji-only` | Campfire | ✅ Ported | Rich text: [emoji](packages/richtext/src/emoji.test.ts)<br>Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | /play sounds | `messages.sounds` | Campfire | ➖ Not applicable |  |
 | Plain-text version of a message | `messages.plain-text` | Campfire | ✅ Ported | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [plain-text](packages/richtext/src/plain-text.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts) |
@@ -1203,15 +1203,15 @@ Sources: [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`]
 
 ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Link to a message** (`messages.permalink`) 🟡
+**Link to a message** (`messages.permalink`) ✅
 
 - `/rooms/<room>/@<message>` opens the room around that message (up to 40 before and after), centered and outlined for a second before the outline fades; scrolling down then loads newer messages.
 - An unknown message opens the newest page, and a room you can't see goes to `/` with the alert. The room stays marked in the sidebar.
 - `/rooms/<room>/messages/<id>` shows a single message, or 404 when it isn't in that room.
 
-Note: `/rooms/<room>/@<message>` opens its room on the page around the message, centered and outlined, and following one in the room goes there again each time, loading its page when the timeline doesn't hold it. The outline is drawn outside the message rather than as its border, so nothing moves, and a mention of you keeps its own border, where ember-rust's highlight replaces it. `/rooms/<room>/messages/<id>`, ember-rust's page of a single message, isn't built, since nothing in this app asks for one.
+Note: `/rooms/<room>/@<message>` opens its room on the page around the message, centered and outlined, and following one in the room goes there again each time, loading its page when the timeline doesn't hold it. The outline is drawn outside the message rather than as its border, so nothing moves, and a mention of you keeps its own border, where ember-rust's highlight replaces it. `/rooms/<room>/messages/<id>`, the address ember-rust's bot API gives a message, where it shows the message alone, goes on to the message's permalink, so a message the room doesn't have opens the room at its newest messages, where ember-rust answers 404.
 
-Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/messages.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/messages.css)
+Sources: [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js) · [`reference/app/assets/stylesheets/messages.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/messages.css)
 
 ember-rust tests: [`crates/ember/src/controllers/rooms/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms/tests.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
@@ -1333,20 +1333,20 @@ ember-rust tests: [`reference/test/controllers/messages/boosts_controller_test.r
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| @-mention people | `mentions.autocomplete` | Campfire | 🟡 Partial | Rich text: [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [mentions](apps/worker/test/mentions.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
+| @-mention people | `mentions.autocomplete` | Campfire | ✅ Ported | Rich text: [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [mentions](apps/worker/test/mentions.test.ts)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 | Highlight mentions of you | `mentions.highlight` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [search-page](apps/web/src/components/workspace/search-page.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 | How mentions look | `mentions.render` | Campfire | ✅ Ported | Rich text: [body](packages/richtext/src/body.test.ts), [corpus](packages/richtext/src/corpus.test.ts), [mentions](packages/richtext/src/mentions.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-body](apps/web/src/components/workspace/message-body.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [mentions](e2e/tests/features/mentions.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
 
-**@-mention people** (`mentions.autocomplete`) 🟡
+**@-mention people** (`mentions.autocomplete`) ✅
 
 - Typing @ at the start of a line or after a space, outside code, lists the room's active members whose name contains what follows, bots and you included, or "No matches". Only the first 20 are offered.
 - Up and Down move through the list; Enter, Tab, Space and comma pick; Escape closes it. Picking inserts a mention shown as the person's avatar and name.
 - The people search answers HTML or JSON (`name`, `value`, `avatar_url`, `sgid`) ordered by name, 20 a page; a room you're not in is 404. Names are matched with SQL `LIKE`, so case is ignored only for ASCII letters and `%` and `_` act as wildcards.
 
-Note: The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only, where ember-rust's also answers JSON, 20 a page: the DM picker searches the people directory instead (`dms.picker`), so nothing here reads JSON. On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick "@ka" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.
+Note: The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items for the first 20 people, where ember-rust's also answers JSON and later pages: nothing here reads either, since Lexxy asks for the first page alone and the DM picker searches the people directory instead (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick "@ka" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.
 
 Sources: [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js)
 
