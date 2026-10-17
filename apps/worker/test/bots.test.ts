@@ -1,7 +1,25 @@
 import { feature } from "@ember/parity";
-import type { BotAnswer, BotRoom, Bots, BotSettings, DirectRoom, Directory, DirectoryUser, Me, NewWorkspace, UserId } from "@ember/protocol";
+import type {
+  BotAnswer,
+  BotRoom,
+  Bots,
+  BotSettings,
+  DirectRoom,
+  Directory,
+  DirectoryUser,
+  Me,
+  NewRoomForm,
+  NewWorkspace,
+  PersonAnswer,
+  RoomChanges,
+  RoomId,
+  RoomSettings,
+  Sidebar,
+  UserId,
+} from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import notFoundPage from "../../web/public/404.html";
+import { DEFAULT_BOT_AVATAR } from "../src/default-bot-avatar";
 import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
@@ -86,6 +104,31 @@ async function directWith(administrator: Session, bot: BotSettings): Promise<Dir
 const listedAs = ({ webhookUrl: _, ...bot }: BotSettings, rooms: BotRoom[]) => ({ ...bot, rooms });
 
 const tokenOf = (bot: BotSettings) => bot.key.slice(bot.id.length + 1);
+
+/** What `session` is answered for `path`, once it's checked to have succeeded. */
+async function answered<T>(session: Session, path: string): Promise<T> {
+  const response = await api(path, { headers: signedInAs(session) });
+  expect(response.status, await response.clone().text()).toBe(200);
+  return (await response.json()) as T;
+}
+
+const changeRoom = (session: Session, roomId: RoomId, changes: RoomChanges) =>
+  api(`/api/rooms/${roomId}`, { method: "PATCH", headers: signedInAs(session), body: JSON.stringify(changes) });
+
+/** The rooms someone is in, by id, each with how much it notifies them. */
+const involvementsOf = async (userId: UserId) =>
+  Object.fromEntries(
+    ((await workspaceSql("SELECT room_id, involvement FROM memberships WHERE user_id = ?", userId)) as Array<{ room_id: string; involvement: string }>).map(
+      ({ room_id, involvement }) => [room_id, involvement],
+    ),
+  );
+
+/** The names of the people the @-mention prompt offers `viewer` in room `roomId` for `filter`, in order. */
+async function mentionable(viewer: Session, roomId: RoomId, filter: string): Promise<string[]> {
+  const response = await api(`/api/autocompletable/users?room_id=${roomId}&filter=${filter}`, { headers: signedInAs(viewer) });
+  expect(response.status, await response.clone().text()).toBe(200);
+  return [...(await response.text()).matchAll(/<lexxy-prompt-item search="([^"]*)"/g)].map((match) => match[1]!);
+}
 
 beforeEach(freshDeploy);
 
@@ -358,5 +401,71 @@ describe(feature("bots.reset-key"), () => {
     for (const id of [deleted.id, member.user.id, "nobody"]) expect((await resetKey(administrator, id)).status).toBe(404);
     expect((await stored(bot.id)).bot_token).toBe(tokenOf(bot));
     expect((await stored(deleted.id)).bot_token).toBe(tokenOf(deleted));
+  });
+});
+
+describe(feature("bots.membership"), () => {
+  it("puts a new bot in every open room at mentions, and in a private room once it's made open, as it does everyone active", async () => {
+    const administrator = await setUp();
+    const secrets = await createRoom("Secrets", { closedTo: [administrator.user.id], as: administrator });
+    const bot = await added(administrator, { name: "Build Bot" });
+    const [general, random] = await firstRooms();
+    expect(await involvementsOf(bot.id)).toEqual({ [general!.id]: "mentions", [random!.id]: "mentions" });
+
+    expect((await changeRoom(administrator, secrets.id, { kind: "open" })).status).toBe(200);
+    expect(await involvementsOf(bot.id)).toEqual({ [general!.id]: "mentions", [random!.id]: "mentions", [secrets.id]: "mentions" });
+  });
+
+  it("lists an active bot with everyone else in rooms' member pickers, so it can be put in a private room, and anyone can start a DM with it", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const bot = await added(administrator, { name: "Build Bot" });
+    const everyone = [administrator.user, shown(bot), member.user];
+    expect(await answered<NewRoomForm>(administrator, "/api/rooms/new")).toEqual({ people: everyone });
+
+    const builds = await createRoom("Builds", { closedTo: [administrator.user.id, bot.id], as: administrator });
+    expect((await answered<RoomSettings>(administrator, `/api/rooms/${builds.id}/settings`)).people).toEqual(
+      everyone.map((person) => ({ ...person, member: person.id !== member.user.id })),
+    );
+
+    const response = await startDirect(member, [bot.id]);
+    expect(response.status).toBe(201);
+    expect(((await response.json()) as { room: DirectRoom }).room.members.map(({ id }) => id).sort()).toEqual([member.user.id, bot.id].sort());
+
+    // Once it's deleted, nobody can pick it, as nobody can pick someone removed.
+    expect((await deleteBot(administrator, bot.id)).status).toBe(204);
+    expect(await answered<NewRoomForm>(administrator, "/api/rooms/new")).toEqual({ people: [administrator.user, member.user] });
+  });
+
+  it("offers an active bot to mention in the rooms it's in, and suggests a DM with it, until it's deleted", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const secrets = await createRoom("Secrets", { closedTo: [administrator.user.id, member.user.id], as: administrator });
+    const bot = await added(administrator, { name: "Build Bot" });
+    const [general] = await firstRooms();
+
+    expect(await mentionable(member, general!.id, "bot")).toEqual(["Build Bot"]);
+    expect(await mentionable(member, secrets.id, "bot")).toEqual([]);
+    expect((await answered<Sidebar>(member, "/api/sidebar")).suggestions).toEqual([administrator.user, shown(bot)]);
+
+    expect((await deleteBot(administrator, bot.id)).status).toBe(204);
+    expect(await mentionable(member, general!.id, "bot")).toEqual([]);
+    expect((await answered<Sidebar>(member, "/api/sidebar")).suggestions).toEqual([administrator.user]);
+  });
+});
+
+describe(feature("bots.profile"), () => {
+  it("answers a bot's page without a sign-in link, even to administrators, with Campfire's bot picture for its avatar, until it's deleted", async () => {
+    const administrator = await setUp();
+    const bot = await added(administrator, { name: "Build Bot" });
+
+    const person = { id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl, emailAddress: null };
+    expect(await answered<PersonAnswer>(administrator, `/api/users/${bot.id}`)).toEqual({ person });
+    const avatar = await api(bot.avatarUrl, { headers: signedInAs(administrator) });
+    expect(avatar.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(await avatar.text()).toBe(DEFAULT_BOT_AVATAR);
+
+    expect((await deleteBot(administrator, bot.id)).status).toBe(204);
+    expect((await answered<PersonAnswer>(administrator, `/api/users/${bot.id}`)).person).toMatchObject({ name: "Build Bot", role: "bot", status: "deactivated" });
   });
 });

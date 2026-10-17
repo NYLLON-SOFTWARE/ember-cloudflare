@@ -277,3 +277,65 @@ test.describe(feature("bots.list"), () => {
     await member.context().close();
   });
 });
+
+test.describe(feature("bots.membership"), () => {
+  test("a bot is offered to mention, to message and for a private room, but isn't among the people", async ({ page }) => {
+    const tag = crypto.randomUUID().slice(0, 8);
+    const name = `Build Bot ${tag}`;
+    await openGeneralFor(page, name);
+
+    // It joined general as it was added, so the composer offers it there.
+    const composer = editorField(page, "Write a message");
+    await composer.pressSequentially("@");
+    await expect(page.getByRole("listbox")).toBeVisible();
+    const listed = page.waitForResponse((response) => new URL(response.url()).searchParams.get("filter") === tag);
+    await composer.pressSequentially(tag);
+    await listed;
+    await expect(page.getByRole("listbox").getByRole("option")).toHaveText([name]);
+
+    await page.goto("/rooms/directs/new");
+    const newDirect = page.getByRole("dialog", { name: "New direct message" });
+    await newDirect.getByRole("combobox", { name: "Search people" }).fill(tag);
+    await expect(newDirect.getByRole("option")).toHaveText([name]);
+
+    await page.goto("/rooms/closeds/new");
+    await expect(page.getByRole("switch", { name: `Give ${name} access to this room` })).not.toBeChecked();
+
+    await page.goto("/account/edit");
+    const people = page.getByRole("list", { name: "People" });
+    await expect(people.getByRole("listitem").filter({ hasText: ADMINISTRATOR.name })).toBeVisible();
+    await expect(people.getByText(name)).toHaveCount(0);
+  });
+});
+
+test.describe(feature("bots.profile"), () => {
+  test("a bot's page, opened from its avatar, shows that and a button that starts a DM with it, until it's deleted", async ({ page }) => {
+    await openBots(page);
+    const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await addBot(page, name);
+    await botNamed(page, name).getByRole("link", { name, exact: true }).click();
+    await expect(page).toHaveURL(/\/users\/[^/]+$/);
+    const profile = new URL(page.url()).pathname;
+    await expect(page).toHaveTitle(name);
+    await expect(page.getByRole("img", { name: "Profile avatar" })).toBeVisible();
+    // Neither its name, nor a sign-in link or Ban, which the administrator gets on a person's page.
+    await expect(page.getByRole("main").getByRole("heading")).toHaveCount(0);
+    await expect(page.getByRole("main").getByRole("textbox")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `Ban ${name}` })).toHaveCount(0);
+
+    await page.getByRole("button", { name: `Ping ${name}` }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${name}`);
+
+    await page.goto("/account/bots");
+    await botNamed(page, name).getByRole("link", { name: `Edit ${name}` }).click();
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Delete this chat bot" }).click();
+    await expect(page).toHaveURL(/\/account\/bots$/);
+
+    await page.goto(profile);
+    await expect(page.getByText(`${name} is no longer on this account`)).toBeVisible();
+    await expect(page.getByRole("img", { name: "Profile avatar" })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Ping ${name}` })).toHaveCount(0);
+  });
+});
+

@@ -513,7 +513,7 @@ export const features = [
     id: "rooms.open",
     title: "Open rooms everyone is in",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Everyone who joins, bots included, becomes a member of every open room, at the `mentions` notification level; private rooms and DMs aren't joined.",
       "Creating an open room, or making a private room open, adds every active person; people already in it keep their notification levels.",
@@ -522,7 +522,7 @@ export const features = [
     ],
     sources: ["crates/db/src/models/user.rs", "crates/db/src/models/room.rs", "reference/app/models/rooms/open.rb", "reference/app/models/user.rb"],
     upstreamTests: ["reference/test/models/user_test.rb", "reference/test/models/rooms/open_test.rb"],
-    notes: "People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs. A private room can't be made open yet.",
+    notes: "People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Making a private room open takes in everyone active too, keeping its members' notification levels (`rooms.convert-access`). Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs.",
   },
   {
     id: "rooms.create-open",
@@ -2162,7 +2162,7 @@ export const features = [
     id: "bots.membership",
     title: "Where bots show up",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "A new bot joins every open room at the `mentions` level, and rooms made open later add it too; deleting a bot takes it out of every room but its DMs.",
       "Private rooms' member pickers list active bots with everyone else, and anyone can start a DM with an active bot.",
@@ -2171,18 +2171,20 @@ export const features = [
     ],
     sources: ["reference/app/models/user.rb", "reference/app/models/rooms/open.rb", "reference/app/controllers/rooms/closeds_controller.rb", "reference/app/controllers/autocompletable/users_controller.rb", "reference/app/controllers/users/sidebars_controller.rb", "crates/db/src/models/user.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/ember/src/controllers/autocompletable.rs"],
     upstreamTests: ["reference/test/models/rooms/open_test.rb", "reference/test/models/user_test.rb", "parity/screens.yml"],
+    notes: "A bot is a member as anyone active is. Adding one puts it in every open room at `mentions` (`bots.create-edit`), and a new open room, or a private one made open, takes in every active bot with everyone else (`rooms.open`). The New room forms and a room's settings list active bots among everyone, by name (`rooms.members`), anyone can start a DM with one (`dms.create`), the composer offers a room's active bots to mention (`mentions.autocomplete`), and New direct message's search finds them and the sidebar suggests them (`dms.picker`, `dms.suggestions`). Workspace settings' people list leaves bots out, so they get no crown, and the server refuses to change a bot's role (`accounts.roles`). Deleting a bot takes it out of every room but its DMs (`bots.delete`), and out of every picker and suggestion.",
   },
   {
     id: "bots.profile",
     title: "A bot's profile",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "`/users/<bot id>` shows the bot's avatar (\"Profile avatar\", the default bot picture without an upload) and, while the bot is active, a button that starts a DM with it. There's no name heading, bio, email, sign-in link or ban button, even for administrators.",
       "A deleted bot's page shows only its avatar and \"<name> is no longer on this account\".",
     ],
     sources: ["crates/views/templates/users/show.html", "reference/app/views/users/show.html.erb", "crates/views/src/helpers/users.rs", "crates/ember/src/controllers/users/avatars.rs", "reference/app/controllers/users/avatars_controller.rb"],
     upstreamTests: ["parity/screens.yml"],
+    notes: "`GET /api/users/<bot id>` answers a bot as the people directory lists it, with no sign-in link even for administrators (`users.show`), and its avatar is Campfire's default-bot-avatar.svg, byte for byte (`users.avatars`). The page shows that avatar and, while the bot is active, ember-rust's `button_to_direct_room_with`: Campfire's plain full-width button with the messages icon, \"Ping <name>\" to screen readers, which starts a DM with the bot or opens the one you have, as a person's does. Its `btn--primary` and `txt--large`, and the classes on the `div` around it, are ones Campfire doesn't define, so it's drawn without them. The avatars on the bots page link here (`users.avatar-links`).",
   },
   {
     id: "bots.log-redaction",

@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 100 ported and 54 partial of 172 features; 12 not started, 6 not applicable.
+**Overall:** 103 ported and 53 partial of 172 features; 10 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 7 | 5 | 0 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 11 | 3 | 0 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 2 | 2 | 1 | 0 | 5 |
-| [Rooms](#rooms) | 8 | 10 | 0 | 0 | 18 |
+| [Rooms](#rooms) | 9 | 9 | 0 | 0 | 18 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 8 | 2 | 0 | 0 | 10 |
 | [Messages](#messages) | 8 | 10 | 0 | 1 | 19 |
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 7 | 6 | 2 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 9 | 6 | 0 | 0 | 15 |
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **100** | **54** | **12** | **6** | **172** |
+| **Total** | **103** | **53** | **10** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -522,7 +522,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Open rooms everyone is in | `rooms.open` | Campfire | 🟡 Partial | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Open rooms everyone is in | `rooms.open` | Campfire | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Create an open room | `rooms.create-open` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [room-settings](apps/worker/test/room-settings.test.ts), [rooms](apps/worker/test/rooms.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Create a private room | `rooms.create-closed` | Campfire | 🟡 Partial | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [rooms](apps/worker/test/rooms.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts), [api](apps/web/src/lib/api.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Only administrators create rooms (setting) | `rooms.creation-permission` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts)<br>Worker: [room-creation](apps/worker/test/room-creation.test.ts)<br>Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [room-creation](e2e/tests/workspace-settings/room-creation.spec.ts) |
@@ -544,14 +544,14 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 <details>
 <summary>Behaviors and sources</summary>
 
-**Open rooms everyone is in** (`rooms.open`) 🟡
+**Open rooms everyone is in** (`rooms.open`) ✅
 
 - Everyone who joins, bots included, becomes a member of every open room, at the `mentions` notification level; private rooms and DMs aren't joined.
 - Creating an open room, or making a private room open, adds every active person; people already in it keep their notification levels.
 - Deactivated people are never added, and deactivating someone takes them out of every room but their DMs.
 - A room's messages stay in that room.
 
-Note: People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs. A private room can't be made open yet.
+Note: People join every open room when they first sign in, at `mentions`, a new bot joins them as it's added (`bots.create-edit`), and a new open room takes in everyone active. Making a private room open takes in everyone active too, keeping its members' notification levels (`rooms.convert-access`). Removing someone (`accounts.remove-person`) or deleting a bot (`bots.delete`) takes them out of every room but their DMs.
 
 Sources: [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb)
 
@@ -1950,8 +1950,8 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | Bots boost messages | `bots.api-boosts` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Webhooks | `bots.webhook-delivery` | Campfire | 🟡 Partial | Worker: [webhooks](apps/worker/test/webhooks.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Webhook replies | `bots.webhook-reply` | Campfire | 🟡 Partial | Worker: [webhook-replies](apps/worker/test/webhook-replies.test.ts), [webhooks](apps/worker/test/webhooks.test.ts)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
-| Where bots show up | `bots.membership` | Campfire | ⬜ Not started |  |
-| A bot's profile | `bots.profile` | Campfire | ⬜ Not started |  |
+| Where bots show up | `bots.membership` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [new-direct-dialog](apps/web/src/components/workspace/new-direct-dialog.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
+| A bot's profile | `bots.profile` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [person-page](apps/web/src/components/workspace/person-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bot keys in logs | `bots.log-redaction` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Webhooks run in the background | `bots.webhook-jobs` | Ember | ✅ Ported | Worker: [webhooks](apps/worker/test/webhooks.test.ts) |
 
@@ -2122,21 +2122,25 @@ Sources: [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-
 
 ember-rust tests: [`reference/test/models/webhook_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/webhook_test.rb) · [`crates/ember/src/integrations/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/webhook.rs)
 
-**Where bots show up** (`bots.membership`) ⬜
+**Where bots show up** (`bots.membership`) ✅
 
 - A new bot joins every open room at the `mentions` level, and rooms made open later add it too; deleting a bot takes it out of every room but its DMs.
 - Private rooms' member pickers list active bots with everyone else, and anyone can start a DM with an active bot.
 - Bots are offered in @-mention suggestions for rooms they're in, and in the DM picker's search and suggested people.
 - Bots never appear in Workspace settings' people list and never get the administrator crown.
 
+Note: A bot is a member as anyone active is. Adding one puts it in every open room at `mentions` (`bots.create-edit`), and a new open room, or a private one made open, takes in every active bot with everyone else (`rooms.open`). The New room forms and a room's settings list active bots among everyone, by name (`rooms.members`), anyone can start a DM with one (`dms.create`), the composer offers a room's active bots to mention (`mentions.autocomplete`), and New direct message's search finds them and the sidebar suggests them (`dms.picker`, `dms.suggestions`). Workspace settings' people list leaves bots out, so they get no crown, and the server refuses to change a bot's role (`accounts.roles`). Deleting a bot takes it out of every room but its DMs (`bots.delete`), and out of every picker and suggestion.
+
 Sources: [`reference/app/models/user.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user.rb) · [`reference/app/models/rooms/open.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/rooms/open.rb) · [`reference/app/controllers/rooms/closeds_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/rooms/closeds_controller.rb) · [`reference/app/controllers/autocompletable/users_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/autocompletable/users_controller.rb) · [`reference/app/controllers/users/sidebars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/sidebars_controller.rb) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/ember/src/controllers/autocompletable.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/autocompletable.rs)
 
 ember-rust tests: [`reference/test/models/rooms/open_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/rooms/open_test.rb) · [`reference/test/models/user_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/user_test.rb) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**A bot's profile** (`bots.profile`) ⬜
+**A bot's profile** (`bots.profile`) ✅
 
 - `/users/<bot id>` shows the bot's avatar ("Profile avatar", the default bot picture without an upload) and, while the bot is active, a button that starts a DM with it. There's no name heading, bio, email, sign-in link or ban button, even for administrators.
 - A deleted bot's page shows only its avatar and "&lt;name&gt; is no longer on this account".
+
+Note: `GET /api/users/<bot id>` answers a bot as the people directory lists it, with no sign-in link even for administrators (`users.show`), and its avatar is Campfire's default-bot-avatar.svg, byte for byte (`users.avatars`). The page shows that avatar and, while the bot is active, ember-rust's `button_to_direct_room_with`: Campfire's plain full-width button with the messages icon, "Ping &lt;name&gt;" to screen readers, which starts a DM with the bot or opens the one you have, as a person's does. Its `btn--primary` and `txt--large`, and the classes on the `div` around it, are ones Campfire doesn't define, so it's drawn without them. The avatars on the bots page link here (`users.avatar-links`).
 
 Sources: [`crates/views/templates/users/show.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/users/show.html) · [`reference/app/views/users/show.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/users/show.html.erb) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/users/avatars.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/users/avatars.rs) · [`reference/app/controllers/users/avatars_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/users/avatars_controller.rb)
 

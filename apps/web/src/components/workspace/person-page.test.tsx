@@ -193,22 +193,6 @@ describe(feature("users.show"), () => {
     expect(document.querySelector(`img[src="${cancel}"]`)).toBeNull();
   });
 
-  it("shows bots' avatars and a DM button, with no name, until they're deleted", async () => {
-    serve(found(bender));
-    showPage(bender);
-    expect(await avatar()).toBeVisible();
-    expect(directButton("Bender")).toBeVisible();
-    expect(screen.queryByRole("heading")).toBeNull();
-  });
-
-  it("says a deleted bot is no longer on this account", async () => {
-    serve(found({ ...bender, status: "deactivated" }));
-    showPage(bender);
-    expect(await screen.findByText("Bender is no longer on this account")).toBeVisible();
-    expect(directButton("Bender")).toBeNull();
-    expect(screen.queryByRole("heading")).toBeNull();
-  });
-
   it("starts a DM with them, or opens yours, with the messages icon, which a second click doesn't start again", async () => {
     serve(found(grace));
     let settle = (_: boolean) => {};
@@ -261,6 +245,36 @@ describe(feature("users.show"), () => {
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
     expect(onFailed.mock.calls[0]![0]).toMatchObject({ status: 500, message: "Something went wrong" });
     expect(onMissing).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("bots.profile"), () => {
+  const administrator: Me = { ...ada, administrator: true };
+
+  it("shows an active bot's avatar and a button that starts a DM with it, without a name, bio, email, sign-in link or ban, even to administrators", async () => {
+    // All a person's page could show, of which a bot's shows none.
+    serve(() => Response.json({ person: { ...bender, bio: "Bends girders", emailAddress: "bender@example.com" }, transferId: "u3.mgk3x2a9.signature" } satisfies PersonAnswer));
+    const { onStartDirect, user } = showPage(bender, { me: administrator });
+    expect(await avatar()).toBeVisible();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByText("Bends girders")).toBeNull();
+    expect(mailLink()).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /\bban\b/i })).toBeNull();
+
+    const button = directButton("Bender")!;
+    expect(button.querySelector("img")).toHaveAttribute("src", messages);
+    await user.click(button);
+    expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: bender.id, name: bender.name }));
+  });
+
+  it("shows only a deleted bot's avatar and that it's no longer on this account", async () => {
+    serve(found({ ...bender, status: "deactivated" }));
+    showPage(bender, { me: administrator });
+    expect(await avatar()).toBeVisible();
+    expect(screen.getByText("Bender is no longer on this account")).toBeVisible();
+    expect(directButton("Bender")).toBeNull();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 });
 
