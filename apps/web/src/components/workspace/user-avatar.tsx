@@ -27,6 +27,9 @@ function drawn({ id, name }: User): string {
 /** The address of someone's avatar: the image the people directory gives, or their initials until it lists them. */
 export const avatarUrlOf = (people: People, user: User) => people.get(user.id)?.avatarUrl ?? drawn(user);
 
+/** When someone last changed, as an address of their avatar says (`?v=`), so a later address has a larger one; 0 for initials drawn in the page. */
+export const avatarVersionOf = (avatarUrl: string) => Number(new URL(avatarUrl, location.origin).searchParams.get("v"));
+
 interface Props {
   /** Someone, with their avatar's address where it's known, as the directory lists it. */
   user: User & Partial<Pick<DirectoryUser, "avatarUrl">>;

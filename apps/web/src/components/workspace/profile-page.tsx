@@ -30,7 +30,7 @@ import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
-import { avatarUrlOf } from "./user-avatar";
+import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 
 interface Props {
   me: Me;
@@ -127,9 +127,13 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   // The picked photo's address is let go of once the saved one takes its place.
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
-  /** Shows your avatar, and a new sign-in link, as an answer has them. */
+  /**
+   * Shows your avatar, and a new sign-in link, as an answer has them. An answer can arrive after a later
+   * one, as a profile's save can after a photo's, and the later avatar stays then.
+   */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
-    setPicture({ avatarUrl: profile.avatarUrl, avatar: profile.avatar });
+    const answered = { avatarUrl: profile.avatarUrl, avatar: profile.avatar };
+    setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
     setTransferId(transferId);
   }
 
@@ -186,6 +190,10 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     );
   };
 
+  // Another tab's change reaches the people directory, whose address is the later one then.
+  const listed = avatarUrlOf(people, me);
+  const avatarUrl = picture && avatarVersionOf(picture.avatarUrl) >= avatarVersionOf(listed) ? picture.avatarUrl : listed;
+
   const logOut = (
     <button type="button" onClick={() => leave(onSignOut)} className={HEADER_TEXT_BUTTON}>
       <Logout width={20} height={20} className="h-5 w-[1.3em]" />
@@ -200,7 +208,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         <InstallInstructions platform={platform} />
         <PicturePicker
           id="user_avatar"
-          src={picked ?? picture?.avatarUrl ?? avatarUrlOf(people, me)}
+          src={picked ?? avatarUrl}
           alt="Your avatar"
           label="Upload avatar"
           description="Choose a profile photo"

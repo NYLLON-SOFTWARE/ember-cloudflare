@@ -174,18 +174,21 @@ describe(feature("auth.sign-up"), () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
     expect(photo()).toHaveAttribute("src", avatarPlaceholder);
+    expect(photoField()).toBeEnabled();
     fetch.mockResolvedValue(Response.json({ user: grace }, { status: 201 }));
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(typeof fetch.mock.calls[1]![1]!.body).toBe("string");
   });
 
-  it("sends the form once while it's on its way", async () => {
+  it("sends the form once while it's on its way, and keeps the photo it sends", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    await userEvent.upload(photoField(), moon());
     await join();
     expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(photoField()).toBeDisabled();
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
   });
 });
 

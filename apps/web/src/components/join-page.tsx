@@ -70,7 +70,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
             void submit();
           }}
         >
-          <PhotoField photo={photo} />
+          <PhotoField photo={photo} disabled={busy} />
           <Field id="user_name" label="Name" translation="user_name">
             <Input
               id="user_name"
@@ -119,9 +119,9 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
 
 /**
  * ember-rust's `.mb-auth-avatar`: the photo to join with, which shows as it's chosen, over Upload photo,
- * and says why one is refused in place of "Optional".
+ * and says why one is refused in place of "Optional". It can't change while the form is sent with it.
  */
-function PhotoField({ photo }: { photo: PhotoChoice }) {
+function PhotoField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean }) {
   return (
     <div className="mx-auto mb-0.5 flex flex-col items-center justify-center gap-2.5">
       <img src={photo.preview ?? avatarPlaceholder} alt="Your profile photo" width={80} height={80} className="aspect-square w-20 rounded-full object-cover" />
@@ -133,8 +133,9 @@ function PhotoField({ photo }: { photo: PhotoChoice }) {
           type="file"
           accept="image/*"
           aria-invalid={photo.refusal ? true : undefined}
+          disabled={disabled}
           onChange={photo.choose}
-          className="absolute inset-0 cursor-pointer opacity-0"
+          className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
         />
         <span>Upload photo</span>
       </label>

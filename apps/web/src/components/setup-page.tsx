@@ -87,7 +87,7 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
           }}
         >
           <div className="grid gap-7 px-5 pt-6 pb-7">
-            <AvatarField photo={photo} />
+            <AvatarField photo={photo} disabled={busy} />
             <div className="grid gap-6">
               <Field id="user_name" label="Name" icon={UserIcon}>
                 <Input
@@ -130,9 +130,10 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
 
 /**
  * ember-rust's `ui::avatar`: the photo to start with, which shows as it's chosen, in a 96px circle with
- * a camera on its corner, and says why one is refused in place of its description.
+ * a camera on its corner, and says why one is refused in place of its description. It can't change while
+ * the form is sent with it.
  */
-function AvatarField({ photo }: { photo: PhotoChoice }) {
+function AvatarField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean }) {
   return (
     <div className="grid min-w-0 justify-items-center gap-3.5">
       <label
@@ -151,8 +152,9 @@ function AvatarField({ photo }: { photo: PhotoChoice }) {
           accept="image/*"
           aria-invalid={photo.refusal ? true : undefined}
           aria-describedby="avatar-description"
+          disabled={disabled}
           onChange={photo.choose}
-          className="absolute inset-0 size-full cursor-pointer rounded-[inherit] opacity-0"
+          className="absolute inset-0 size-full cursor-pointer rounded-[inherit] opacity-0 disabled:cursor-default"
         />
       </label>
       {photo.refusal ? (

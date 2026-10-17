@@ -2,10 +2,22 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AVATAR_PATH, AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, type Account, type Platform, type Profile, type ProfileAnswer, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
+import {
+  AVATAR_PATH,
+  AVATAR_TOO_LARGE,
+  MAX_AVATAR_SIZE,
+  type Account,
+  type DirectoryUser,
+  type Platform,
+  type Profile,
+  type ProfileAnswer,
+  type ProfileChanges,
+  type SidebarRoom,
+} from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
@@ -62,19 +74,28 @@ function serve({
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
   const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
-  const page = (listed: SidebarRoom[] | null) => (
+  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
     <AccountContext value={shown}>
-      <PushContext value={{ ...PUSH_ON, platform }}>
-        <FlashProvider workspace>
-          <Sheet>
-            <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
-          </Sheet>
-        </FlashProvider>
-      </PushContext>
+      <PeopleContext value={people}>
+        <PushContext value={{ ...PUSH_ON, platform }}>
+          <FlashProvider workspace>
+            <Sheet>
+              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+            </Sheet>
+          </FlashProvider>
+        </PushContext>
+      </PeopleContext>
     </AccountContext>
   );
   const { rerender } = render(page(rooms));
-  return { onSignOut, onFailed, answered, user: userEvent.setup(), showRooms: (listed: SidebarRoom[]) => rerender(page(listed)) };
+  return {
+    onSignOut,
+    onFailed,
+    answered,
+    user: userEvent.setup(),
+    showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
+    showPeople: (people: People) => rerender(page(rooms, people)),
+  };
 }
 
 const field = (label: string) => screen.getByLabelText(label);
@@ -402,6 +423,34 @@ describe(feature("users.avatar-upload"), () => {
     expect(avatar()).toHaveAttribute("src", "/users/t0k3n/avatar?v=3");
     expect(fetch).toHaveBeenCalledWith(AVATAR_PATH, expect.objectContaining({ method: "DELETE" }));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps a photo saved meanwhile when a profile's save is answered after it", async () => {
+    let answerSave = (_: Response) => {};
+    serve({ saved: () => new Promise((resolve) => (answerSave = resolve)) });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Bio"), "!");
+    await user.click(saveButton());
+    await user.upload(picker(), moon());
+    await waitFor(() => expect(avatar()).toHaveAttribute("src", UPLOADED));
+
+    // The save was made before the photo was, so its answer has the avatar from before.
+    await act(async () => answerSave(Response.json({ profile: { ...profile, bio: "Wrote the first program!" }, transferId: SAVED_LINK })));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(avatar()).toHaveAttribute("src", UPLOADED);
+    expect(removeButton()).toBeInTheDocument();
+  });
+
+  it("shows your avatar as another tab changes it, once the people directory hears", async () => {
+    const { showPeople } = showPage();
+    await loaded();
+    const listed = (avatarUrl: string): People => new Map([[ada.id, { id: ada.id, name: ada.name, bio: null, role: "member", status: "active", avatarUrl } satisfies DirectoryUser]]);
+    // The directory can list an avatar from before the profile loaded.
+    showPeople(listed("/users/t0k3n/avatar?v=0"));
+    expect(avatar()).toHaveAttribute("src", INITIALS);
+    showPeople(listed(UPLOADED));
+    expect(avatar()).toHaveAttribute("src", UPLOADED);
   });
 
   it("says a photo over 16 MB is too large without sending it", async () => {

@@ -174,6 +174,17 @@ describe(feature("auth.first-run"), () => {
 
     await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus());
     expect(preview()).toHaveAttribute("src", "blob:moon");
+    expect(photoField()).toBeEnabled();
+  });
+
+  it("keeps the photo it sends until it's answered", async () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+    render(<SetupPage onSetUp={() => {}} />);
+    await userEvent.upload(photoField(), moon());
+    await fillIn("correct horse");
+
+    expect(photoField()).toBeDisabled();
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
   });
 
   it("refuses a photo over 16 MB at once, saying so in place of its description", async () => {
