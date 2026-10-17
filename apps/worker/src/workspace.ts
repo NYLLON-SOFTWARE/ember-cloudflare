@@ -155,6 +155,13 @@ export interface RoomAccess {
   authorizedAt: number;
 }
 
+/** What the Workspace says about a bot API key it found an active bot in a room for. */
+export interface BotAccess {
+  bot: User;
+  /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
+  authorizedAt: number;
+}
+
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
 
@@ -1399,13 +1406,16 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The active bot a bot API key names by `botId` and `token`, as ember-rust's `allow_bot_access` finds
-   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`: "not found" when it isn't, as
-   * `set_room` answers then (messages/by_bots.rs), or null unless `token` is the bot's token now.
+   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`, with when this checked: "not found"
+   * when it isn't, as `set_room` answers then (messages/by_bots.rs), or null unless `token` is the bot's
+   * token now.
    */
-  async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<User | "not found" | null> {
+  async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotAccess | "not found" | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
     const found = await this.store.activeBotKey(botId, roomId);
     if (!found || !isBotToken(token, found.token)) return null;
-    return found.member ? found.bot : "not found";
+    return found.member ? { bot: found.bot, authorizedAt } : "not found";
   }
 
   /**

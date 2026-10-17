@@ -1,10 +1,10 @@
-import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId } from "@ember/protocol";
 import { directoryOf } from "../avatar-tokens";
 import type { BotPage } from "../chat-room";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
 import type { PageCursor } from "../store";
-import { workspace } from "../workspace";
+import { workspace, type BotAccess } from "../workspace";
 import { botKeyParts } from "./keys";
 
 // The bot API, as ember-rust's `Messages::ByBotsController` answers it (crates/ember/src/controllers/
@@ -58,14 +58,14 @@ const unknownKey = () => Response.json({ error: UNKNOWN_BOT_KEY }, { status: 401
 
 /**
  * The bot the key segment `key` names, as ember-rust's `allow_bot_access` finds it, if it's in room
- * `roomId`, as `set_room` finds the room, or what the request answers otherwise: 401 unless the key is an
- * active bot's own, and an empty 404 when the bot isn't in the room.
+ * `roomId`, as `set_room` finds the room, with when the Workspace checked, or what the request answers
+ * otherwise: 401 unless the key is an active bot's own, and an empty 404 when the bot isn't in the room.
  */
-async function botIn(env: Env, roomId: RoomId, key: string): Promise<User | Response> {
+async function botIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | Response> {
   const parts = botKeyParts(segmentText(key));
-  const bot = parts && (await workspace(env).botInRoom(parts.botId, parts.token, roomId));
-  if (!bot) return unknownKey();
-  return bot === "not found" ? head(404) : bot;
+  const access = parts && (await workspace(env).botInRoom(parts.botId, parts.token, roomId));
+  if (!access) return unknownKey();
+  return access === "not found" ? head(404) : access;
 }
 
 /** A path segment as Rails reads it, or "" for malformed percent-encoding, which names nothing. */
@@ -82,19 +82,19 @@ function segmentText(segment: string): string {
  * message, as `create` posts `raw_request_body`, answering 201 with where the message is.
  */
 async function createMessage(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
-  let bot = await botIn(env, roomId, key);
-  if (bot instanceof Response) return bot;
+  let access = await botIn(env, roomId, key);
+  if (access instanceof Response) return access;
   if (isForm(request)) return Response.json({ error: FILES_NOT_YET }, { status: 415 });
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
   // ember-rust checks the key once it has the whole body, which here arrives as slowly as its sender
   // likes: long enough for the bot to be deleted, given a new key or taken out of the room since the check
   // above, which only spares reading the body of a request that can't post.
-  bot = await botIn(env, roomId, key);
-  if (bot instanceof Response) return bot;
+  access = await botIn(env, roomId, key);
+  if (access instanceof Response) return access;
   // `raw_request_body.blank?`: empty or only spaces.
   if (markup.trim() === "") return head(422);
-  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, bot, markup);
+  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, access, markup);
   if (!created) return head(404);
   if (typeof created === "string") return Response.json({ error: created }, { status: 422 });
   const location = permalink(new URL(request.url).origin, created);
@@ -139,8 +139,8 @@ async function readAtMost(stream: ReadableStream<Uint8Array>, limit: number): Pr
  * room has more beyond this one.
  */
 async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
-  const bot = await botIn(env, roomId, key);
-  if (bot instanceof Response) return bot;
+  const access = await botIn(env, roomId, key);
+  if (access instanceof Response) return access;
   const url = new URL(request.url);
   const cursor = { before: present(url.searchParams.get("before")), after: present(url.searchParams.get("after")) };
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, cursor);

@@ -27,7 +27,7 @@ import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type PageCursor } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
-import { workspace } from "./workspace";
+import { workspace, type BotAccess } from "./workspace";
 import type { MessagePush } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
@@ -266,15 +266,16 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `markup` as a message from the bot `bot`, as ember-rust's bot API does (messages/by_bots.rs
-   * `create`): as a socket's message.create does, with a client message id of its own, as Campfire gives
-   * one (`Random.uuid`, message.rb). Answers the message, why the room keeps nothing of it, or null once
-   * the room has been deleted, which a request the Workspace let through just before can still find.
+   * Posts `markup` as a message from the bot the Workspace let in, as ember-rust's bot API does
+   * (messages/by_bots.rs `create`): as a socket's message.create does, with a client message id of its
+   * own, as Campfire gives one (`Random.uuid`, message.rb). Answers the message, why the room keeps
+   * nothing of it, or null once the room has heard that the bot's access ended, or the room was deleted,
+   * after the Workspace checked, as it turns away a socket then.
    */
-  async createBotMessage(roomId: RoomId, bot: User, markup: string): Promise<Message | string | null> {
+  async createBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, markup: string): Promise<Message | string | null> {
     return this.serially(async () => {
       const now = new Date().toISOString();
-      if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return null;
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return null;
       const body = await this.prepare(markup);
       if (typeof body === "string") return body;
       return this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, now);

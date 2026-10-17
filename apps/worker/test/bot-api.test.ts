@@ -17,6 +17,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
 import type { Env } from "../src/env";
+import { AUTHORIZATION_TTL_MS } from "../src/revocations";
 import { COUNT_MESSAGES } from "../src/store";
 import { env } from "cloudflare:workers";
 import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, objectSql, origin, roomSql, roomStub, shown, startDirect, workspaceSql, type Session } from "./support";
@@ -69,6 +70,10 @@ const botPath = (room: RoomId, key: string, query = "") => `/rooms/${room}/${key
 /** Posts `body` to `room` as the bot whose key is `key`, as `curl -d` does unless `headers` say otherwise. */
 const postAs = (key: string, room: RoomId, body: BodyInit | null, headers: Record<string, string> = {}) =>
   api(botPath(room, key), { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers } });
+
+/** Resolves once rooms have heard every revocation, as they do just after the change that queued it. */
+const revocationsDelivered = () =>
+  vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
 
 /** A body its sender holds back until `meanwhile` has run, once the Worker has begun to read it. */
 const heldBack = (text: string, meanwhile: () => Promise<unknown>) =>
@@ -200,6 +205,21 @@ describe(feature("bots.api-auth"), () => {
     expect(await storedIn(general)).toEqual([]);
     expect(await storedIn(room.id)).toEqual([]);
     expect((await postAs(renewed.key, general, "New key")).status).toBe(201);
+  });
+
+  it("posts nothing for a bot that the room has heard was taken out since its key was checked, as a socket would be turned away", async () => {
+    const { administrator, bot, general } = await withBot();
+    const room = await createRoom("Launch", { closedTo: [administrator.user.id, bot.id], as: administrator });
+    const letThrough = { bot: { id: bot.id, name: bot.name }, authorizedAt: Date.now() };
+    const takeBotOut = JSON.stringify({ kind: "closed", memberIds: [administrator.user.id] });
+    expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: takeBotOut })).status).toBe(200);
+    await revocationsDelivered();
+    expect(await roomStub(room.id).createBotMessage(room.id, letThrough, "Too late")).toBeNull();
+    expect(await storedIn(room.id)).toEqual([]);
+    // Nor after a check older than a socket's authorization can be, in a room it's still in.
+    const stale = { bot: { id: bot.id, name: bot.name }, authorizedAt: Date.now() - AUTHORIZATION_TTL_MS - 1 };
+    expect(await roomStub(general).createBotMessage(general, stale, "Too old")).toBeNull();
+    expect(await storedIn(general)).toEqual([]);
   });
 
   it("answers an empty 404 for a room the bot isn't in, once the key is checked, and never wakes it", async () => {
@@ -365,10 +385,10 @@ describe(feature("bots.api-post"), () => {
   it("posts nothing once the room has been deleted, which a post let through just before can find", async () => {
     const { administrator, bot, general } = await withBot();
     const room = await createRoom("Launch", { as: administrator });
+    const letThrough = { bot: { id: bot.id, name: bot.name }, authorizedAt: Date.now() };
     expect((await api(`/api/rooms/${room.id}`, { method: "DELETE", headers: { Cookie: administrator.cookie } })).status).toBe(204);
-    // Once the room has heard it's deleted, as it does just after.
-    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
-    expect(await roomStub(room.id).createBotMessage(room.id, { id: bot.id, name: bot.name }, "Too late")).toBeNull();
+    await revocationsDelivered();
+    expect(await roomStub(room.id).createBotMessage(room.id, letThrough, "Too late")).toBeNull();
     expect(await storedIn(room.id)).toEqual([]);
     expect((await postAs(bot.key, room.id, "Too late")).status).toBe(404);
     expect((await postAs(bot.key, general, "Still here")).status).toBe(201);
