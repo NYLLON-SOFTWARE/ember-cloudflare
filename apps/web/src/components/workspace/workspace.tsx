@@ -13,7 +13,7 @@ import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
-import { afterNavigating, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
 import { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 import { BotsPage } from "./bots-page";
 import { CustomStylesPage } from "./custom-styles-page";
@@ -43,6 +43,7 @@ const RAIL_PAGES = {
   home: "home",
   "newest-room": "room",
   room: "room",
+  message: "room",
   "room-of-kind": "room",
   "new-room": null,
   "room-settings": null,
@@ -100,7 +101,9 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
  * it shows a page of its own: home to the last room visited (controllers/welcome.rs), `/rooms` to the
  * newest room (rooms.rs, `index`), a room's address for its kind to the room's own (rooms/opens.rs,
  * closeds.rs and directs.rs), and a DM's settings home, as `set_room` sends someone, unless it's theirs.
- * New direct message's goes home too, under the dialog it opens, where ember-rust's is a page.
+ * New direct message's goes home too, under the dialog it opens, where ember-rust's is a page, and a
+ * message's own address goes on to its permalink, where ember-rust's shows the message alone
+ * (messages.rs, `show`).
  */
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
@@ -119,6 +122,9 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
     }
     case "room":
       return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+    case "message":
+      // Without looking, as the permalink checks the room.
+      return { path: route.messageId ? messagePath(route.roomId, route.messageId) : roomPath(route.roomId) };
     case "direct-settings":
       return directIn(rooms, route.roomId) ? null : ROOM_NOT_FOUND;
     case "new-direct":

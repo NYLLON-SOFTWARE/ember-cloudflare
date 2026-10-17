@@ -30,7 +30,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe(feature("platform.error-pages"), () => {
   it("serves the app's page at every address the app shows one", async () => {
-    const paths = ["/", "/rooms", "/rooms/general", "/rooms/general/@m-1", "/rooms/opens/general", "/rooms/opens/new", "/rooms/closeds/general/edit", "/account/edit", "/session/new"];
+    const paths = ["/", "/rooms", "/rooms/general", "/rooms/general/@m-1", "/rooms/general/messages/m-1", "/rooms/opens/general", "/rooms/opens/new", "/rooms/closeds/general/edit", "/account/edit", "/session/new"];
     for (const path of [...paths, "/users/me/profile"]) {
       const response = await page(path);
       expect(response.status, path).toBe(200);
@@ -39,7 +39,7 @@ describe(feature("platform.error-pages"), () => {
   });
 
   it("leaves any other path to the built app, which answers Campfire's 404 page for a file it doesn't have", async () => {
-    for (const path of ["/nope", "/rooms/new", "/rooms/general/edit", "/rooms/general/extra", "/rooms/%FF", "/404.html"]) {
+    for (const path of ["/nope", "/rooms/new", "/rooms/general/edit", "/rooms/general/extra", "/rooms/general/messages", "/rooms/%FF", "/404.html"]) {
       expect(await (await page(path)).text(), path).toBe(`page ${path}`);
     }
   });
