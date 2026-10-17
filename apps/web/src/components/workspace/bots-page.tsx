@@ -6,10 +6,11 @@ import { Add, Attachment, MessagesOutlined, Pencil } from "@/components/icons/ca
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
-import { PeopleContext, useNameOf } from "@/hooks/use-directory";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { botSettingsPath, navigate, NEW_BOT_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, fetchBots, isSignedOut } from "@/lib/api";
+import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 import { Panel, SettingsPage } from "./settings-page";
@@ -85,9 +86,8 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
         </header>
         <div className="px-[1ch] pt-4">
           <menu className="m-0 flex flex-col gap-4 px-[1ch] py-4">
-            {bots
-              ?.filter((bot) => people.get(bot.id)?.status !== "deactivated")
-              .map((bot) => (
+            {bots &&
+              listedNow(bots, people).map((bot) => (
                 <BotItem key={bot.id} bot={bot} />
               ))}
           </menu>
@@ -97,21 +97,24 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   );
 }
 
+/** `bots` as the people directory has them now: by their names now, as the server orders them, and without those it says are gone. */
+const listedNow = (bots: Bot[], people: People) =>
+  byName(bots.filter(({ id }) => people.get(id)?.status !== "deactivated").map((bot) => ({ ...bot, name: people.get(bot.id)?.name ?? bot.name })));
+
 /** ember-rust's accounts/bots/_bot.html: the bot, with its avatar, name and edit link, then its rooms' commands. */
 function BotItem({ bot }: { bot: Bot }) {
-  const name = useNameOf()(bot);
   return (
     <li className="flex flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4">
       <div className="flex items-center gap-x-[1ch]">
         <AvatarLink user={bot} lazy className="size-[2.65em]" />
         <div className="min-w-0">
           <div className="truncate text-[17px]">
-            <strong>{name}</strong>
+            <strong>{bot.name}</strong>
           </div>
         </div>
         <PageLink href={botSettingsPath(bot.id)} className={cn(ROUND_BUTTON, "ml-auto")}>
           <Pencil width={20} height={20} className="size-[1.3em]" />
-          <span className="sr-only">Edit {name}</span>
+          <span className="sr-only">Edit {bot.name}</span>
         </PageLink>
       </div>
       {bot.rooms.map((room) => (

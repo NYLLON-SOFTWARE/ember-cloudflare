@@ -137,13 +137,18 @@ describe(feature("bots.list"), () => {
     expect(writeText.mock.calls).toEqual([[`curl -d 'Hello!' ${url}`], [`curl -F "attachment=@/path/to/file" ${url}`]]);
   });
 
-  it("drops a bot deleted elsewhere and follows a rename, as the people directory hears of them", async () => {
+  it("follows a rename elsewhere, keeping the bots in order, and drops a bot deleted elsewhere, as the people directory hears of them", async () => {
     const { showPeople } = showPage();
     await listed(2);
-    showPeople(new Map([listedAs(BUILD_BOT, { name: "CI Bot" }), listedAs(DEPLOY_BOT, { status: "deactivated" })]));
+    const names = () => screen.getAllByRole("listitem").map((bot) => bot.querySelector("strong")?.textContent);
+
+    showPeople(new Map([listedAs(BUILD_BOT, { name: "Zulu Bot" }), listedAs(DEPLOY_BOT)]));
+    await waitFor(() => expect(names()).toEqual(["Deploy Bot", "Zulu Bot"]));
+
+    showPeople(new Map([listedAs(BUILD_BOT, { name: "Zulu Bot" }), listedAs(DEPLOY_BOT, { status: "deactivated" })]));
     const [build] = await listed(1);
-    expect(within(build!).getByText("CI Bot").tagName).toBe("STRONG");
-    expect(within(build!).getByRole("link", { name: "Edit CI Bot" })).toHaveAttribute("href", `/account/bots/${BUILD_BOT.id}/edit`);
+    expect(within(build!).getByText("Zulu Bot").tagName).toBe("STRONG");
+    expect(within(build!).getByRole("link", { name: "Edit Zulu Bot" })).toHaveAttribute("href", `/account/bots/${BUILD_BOT.id}/edit`);
   });
 
   it("lists nothing while there are no bots", async () => {
