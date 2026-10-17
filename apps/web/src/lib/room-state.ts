@@ -269,8 +269,10 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     // the room has stored it, as ember-rust's composer keeps it.
     case "upload-failed":
       return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, error: action.error })) };
+    // The room's broadcast usually brings the message first, and then anything done to it since, which the
+    // upload's answer, sent as it was posted, would undo: it's for an upload whose card is still waiting.
     case "uploaded":
-      return received(state, action.message);
+      return state.messages.some((m) => isPending(m) && m.upload && m.clientMessageId === action.message.clientMessageId) ? received(state, action.message) : state;
     case "loading-older":
       return { ...state, loadingOlder: true };
     case "loading-newer":
@@ -359,13 +361,14 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         typing: frame.typing ? { ...state.typing, [frame.user.id]: { user: frame.user, at: now } } : withoutTyping(state.typing, frame.user.id),
       };
     case "message.checked": {
-      const among = (ids: string[]) => (m: Message | PendingMessage) => isPending(m) && ids.includes(m.clientMessageId);
+      const among = (ids: string[]) => (m: Message | PendingMessage): m is PendingMessage => isPending(m) && ids.includes(m.clientMessageId);
       const stored = among(frame.stored);
       const missing = among(frame.missing);
       // The room stored these before the oldest message of the snapshot it sent on reconnect, so they
       // belong in older history, where scrolling up finds them.
       const sent = state.messages.filter(stored).length;
-      const messages = state.messages.flatMap((m) => (stored(m) ? [] : missing(m) ? [{ ...m, failed: true }] : [m]));
+      // An upload the room never posted keeps its card, which says why.
+      const messages = state.messages.flatMap((m) => (stored(m) ? [] : missing(m) && !m.upload ? [{ ...m, failed: true }] : [m]));
       const notice = sent === 0 ? state.notice : sent === 1 ? "Your message was sent. Scroll up to see it." : "Your messages were sent. Scroll up to see them.";
       return { ...state, messages, notice };
     }

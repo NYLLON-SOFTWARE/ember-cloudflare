@@ -62,9 +62,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // message but before the confirmation came back, and a reconnect's welcome only holds the newest page,
   // which a later `resumed` doesn't go back past. So ask the room about the sent messages a reconnect
   // doesn't confirm, which the reducer keeps as sending until it answers. Those written while it was away
-  // never went, so they aren't asked about, and nor are files, whose uploads answer for them.
+  // never went, so they aren't asked about, and nor are files on their way, whose uploads answer for them.
+  // A failed upload is, since its answer can be lost after the room posted it.
   const checkUnconfirmed = useEffectEvent((room: ReconnectingSocket, snapshot: Message[]) => {
-    const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued || m.upload ? [] : [m.clientMessageId]));
+    const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued || (m.upload && !m.upload.error) ? [] : [m.clientMessageId]));
     for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
       room.send({ type: "message.check", clientMessageIds: clientMessageIds.slice(i, i + MAX_CHECKED_MESSAGES) });
     }
@@ -218,7 +219,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   // ember-rust's composer_controller.js#submitFiles: each file goes as a message of its own, one at a time,
   // its card showing how its upload goes until the room posts it. Leaving the room drops those whose upload
-  // hasn't started.
+  // hasn't started. The room is asked about one that fails, as it may have posted the file before the answer
+  // was lost, where ember-rust's card asks for the file again; a reconnect asks, if the socket's down.
   const postFiles = useCallback(
     async (files: File[]) => {
       const room = socket.current;
@@ -234,6 +236,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
           dispatch({ type: "uploaded", message });
         } catch (error) {
           dispatch({ type: "upload-failed", clientMessageId, error: error instanceof UploadError ? error.message : UPLOAD_FAILED });
+          room?.send({ type: "message.check", clientMessageIds: [clientMessageId] });
         }
       }
     },

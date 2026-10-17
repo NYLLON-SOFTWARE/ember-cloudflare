@@ -1444,7 +1444,7 @@ export const features = [
     sources: ["crates/assets/overrides/models/file_uploader.js", "crates/assets/overrides/controllers/composer_controller.js", "crates/assets/overrides/controllers/messages_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/file-uploader.test.mjs"],
     notes:
-      "Progress counts every part sent so far, as the app sends a file in parts of 10 MiB (`attachments.size-limit`). A card isn't faded as a message on its way is, and its message stays busy to screen readers until the upload fails, so they're told why it failed but not each step it takes.",
+      "Progress counts every part sent so far, as the app sends a file in parts of 10 MiB (`attachments.size-limit`). A card isn't faded as a message on its way is, and its message stays busy to screen readers until the upload fails, so they're told why it failed but not each step it takes. The app asks the room about an upload that fails, at once or once it reconnects, since the room may have posted the file before the answer was lost, and a file it did post takes the card away, saying so; ember-rust's card asks for such a file again, which posts it twice. An upload's answer that comes after the room's broadcast leaves the message as the room has it since, boosted or deleted.",
   },
   {
     id: "attachments.previews",

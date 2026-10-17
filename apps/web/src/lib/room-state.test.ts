@@ -335,6 +335,30 @@ describe(feature("attachments.progress"), () => {
     state = upload(state, { type: "upload-failed", clientMessageId: "c1", error: CONNECTION_LOST });
     expect(state.messages).toEqual([posted("m1", "c1")]);
   });
+
+  it("keeps what's been done to a file's message since the room brought it when its upload's answer comes after", () => {
+    let state = upload(opened([]), { type: "pending", message: uploading("c1") });
+    state = created(state, posted("m1", "c1"));
+    const boost = { id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" };
+    state = frame(state, { type: "frame", frame: { type: "boost.created", boost, seq: 2 }, now: 0 });
+    state = upload(state, { type: "uploaded", message: posted("m1", "c1") });
+    expect(state.messages).toEqual([{ ...posted("m1", "c1"), boosts: [boost] }]);
+
+    state = upload(state, { type: "pending", message: uploading("c2") });
+    state = created(state, posted("m2", "c2"));
+    state = frame(state, { type: "frame", frame: { type: "message.deleted", messageId: "m2", seq: 4 }, now: 0 });
+    state = upload(state, { type: "uploaded", message: posted("m2", "c2") });
+    expect(ids(state)).toEqual(["m1"]);
+  });
+
+  it("drops a failed upload's card when the room says it posted the file, and keeps it, saying why, when it didn't", () => {
+    let state = upload(opened([]), { type: "pending", message: uploading("c1") });
+    state = upload(state, { type: "pending", message: uploading("c2") });
+    for (const id of ["c1", "c2"]) state = upload(state, { type: "upload-failed", clientMessageId: id, error: CONNECTION_LOST });
+    state = frame(state, { type: "frame", frame: { type: "message.checked", stored: ["c1"], missing: ["c2"] }, now: 0 });
+    expect(state.messages).toEqual([uploading("c2", { error: CONNECTION_LOST })]);
+    expect(state.notice).toBe("Your message was sent. Scroll up to see it.");
+  });
 });
 
 describe(feature("boosts.add"), () => {

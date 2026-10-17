@@ -284,6 +284,18 @@ describe(feature("attachments.upload"), () => {
     expect(input).toHaveFocus();
   });
 
+  it("sends the files picked before the editor shows, as its code loads, which what's written waits for", async () => {
+    (await showComposer()).view.unmount();
+    const onSendFiles = vi.fn();
+    const user = userEvent.setup();
+    render(<Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor onSend={() => true} onSendFiles={onSendFiles} onTyping={() => {}} />);
+    await user.upload(attachFiles(), fileOf("a.txt"));
+    await user.click(sendButton());
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "a.txt" })]);
+    expect(chips()).toEqual([]);
+  });
+
   it("sends files with nothing written", async () => {
     const { onSend, onSendFiles, user } = await showComposer();
     await user.upload(attachFiles(), fileOf("a.txt"));

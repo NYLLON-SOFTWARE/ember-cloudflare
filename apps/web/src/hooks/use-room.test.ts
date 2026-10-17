@@ -754,6 +754,25 @@ describe(feature("attachments.upload"), () => {
     expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [sentId] }]);
     expect(result.current.state.messages[0]).toMatchObject({ id: started[0]!.clientMessageId, pending: true });
   });
+
+  it("asks the room about a file whose upload failed, at once and after a reconnect, since it may have been posted before the answer was lost", async () => {
+    const started = uploads();
+    const { result } = joinGeneral();
+    act(() => void result.current.postFiles(files()));
+    await started[0]!.fail(new UploadError(CONNECTION_LOST));
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [started[0]!.clientMessageId] }]);
+
+    // One that fails while the socket's down is asked about once it's back.
+    socket().drop();
+    await started[1]!.fail(new UploadError(CONNECTION_LOST));
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: started.map((upload) => upload.clientMessageId) }]);
+    socket().receive({ type: "message.checked", stored: [started[1]!.clientMessageId], missing: [started[0]!.clientMessageId] });
+    expect(result.current.state.messages).toEqual([expect.objectContaining({ id: started[0]!.clientMessageId, upload: expect.objectContaining({ error: CONNECTION_LOST }) })]);
+    expect(result.current.state.messages[0]).not.toHaveProperty("failed");
+  });
 });
 
 describe(feature("realtime.typing"), () => {

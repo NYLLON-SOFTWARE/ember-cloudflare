@@ -321,14 +321,15 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends the
   // files picked, then what's written unless it's blank, closes the toolbar and focuses the editor, on
-  // touch screens too.
+  // touch screens too. Before the editor shows, as its code loads, only the files go.
   const submit = () => {
-    const written = editor.current;
-    if (!written || disabled) return;
+    if (disabled) return;
     if (picked.files.length > 0) {
       onSendFiles(picked.files.map(({ file }) => file));
       picked.clear();
     }
+    const written = editor.current;
+    if (!written) return;
     if (!written.isBlank()) {
       // One the room won't take, as when it's too long, stays to be cut down.
       if (!onSend(written.value())) return;
