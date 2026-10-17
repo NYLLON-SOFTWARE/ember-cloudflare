@@ -365,6 +365,22 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
+describe(feature("bots.list"), () => {
+  it("links administrators to Chat bots from its top bar, before Custom styles", async () => {
+    showPage();
+    const bots = await screen.findByRole("link", { name: "Chat bots" });
+    expect(bots).toHaveAttribute("href", "/account/bots");
+    expect(bots.nextElementSibling).toBe(screen.getByRole("link", { name: "Custom styles" }));
+  });
+
+  it("gives members no link", async () => {
+    serve(asMember);
+    showPage();
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("accounts.join-link"), () => {
   it("shows everyone the join link, and tells the welcome card its code", async () => {
     serve(asMember);

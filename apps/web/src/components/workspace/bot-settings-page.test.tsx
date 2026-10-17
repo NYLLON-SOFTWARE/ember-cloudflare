@@ -1,0 +1,263 @@
+import { feature } from "@ember/parity";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Account, BotAnswer, BotSettings, Me } from "@ember/protocol";
+import { FlashProvider } from "@/components/flash";
+import { Sheet } from "@/components/ui/sheet";
+import { AccountContext } from "@/hooks/use-account";
+import { BotSettingsPage, CONFIRM_DELETE_BOT, CONFIRM_NEW_KEY, NewBotPage } from "./bot-settings-page";
+
+const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
+const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
+
+const BOT: BotSettings = {
+  id: "0mgk3x2a9b4c5e",
+  name: "Build Bot",
+  bio: null,
+  role: "bot",
+  status: "active",
+  avatarUrl: "/users/b0t/avatar?v=1",
+  key: "0mgk3x2a9b4c5e-Ab3dEf5hiJ7k",
+  rooms: [{ id: "0mgk3x2a9b4c5a", name: "general" }],
+  webhookUrl: "https://ci.example.com/hook",
+};
+
+const answer = (bot: BotSettings, status = 200) => Response.json({ bot } satisfies BotAnswer, { status });
+const refused = (status: number, error: string) => Response.json({ error }, { status });
+
+interface Answers {
+  /** What loading the bot answers, rather than `BOT`. */
+  loaded?: () => Response | Promise<Response>;
+  /** What adding, changing, deleting or rekeying the bot answers, rather than that it's done. */
+  sent?: () => Response | Promise<Response>;
+}
+
+/** Answers the pages' requests as the server does for an administrator, or as `answers` says. */
+function serve({ loaded = () => answer(BOT), sent }: Answers = {}) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = `${init?.method ?? "GET"} ${String(input)}`;
+    if (request === `GET /api/account/bots/${BOT.id}`) return loaded();
+    if (sent) return sent();
+    switch (request) {
+      case "POST /api/account/bots":
+        return answer(BOT, 201);
+      case `PATCH /api/account/bots/${BOT.id}`:
+      case `PUT /api/account/bots/${BOT.id}/key`:
+        return answer(BOT);
+      case `DELETE /api/account/bots/${BOT.id}`:
+        return new Response(null, { status: 204 });
+      default:
+        throw new Error(`Unexpected request for ${request}`);
+    }
+  });
+}
+
+/** Shows `page` at `path`, as the workspace does. */
+function showAt(path: string, page: (props: { onMissing: () => void; onFailed: () => void }) => React.ReactNode, shown = account) {
+  const [onMissing, onFailed] = [vi.fn(), vi.fn()];
+  history.replaceState(null, "", path);
+  render(
+    <AccountContext value={shown}>
+      <FlashProvider workspace>
+        <Sheet>{page({ onMissing, onFailed })}</Sheet>
+      </FlashProvider>
+    </AccountContext>,
+  );
+  return { onMissing, onFailed, user: userEvent.setup() };
+}
+
+const showNewBot = (me = ada, shown = account) => showAt("/account/bots/new", ({ onFailed }) => <NewBotPage me={me} onFailed={onFailed} />, shown);
+const showSettings = () =>
+  showAt(`/account/bots/${BOT.id}/edit`, ({ onMissing, onFailed }) => <BotSettingsPage botId={BOT.id} onMissing={onMissing} onFailed={onFailed} />);
+
+const nameField = () => screen.getByRole("textbox", { name: "Bot name" });
+const urlField = () => screen.getByRole("textbox", { name: "Webhook URL" });
+const saveButton = () => screen.getByRole("button", { name: "Save changes" });
+/** The name field, once the bot has loaded into it. */
+const loaded = async () => {
+  await waitFor(() => expect(nameField()).toHaveValue(BOT.name));
+  return nameField();
+};
+
+/** The requests the page has sent, but for loading the bot, with what they sent. */
+const sent = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.map(([input, init]) => [`${init?.method ?? "GET"} ${String(input)}`, init?.body === undefined ? undefined : JSON.parse(String(init.body))] as const)
+    .filter(([request]) => request !== `GET /api/account/bots/${BOT.id}`);
+
+beforeEach(() => {
+  serve();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe(feature("bots.create-edit"), () => {
+  it("adds a bot with ember-rust's form, titled New chat bot, with Go Back to the bots page", () => {
+    showNewBot();
+    expect(document.title).toBe("New chat bot");
+    expect(screen.getByRole("heading", { level: 1, name: "Chat bot setup" })).toBeInTheDocument();
+    expect(screen.getByText("Connect a bot to your workspace and choose where updates are delivered.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/bots");
+
+    expect(nameField()).toHaveFocus();
+    expect(nameField()).toBeRequired();
+    expect(nameField()).toHaveAttribute("placeholder", "Name the bot");
+    expect(nameField()).toHaveAttribute("autocomplete", "name");
+    expect(urlField()).toHaveAttribute("type", "url");
+    expect(urlField()).toHaveAttribute("placeholder", "Webhook URL");
+    expect(urlField()).toHaveAttribute("maxlength", "2048");
+    expect(urlField()).not.toBeRequired();
+  });
+
+  it("saves the new bot as typed, then goes to the bots page, with no notice", async () => {
+    const { user } = showNewBot();
+    await user.type(nameField(), "Build Bot");
+    await user.type(urlField(), "https://ci.example.com/hook");
+    await user.click(saveButton());
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(sent()).toEqual([["POST /api/account/bots", { name: "Build Bot", webhookUrl: "https://ci.example.com/hook" }]]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("can't add the bot again until the server answers, and says why it refused, keeping what's typed", async () => {
+    let refuse = () => {};
+    serve({ sent: () => new Promise((resolve) => (refuse = () => resolve(refused(422, "Webhook URL must be an http or https URL")))) });
+    const { onFailed, user } = showNewBot();
+    await user.type(nameField(), "Build Bot");
+    await user.type(urlField(), "ftp://ci.example.com");
+    await user.click(saveButton());
+    expect(saveButton()).toBeDisabled();
+    await user.type(nameField(), "{Enter}");
+    expect(sent()).toHaveLength(1);
+
+    refuse();
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: "Webhook URL must be an http or https URL" })));
+    expect(saveButton()).toBeEnabled();
+    expect(urlField()).toHaveValue("ftp://ci.example.com");
+    expect(location.pathname).toBe("/account/bots/new");
+  });
+
+  it("sends anyone but an administrator to workspace settings at once, saying why, where ember-rust answers an empty 403", async () => {
+    const { onFailed } = showNewBot({ ...ada, administrator: false });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
+    expect(location.pathname).toBe("/account/edit");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("shows a bot's name and webhook URL to change, titled Edit bot, with Go Back to the bots page", async () => {
+    showSettings();
+    expect(document.title).toBe("Edit bot");
+    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/bots");
+    expect(await loaded()).toHaveFocus();
+    expect(urlField()).toHaveValue(BOT.webhookUrl);
+  });
+
+  it("shows no webhook URL for a bot without a webhook", async () => {
+    serve({ loaded: () => answer({ ...BOT, webhookUrl: null }) });
+    showSettings();
+    await loaded();
+    expect(urlField()).toHaveValue("");
+  });
+
+  it("saves only what's changed, so another administrator's change stays, then goes to the bots page with no notice", async () => {
+    const { user } = showSettings();
+    await user.clear(await loaded());
+    await user.type(nameField(), "Deploy Bot");
+    await user.click(saveButton());
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(sent()).toEqual([[`PATCH /api/account/bots/${BOT.id}`, { name: "Deploy Bot" }]]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("sends a blank webhook URL, which removes the webhook", async () => {
+    const { user } = showSettings();
+    await loaded();
+    await user.clear(urlField());
+    await user.click(saveButton());
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(sent()).toEqual([[`PATCH /api/account/bots/${BOT.id}`, { webhookUrl: "" }]]);
+  });
+
+  it("answers ember-rust's 404 page for anyone but an active bot", async () => {
+    serve({ loaded: () => refused(404, "Not found") });
+    const { onMissing, onFailed } = showSettings();
+    await waitFor(() => expect(onMissing).toHaveBeenCalledOnce());
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("answers the 404 page when the bot has gone by the time it's saved", async () => {
+    serve({ sent: () => refused(404, "Not found") });
+    const { onMissing, user } = showSettings();
+    await loaded();
+    await user.click(saveButton());
+    await waitFor(() => expect(onMissing).toHaveBeenCalledOnce());
+  });
+
+  it("sends anyone but an administrator to workspace settings, saying why", async () => {
+    serve({ loaded: () => refused(403, "Only administrators can manage bots") });
+    const { onFailed } = showSettings();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
+    expect(location.pathname).toBe("/account/edit");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("bots.delete"), () => {
+  it("deletes the bot once it's confirmed, then goes to the bots page", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { user } = showSettings();
+    await loaded();
+    const remove = screen.getByRole("button", { name: "Delete this chat bot" });
+    expect(remove).toHaveTextContent("Delete bot");
+
+    await user.click(remove);
+    expect(confirm).toHaveBeenLastCalledWith(CONFIRM_DELETE_BOT);
+    expect(sent()).toEqual([]);
+    await user.click(remove);
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(sent()).toEqual([[`DELETE /api/account/bots/${BOT.id}`, undefined]]);
+  });
+
+  it("can't save, delete or rekey the bot while a deletion is on its way, and says why one failed", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let fail = () => {};
+    serve({ sent: () => new Promise((resolve) => (fail = () => resolve(refused(500, "Something went wrong")))) });
+    const { onFailed, user } = showSettings();
+    await loaded();
+    await user.click(screen.getByRole("button", { name: "Delete this chat bot" }));
+    for (const name of ["Save changes", "Delete this chat bot", "Generate a new key"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+
+    fail();
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 500 })));
+    for (const name of ["Save changes", "Delete this chat bot", "Generate a new key"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+    expect(location.pathname).toBe(`/account/bots/${BOT.id}/edit`);
+  });
+});
+
+describe(feature("bots.reset-key"), () => {
+  it("gives the bot a new key once it's confirmed, then goes to the bots page", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { user } = showSettings();
+    await loaded();
+    const newKey = screen.getByRole("button", { name: "Generate a new key" });
+    expect(newKey).toHaveTextContent("Generate a new key");
+
+    await user.click(newKey);
+    expect(confirm).toHaveBeenLastCalledWith(CONFIRM_NEW_KEY);
+    expect(sent()).toEqual([]);
+    await user.click(newKey);
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(sent()).toEqual([[`PUT /api/account/bots/${BOT.id}/key`, undefined]]);
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  it("has translation buttons for the name and the webhook URL once an administrator shows them", () => {
+    showNewBot(ada, { ...account, hideTranslationButtons: false });
+    expect(screen.getAllByText("Translate")).toHaveLength(2);
+  });
+});

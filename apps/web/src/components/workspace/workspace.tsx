@@ -14,6 +14,8 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
+import { BotSettingsPage, NewBotPage } from "./bot-settings-page";
+import { BotsPage } from "./bots-page";
 import { CustomStylesPage } from "./custom-styles-page";
 import { DirectSettingsPage } from "./direct-settings-page";
 import { NewDirectDialog } from "./new-direct-dialog";
@@ -33,9 +35,9 @@ import { WorkspaceSettingsPage } from "./workspace-settings-page";
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
  * a room's page and the pages that go on to one, Search on search, your avatar on your profile, and
- * nothing on a room's forms, a DM's settings, the Custom CSS page or your push subscriptions, whose
- * addresses none of its links have, nor on New direct message's, which goes on to the last room visited
- * at once.
+ * nothing on a room's forms, a DM's settings, the Custom CSS page, the bot pages or your push
+ * subscriptions, whose addresses none of its links have, nor on New direct message's, which goes on to
+ * the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -48,6 +50,9 @@ const RAIL_PAGES = {
   "direct-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": null,
+  bots: null,
+  "new-bot": null,
+  "bot-settings": null,
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -426,6 +431,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
         );
       case "custom-styles":
         return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
+      case "bots":
+        return <BotsPage onFailed={failed} />;
+      case "new-bot":
+        return <NewBotPage me={me} onFailed={failed} />;
+      case "bot-settings":
+        return <BotSettingsPage key={route.userId} botId={route.userId} onMissing={showNotFound} onFailed={failed} />;
       case "profile":
         return <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />;
       case "push-subscriptions":

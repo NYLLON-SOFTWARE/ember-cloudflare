@@ -3,6 +3,11 @@ import {
   type Account,
   type AccountChanges,
   type Bootstrap,
+  type Bot,
+  type BotAnswer,
+  type BotChanges,
+  type Bots,
+  type BotSettings,
   type ChangedPerson,
   type CustomStyles,
   type DirectRoom,
@@ -16,6 +21,7 @@ import {
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
+  type NewBot,
   type NewWorkspace,
   type PasswordSignIn,
   type PersonAnswer,
@@ -183,6 +189,39 @@ export async function fetchCustomStyles(): Promise<string> {
 /** Saves the workspace's custom CSS, answering the workspace as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeCustomStyles(customStyles: string): Promise<Account> {
   return (await request<{ account: Account }>("/api/account/custom_styles", { method: "PATCH", body: JSON.stringify({ customStyles }) })).account;
+}
+
+/** The active bots, by name, each with its key and its rooms. Fails with a 403 ApiError for anyone but an administrator. */
+export async function fetchBots(): Promise<Bot[]> {
+  return (await request<Bots>("/api/account/bots")).bots;
+}
+
+/**
+ * The active bot `botId`, with where its webhook delivers. Fails with a 403 ApiError for anyone but an
+ * administrator, and a 404 for an id that isn't an active bot's.
+ */
+export async function fetchBot(botId: UserId): Promise<BotSettings> {
+  return (await request<BotAnswer>(`/api/account/bots/${encodeURIComponent(botId)}`)).bot;
+}
+
+/** Adds a bot. Fails with a 403 ApiError for anyone but an administrator, and a 422 for a name or webhook URL that's refused. */
+export async function createBot(bot: NewBot): Promise<void> {
+  await request("/api/account/bots", { method: "POST", body: JSON.stringify(bot) });
+}
+
+/** Changes the bot `botId`, leaving what `changes` leaves out. Fails as `fetchBot` does, and as `createBot` does for what's refused. */
+export async function changeBot(botId: UserId, changes: BotChanges): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "PATCH", body: JSON.stringify(changes) });
+}
+
+/** Deletes the bot `botId`, which takes it out of every room but its DMs. Fails as `fetchBot` does. */
+export async function deleteBot(botId: UserId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "DELETE" });
+}
+
+/** Gives the bot `botId` a new key, so its old one stops working. Fails as `fetchBot` does. */
+export async function resetBotKey(botId: UserId): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}/key`, { method: "PUT" });
 }
 
 /** Gives the join link a new code, answering it. Fails with a 403 ApiError for anyone but an administrator. */

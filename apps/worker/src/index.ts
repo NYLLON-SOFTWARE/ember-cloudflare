@@ -53,7 +53,7 @@ import {
 import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
-import { changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
+import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -735,6 +735,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isAccountLogoPath(pathname)) return showAccountLogo(request, env);
   const page = write ? null : workspacePageOf(pathname);
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
+  if (page?.page === "bot-settings") return botPage(request, env, pathname, page.userId);
   return anyOtherPage(request, env, pathname);
 }
 

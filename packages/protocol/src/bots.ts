@@ -4,6 +4,15 @@ import type { DirectoryUser, RoomId } from "./index.ts";
 // `accounts/bots` and `accounts/bots/keys` controllers (crates/ember/src/controllers/accounts/bots.rs),
 // which port Campfire's.
 
+/**
+ * Where a bot posts messages to a room and reads them, as ember-rust's `room_bot_messages_path` gives it,
+ * with the bot's key: `/rooms/<room id>/<bot key>/messages`.
+ */
+export const botMessagesPath = (roomId: RoomId, key: string) => `/rooms/${encodeURIComponent(roomId)}/${key}/messages`;
+
+/** What the bot pages and their API tell anyone but an administrator. */
+export const BOTS_FORBIDDEN = "Only administrators can manage bots";
+
 /** The longest webhook URL saved. */
 export const MAX_WEBHOOK_URL_LENGTH = 2048;
 

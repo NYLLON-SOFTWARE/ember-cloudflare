@@ -85,6 +85,24 @@ describe(feature("users.show"), () => {
   });
 });
 
+describe(feature("bots.list"), () => {
+  it("shows the Chat bots page at `/account/bots`, where a bot's own address names nothing, as in ember-rust", () => {
+    expect(workspacePageOf("/account/bots")).toEqual({ page: "bots" });
+    for (const path of ["/account/bots/", "/account/bots/0mgk3x2a9b4c5e", "/account/bot"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});
+
+describe(feature("bots.create-edit"), () => {
+  it("shows Add a chat bot at `/account/bots/new`, and a bot's settings at `/account/bots/<id>/edit`", () => {
+    expect(workspacePageOf("/account/bots/new")).toEqual({ page: "new-bot" });
+    expect(workspacePageOf("/account/bots/0mgk3x2a9b4c5e/edit")).toEqual({ page: "bot-settings", userId: "0mgk3x2a9b4c5e" });
+    expect(workspacePageOf("/account/bots/caf%C3%A9/edit")).toEqual({ page: "bot-settings", userId: "café" });
+    for (const path of ["/account/bots/new/", "/account/bots/%FF/edit", "/account/bots/0mgk3x2a9b4c5e/edit/extra", "/account/bots/0mgk3x2a9b4c5e/key"]) {
+      expect(workspacePageOf(path), path).toBeNull();
+    }
+  });
+});
+
 describe(feature("auth.sign-in-link"), () => {
   it("puts a sign-in link at /session/transfers/<id>, and reads the id back", () => {
     const transferId = "0mgk3x2a9b4c5d.mgk3x2a9.Ab-_9z";

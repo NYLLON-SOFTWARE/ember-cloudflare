@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import type { Account, WorkspaceServerFrame } from "@ember/protocol";
+import type { Account, BotAnswer, Bots, BotSettings, WorkspaceServerFrame } from "@ember/protocol";
 import { isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
@@ -73,6 +73,46 @@ test("the Custom CSS page fits the phone, its field too big for iOS to zoom in o
   await page.goto("/account/custom_styles/edit");
   await signInAsAdministrator(page);
   await expect(page.getByRole("textbox", { name: "Custom CSS" })).toBeEnabled();
+  await screenIsFine();
+});
+
+/** A bot named as long as names go, in a room named so, as the bots page lists it. */
+const BOT: BotSettings = {
+  id: "0mgk3x2a9b4c5e",
+  name: LONG_NAME,
+  bio: null,
+  role: "bot",
+  status: "active",
+  avatarUrl: "/users/0mgk3x2a9b4c5e/avatar?v=1",
+  key: "0mgk3x2a9b4c5e-Ab3dEf5hiJ7k",
+  rooms: [{ id: "0mgk3x2a9b4c5a", name: LONG_NAME }],
+  webhookUrl: "https://ci.example.com/hook",
+};
+
+/** Shows `page` `BOT` as the only bot, without adding one to the test server, where it would join every other test's rooms. */
+async function showTheBot(page: Page): Promise<void> {
+  await page.route("**/api/account/bots", (route) => route.fulfill({ json: { bots: [BOT] } satisfies Bots }));
+  await page.route(`**/api/account/bots/${BOT.id}`, (route) => route.fulfill({ json: { bot: BOT } satisfies BotAnswer }));
+}
+
+test("the Chat bots page, with a bot's commands, fits the phone", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  await showTheBot(page);
+  await page.goto("/account/bots");
+  await signInAsAdministrator(page);
+  await expect(page.getByRole("textbox", { name: "curl command for posting messages" })).toHaveValue(/^curl -d 'Hello!' /);
+  await screenIsFine();
+});
+
+test("a bot's settings fit the phone", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  await showTheBot(page);
+  await page.goto("/account/bots");
+  await signInAsAdministrator(page);
+  // From the bots page, as the Worker answers its 404 page for a bot it doesn't have.
+  await page.getByRole("link", { name: `Edit ${BOT.name}` }).click();
+  await expect(page.getByRole("textbox", { name: "Bot name" })).toHaveValue(BOT.name);
+  await expect(page.getByRole("button", { name: "Generate a new key" })).toBeVisible();
   await screenIsFine();
 });
 

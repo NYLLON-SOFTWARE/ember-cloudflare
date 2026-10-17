@@ -1,7 +1,8 @@
 import { feature } from "@ember/parity";
 import type { BotAnswer, BotRoom, Bots, BotSettings, DirectRoom, Directory, DirectoryUser, Me, NewWorkspace, UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
+import notFoundPage from "../../web/public/404.html";
+import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };
@@ -31,6 +32,8 @@ const changeBot = (session: Session | null, id: UserId, body: unknown) =>
   api(`/api/account/bots/${id}`, { method: "PATCH", headers: signedInAs(session), body: asJson(body) });
 const deleteBot = (session: Session | null, id: UserId) => api(`/api/account/bots/${id}`, { method: "DELETE", headers: signedInAs(session) });
 const resetKey = (session: Session | null, id: UserId) => api(`/api/account/bots/${id}/key`, { method: "PUT", headers: signedInAs(session) });
+/** A page at `path`, from a Worker whose built app answers each path with its own name. */
+const page = (session: Session | null, path: string) => apiWith({ ASSETS: builtPages }, path, { headers: signedInAs(session), redirect: "manual" });
 
 /** The bot an answer gives, once it's checked to have succeeded with `status`. */
 async function botOf(response: Response, status = 200): Promise<BotSettings> {
@@ -243,6 +246,24 @@ describe(feature("bots.create-edit"), () => {
     }
     expect(await stored(member.user.id)).toMatchObject({ name: "Grace Hopper" });
     expect(await stored(deleted.id)).toMatchObject({ name: "Old Bot" });
+  });
+
+  it("answers Campfire's 404 page for the settings page of anyone but an active bot, as ember-rust does for administrators", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const bot = await added(administrator, { name: "Build Bot" });
+    const settings = await page(administrator, `/account/bots/${bot.id}/edit`);
+    expect(settings.status).toBe(200);
+    expect(await settings.text()).toBe("page /");
+
+    expect((await deleteBot(administrator, bot.id)).status).toBe(204);
+    for (const id of [bot.id, member.user.id, "nobody", "new"]) {
+      const missing = await page(administrator, `/account/bots/${id}/edit`);
+      expect(missing.status, id).toBe(404);
+      expect(await missing.text()).toBe(notFoundPage);
+    }
+    // The app sends a member to workspace settings, and anyone signed out to sign in, whatever the page names.
+    for (const viewer of [member, null]) expect(await (await page(viewer, "/account/bots/nobody/edit")).text()).toBe("page /");
   });
 });
 

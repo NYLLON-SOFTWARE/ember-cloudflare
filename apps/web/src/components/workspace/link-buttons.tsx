@@ -34,10 +34,7 @@ export function LinkButtons({ url, sharing, className }: { url: string; sharing:
         <span className="sr-only">{sharing.qrCodeLabel}</span>
         <QrCode className="size-[1.3em]" />
       </QrCodeLink>
-      <button type="button" onClick={(event) => void copy(event, url)} className={className}>
-        <span className="sr-only">{sharing.copyLabel}</span>
-        <CopyPaste className="size-[1.3em]" />
-      </button>
+      <CopyButton text={url} label={sharing.copyLabel} className={className} />
       {canShare && (
         <button type="button" onClick={() => void share(url, sharing)} className={className}>
           <span className="sr-only">{sharing.shareLabel}</span>
@@ -48,17 +45,27 @@ export function LinkButtons({ url, sharing, className }: { url: string; sharing:
   );
 }
 
+/** ember-rust's `button_to_copy_to_clipboard`, called `label` by screen readers, which copies `text`. */
+export function CopyButton({ text, label, className }: { text: string; label: string; className: string }) {
+  return (
+    <button type="button" onClick={(event) => void copy(event, text)} className={className}>
+      <span className="sr-only">{label}</span>
+      <CopyPaste className="size-[1.3em]" />
+    </button>
+  );
+}
+
 /**
- * Copies `url`, then plays the button's success animation from the start, as ember-rust's
+ * Copies `text`, then plays the button's success animation from the start, as ember-rust's
  * copy_to_clipboard_controller.js does. A clipboard that refuses, as on a page that isn't served
  * securely, leaves the button as it was.
  */
-async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, url: string) {
+async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, text: string) {
   button.classList.remove(...COPIED);
   // Reading the layout ends the last run of the animation, so adding the classes starts it again.
   void button.offsetWidth;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(text);
     button.classList.add(...COPIED);
   } catch {
     // Nothing to show.

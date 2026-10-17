@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./index";
+import { botMessagesPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./index";
 
 describe(feature("bots.create-edit"), () => {
   it("takes the name as typed and the webhook URL trimmed, leaving out what isn't sent", () => {
@@ -35,5 +35,12 @@ describe(feature("bots.create-edit"), () => {
   it("refuses a new bot without a name", () => {
     expect(parseNewBot({})).toBe("Name can't be blank");
     expect(parseNewBot({ webhookUrl: "https://ci.example.com/hook" })).toBe("Name can't be blank");
+  });
+});
+
+describe(feature("bots.list"), () => {
+  it("puts where a bot posts to a room at the room's address, then the bot's key", () => {
+    expect(botMessagesPath("0mgk3x2a9b4c5a", "0mgk3x2a9b4c5e-Ab3dEf5hiJ7k")).toBe("/rooms/0mgk3x2a9b4c5a/0mgk3x2a9b4c5e-Ab3dEf5hiJ7k/messages");
+    expect(botMessagesPath("café", "1-a")).toBe("/rooms/caf%C3%A9/1-a/messages");
   });
 });

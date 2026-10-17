@@ -1,5 +1,5 @@
 import { useContext, useState } from "react";
-import { avatarSvg, type User } from "@ember/protocol";
+import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { personPath } from "@/hooks/use-route";
@@ -28,7 +28,8 @@ function drawn({ id, name }: User): string {
 export const avatarUrlOf = (people: People, user: User) => people.get(user.id)?.avatarUrl ?? drawn(user);
 
 interface Props {
-  user: User;
+  /** Someone, with their avatar's address where it's known, as the directory lists it. */
+  user: User & Partial<Pick<DirectoryUser, "avatarUrl">>;
   className?: string;
   square?: boolean;
   /** Whether the image waits until it's scrolled near, as ember-rust's people lists' do. */
@@ -38,15 +39,16 @@ interface Props {
 }
 
 /**
- * Someone's avatar, the image the people directory gives the address of, hidden from screen readers as
- * ember-rust's are (helpers/users.rs, `avatar_tag`) unless it has a label. Until it loads, or if it
- * can't, or the directory doesn't list them yet, their initials show as the Worker would draw them.
+ * Someone's avatar, the image the people directory gives the address of, or `user` does until the
+ * directory lists them, as a bot just added, hidden from screen readers as ember-rust's are
+ * (helpers/users.rs, `avatar_tag`) unless it has a label. Until it loads, or if it can't, or neither
+ * gives one, their initials show as the Worker would draw them.
  * Messages use squares with ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and
  * presence use circles.
  */
 export function UserAvatar({ user, className, square = false, lazy = false, label }: Props) {
   const listed = useContext(PeopleContext).get(user.id);
-  const served = listed?.avatarUrl;
+  const served = listed?.avatarUrl ?? user.avatarUrl;
   const [failed, setFailed] = useState<string | null>(null);
   // The initials of the name they have now, which may be newer than the one copied into `user`.
   const placeholder = drawn(listed ?? user);

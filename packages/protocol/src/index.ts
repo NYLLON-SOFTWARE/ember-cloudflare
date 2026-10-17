@@ -8,6 +8,8 @@ import { ROOM_ICON_NAMES } from "./room-icons.ts";
 export { ROOM_ICON_NAMES };
 export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
 export {
+  botMessagesPath,
+  BOTS_FORBIDDEN,
   MAX_WEBHOOK_URL_LENGTH,
   parseBotChanges,
   parseNewBot,
@@ -20,10 +22,12 @@ export {
   type NewBot,
 } from "./bots.ts";
 export {
+  BOTS_PATH,
   CUSTOM_STYLES_PATH,
   isAppPage,
   KIND_SEGMENTS,
   MAX_ID_LENGTH,
+  NEW_BOT_PATH,
   NEW_DIRECT_PATH,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
