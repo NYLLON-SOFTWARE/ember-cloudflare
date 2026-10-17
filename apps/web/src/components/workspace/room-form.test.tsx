@@ -1,11 +1,10 @@
 import { feature } from "@ember/parity";
-import { MAX_ROOM_NAME_LENGTH, type User } from "@ember/protocol";
+import { MAX_ROOM_NAME_LENGTH, TRANSLATIONS, type User } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
-import { TRANSLATIONS } from "@/lib/translations";
 import { AccessSwitch, CheckMark, RoomForm } from "./room-form";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));

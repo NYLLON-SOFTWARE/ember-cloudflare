@@ -1,7 +1,8 @@
 // ember-rust's translations (crates/views/src/helpers/translations_table.rs, from Campfire's
 // app/helpers/translations_helper.rb), copied verbatim: for each field that has a translation button,
 // what it asks for in English, Spanish, French, Hindi, German, Brazilian Portuguese and Japanese, each
-// after its country's flag.
+// after its country's flag. The app's translation buttons show them, and so does the Worker's page for
+// browsers too old for the app.
 
 export const TRANSLATIONS = {
   email_address: [
