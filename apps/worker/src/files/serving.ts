@@ -1,7 +1,7 @@
 import { toHex } from "../encoding";
 import type { Env } from "../env";
 import { isFileSignature } from "./addresses";
-import { objectKey } from "./blobs";
+import { objectKey, previewKey } from "./blobs";
 import { forcedDisposition, typeForServing } from "./content-types";
 import { contentDisposition, sanitizedFilename } from "./filename";
 import { BINARY } from "./marcel";
@@ -12,10 +12,14 @@ import { byteRanges, type ByteRange } from "./ranges";
 // `ActiveStorage::DiskController#show` and `Rack::Files#serving`): the whole file or the byte ranges
 // asked for, 304 for a copy the browser has, and 416 for ranges the file doesn't have, each with its
 // type for serving, how to show it, and an hour anyone may cache it for. Several ranges go as
-// ember-rust's proxy route sends them, since the disk route sends them as the file's own type.
+// ember-rust's proxy route sends them, since the disk route sends them as the file's own type. A file's
+// preview is served the same way, as ember-rust serves a blob's variants.
 
-/** `/files/<key>/<signature>/<name>`, where the name can be anything, as Active Storage's route glob takes it. */
-const FILE_PATH = /^\/files\/([^/]+)\/([^/]+)\/./;
+/**
+ * `/files/<key>/<signature>/<name>`, or `/previews/…` for the file's preview, where the name can be
+ * anything, as Active Storage's route glob takes it.
+ */
+const FILE_PATH = /^\/(files|previews)\/([^/]+)\/([^/]+)\/./;
 
 /** An Active Storage key: 28 lowercase letters and digits. */
 const KEY = /^[0-9a-z]{28}$/;
@@ -38,11 +42,13 @@ const encoder = new TextEncoder();
 export interface FileAddress {
   key: string;
   signature: string;
+  /** Whether it's the address of the file's preview rather than the file. */
+  preview: boolean;
 }
 
 export function fileAddressOf(pathname: string): FileAddress | null {
   const match = FILE_PATH.exec(pathname);
-  return match && { key: match[1]!, signature: match[2]! };
+  return match && { key: match[2]!, signature: match[3]!, preview: match[1] === "previews" };
 }
 
 /** `head :not_found`: an empty answer, as HTML. */
@@ -59,14 +65,15 @@ const dispositionOf = (request: Request) => new URL(request.url).searchParams.ge
  * have, and a Worker with no bucket bound all answer an empty 404, as ember-rust's does for a key it
  * can't verify or a file it can't find.
  */
-export async function serveFile(request: Request, env: Env, { key, signature }: FileAddress): Promise<Response> {
+export async function serveFile(request: Request, env: Env, { key, signature, preview }: FileAddress): Promise<Response> {
   const files = env.FILES;
   if (!files || !KEY.test(key) || !(await isFileSignature(env.SESSION_SECRET, key, signature))) return notFound();
+  const stored = preview ? previewKey(key) : objectKey(key);
   const since = request.headers.get("If-Modified-Since");
   const range = request.headers.get("Range");
   // A plain GET reads the whole file at once. Anything else needs to know of it first.
   const read = request.method === "GET" && since === null && range === null;
-  const object = read ? await files.get(objectKey(key)) : await files.head(objectKey(key));
+  const object = read ? await files.get(stored) : await files.head(stored);
   if (!object) return notFound();
 
   const contentType = object.httpMetadata?.contentType ?? BINARY;
@@ -88,7 +95,7 @@ export async function serveFile(request: Request, env: Env, { key, signature }: 
     return new Response(UNSATISFIABLE, { status: 416, headers });
   }
   headers.set("Last-Modified", lastModified);
-  if (ranges && ranges.length <= MAX_RANGES) return partialContent(request, files, key, ranges, size, headers);
+  if (ranges && ranges.length <= MAX_RANGES) return partialContent(request, files, stored, ranges, size, headers);
 
   // Rack::ConditionalGet's check, for the whole file: no earlier than that, unless the browser names a
   // version it has, which these answers never do.
@@ -98,17 +105,17 @@ export async function serveFile(request: Request, env: Env, { key, signature }: 
   }
   headers.set("Content-Length", String(size));
   if (request.method === "HEAD" || size === 0) return new Response(null, { headers });
-  const whole = hasBody(object) ? object : await files.get(objectKey(key));
+  const whole = hasBody(object) ? object : await files.get(stored);
   return whole ? new Response(whole.body, { headers }) : notFound();
 }
 
 /**
- * 206 with `ranges` of the file: one as it is, or several as a multipart/byteranges body, each part
- * with the file's type for serving and its range, read from R2 in turn as the body is sent.
+ * 206 with `ranges` of the file R2 keeps as `stored`: one as it is, or several as a multipart/byteranges
+ * body, each part with the file's type for serving and its range, read from R2 in turn as the body is sent.
  */
-async function partialContent(request: Request, files: R2Bucket, key: string, ranges: ByteRange[], size: number, headers: Headers): Promise<Response> {
+async function partialContent(request: Request, files: R2Bucket, stored: string, ranges: ByteRange[], size: number, headers: Headers): Promise<Response> {
   const head = request.method === "HEAD";
-  const read = ([start, end]: ByteRange) => files.get(objectKey(key), { range: { offset: start, length: end - start + 1 } });
+  const read = ([start, end]: ByteRange) => files.get(stored, { range: { offset: start, length: end - start + 1 } });
   if (ranges.length === 1) {
     const [start, end] = ranges[0]!;
     headers.set("Content-Range", `bytes ${start}-${end}/${size}`);

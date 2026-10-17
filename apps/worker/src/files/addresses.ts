@@ -5,15 +5,17 @@ import { escapePath } from "./filename";
 // The addresses that show and download a room's files, /files/<key>/<signature>/<name>, as ember-rust's
 // signed blob links give them out (crates/ember/src/active_storage.rs): the signature says Ember made
 // the address, so nobody can guess one, and as there, it never expires. The name is there for whoever
-// saves the file, but what it's saved as is the name Ember keeps.
+// saves the file, but what it's saved as is the name Ember keeps. A file's preview is at
+// /previews/<key>/<signature>/<name>, under the same signature, as ember-rust's addresses for a blob's
+// variants are signed with the blob's own id and end with its name.
 
 const encoder = new TextEncoder();
 
 /** How much of its HMAC a signature keeps, as avatar tokens keep. */
 const SIGNATURE_BYTES = 16;
 
-/** The addresses that show a file and download it. */
-export type FileUrls = Pick<StoredFile, "url" | "downloadUrl">;
+/** The addresses that show a file and download it, and show its preview if it has one. */
+export type FileUrls = Pick<StoredFile, "url" | "downloadUrl" | "previewUrl">;
 
 /** SESSION_SECRET as the key file signatures are HMACs under. */
 const keyOf = (secret: string) => crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -42,13 +44,14 @@ const addressName = (name: string) => (name === "" || name === "." || name === "
 
 /**
  * Signs files' addresses under `secret`, which it takes as a key once, however many files it signs: the
- * address that shows file `key`, named `name`, and the one that downloads it, which asks for it as an
- * attachment.
+ * address that shows file `key`, named `name`, the one that downloads it, which asks for it as an
+ * attachment, and the one that shows its preview, if it has one.
  */
-export async function fileSigner(secret: string): Promise<(key: string, name: string) => Promise<FileUrls>> {
+export async function fileSigner(secret: string): Promise<(key: string, name: string, preview?: boolean) => Promise<FileUrls>> {
   const hmac = await keyOf(secret);
-  return async (key, name) => {
-    const url = `/files/${key}/${await signature(hmac, key)}/${addressName(name)}`;
-    return { url, downloadUrl: `${url}?disposition=attachment` };
+  return async (key, name, preview) => {
+    const signed = `${key}/${await signature(hmac, key)}/${addressName(name)}`;
+    const url = `/files/${signed}`;
+    return { url, downloadUrl: `${url}?disposition=attachment`, ...(preview && { previewUrl: `/previews/${signed}` }) };
   };
 }

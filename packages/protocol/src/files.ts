@@ -24,6 +24,37 @@ export const uploadsPath = (roomId: RoomId) => `/api/rooms/${encodeURIComponent(
 /** Where part `n`, from 1, of upload `uploadId` in `roomId` goes. */
 export const uploadPartPath = (roomId: RoomId, uploadId: string, n: number) => `${uploadsPath(roomId)}/${uploadId}/parts/${n}`;
 
+/** Where the preview of upload `uploadId` in `roomId` goes, before its last part. */
+export const uploadPreviewPath = (roomId: RoomId, uploadId: string) => `${uploadsPath(roomId)}/${uploadId}/preview`;
+
+/**
+ * The box a file's preview fits within, as ember-rust's thumbnails and video posters do: its
+ * `Message::THUMBNAIL_MAX_WIDTH` and `THUMBNAIL_MAX_HEIGHT` (crates/views/src/messages/presentation.rs).
+ */
+export const PREVIEW_MAX_WIDTH = 1200;
+export const PREVIEW_MAX_HEIGHT = 800;
+
+/**
+ * The most bytes a message shows of a file in its place: its preview, or a picture's own bytes where it
+ * has none, as ember-rust shows an SVG of up to 5 MiB in its place (crates/ember/src/controllers/presenters.rs).
+ */
+export const MAX_PREVIEW_SIZE = 5 * 1024 * 1024;
+
+/**
+ * The pictures ember-rust makes a thumbnail of: Active Storage's `variable_content_types`, less the BMP,
+ * ICO and PSD that Campfire's config/initializers/vips.rb takes out (crates/storage/src/content_types.rs).
+ */
+const THUMBNAILED_TYPES = new Set(["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif"]);
+
+/** Active Storage's `web_image_content_types`: the pictures every browser shows. */
+const WEB_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Whether a message shows a file of `contentType` by its preview: a picture's thumbnail or a video's poster. */
+export const isPreviewed = (contentType: string) => THUMBNAILED_TYPES.has(contentType) || contentType.startsWith("video");
+
+/** Whether every browser shows a picture of `contentType`. */
+export const isWebImage = (contentType: string) => WEB_IMAGE_TYPES.has(contentType);
+
 /**
  * What the app sends to start uploading a file: its name, the type the browser gives it, which may be
  * empty, its size in bytes, and the id it gives the message the file becomes, as it gives each message
@@ -57,10 +88,16 @@ export interface StoredFile {
   name: string;
   contentType: string;
   byteSize: number;
+  /** Where an image's can't be read, as a video's can't, its preview's, which has its shape. */
   width?: number;
   height?: number;
   url: string;
   downloadUrl: string;
+  /**
+   * The address of its preview, where its uploader's browser made one: a picture's thumbnail or a video's
+   * poster within 1200×800, which its message shows, as ember-rust's `:thumb` variant and video preview.
+   */
+  previewUrl?: string;
 }
 
 /** A UTF-16 surrogate without its pair, which no file name can hold. */

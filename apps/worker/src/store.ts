@@ -78,10 +78,10 @@ const toMessage = (row: MessageRow): Message => ({
 });
 
 /** Signs a file's addresses (files/addresses.ts). */
-type Signer = (key: string, name: string) => Promise<FileUrls>;
+type Signer = (key: string, name: string, preview?: boolean) => Promise<FileUrls>;
 
 /** `file` as its message shows it, with its addresses signed by `sign`. */
-const shownFile = async (file: AttachedFile, sign: Signer) => ({ ...file, ...(await sign(file.id, file.name)) });
+const shownFile = async ({ preview, ...file }: AttachedFile, sign: Signer) => ({ ...file, ...(await sign(file.id, file.name, preview)) });
 
 /** Rows as messages, each file message with its file, whose addresses `signer` signs, only once a row has one. */
 async function toMessages(rows: MessageRow[], signer: () => Promise<Signer>): Promise<Message[]> {

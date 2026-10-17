@@ -1,0 +1,83 @@
+import { feature } from "@ember/parity";
+import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
+import { cleanup, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { Attachment } from "./attachment";
+
+/** A file called `name` of `contentType`, as a message has it. */
+const stored = (name: string, contentType: string, overrides: Partial<StoredFile> = {}): StoredFile => {
+  const url = `/files/k1/s1/${encodeURIComponent(name)}`;
+  return { id: "k1", name, contentType, byteSize: 1234, url, downloadUrl: `${url}?disposition=attachment`, ...overrides };
+};
+
+/** Whether the file's card shows, by its Download link. */
+const card = (name: string) => screen.queryByRole("link", { name: `Download ${name}` });
+
+describe(feature("attachments.previews"), () => {
+  it("shows a picture by its thumbnail, lazily, linking to the file, in a box half its size scaled into 1200×800 and no more than 480px wide or 70% of the screen tall", () => {
+    render(<Attachment file={stored("moon.jpg", "image/jpeg", { width: 2400, height: 1600, previewUrl: "/previews/k1/s1/moon.jpg" })} />);
+    const picture = screen.getByRole("img", { name: "moon.jpg" });
+    expect(picture).toHaveAttribute("src", "/previews/k1/s1/moon.jpg");
+    expect(picture).toHaveAttribute("loading", "lazy");
+    const link = screen.getByRole("link", { name: "moon.jpg" });
+    expect(link).toHaveAttribute("href", "/files/k1/s1/moon.jpg");
+    expect(link).toHaveAttribute("style", "width: min(600px, 480px, 1.5*70dvh); aspect-ratio: 1200 / 800;");
+    expect(card("moon.jpg")).not.toBeInTheDocument();
+    cleanup();
+
+    render(<Attachment file={stored("dot.png", "image/png", { width: 40, height: 20, previewUrl: "/previews/k1/s1/dot.png" })} />);
+    expect(screen.getByRole("link", { name: "dot.png" })).toHaveAttribute("style", "width: min(20px, 480px, 2*70dvh); aspect-ratio: 40 / 20;");
+  });
+
+  it("shows a picture without a thumbnail, as a bot's, as itself if every browser shows it and it's no more than 5 MiB, and as a card otherwise", () => {
+    render(<Attachment file={stored("earth.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE })} />);
+    expect(screen.getByRole("img", { name: "earth.gif" })).toHaveAttribute("src", "/files/k1/s1/earth.gif");
+    cleanup();
+
+    for (const file of [stored("earth.png", "image/png", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE + 1 }), stored("earth.heic", "image/heic", { width: 640, height: 320 })]) {
+      render(<Attachment file={file} />);
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+      expect(card(file.name)).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it("shows a picture of unknown size at its own, up to 480px wide and 640px or 70% of the screen tall", () => {
+    render(<Attachment file={stored("earth.webp", "image/webp")} />);
+    const link = screen.getByRole("link", { name: "earth.webp" });
+    expect(link).not.toHaveAttribute("style");
+    expect(link).toHaveClass("w-fit", "max-w-[min(480px,100%)]");
+    expect(screen.getByRole("img", { name: "earth.webp" })).toHaveClass("max-h-[min(640px,70dvh)]", "max-w-full");
+  });
+
+  it("plays a video in place, in a box half its size, loading nothing until it's played behind its poster, or its first frame without one", () => {
+    const { container } = render(<Attachment file={stored("launch.mp4", "video/mp4", { width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" })} />);
+    const video = container.querySelector("video")!;
+    expect(video).toHaveAttribute("src", "/files/k1/s1/launch.mp4");
+    expect(video).toHaveAttribute("poster", "/previews/k1/s1/launch.mp4");
+    expect(video).toHaveAttribute("preload", "none");
+    expect(video).toHaveAttribute("controls");
+    expect(video).toHaveAccessibleName("launch.mp4");
+    expect(video.parentElement).toHaveAttribute("style", "width: 600px; aspect-ratio: 1200 / 675;");
+    expect(card("launch.mp4")).not.toBeInTheDocument();
+    cleanup();
+
+    // As a bot's, or one its uploader's browser couldn't play.
+    const { container: unplayed } = render(<Attachment file={stored("launch.mov", "video/quicktime")} />);
+    const without = unplayed.querySelector("video")!;
+    expect(without).toHaveAttribute("src", "/files/k1/s1/launch.mov");
+    expect(without).not.toHaveAttribute("poster");
+    expect(without).toHaveAttribute("preload", "metadata");
+    expect(without.parentElement).not.toHaveAttribute("style");
+  });
+
+  it("shows any other file as its card, SVGs included until they get previews of their own", () => {
+    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("theme.mp3", "audio/mpeg"), stored("logo.svg", "image/svg+xml", { byteSize: 100 })]) {
+      const { container } = render(<Attachment file={file} />);
+      expect(card(file.name)).toBeInTheDocument();
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+      expect(container.querySelector("video")).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+});

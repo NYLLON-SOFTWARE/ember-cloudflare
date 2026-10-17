@@ -1,7 +1,11 @@
 import { feature } from "@ember/parity";
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadsPath, type Message } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { previewOf } from "./previews";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "./uploads";
+
+// jsdom makes no previews (previews.test.ts tests making them), so files have none unless a test gives one.
+vi.mock("./previews", () => ({ previewOf: vi.fn(async () => null) }));
 
 /** Stands in for the browser's XMLHttpRequest, which tests answer as the Worker would. */
 class FakeRequest {
@@ -94,6 +98,46 @@ describe(feature("attachments.upload"), () => {
     const uploading = uploadFile("r1", new File(["hi"], "notes.txt"), "c1", () => {});
     (await part(1)).answer(200, JSON.stringify(message));
     expect(await uploading).toEqual(message);
+  });
+});
+
+describe(feature("attachments.previews"), () => {
+  it("sends the preview the browser makes of a file just before its last part, once the Worker has it", async () => {
+    const thumbnail = new Blob(["thumbnail"], { type: "image/webp" });
+    vi.mocked(previewOf).mockResolvedValueOnce(thumbnail);
+    let answerPreview!: (response: Response) => void;
+    const fetch = vi.fn(async (_path: string, init: RequestInit) => (init.method === "POST" ? started(2) : new Promise<Response>((resolve) => (answerPreview = resolve))));
+    vi.stubGlobal("fetch", fetch);
+    const file = new File(["abcdefghij", "klmno"], "moon.png", { type: "image/png" });
+    const uploading = uploadFile("r1", file, "c1", () => {});
+
+    (await part(1)).answer(204);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(previewOf).toHaveBeenCalledWith(file);
+    expect(fetch).toHaveBeenLastCalledWith(uploadPreviewPath("r1", "k1"), { method: "PUT", body: thumbnail });
+    // The last part waits for the preview's answer.
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(FakeRequest.all).toHaveLength(1);
+    answerPreview(new Response(null, { status: 204 }));
+    const last = await part(2);
+    expect(await last.body!.text()).toBe("klmno");
+    last.answer(201, JSON.stringify(message));
+    expect(await uploading).toEqual(message);
+  });
+
+  it("sends a file without a preview where the browser makes none, and when the Worker refuses it or the connection drops", async () => {
+    const refused = async () => new Response(null, { status: 415 });
+    const dropped = async () => Promise.reject(new TypeError("Failed to fetch"));
+    for (const answer of [null, refused, dropped]) {
+      FakeRequest.all = [];
+      if (answer) vi.mocked(previewOf).mockResolvedValueOnce(new Blob(["thumbnail"], { type: "image/webp" }));
+      const fetch = vi.fn(async (_path: string, init: RequestInit) => (init.method === "POST" ? started(1) : answer!()));
+      vi.stubGlobal("fetch", fetch);
+      const uploading = uploadFile("r1", new File(["hi"], "moon.png", { type: "image/png" }), "c1", () => {});
+      (await part(1)).answer(201, JSON.stringify(message));
+      expect(await uploading).toEqual(message);
+      expect(fetch).toHaveBeenCalledTimes(answer ? 2 : 1);
+    }
   });
 });
 

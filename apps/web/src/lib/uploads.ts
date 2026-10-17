@@ -1,9 +1,11 @@
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
+import { previewOf } from "./previews";
 
 // Uploading a file as a message of its own, as ember-rust's FileUploader does
 // (crates/assets/overrides/models/file_uploader.js), but in parts that R2 puts back together, since a
 // Worker takes at most 100 MB a request: the app starts the upload, sends its parts one after another,
-// and the room posts the file as a message once it has the last.
+// and the room posts the file as a message once it has the last. A picture's thumbnail or a video's
+// poster, which the browser makes meanwhile (previews.ts), goes just before the last part.
 
 /** What a failed upload says, as ember-rust's uploader rejects with, unless the file is too large. */
 export const UPLOAD_FAILED = "Upload failed. Please attach the file and try again.";
@@ -49,6 +51,11 @@ function sendPart(path: string, part: Blob, onSent: (bytes: number) => void): Pr
   });
 }
 
+/** Sends `preview` as upload `id`'s in `roomId`. One the Worker doesn't take is left out, and the file shows without it. */
+async function sendPreview(roomId: RoomId, id: string, preview: Blob | null) {
+  if (preview) await fetch(uploadPreviewPath(roomId, id), { method: "PUT", body: preview }).catch(() => {});
+}
+
 /**
  * Uploads `file` to `roomId` as the message `clientMessageId` names, telling `onProgress` how much of it
  * has gone, as a percentage rounded down, each time that changes, and answers the message the room posts
@@ -65,6 +72,7 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
   });
   if (started.status !== 201) throw refused(started.status);
   const { id, partSize, parts } = (await started.json()) as Upload;
+  const preview = previewOf(file);
 
   let shown = 0;
   const progress = (sent: number) => {
@@ -76,6 +84,7 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
     const { status } = await sendPart(uploadPartPath(roomId, id, n), file.slice(start, start + partSize), (bytes) => progress(start + bytes));
     if (status !== 204) throw refused(status);
   }
+  await sendPreview(roomId, id, await preview);
   const start = (parts - 1) * partSize;
   const { status, text } = await sendPart(uploadPartPath(roomId, id, parts), file.slice(start), (bytes) => progress(start + bytes));
   if (status !== 201 && status !== 200) throw refused(status);

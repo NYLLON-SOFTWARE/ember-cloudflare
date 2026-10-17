@@ -5,8 +5,7 @@ import { CommonFileText, Download } from "@/components/icons/campfire";
  * ember-rust's card for a file a message doesn't show as a picture or a video (`file_link` in
  * crates/views/src/messages/presentation.rs, zz-ember.css): the file's icon on a tile, its name, which
  * wraps anywhere rather than overflow, and Download, which Ember added to an iPhone's or iPad's home
- * screen hides, as Campfire's `.hide-in-ios-pwa` does, since it can't download. Every file shows as this
- * card until plan 7.3 shows pictures and videos, and Share comes with plan 7.4.
+ * screen hides, as Campfire's `.hide-in-ios-pwa` does, since it can't download. Share comes with plan 7.4.
  */
 export function FileCard({ file }: { file: StoredFile }) {
   return (

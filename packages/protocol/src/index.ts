@@ -24,10 +24,16 @@ export {
 } from "./bots.ts";
 export {
   FILE_TOO_LARGE,
+  isPreviewed,
+  isWebImage,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
+  MAX_PREVIEW_SIZE,
   parseNewUpload,
+  PREVIEW_MAX_HEIGHT,
+  PREVIEW_MAX_WIDTH,
   uploadPartPath,
+  uploadPreviewPath,
   uploadsPath,
   type NewUpload,
   type StoredFile,

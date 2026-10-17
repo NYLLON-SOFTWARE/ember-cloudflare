@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, type RoomId, type Upload } from "@ember/protocol";
+import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, MAX_PREVIEW_SIZE, uploadPartPath, uploadPreviewPath, type RoomId, type Upload } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
@@ -53,9 +53,9 @@ const newUpload = (name: string, size: number, type = "") => ({ name, type, size
 /** Uploads a file as `upload` does, answering the file its message posts. */
 const uploadFile = async (...args: Parameters<typeof upload>) => (await upload(...args)).attachment;
 
-/** Starts uploading `bytes` to `room` as `session`, named `name`, answering where its parts go. */
-async function started(session: Session, room: RoomId, name: string, bytes: Uint8Array): Promise<Upload> {
-  const response = await startUpload(session, room, newUpload(name, bytes.length));
+/** Starts uploading `bytes` to `room` as `session`, named `name` and of the type a browser declares, answering where its parts go. */
+async function started(session: Session, room: RoomId, name: string, bytes: Uint8Array, type = ""): Promise<Upload> {
+  const response = await startUpload(session, room, newUpload(name, bytes.length, type));
   expect(response.status, await response.clone().text()).toBe(201);
   return (await response.json()) as Upload;
 }
@@ -68,6 +68,35 @@ const errorOf = async (response: Response) => ((await response.json()) as { erro
 
 /** GETs `path`, a file's address, without a session, as anyone who has it can. */
 const fetchFile = (path: string, headers: Record<string, string> = {}, method = "GET") => api(path, { method, headers });
+
+/** Sends `bytes` as the preview of upload `id` in `room` as `session`, with their length, as the app sends one. */
+const sendPreview = (session: Session, room: RoomId, id: string, bytes: Uint8Array, headers: Record<string, string> = {}) =>
+  api(uploadPreviewPath(room, id), { method: "PUT", headers: { Cookie: session.cookie, "Content-Length": String(bytes.length), ...headers }, body: bytes });
+
+/**
+ * Uploads `bytes` to `room` as `session` in one part, named `name` and of the type a browser declares,
+ * sending `preview` first, as the app sends a picture's thumbnail or a video's poster, and answers the
+ * message the room posts it as.
+ */
+async function uploadWithPreview(session: Session, room: RoomId, name: string, bytes: Uint8Array, type: string, preview: Uint8Array): Promise<FileMessage> {
+  const upload = await started(session, room, name, bytes, type);
+  const sent = await sendPreview(session, room, upload.id, preview);
+  expect(sent.status, await sent.clone().text()).toBe(204);
+  const last = await sendPart(session, room, upload.id, 1, bytes);
+  expect(last.status, await last.clone().text()).toBe(201);
+  return (await last.json()) as FileMessage;
+}
+
+/** A PNG's signature and header, for a picture `width` by `height`: as much of one as the Worker reads to size it. */
+function pngHeader(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(33);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  bytes.set([8, 6, 0, 0, 0], 24);
+  return bytes;
+}
 
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
@@ -266,7 +295,140 @@ describe(feature("attachments.types"), () => {
   });
 });
 
+describe(feature("attachments.previews"), () => {
+  it("shows an image by the thumbnail its uploader's browser sent, at the image's own size, and a video by its poster, at the poster's", async () => {
+    const room = await freshRoom("lobby");
+    const ada = await connect(room, "Ada");
+    const moon = recordedImage("moon-thumb.jpg");
+
+    const image = await uploadWithPreview(ada.session, room, "moon.jpg", moon, "image/jpeg", recordedImage("moon-avatar.webp"));
+    const [, , key, signature] = image.attachment.url.split("/") as [string, string, string, string];
+    expect(image.attachment).toEqual({
+      id: key,
+      name: "moon.jpg",
+      contentType: "image/jpeg",
+      byteSize: moon.length,
+      width: 640,
+      height: 640,
+      url: `/files/${key}/${signature}/moon.jpg`,
+      downloadUrl: `/files/${key}/${signature}/moon.jpg?disposition=attachment`,
+      previewUrl: `/previews/${key}/${signature}/moon.jpg`,
+    });
+    expect((await ada.next("message.created")).message).toEqual(image);
+
+    // Ember can't read a video's size, but its poster has its shape.
+    const video = await uploadWithPreview(ada.session, room, "alpha centuri.mp4", new Uint8Array(1_000), "video/mp4", recordedImage("alpha-centuri-poster.webp"));
+    expect(video.attachment).toMatchObject({ contentType: "video/mp4", width: 320, height: 180, previewUrl: expect.stringMatching(/^\/previews\/[0-9a-z]{28}\/[\w-]{22}\/alpha%20centuri\.mp4$/) });
+    expect((await ada.next("message.created")).message).toEqual(video);
+    expect((await connect(room, ada.session)).welcome.messages).toEqual([image, video]);
+  });
+
+  it("shows no preview for a file that isn't an image or a video, or one sent without", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const notes = await uploadWithPreview(ada, room, "notes.txt", new TextEncoder().encode("Moon, then earth"), "text/plain", recordedImage("moon-avatar.webp"));
+    expect(notes.attachment).not.toHaveProperty("previewUrl");
+    expect(notes.attachment).not.toHaveProperty("width");
+    const moon = await uploadFile(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    expect(moon).not.toHaveProperty("previewUrl");
+    expect(moon).toMatchObject({ width: 640, height: 640 });
+  });
+
+  it("keeps the last preview sent before the file is posted, and refuses one after", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const clip = new Uint8Array(1_000);
+    const upload = await started(ada, room, "clip.mp4", clip, "video/mp4");
+    expect((await sendPreview(ada, room, upload.id, recordedImage("alpha-centuri-poster.webp"))).status).toBe(204);
+    const blackHole = recordedImage("black_hole-thumb.jpg");
+    expect((await sendPreview(ada, room, upload.id, blackHole)).status).toBe(204);
+    const message = (await (await sendPart(ada, room, upload.id, 1, clip)).json()) as FileMessage;
+    expect(message.attachment).toMatchObject({ width: 1200, height: 675 });
+    expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
+
+    const late = await sendPreview(ada, room, upload.id, recordedImage("moon-avatar.webp"));
+    expect(late.status).toBe(409);
+    expect(await errorOf(late)).toBe("The file is posted already");
+    expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
+  });
+
+  it("refuses a preview still arriving when the file was posted, keeping the one its message shows", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const clip = new Uint8Array(1_000);
+    const upload = await started(ada, room, "clip.mp4", clip, "video/mp4");
+    const blackHole = recordedImage("black_hole-thumb.jpg");
+    expect((await sendPreview(ada, room, upload.id, blackHole)).status).toBe(204);
+
+    const moon = recordedImage("moon-avatar.webp");
+    const { readable, writable } = new FixedLengthStream(moon.length);
+    const arriving = writable.getWriter();
+    const late = api(uploadPreviewPath(room, upload.id), { method: "PUT", headers: { Cookie: ada.cookie }, body: readable });
+    await arriving.write(moon.subarray(0, 100));
+    const message = (await (await sendPart(ada, room, upload.id, 1, clip)).json()) as FileMessage;
+    await arriving.write(moon.subarray(100));
+    await arriving.close();
+    expect((await late).status).toBe(409);
+    expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
+  });
+
+  it("takes a preview only as a WebP, JPEG or PNG of up to 5 MiB that fits within 1200×800", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const upload = await started(ada, room, "earth.png", new Uint8Array(10), "image/png");
+    const refusal = async (preview: Uint8Array, headers?: Record<string, string>) => {
+      const response = await sendPreview(ada, room, upload.id, preview, headers);
+      return [response.status, await errorOf(response)];
+    };
+
+    expect(await refusal(new TextEncoder().encode("GIF89a\x01\0\x01\0\0\0\0"))).toEqual([415, "A preview is a WebP, JPEG or PNG image"]);
+    expect(await refusal(new TextEncoder().encode("A picture of the moon"))).toEqual([415, "A preview is a WebP, JPEG or PNG image"]);
+    expect(await refusal(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toEqual([415, "A preview is a WebP, JPEG or PNG image"]);
+    expect(await refusal(pngHeader(1201, 800))).toEqual([422, "A preview fits within 1200×800"]);
+    expect(await refusal(pngHeader(1200, 801))).toEqual([422, "A preview fits within 1200×800"]);
+    expect(await refusal(new Uint8Array(MAX_PREVIEW_SIZE + 1))).toEqual([413, "A preview is at most 5 MiB"]);
+    const streamed = new ReadableStream({
+      start(controller) {
+        controller.enqueue(pngHeader(1, 1));
+        controller.close();
+      },
+    });
+    const unmeasured = await api(uploadPreviewPath(room, upload.id), { method: "PUT", headers: { Cookie: ada.cookie }, body: streamed });
+    expect(unmeasured.status).toBe(411);
+    expect(await blobOf(room, upload.id)).toMatchObject({ preview: null });
+
+    expect((await sendPreview(ada, room, upload.id, pngHeader(1200, 800))).status).toBe(204);
+    expect(await blobOf(room, upload.id)).toMatchObject({ preview: JSON.stringify({ width: 1200, height: 800 }) });
+  });
+});
+
 describe(feature("attachments.serving"), () => {
+  it("serves a preview to anyone with its address, under its file's signature, named for its type", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const thumbnail = recordedImage("moon-avatar.webp");
+    const { attachment: file } = await uploadWithPreview(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"), "image/jpeg", thumbnail);
+
+    const shown = await fetchFile(file.previewUrl!);
+    expect(shown.status).toBe(200);
+    expect(Object.fromEntries(shown.headers)).toMatchObject({
+      "content-type": "image/webp",
+      "content-disposition": `inline; filename="moon.webp"; filename*=UTF-8''moon.webp`,
+      "content-length": String(thumbnail.length),
+      "cache-control": "max-age=3600, public",
+      "x-content-type-options": "nosniff",
+    });
+    expect(new Uint8Array(await shown.arrayBuffer())).toEqual(thumbnail);
+    expect((await fetchFile(file.previewUrl!, { Range: "bytes=0-3" })).status).toBe(206);
+
+    const [, , key, signature] = file.previewUrl!.split("/") as [string, string, string, string];
+    const tampered = `${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`;
+    expect((await fetchFile(`/previews/${key}/${tampered}/moon.jpg`)).status).toBe(404);
+    // A file sent without a preview has none to serve.
+    const earth = await uploadFile(ada, room, "earth.png", recordedImage("earth-thumb.png"));
+    expect((await fetchFile(earth.url.replace(/^\/files\//, "/previews/"))).status).toBe(404);
+  });
+
   it("serves a file to anyone with its address, inline or as a download, for an hour of caching, without Campfire's version", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
@@ -543,6 +705,29 @@ describe(feature("rooms.member-only-access"), () => {
     expect(await blobOf(room, key)).toMatchObject({ metadata: null, completed_at: null, message_id: null });
     expect(await roomSql(room, "SELECT id FROM messages WHERE room_id = ?", room)).toEqual([]);
   });
+
+  it("lets only an upload's uploader send its preview, while they're in the room", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const design = await createRoom("design", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const upload = await started(ada, design.id, "moon.jpg", new Uint8Array(1), "image/jpeg");
+    const preview = recordedImage("moon-avatar.webp");
+
+    const notTheirs = await sendPreview(grace, design.id, upload.id, preview);
+    expect(notTheirs.status).toBe(404);
+    expect(await errorOf(notTheirs)).toBe("Upload not found");
+    const outsider = await sendPreview(linus, design.id, upload.id, preview);
+    expect(outsider.status).toBe(404);
+    expect(await errorOf(outsider)).toBe("Room not found or inaccessible");
+    expect((await api(uploadPreviewPath(design.id, upload.id), { method: "PUT", body: preview })).status).toBe(401);
+    expect(await blobOf(design.id, upload.id)).toMatchObject({ preview: null });
+
+    // As the room hears that Ada's access ended after the Workspace let her in.
+    const authorizedAt = Date.now();
+    await roomStub(design.id).revoke(design.id, [{ tag: ada.user.id, code: CloseCode.NotFound }], authorizedAt);
+    const uploader = { user: shown(ada.user), tags: [ada.user.id], authorizedAt };
+    expect(await roomStub(design.id).recordUploadPreview(design.id, uploader, upload.id, { width: 1, height: 1 })).toBeNull();
+    expect(await blobOf(design.id, upload.id)).toMatchObject({ preview: null });
+  });
 });
 
 describe(feature("platform.health"), () => {
@@ -556,5 +741,9 @@ describe(feature("platform.health"), () => {
     expect(response.status).toBe(503);
     expect(await errorOf(response)).toBe("Ember isn't set up to store files");
     expect((await apiWith(unbound, file.url)).status).toBe(404);
+    const upload = await started(ada, room, "moon.jpg", new Uint8Array(1));
+    const preview = recordedImage("moon-avatar.webp");
+    const headers = { Cookie: ada.cookie, "Content-Length": String(preview.length) };
+    expect((await apiWith(unbound, uploadPreviewPath(room, upload.id), { method: "PUT", headers, body: preview })).status).toBe(503);
   });
 });

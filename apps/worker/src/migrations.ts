@@ -27,6 +27,7 @@ import pushSubscriptionIds from "../migrations/0026_push_subscription_ids.sql";
 import bots from "../migrations/0027_bots.sql";
 import blobs from "../migrations/0028_blobs.sql";
 import fileMessages from "../migrations/0029_file_messages.sql";
+import filePreviews from "../migrations/0030_file_previews.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
@@ -78,6 +79,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0027_bots.sql", scope: "workspace", sql: bots },
   { name: "0028_blobs.sql", scope: "room", sql: blobs },
   { name: "0029_file_messages.sql", scope: "room", sql: fileMessages },
+  { name: "0030_file_previews.sql", scope: "room", sql: filePreviews },
 ];
 
 /**
