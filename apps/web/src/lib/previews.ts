@@ -30,41 +30,45 @@ export function fitted({ width, height }: Size): Size {
 /**
  * The preview of `file` that the app sends with it: a picture's thumbnail or a video's poster within
  * 1200×800, or null for any other file, and where this browser can't decode it, as Chrome can't decode
- * HEIC or TIFF, or doesn't within five seconds.
+ * HEIC or TIFF, or doesn't within five seconds, when it stops making it.
  */
 export async function previewOf(file: File): Promise<Blob | null> {
   if (!isPreviewed(file.type)) return null;
   const url = URL.createObjectURL(file);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<null>((resolve) => (timer = setTimeout(resolve, PREVIEW_TIMEOUT, null)));
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), PREVIEW_TIMEOUT);
   try {
-    const made = file.type.startsWith("video") ? posterOf(url) : thumbnailOf(url, file.type !== "image/jpeg");
-    return await Promise.race([made.catch(() => null), timedOut]);
+    return await (file.type.startsWith("video") ? posterOf(url, timeout.signal) : thumbnailOf(url, file.type !== "image/jpeg", timeout.signal));
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
     URL.revokeObjectURL(url);
   }
 }
 
-/** The thumbnail of the picture at `url`, which may be see-through unless it's a JPEG. */
-async function thumbnailOf(url: string, seeThrough: boolean): Promise<Blob | null> {
+/** The thumbnail of the picture at `url`, which may be see-through unless it's a JPEG, unless `signal` aborts before it decodes. */
+async function thumbnailOf(url: string, seeThrough: boolean, signal: AbortSignal): Promise<Blob | null> {
   const picture = new Image();
   picture.src = url;
-  await picture.decode();
+  await Promise.race([picture.decode(), abortOf(signal)]);
   return encoded(picture, { width: picture.naturalWidth, height: picture.naturalHeight }, seeThrough);
 }
 
-/** The poster of the video at `url`, or null for one with no picture, such as a recording of sound alone. */
-async function posterOf(url: string): Promise<Blob | null> {
+/**
+ * The poster of the video at `url`, or null for one with no picture, such as a recording of sound alone,
+ * unless `signal` aborts before it has loaded and sought, when it lets go of the video at once.
+ */
+async function posterOf(url: string, signal: AbortSignal): Promise<Blob | null> {
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
   try {
     video.src = url;
-    await nextEvent(video, "loadedmetadata");
+    await nextEvent(video, "loadedmetadata", signal);
     video.currentTime = Number.isFinite(video.duration) ? Math.min(POSTER_TIME, video.duration / 2) : POSTER_TIME;
-    await nextEvent(video, "seeked");
+    await nextEvent(video, "seeked", signal);
     const size = { width: video.videoWidth, height: video.videoHeight };
     return size.width && size.height ? await encoded(video, size, false) : null;
   } finally {
@@ -74,11 +78,21 @@ async function posterOf(url: string): Promise<Blob | null> {
   }
 }
 
-/** Resolves on `media`'s next `type` event, or rejects on its next error. */
-const nextEvent = (media: HTMLMediaElement, type: string) =>
-  new Promise<void>((resolve, reject) => {
-    media.addEventListener(type, () => resolve(), { once: true });
-    media.addEventListener("error", () => reject(media.error), { once: true });
+/** Resolves on `media`'s next `type` event, or rejects on its next error, or once `signal` aborts. */
+const nextEvent = (media: HTMLMediaElement, type: string, signal: AbortSignal) =>
+  Promise.race([
+    new Promise<void>((resolve, reject) => {
+      media.addEventListener(type, () => resolve(), { once: true, signal });
+      media.addEventListener("error", () => reject(media.error), { once: true, signal });
+    }),
+    abortOf(signal),
+  ]);
+
+/** Rejects once `signal` aborts, or at once if it has. */
+const abortOf = (signal: AbortSignal) =>
+  new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
 
 /**

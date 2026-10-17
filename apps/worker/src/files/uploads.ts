@@ -188,7 +188,7 @@ export async function uploadPreview(request: Request, env: Env, roomId: RoomId, 
   if (!credentials) return problem(401, NOT_SIGNED_IN);
   const files = env.FILES;
   if (!files) return problem(503, NO_STORAGE);
-  let uploader = await uploaderIn(env, credentials, roomId);
+  const uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
   const room = env.CHAT_ROOM.getByName(roomId);
   const upload = await room.uploadOf(roomId, uploader.user.id, key);
@@ -204,11 +204,15 @@ export async function uploadPreview(request: Request, env: Env, roomId: RoomId, 
   if (!size) return problem(415, "A preview is a WebP, JPEG or PNG image");
   if (size.width > PREVIEW_MAX_WIDTH || size.height > PREVIEW_MAX_HEIGHT) return problem(422, "A preview fits within 1200×800");
 
-  // Again now the preview has arrived, as for a part.
-  uploader = await uploaderIn(env, credentials, roomId);
-  if (uploader instanceof Response) return uploader;
+  // Again now the preview has arrived, as for a part, and whether the file was posted while it arrived, as
+  // this would replace the preview its message shows. Only a post in the moment the write takes overtakes
+  // this check, rather than one any time before the preview's sender chose to finish sending it.
+  const [arrived, unposted] = await Promise.all([uploaderIn(env, credentials, roomId), room.uploadOf(roomId, uploader.user.id, key)]);
+  if (arrived instanceof Response) return arrived;
+  if (!unposted) return problem(404, UPLOAD_NOT_FOUND);
+  if (unposted.completedAt) return problem(409, ALREADY_POSTED);
   await files.put(previewKey(key), bytes, { httpMetadata: { contentType }, customMetadata: { filename: previewName(upload.filename, contentType) } });
-  const recorded = await room.recordUploadPreview(roomId, uploader, key, size);
+  const recorded = await room.recordUploadPreview(roomId, arrived, key, size);
   if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
   return recorded.completedAt ? problem(409, ALREADY_POSTED) : new Response(null, { status: 204 });
 }

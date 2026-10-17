@@ -47,8 +47,17 @@ function decodes(width: number, height: number, ok = true) {
   vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(height);
 }
 
-/** Answers `video`'s loading as a browser would for one `duration` seconds long and `width` by `height`, answering where it was asked to seek to. */
-async function plays(video: HTMLVideoElement, { duration = 12, width = 1920, height = 1080 } = {}): Promise<number> {
+interface VideoSize {
+  duration?: number;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Answers `video`'s loading as a browser would for one `duration` seconds long and `width` by `height`,
+ * answering what tells where it was asked to seek to, once it has been.
+ */
+function loads(video: HTMLVideoElement, { duration = 12, width = 1920, height = 1080 }: VideoSize = {}): () => number {
   let seekedTo = Number.NaN;
   Object.defineProperties(video, {
     duration: { value: duration },
@@ -57,9 +66,15 @@ async function plays(video: HTMLVideoElement, { duration = 12, width = 1920, hei
     currentTime: { get: () => seekedTo, set: (time: number) => (seekedTo = time) },
   });
   video.dispatchEvent(new Event("loadedmetadata"));
-  await vi.waitFor(() => expect(seekedTo).not.toBeNaN());
+  return () => seekedTo;
+}
+
+/** Answers `video`'s loading and seeking as a browser would, as `loads` does, answering where it was asked to seek to. */
+async function plays(video: HTMLVideoElement, size?: VideoSize): Promise<number> {
+  const seekedTo = loads(video, size);
+  await vi.waitFor(() => expect(seekedTo()).not.toBeNaN());
   video.dispatchEvent(new Event("seeked"));
-  return seekedTo;
+  return seekedTo();
 }
 
 const file = (name: string, type: string) => new File(["bytes"], name, { type });
@@ -144,10 +159,26 @@ describe(feature("attachments.previews"), () => {
 
     vi.useFakeTimers();
     const stuck = previewOf(file("huge.mp4", "video/mp4"));
+    const huge = videos[2]!;
+    const seekedTo = loads(huge, { duration: 600, width: 3840, height: 2160 });
     await vi.advanceTimersByTimeAsync(4_999);
+    expect(seekedTo()).toBe(0.1);
+    expect(huge).toHaveAttribute("src");
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(1);
     expect(await stuck).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(4);
+    // It lets go of the video then, so a seek that ends after draws nothing.
+    expect(huge).not.toHaveAttribute("src");
+    huge.dispatchEvent(new Event("seeked"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(canvases).toEqual([]);
+
+    // A picture that hasn't decoded by then goes without one too.
+    HTMLImageElement.prototype.decode = vi.fn(() => new Promise<void>(() => {}));
+    const slow = previewOf(file("panorama.png", "image/png"));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await slow).toBeNull();
+    expect(canvases).toEqual([]);
   });
 });

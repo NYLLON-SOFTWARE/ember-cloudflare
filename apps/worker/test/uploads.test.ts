@@ -352,6 +352,26 @@ describe(feature("attachments.previews"), () => {
     expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
   });
 
+  it("refuses a preview still arriving when the file was posted, keeping the one its message shows", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const clip = new Uint8Array(1_000);
+    const upload = await started(ada, room, "clip.mp4", clip, "video/mp4");
+    const blackHole = recordedImage("black_hole-thumb.jpg");
+    expect((await sendPreview(ada, room, upload.id, blackHole)).status).toBe(204);
+
+    const moon = recordedImage("moon-avatar.webp");
+    const { readable, writable } = new FixedLengthStream(moon.length);
+    const arriving = writable.getWriter();
+    const late = api(uploadPreviewPath(room, upload.id), { method: "PUT", headers: { Cookie: ada.cookie }, body: readable });
+    await arriving.write(moon.subarray(0, 100));
+    const message = (await (await sendPart(ada, room, upload.id, 1, clip)).json()) as FileMessage;
+    await arriving.write(moon.subarray(100));
+    await arriving.close();
+    expect((await late).status).toBe(409);
+    expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
+  });
+
   it("takes a preview only as a WebP, JPEG or PNG of up to 5 MiB that fits within 1200×800", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
