@@ -2,6 +2,8 @@ import {
   ROOM_PROTOCOL,
   roomSocketQuery,
   startingInvolvement,
+  uploadPartPath,
+  uploadsPath,
   type ClientFrame,
   type DirectRoom,
   type Me,
@@ -11,6 +13,8 @@ import {
   type RoomSocketParams,
   type ServerFrame,
   type SharedRoom,
+  type StoredFile,
+  type Upload,
   type User,
   type UserId,
   type WorkspaceServerFrame,
@@ -41,6 +45,12 @@ export const api = (path: string, init: RequestInit = {}) => exports.default.fet
 /** The same request, to a Worker whose bindings differ from this suite's by `changes`. `path` may be a whole URL. */
 export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<IncomingRequestCfProperties> = {}) =>
   worker.fetch(new Request(new URL(path, origin), fromOwnPages(init)), { ...(env as unknown as Env), ...changes });
+
+/** One of the images ember-rust recorded (fixtures/README.md), by its name in fixtures/storage/. */
+export function recordedImage(name: string): Uint8Array {
+  const { TEST_RECORDED_IMAGES } = env as unknown as { TEST_RECORDED_IMAGES: Record<string, string> };
+  return Uint8Array.from(atob(TEST_RECORDED_IMAGES[name]!), (c) => c.charCodeAt(0));
+}
 
 /** Stands in for the built app's pages, which the worker tests run without: each answers with its path. */
 export const builtPages = {
@@ -199,6 +209,25 @@ export async function createRoom(name: string, { closedTo, icon, as }: { closedT
   const response = await api("/api/rooms", { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify(room) });
   expect(response.status, await response.clone().text()).toBe(201);
   return ((await response.json()) as { room: SharedRoom }).room;
+}
+
+/** Starts uploading `file`, a `NewUpload`, to `room` as `session`, answering how the Worker answered. */
+export const startUpload = (session: Session, room: RoomId, file: unknown) =>
+  api(uploadsPath(room), { method: "POST", headers: { Cookie: session.cookie }, body: JSON.stringify(file) });
+
+/** Sends `bytes` as part `n` of upload `id` in `room` as `session`, with their length, as a browser sends a part. */
+export const sendPart = (session: Session, room: RoomId, id: string, n: number, bytes: Uint8Array, headers: Record<string, string> = {}) =>
+  api(uploadPartPath(room, id, n), { method: "PUT", headers: { Cookie: session.cookie, "Content-Length": String(bytes.length), ...headers }, body: bytes });
+
+/** Uploads `bytes` to `room` as `session`, part by part, named `name` and of the type a browser declares, answering the file. */
+export async function upload(session: Session, room: RoomId, name: string, bytes: Uint8Array, type = ""): Promise<StoredFile> {
+  const started = await startUpload(session, room, { name, type, size: bytes.length });
+  expect(started.status, await started.clone().text()).toBe(201);
+  const { id, partSize, parts } = (await started.json()) as Upload;
+  for (let n = 1; n < parts; n++) expect((await sendPart(session, room, id, n, bytes.subarray((n - 1) * partSize, n * partSize))).status).toBe(204);
+  const last = await sendPart(session, room, id, parts, bytes.subarray((parts - 1) * partSize));
+  expect(last.status, await last.clone().text()).toBe(201);
+  return (await last.json()) as StoredFile;
 }
 
 /** Starts a DM through the API as `as`, with the people `userIds` names, answering how the Worker answered. */

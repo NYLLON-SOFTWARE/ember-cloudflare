@@ -36,12 +36,14 @@ import {
   outcome,
   post,
   reconnect,
+  recordedImage,
   roomSql,
   roomStub,
   settle,
   shown,
   signIn,
   upgrade,
+  upload,
   workspaceSql,
   workspaceStub,
   type Access,
@@ -834,6 +836,8 @@ describe(feature("accounts.ban-enforcement"), () => {
       ["POST", "/api/directs", { userIds: [linus.user.id] }],
       ["POST", "/api/unfurl", { url: "https://example.com/" }],
       ["PUT", `/api/rooms/${room.id}/favorite`, { favorite: true }],
+      ["POST", `/api/rooms/${room.id}/uploads`, { name: "moon.jpg", type: "", size: 1 }],
+      ["PUT", `/api/rooms/${room.id}/uploads/${"0".repeat(28)}/parts/1`],
       ["PATCH", `/api/rooms/${room.id}`, { name: "Banned" }],
       ["DELETE", `/api/rooms/${room.id}`],
     ];
@@ -858,6 +862,8 @@ describe(feature("accounts.ban-enforcement"), () => {
       expect((await api(path, fromAddress(banned, administrator))).status, path).toBe(200);
     }
     expect((await api("/api/health", fromAddress(banned, null))).status).toBe(200);
+    const file = await upload(administrator, lobby, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    expect((await api(file.url, fromAddress(banned, null))).status).toBe(200);
     expect((await connect(lobby, { ...administrator, ip: banned })).welcome.type).toBe("welcome");
     expect((await openWorkspaceSocket({ ...administrator, ip: banned })).welcome.type).toBe("welcome");
     for (const method of ["POST", "PUT", "DELETE"]) expect((await api("/api/nothing", fromAddress(banned, administrator, { method }))).status, method).toBe(404);

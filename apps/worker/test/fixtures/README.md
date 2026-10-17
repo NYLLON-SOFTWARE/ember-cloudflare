@@ -30,3 +30,16 @@ sent, the webhook's status, and the text or file the bot said back, or what it r
 
 `../webhook-replies.test.ts` replays them. Where this port answers differently on purpose, it says so
 there.
+
+# Recorded files
+
+`storage.json` and the images in `storage/` are ember-rust's `vectors/storage.json` and
+`vectors/storage/` at `cfeb4c2`, copied unmodified. Its `reference-tools/storage/generate.rb` recorded
+them from the Rails app: what Marcel named each file, what Active Storage made of file names, and the
+blobs of the thumbnails, posters, avatars and logos it made, with their metadata and the images
+themselves. `ruby_core.json` is ember-rust's `vectors/ruby_core.json`, also unmodified, whose
+`byte_ranges` are what Rack made of each Range header.
+
+`../files.test.ts` checks this port's file types, metadata, names and byte ranges against them, and
+`../uploads.test.ts` uploads some of the images. The worker tests can't read files inside workerd,
+so `vitest.config.ts` hands them the images as Base64.

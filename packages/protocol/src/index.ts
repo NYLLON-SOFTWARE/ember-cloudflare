@@ -22,6 +22,17 @@ export {
   type NewBot,
 } from "./bots.ts";
 export {
+  FILE_TOO_LARGE,
+  MAX_FILE_NAME_LENGTH,
+  MAX_FILE_SIZE,
+  parseNewUpload,
+  uploadPartPath,
+  uploadsPath,
+  type NewUpload,
+  type StoredFile,
+  type Upload,
+} from "./files.ts";
+export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
   isAppPage,

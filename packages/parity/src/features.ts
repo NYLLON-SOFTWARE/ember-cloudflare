@@ -1416,7 +1416,7 @@ export const features = [
     id: "attachments.size-limit",
     title: "250 MB file limit",
     origin: "ember",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Files over 250,000,000 bytes aren't queued (exactly 250,000,000 is fine): one alert under the chips lists \"<name> is too large. Choose a file that’s 250 MB or smaller.\" for each, joined by spaces, and other files still queue.",
       "The alert stays through sending and removing chips, and clears on the next pick, drop or paste, even a paste of plain text.",
@@ -1424,6 +1424,8 @@ export const features = [
     ],
     sources: ["crates/kit/src/body.rs", "crates/assets/overrides/models/file_uploader.js", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/file-uploader.test.mjs", "crates/kit/tests/http.rs"],
+    notes:
+      "The server's half. A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with \"Files must be 250 MB or smaller.\" before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413. The composer's half comes with the composer's attachments.",
   },
   {
     id: "attachments.progress",
@@ -1499,7 +1501,7 @@ export const features = [
     id: "attachments.serving",
     title: "File links",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Links to files, thumbnails and posters are signed, never expire and work without a session; a tampered link is 404 with an empty body.",
       "Only images (PNG, JPEG, GIF, WebP, AVIF, TIFF, BMP, PSD, ICO) and PDFs are ever served inline. Every other type, and every download link, comes as an attachment, and HTML, SVG, XML and similar types are always served as `application/octet-stream`.",
@@ -1508,6 +1510,8 @@ export const features = [
     ],
     sources: ["crates/ember/src/active_storage.rs", "crates/storage/src/content_types.rs", "crates/storage/src/paths.rs", "crates/storage/src/filename.rs", "crates/storage/src/file_server.rs", "crates/ruby/src/rack.rs", "reference/config/initializers/active_storage.rb"],
     upstreamTests: ["crates/ember/src/app/tests.rs", "crates/storage/tests/vectors.rs", "crates/ruby/src/rack.rs", "crates/storage/src/filename.rs"],
+    notes:
+      "Files, not yet thumbnails or posters, which come with previews. Nothing links to a file until messages carry them. A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.",
   },
   {
     id: "attachments.purge",
@@ -1527,7 +1531,7 @@ export const features = [
     id: "attachments.types",
     title: "How files are recognized",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "Any type can be sent, and files of unknown type are `application/octet-stream`.",
       "A file's type comes from its magic bytes (within its first 65,555 bytes), then its declared type, then its extension, each later one winning only when it's a more specific kind of the current pick: a `.docx` beats a zip's magic bytes, and when the bytes say nothing, a declared `image/jpeg` beats a `.png` extension.",
@@ -1536,6 +1540,8 @@ export const features = [
     ],
     sources: ["crates/storage/src/marcel.rs", "crates/storage/src/tables.rs", "crates/storage/src/analyze.rs", "crates/storage/src/blob.rs"],
     upstreamTests: ["crates/storage/tests/vectors.rs", "crates/storage/src/analyze.rs", "crates/ember/src/controllers/messages/tests.rs"],
+    notes:
+      "Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. Other images, AVIF and HEIC among them, record nothing, nor do videos and audio, which ember-rust analyzes with FFmpeg: they record only that they were identified and analyzed. A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.",
   },
   {
     id: "attachments.direct-uploads",
@@ -2463,7 +2469,7 @@ export const features = [
     sources: ["crates/ember/src/controllers.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs"],
     notes:
-      "`/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.",
+      "`/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage, push, files }`, saying whether push notifications are on and an R2 bucket for files is bound, only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.",
   },
   {
     id: "platform.error-pages",

@@ -44,6 +44,11 @@
     { "tag": "v5", "new_sqlite_classes": ["SearchIndex"] }
   ],
 
+  // The files people upload to rooms, which ember-rust keeps on disk. Deploying binds the account's
+  // bucket of this name, and creates it if there's none and the deploy's token may. `wrangler dev`
+  // keeps them on this machine.
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "ember" }],
+
   "vars": {
     // "do-sqlite" keeps each room's messages in its Durable Object's SQLite storage.
     // "d1" writes them to the shared D1 database below instead.

@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 103 ported and 53 partial of 172 features; 10 not started, 6 not applicable.
+**Overall:** 103 ported and 56 partial of 172 features; 7 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 8 | 10 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 0 | 1 | 9 | 1 | 11 |
+| [Attachments](#attachments) | 0 | 4 | 6 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 2 | 1 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **103** | **53** | **10** | **6** | **172** |
+| **Total** | **103** | **56** | **7** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -538,7 +538,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Room icon picker | `rooms.icon-picker` | Ember | ✅ Ported | Web: [icon-picker](apps/web/src/components/workspace/icon-picker.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [room-settings-page](apps/web/src/components/workspace/room-settings-page.test.tsx)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ✅ Ported | Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-settings-page](apps/web/src/components/workspace/room-settings-page.test.tsx), [unsaved-changes](apps/web/src/components/workspace/unsaved-changes.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | 🟡 Partial | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
-| Only members see a room | `rooms.member-only-access` | Campfire | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts) |
+| Only members see a room | `rooms.member-only-access` | Campfire | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts), [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts) |
 | Rooms from before memberships | `rooms.legacy-rooms` | This port | ✅ Ported | Worker: [room-deletion](apps/worker/test/room-deletion.test.ts), [rooms](apps/worker/test/rooms.test.ts), [setup](apps/worker/test/setup.test.ts) |
 
 <details>
@@ -1379,15 +1379,15 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Attach files | `attachments.upload` | Campfire | ⬜ Not started |  |
-| 250 MB file limit | `attachments.size-limit` | Ember | ⬜ Not started |  |
+| 250 MB file limit | `attachments.size-limit` | Ember | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts) |
 | Upload progress | `attachments.progress` | Ember | ⬜ Not started |  |
 | Image, video and file previews | `attachments.previews` | Campfire | ⬜ Not started |  |
 | Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
 | Download and share files | `attachments.download-share` | Ember | ⬜ Not started |  |
-| File links | `attachments.serving` | Campfire | ⬜ Not started |  |
+| File links | `attachments.serving` | Campfire | 🟡 Partial | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Files leave with their messages | `attachments.purge` | Campfire | ⬜ Not started |  |
-| How files are recognized | `attachments.types` | Campfire | ⬜ Not started |  |
+| How files are recognized | `attachments.types` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Direct uploads | `attachments.direct-uploads` | Campfire | ➖ Not applicable |  |
 
 <details>
@@ -1407,11 +1407,13 @@ Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://
 
 ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/models/message/attachment_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/attachment_test.rb)
 
-**250 MB file limit** (`attachments.size-limit`) ⬜
+**250 MB file limit** (`attachments.size-limit`) 🟡
 
 - Files over 250,000,000 bytes aren't queued (exactly 250,000,000 is fine): one alert under the chips lists "&lt;name&gt; is too large. Choose a file that’s 250 MB or smaller." for each, joined by spaces, and other files still queue.
 - The alert stays through sending and removing chips, and clears on the next pick, drop or paste, even a paste of plain text.
 - The server answers 413 as soon as a larger file arrives and saves nothing; the upload's card then says "Files must be 250 MB or smaller."
+
+Note: The server's half. A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with "Files must be 250 MB or smaller." before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413. The composer's half comes with the composer's attachments.
 
 Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs) · [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
@@ -1473,12 +1475,14 @@ Sources: [`crates/assets/overrides/controllers/web_share_controller.js`](https:/
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**File links** (`attachments.serving`) ⬜
+**File links** (`attachments.serving`) 🟡
 
 - Links to files, thumbnails and posters are signed, never expire and work without a session; a tampered link is 404 with an empty body.
 - Only images (PNG, JPEG, GIF, WebP, AVIF, TIFF, BMP, PSD, ICO) and PDFs are ever served inline. Every other type, and every download link, comes as an attachment, and HTML, SVG, XML and similar types are always served as `application/octet-stream`.
 - Files are named after their sanitized name, in ASCII and as UTF-8 `filename*`: the right-to-left override, `% $ | : ; / < > ? * "`, tabs, carriage returns, newlines and backslashes become "-".
 - Byte ranges are honored (206 for one, `multipart/byteranges` for several, 416 with `Content-Range: bytes */<size>` when unsatisfiable), so videos can seek. An `If-Modified-Since` that matches gets 304, and a missing file is 404.
+
+Note: Files, not yet thumbnails or posters, which come with previews. Nothing links to a file until messages carry them. A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.
 
 Sources: [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/storage/src/paths.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/paths.rs) · [`crates/storage/src/filename.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/filename.rs) · [`crates/storage/src/file_server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/file_server.rs) · [`crates/ruby/src/rack.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ruby/src/rack.rs) · [`reference/config/initializers/active_storage.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/active_storage.rb)
 
@@ -1495,12 +1499,14 @@ Sources: [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/
 
 ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
-**How files are recognized** (`attachments.types`) ⬜
+**How files are recognized** (`attachments.types`) 🟡
 
 - Any type can be sent, and files of unknown type are `application/octet-stream`.
 - A file's type comes from its magic bytes (within its first 65,555 bytes), then its declared type, then its extension, each later one winning only when it's a more specific kind of the current pick: a `.docx` beats a zip's magic bytes, and when the bytes say nothing, a declared `image/jpeg` beats a `.png` extension.
 - Images record their width and height, swapped for EXIF orientations that turn them by 90°; an image that can't be read records nothing.
 - Videos record width and height (the height from the display aspect ratio, both swapped when rotated by 90° or 270°), duration and angle; audio records duration, bit rate, sample rate and tags.
+
+Note: Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. Other images, AVIF and HEIC among them, record nothing, nor do videos and audio, which ember-rust analyzes with FFmpeg: they record only that they were identified and analyzed. A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.
 
 Sources: [`crates/storage/src/marcel.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/marcel.rs) · [`crates/storage/src/tables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/tables.rs) · [`crates/storage/src/analyze.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/analyze.rs) · [`crates/storage/src/blob.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/blob.rs)
 
@@ -2402,7 +2408,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
+| Health check | `platform.health` | Campfire | ✅ Ported | Worker: [api](apps/worker/test/api.test.ts), [platform](apps/worker/test/platform.test.ts), [uploads](apps/worker/test/uploads.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Error pages | `platform.error-pages` | Campfire | ✅ Ported | Protocol: [pages](packages/protocol/src/pages.test.ts)<br>Worker: [error-pages](apps/worker/test/error-pages.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Durable Object SQLite or D1 | `platform.storage` | This port | ✅ Ported | Worker: [storage](apps/worker/test/storage.test.ts) |
 | Hibernating rooms | `platform.hibernation` | This port | ✅ Ported | Worker: [realtime](apps/worker/test/realtime.test.ts), [unread](apps/worker/test/unread.test.ts), [viewing](apps/worker/test/viewing.test.ts) |
@@ -2426,7 +2432,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 - `GET /up` answers 200 with exactly `<!DOCTYPE html><html><body style="background-color: green"></body></html>` as `text/html; charset=utf-8`. `/up.json`, or `/up` with `Accept: application/json`, answers `{"status":"up","timestamp":…}` with the time to the second.
 - It skips sign-in, ban and browser checks, and carries no version headers.
 
-Note: `/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage }` only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.
+Note: `/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage, push, files }`, saying whether push notifications are on and an R2 bucket for files is bound, only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.
 
 Sources: [`crates/ember/src/controllers.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers.rs)
 

@@ -6,19 +6,19 @@ choices to adopt as features land.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts, recent revocations and deletions, and the changes the Workspace and
-the search index have yet to hear of live in that room's Durable Object SQLite storage, and the
-account, people, their sessions, browsers' push subscriptions, bots' webhooks, bans and recent
-searches, rooms, memberships and the outbox of revocations, purges and reindexes in the Workspace
-object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
+each room's messages, boosts, recent revocations and deletions, its files' records, and the changes
+the Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
+storage, and the account, people, their sessions, browsers' push subscriptions, bots' webhooks, bans
+and recent searches, rooms, memberships and the outbox of revocations, purges and reindexes in the
+Workspace object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
 `apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
 `apps/worker/src/db.ts`. The search index is the exception: it keeps its tables in the `SearchIndex`
 object's own SQLite storage on either backend, since D1 can't export a database that holds a virtual
-table, as its FTS5 table is.
+table, as its FTS5 table is. The files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index and its recent deletions, and
+room's change log, its log of messages for the search index, its recent deletions and its files, and
 `workspace` for the workspace-wide tables (the account, people, sessions, push subscriptions,
 webhooks, bans, recent searches, rooms, memberships, stars, pending revocations, purges and
 reindexes, and the rooms deleted). On DO SQLite, an object applies only its own scope's files, so a
@@ -26,8 +26,8 @@ room's storage never holds workspace tables. Wrangler applies every file to D1, 
 share one database and each room's rows carry its `room_id`. The search index's schema is in
 `apps/worker/search-migrations/`, which only the index applies, listed in `SEARCH_MIGRATIONS`.
 
-So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages` and
-`message_deletions`, the Workspace keeps `accounts`, `users`, `sessions`, `push_subscriptions`,
+So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
+`message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `push_subscriptions`,
 `webhooks`, `bans`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`,
 `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search index keeps
 `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also names its
@@ -398,6 +398,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
   most one webhook, so `webhooks` is keyed by the bot, where ember-rust's numbers its rows and
   indexes their `user_id`, and a bot has a row only while it has a URL to deliver to, where
   ember-rust saves an empty one for a bot added without a URL, whose deliveries fail.
+- **A file's record lives in its room, and R2 keeps what serving it needs.** ember-rust keeps every
+  file in Active Storage's `active_storage_blobs`, numbered, with its key under a unique index and an
+  MD5 checksum, and finds a blob by its signed id to serve it. Ours keeps the room's files in its own
+  `blobs` (room migration 0028), keyed by Active Storage's 28-character key, which R2 names the file
+  by too (`files/<key>`). R2 keeps the file's type and name with it, and its address is signed with
+  its key, so serving a file reads nothing but R2. `metadata` is the JSON Active Storage writes, and
+  R2's ETags stand in for the checksum. A file goes up in parts (`apps/worker/src/files/uploads.ts`),
+  so the row also keeps R2's multipart upload and the parts it has, as JSON, until `completed_at` says
+  R2 has put them together. Deleting a room deletes its rows; its files in R2 go with plan 7.6.
 
 ## Writing SQL here
 

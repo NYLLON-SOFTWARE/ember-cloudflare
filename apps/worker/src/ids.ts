@@ -13,15 +13,23 @@ export function sortableId(now = Date.now()): string {
 }
 
 const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-/** `length` random letters and digits, as Ruby's `SecureRandom.alphanumeric` makes them, each as likely as the next. */
-export function alphanumeric(length: number): string {
+/** `length` random characters of `alphabet`, each as likely as the next. */
+function random(alphabet: string, length: number): string {
+  // Bytes from the largest multiple of the alphabet's size up are thrown away, so none is likelier.
+  const limit = 256 - (256 % alphabet.length);
   let text = "";
   while (text.length < length) {
     for (const byte of crypto.getRandomValues(new Uint8Array(length))) {
-      // 248 is the largest multiple of 62 below 256, so every character is as likely as the next.
-      if (byte < 248 && text.length < length) text += ALPHANUMERICS[byte % ALPHANUMERICS.length];
+      if (byte < limit && text.length < length) text += alphabet[byte % alphabet.length];
     }
   }
   return text;
 }
+
+/** `length` random letters and digits, as Ruby's `SecureRandom.alphanumeric` makes them. */
+export const alphanumeric = (length: number) => random(ALPHANUMERICS, length);
+
+/** `length` random lowercase letters and digits, as Rails' `SecureRandom.base36` makes Active Storage's keys. */
+export const base36 = (length: number) => random(BASE36, length);
