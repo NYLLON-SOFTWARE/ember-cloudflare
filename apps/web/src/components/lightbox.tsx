@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Download, Remove, Share } from "@/components/icons/campfire";
-import { canShare, shareFile } from "@/lib/share";
+import { ShareButton } from "@/components/share-button";
+import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
 // ember-rust's image viewer (crates/views/templates/layouts/_lightbox.html), opened and cleared as
@@ -54,11 +55,11 @@ export function Lightbox({ src, alt = "", downloadUrl = src ?? undefined, filena
         <Download className="w-[1.3em]" />
         <span className="sr-only">Download file</span>
       </a>
-      {canShare() && (
-        <button type="button" onClick={() => downloadUrl && void shareFile(downloadUrl)} className={cn(BUTTON, "self-start justify-self-start")}>
+      {canShare() && downloadUrl && (
+        <ShareButton url={downloadUrl} className={cn(BUTTON, "self-start justify-self-start")}>
           <Share className="w-[1.3em]" />
           <span className="sr-only">Share file</span>
-        </button>
+        </ShareButton>
       )}
     </dialog>,
     document.body,

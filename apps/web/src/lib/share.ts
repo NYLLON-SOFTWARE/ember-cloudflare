@@ -6,16 +6,55 @@
 export const canShare = () => "canShare" in navigator;
 
 /**
- * Offers the file at `url` to the system's share sheet, titled `title`, with an empty text, and named
- * `Ember_<random>` with its type's extension. Closing the sheet rejects, which needs no answer.
+ * How sharing a file went: the sheet opened, or was asked to; the file came too late for the click that
+ * asked for it, so the next Share of it opens the sheet at once; or the file couldn't be had.
  */
-export async function shareFile(url: string, title = "") {
+export type Shared = "opened" | "ready" | "failed";
+
+/** How long a file that came too late for its click is kept for the next Share of it. */
+const KEPT_MS = 60_000;
+
+/** The file that came too late for its click, with the address it came from. */
+let ready: { url: string; file: File } | null = null;
+
+/**
+ * Offers the file at `url` to the system's share sheet, titled `title`, with an empty text, and named
+ * `Ember_<random>` with its type's extension. Closing the sheet rejects, which needs no answer. A browser
+ * opens the sheet only for a few seconds after a click, which downloading a large file can outlast, so a
+ * file that comes too late is kept for the next Share of it, where ember-rust's tries again from the start
+ * each time. An error page isn't shared as the file, as ember-rust's would.
+ */
+export async function shareFile(url: string, title = ""): Promise<Shared> {
+  const file = ready?.url === url ? ready.file : await download(url);
+  ready = null;
+  if (!file) return "failed";
   try {
-    const blob = await (await fetch(url)).blob();
-    const name = `Ember_${Math.random().toString(36).slice(2)}.${extensionOf(blob.type)}`;
-    await navigator.share({ title, text: "", files: [new File([blob], name, { type: blob.type })] });
+    await navigator.share({ title, text: "", files: [file] });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") return keep(url, file);
+  }
+  return "opened";
+}
+
+/** Keeps `file` for the next Share of `url`, for a minute. */
+function keep(url: string, file: File): Shared {
+  const kept = { url, file };
+  ready = kept;
+  setTimeout(() => {
+    if (ready === kept) ready = null;
+  }, KEPT_MS);
+  return "ready";
+}
+
+/** The file at `url`, named as it's shared, or null if it couldn't be had. */
+async function download(url: string): Promise<File | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return new File([blob], `Ember_${Math.random().toString(36).slice(2)}.${extensionOf(blob.type)}`, { type: blob.type });
   } catch {
-    // Nothing to show.
+    return null;
   }
 }
 

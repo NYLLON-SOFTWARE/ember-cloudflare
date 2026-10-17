@@ -2,11 +2,12 @@ import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useL
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
 import { Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply, Share } from "@/components/icons/lucide";
+import { ShareButton } from "@/components/share-button";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath } from "@/hooks/use-route";
 import { replyQuote } from "@/lib/messages";
-import { canShare, shareFile } from "@/lib/share";
+import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { UNKNOWN_PERSON } from "./message-body";
 
@@ -387,9 +388,9 @@ function FileActions({ file }: { file: StoredFile }) {
         <Download />
       </a>
       {canShare() && (
-        <button type="button" title="Share" aria-label="Share" className={ACTION} onClick={() => void shareFile(file.url, file.name)}>
+        <ShareButton url={file.url} sharedTitle={file.name} title="Share" aria-label="Share" className={ACTION}>
           <Share />
-        </button>
+        </ShareButton>
       )}
     </>
   );

@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
@@ -69,11 +70,13 @@ function show(m: Message | PendingMessage, { me = ada, administrator = false, th
     setConnections = setConnected;
     setRefusals = setRefused;
     return (
-      <RoomConnection value={connections}>
-        <RefusedUnboosts value={refusals}>
-          <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
-        </RefusedUnboosts>
-      </RoomConnection>
+      <FlashProvider workspace>
+        <RoomConnection value={connections}>
+          <RefusedUnboosts value={refusals}>
+            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
+          </RefusedUnboosts>
+        </RoomConnection>
+      </FlashProvider>
     );
   }
   const { container } = render(<Room />);
@@ -118,7 +121,7 @@ afterEach(() => vi.unstubAllGlobals());
 function sharing() {
   const share = vi.fn().mockRejectedValue(new DOMException("Closed", "AbortError"));
   Object.defineProperties(navigator, { canShare: { value: () => true, configurable: true }, share: { value: share, configurable: true } });
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ blob: async () => new Blob(["%PDF-"], { type: "application/pdf" }) }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["%PDF-"], { type: "application/pdf" }) }));
   onTestFinished(() => {
     delete (navigator as Partial<Navigator>).canShare;
     delete (navigator as Partial<Navigator>).share;

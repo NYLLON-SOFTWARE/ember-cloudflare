@@ -45,6 +45,8 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
       <a
         href={file.url}
         onClick={(event) => {
+          // A click with a modifier key or another button is the browser's, opening the file elsewhere, where ember-rust's opens the viewer.
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
           setViewing(true);
         }}

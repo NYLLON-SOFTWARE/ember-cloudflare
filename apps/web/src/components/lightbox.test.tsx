@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FlashProvider } from "./flash";
 import { Lightbox } from "./lightbox";
 
 const QR_CODE = "/qr_code/aHR0cDovL3gvP2E=";
@@ -58,11 +59,15 @@ describe(feature("attachments.lightbox"), () => {
 
   it("shares the file, named Ember_ and something random, with an empty title and text", async () => {
     const share = vi.fn().mockRejectedValue(new DOMException("Closed", "AbortError"));
-    const fetch = vi.fn().mockResolvedValue({ blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml; charset=utf-8" }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml; charset=utf-8" }) });
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
     vi.stubGlobal("fetch", fetch);
-    render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
+    render(
+      <FlashProvider>
+        <Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />
+      </FlashProvider>,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Share file" }));
     await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
@@ -77,12 +82,16 @@ describe(feature("attachments.lightbox"), () => {
 
   it("takes Download and Share from the file's download address where it's given, as a message's picture gives it, and names the image", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
-    const fetch = vi.fn().mockResolvedValue({ blob: async () => new Blob(["moon"], { type: "image/jpeg" }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["moon"], { type: "image/jpeg" }) });
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
     vi.stubGlobal("fetch", fetch);
     const moon = "/files/k1/s1/moon.jpg";
-    render(<Lightbox src={moon} alt="moon.jpg" downloadUrl={`${moon}?disposition=attachment`} onClose={() => {}} />);
+    render(
+      <FlashProvider>
+        <Lightbox src={moon} alt="moon.jpg" downloadUrl={`${moon}?disposition=attachment`} onClose={() => {}} />
+      </FlashProvider>,
+    );
 
     expect(screen.getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", moon);
     const download = screen.getByRole("link", { name: "Download file" });

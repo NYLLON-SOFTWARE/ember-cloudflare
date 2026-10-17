@@ -1,6 +1,7 @@
 import type { StoredFile } from "@ember/protocol";
 import { CommonFileText, Download, Share } from "@/components/icons/campfire";
-import { canShare, shareFile } from "@/lib/share";
+import { ShareButton } from "@/components/share-button";
+import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
 /** Campfire's `.message__action-btn`, as a 32px circle, or 44px for fingers. */
@@ -24,10 +25,10 @@ export function FileCard({ file }: { file: StoredFile }) {
         <span className="sr-only">Download {file.name}</span>
       </a>
       {canShare() && (
-        <button type="button" onClick={() => void shareFile(file.downloadUrl)} className={ACTION}>
+        <ShareButton url={file.downloadUrl} className={ACTION}>
           <Share className="size-[1.3em]" />
           <span className="sr-only">Share {file.name}</span>
-        </button>
+        </ShareButton>
       )}
     </div>
   );
