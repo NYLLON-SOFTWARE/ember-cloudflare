@@ -19,3 +19,14 @@ encryption of it for those keys, and the headers and VAPID token it sends at a f
 with the reference test keys in ember-rust's `parity/.env.reference`.
 
 `../web-push.test.ts` checks that a push is written, encrypted and signed as the gem does it.
+
+# Recorded webhook answers
+
+`webhook_cases.json` and `webhook_expected.json` are ember-rust's files of those names in the same
+directory, at the same commit, copied unmodified. The first describes 19 answers a bot's webhook can
+give: its status, headers and body, gzipped or late. The second is what the Rails app's
+`Webhook#deliver` made of each, recorded by ember-rust's `testdata/oracle/webhook.rb`: the request it
+sent, the webhook's status, and the text or file the bot said back, or what it raised.
+
+`../webhook-replies.test.ts` replays them. Where this port answers differently on purpose, it says so
+there.

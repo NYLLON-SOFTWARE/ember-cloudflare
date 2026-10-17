@@ -6,7 +6,7 @@ import { JobQueue } from "../src/at-once";
 import { postWebhook, WebhookError, webhookPayload } from "../src/bots/webhooks";
 import type { RoomEvent } from "../src/room-log";
 import { MESSAGE_WEBHOOKS, type MessageWebhook } from "../src/workspace-store";
-import { api, connect, cookieOf, createRoom, direct, freshDeploy, post, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, connect, cookieOf, createRoom, direct, freshDeploy, post, pushBrowser, settle, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Which bots' webhooks a new message is delivered to, and how, as Campfire's `Webhook#deliver` does
 // (reference/app/models/webhook.rb, test/models/webhook_test.rb) and ember-rust's integrations/webhook.rs
@@ -60,10 +60,10 @@ interface Delivery {
 }
 
 /**
- * Stands in for every webhook, answering each request with `answer`, and keeps the requests, in the
- * order they came.
+ * Stands in for every webhook, answering each request with `answer`, by default an empty 204, which
+ * says nothing back, and keeps the requests, in the order they came.
  */
-function bots(answer: (delivery: Delivery) => Promise<Response> = async () => new Response("ok", { headers: { "Content-Type": "text/plain" } })) {
+function bots(answer: (delivery: Delivery) => Promise<Response> = async () => new Response(null, { status: 204 })) {
   const delivered: Delivery[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const delivery = { url: input instanceof Request ? input.url : String(input), init: init! };
@@ -90,6 +90,9 @@ const message = (author: Pick<User, "id">, ...mentioned: Array<Pick<User, "id">>
   at: new Date().toISOString(),
   message: { id: crypto.randomUUID(), plainText: "Hey", mentionIds: mentioned.map(({ id }) => id) },
 });
+
+/** A bot's reply to a delivery, as its room's log sends it to the Workspace, mentioning `mentioned`. */
+const reply = (bot: Pick<User, "id">, ...mentioned: Array<Pick<User, "id">>): RoomEvent => ({ ...message(bot, ...mentioned), kind: "reply" });
 
 /** What the Workspace answers room `room` sending it `events`: the bots' webhooks to deliver to. */
 const webhooksFor = async (room: RoomId, events: RoomEvent[]): Promise<MessageWebhook[]> => (await workspaceStub().applyRoomEvents(room, events, [])).webhooks;
@@ -248,14 +251,14 @@ describe(feature("bots.webhook-delivery"), () => {
       return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.com/" } });
     }) as typeof fetch;
 
-    expect(await postWebhook("http://bots.example.com:8080/hook?x=1#here", "{}", 7_000, send)).toEqual({ status: 302 });
+    expect(await postWebhook("http://bots.example.com:8080/hook?x=1#here", "{}", { send })).toEqual({ status: 302, reply: null });
     expect(sent).toEqual(["POST http://bots.example.com:8080/hook?x=1#here manual"]);
   });
 
   it("sends nothing to a URL that isn't an http or https URL with a host", async () => {
     const send = vi.fn() as unknown as typeof fetch;
     for (const url of ["", "ftp://bots.example.com/hook", "bots.example.com/hook", "http://", "mailto:bots@example.com", "http://bots.example.com:99999/"]) {
-      await expect(postWebhook(url, "{}", 7_000, send)).rejects.toThrow(new WebhookError("bad URI"));
+      await expect(postWebhook(url, "{}", { send })).rejects.toThrow(new WebhookError("bad URI"));
     }
     expect(send).not.toHaveBeenCalled();
   });
@@ -266,13 +269,81 @@ describe(feature("bots.webhook-delivery"), () => {
       throw new TypeError(`Fetch failed: ${url} refused the connection`);
     }) as typeof fetch;
 
-    await expect(postWebhook(url, "{}", 7_000, send)).rejects.toThrow(new WebhookError("TypeError: Fetch failed: [FILTERED] refused the connection"));
+    await expect(postWebhook(url, "{}", { send })).rejects.toThrow(new WebhookError("TypeError: Fetch failed: [FILTERED] refused the connection"));
+  });
+});
+
+describe(feature("bots.webhook-reply"), () => {
+  it("posts what a bot says back as its message, which the room shows at once, as Campfire's receive_text_reply_to does", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    bots(async () => new Response("<b>Hi</b> & bye", { headers: { "Content-Type": "text/html; charset=utf-8" } }));
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    // The text is the message's rich text, as a bot's post is.
+    expect((await client.next("message.created")).message).toMatchObject({ creator: { id: bot.id, name: "Build Bot" }, body: "<b>Hi</b> &amp; bye", plainText: "Hi & bye" });
+    await vi.waitFor(() => expect(logs).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} performed: 200`));
+    client.close();
   });
 
-  it("gives a webhook 7 seconds to answer, as Campfire's ENDPOINT_TIMEOUT does, after which it's said to have timed out", async () => {
-    const send = ((_input: URL, init?: RequestInit) =>
-      new Promise((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))) as typeof fetch;
-    expect(await postWebhook("https://bots.example.com/hook", "{}", 20, send)).toEqual({ timedOutAfter: 0.02 });
+  it("marks a reply's room unread and pushes it as any new message, but delivers it to no webhook, though it's in a DM with bots and mentions one", async () => {
+    const { ada } = await setUp();
+    const [builder, deployer] = [await addBot(ada, "Build Bot", "https://bots.example.com/build"), await addBot(ada, "Deploy Bot", "https://bots.example.com/deploy")];
+    const room = await direct(ada, asSession(builder), asSession(deployer));
+    const { p256dh, auth } = await pushBrowser();
+    const endpoint = "https://fcm.googleapis.com/fcm/send/ada";
+    const subscribed = await api("/api/push-subscriptions", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ endpoint, p256dhKey: p256dh, authKey: auth }) });
+    expect(subscribed.status).toBe(204);
+
+    const { pushes, webhooks } = await workspaceStub().applyRoomEvents(room.id, [reply(builder, deployer)], []);
+    expect(webhooks).toEqual([]);
+    expect(pushes.flatMap(({ deliveries }) => deliveries.map((delivery) => delivery.endpoint))).toEqual([endpoint]);
+    const marked = await workspaceSql("SELECT user_id FROM memberships WHERE room_id = ? AND unread_at IS NOT NULL", room.id);
+    expect(marked).toContainEqual({ user_id: ada.user.id });
+    expect(marked).not.toContainEqual({ user_id: builder.id });
+  });
+
+  it("posts a bot's reply though the bot has been deleted since, which took it out of the room", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    // The webhook answers once the test lets it, waiting in the room's own I/O context.
+    let answering = false;
+    const delivered = bots(async () => {
+      while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response("Still here", { headers: { "Content-Type": "text/plain" } });
+    });
+    const client = await connect(general, ada);
+
+    await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(delivered).toHaveLength(1));
+    await deleteBot(ada, bot);
+    expect(await workspaceSql("SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?", general, bot.id)).toEqual([]);
+    answering = true;
+    expect((await client.next("message.created")).message).toMatchObject({ creator: { id: bot.id, name: "Build Bot" }, plainText: "Still here" });
+    client.close();
+  });
+
+  it("posts nothing for a reply it can't post, logging why: a file, until bots can post files, or text with nothing in it", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    bots(async (delivery) =>
+      payloadOf(delivery).message.body.plain === "One"
+        ? new Response(new Uint8Array([0xff, 0xd8, 0xff]), { headers: { "Content-Type": "image/jpeg" } })
+        : new Response(" <p> </p> ", { headers: { "Content-Type": "text/html" } }),
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const [first, second] = [await post(client, `<p>One ${mention(bot)}</p>`), await post(client, `<p>Two ${mention(bot)}</p>`)];
+    await vi.waitFor(() => {
+      expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${first.id} to bot ${bot.id} failed:`, "its reply, attachment.jpeg (image/jpeg), is a file, which bots can't post yet");
+      expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${second.id} to bot ${bot.id} failed:`, "its reply wasn't posted: Your message is empty.");
+    });
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    client.close();
   });
 });
 

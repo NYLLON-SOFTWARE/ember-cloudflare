@@ -1,5 +1,6 @@
-import { createServer, type IncomingHttpHeaders } from "node:http";
+import { createServer, type IncomingHttpHeaders, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import { feature } from "@ember/parity";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { ADMINISTRATOR, editorField, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -51,8 +52,11 @@ interface Received {
   body: string;
 }
 
-/** Listens on this machine as a bot's webhook, answering each request with an empty 204, as a bot with nothing to say does. */
-async function listenAsWebhook(): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
+/**
+ * Listens on this machine as a bot's webhook, answering each request with `answer`, by default an empty
+ * 204, as a bot with nothing to say does.
+ */
+async function listenAsWebhook(answer = (response: ServerResponse) => response.writeHead(204).end()): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
   const received: Received[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -60,12 +64,27 @@ async function listenAsWebhook(): Promise<{ url: string; received: Received[]; c
     request.on("data", (chunk: string) => (body += chunk));
     request.on("end", () => {
       received.push({ method: request.method!, path: request.url!, headers: request.headers, body });
-      response.writeHead(204).end();
+      answer(response);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return { url: `http://127.0.0.1:${port}/hooks/build?team=ops`, received, close: () => new Promise((resolve) => server.close(() => resolve())) };
+}
+
+/** Writes `text` in the room's composer, then mentions the bot `name` by `tag`, its name's own part, and sends it. */
+async function mentionBot(page: Page, text: string, name: string, tag: string) {
+  const composer = editorField(page, "Write a message");
+  await composer.pressSequentially(text);
+  await composer.pressSequentially("@");
+  await expect(page.getByRole("listbox")).toBeVisible();
+  // Waits for the people listed for the whole tag, as an answer for less of it may come later.
+  const listed = page.waitForResponse((response) => new URL(response.url()).searchParams.get("filter") === tag);
+  await composer.pressSequentially(tag);
+  await listed;
+  await expect(page.getByRole("listbox").getByRole("option")).toHaveText([name]);
+  await composer.press("Tab");
+  await composer.press("Enter");
 }
 
 /** As `curl -d` sends a body. */
@@ -199,17 +218,7 @@ test.describe(feature("bots.webhook-delivery"), () => {
       const tag = crypto.randomUUID().slice(0, 8);
       const name = `Build Bot ${tag}`;
       const url = await openGeneralFor(page, name, webhook.url);
-      const composer = editorField(page, "Write a message");
-      await composer.pressSequentially("Ship it & tell ");
-      await composer.pressSequentially("@");
-      await expect(page.getByRole("listbox")).toBeVisible();
-      // Waits for the people listed for the whole tag, as an answer for less of it may come later.
-      const listed = page.waitForResponse((response) => new URL(response.url()).searchParams.get("filter") === tag);
-      await composer.pressSequentially(tag);
-      await listed;
-      await expect(page.getByRole("listbox").getByRole("option")).toHaveText([name]);
-      await composer.press("Tab");
-      await composer.press("Enter");
+      await mentionBot(page, "Ship it & tell ", name, tag);
       const sent = page.getByRole("article").filter({ hasText: `Ship it & tell ${name}` });
       await expect(sent).toBeVisible();
 
@@ -226,6 +235,25 @@ test.describe(feature("bots.webhook-delivery"), () => {
       expect(payload.message.path).toBe(`${room.replace(/\/[^/]+\/messages$/, "")}/@${payload.message.id}`);
       // The stored rich text, the mention an attachment as Campfire keeps it.
       expect(payload.message.body.html).toMatch(/^<p>Ship it &amp; tell <action-text-attachment [^>]*content-type="application\/vnd\.campfire\.mention"/);
+    } finally {
+      await webhook.close();
+    }
+  });
+});
+
+test.describe(feature("bots.webhook-reply"), () => {
+  test("what a bot's webhook answers, gzipped, shows in the room as the bot's message", async ({ page }) => {
+    const webhook = await listenAsWebhook((response) => response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Content-Encoding": "gzip" }).end(gzipSync("Zipped reply")));
+    try {
+      const tag = crypto.randomUUID().slice(0, 8);
+      const name = `Build Bot ${tag}`;
+      await openGeneralFor(page, name, webhook.url);
+      await mentionBot(page, "Ship it ", name, tag);
+
+      const reply = page.getByRole("article").filter({ hasText: "Zipped reply" });
+      await expect(reply).toBeVisible();
+      await expect(reply).toContainText(name);
+      expect(webhook.received).toHaveLength(1);
     } finally {
       await webhook.close();
     }

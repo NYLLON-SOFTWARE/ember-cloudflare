@@ -654,6 +654,9 @@ const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): Me
     url: row.url,
   }));
 
+/** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
+const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
+
 /** Records that the Workspace has applied room ?2's events up to ?1. */
 const APPLIED = `UPDATE rooms SET applied_seq = ?1 WHERE id = ?2 AND applied_seq < ?1`;
 
@@ -1588,21 +1591,23 @@ export class WorkspaceStore {
    * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
    * when a message has come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`,
    * it answers each new message's pushes too, found just after its marks, so that a push's badge counts
-   * them and none of the events after it. It answers the bots' webhooks each new message is delivered to.
+   * them and none of the events after it. It answers the bots' webhooks each new message is delivered to,
+   * but for a bot's reply to one, which reaches the room as any message does but goes to no webhook.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
-    const message = events.findLast((event) => event.kind === "message");
+    const message = events.findLast(isNewMessage);
     // When the latest message came, which a clock behind can make earlier than one logged before it.
-    const messageAt = message && events.reduce((latest, { kind, at }) => (kind === "message" && at > latest ? at : latest), message.at);
+    const messageAt = message && events.reduce((latest, event) => (isNewMessage(event) && event.at > latest ? event.at : latest), message.at);
     const statements: Statement[] = [];
     const applied = events.map((event) => {
       const { seq, kind, userId, at } = event;
-      const marks = statements.push(kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
+      const marks = statements.push(isNewMessage(event) ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1 : null;
-      const webhooks = mentions === null ? null : statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1;
+      // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it.
+      const webhooks = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1 : null;
       return { event, marks, pushes, webhooks };
     });
     const told = statements.length;
@@ -1610,7 +1615,7 @@ export class WorkspaceStore {
     const results = await this.db.batch(statements);
     const marks = new Map<UserId, boolean>();
     for (const { event, marks: at } of applied) {
-      for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, event.kind === "message");
+      for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, isNewMessage(event));
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
     const webhooks = applied.flatMap(({ event, webhooks: at }) => (at === null ? [] : messageWebhooks(event, results[at] as WebhookRow[])));
