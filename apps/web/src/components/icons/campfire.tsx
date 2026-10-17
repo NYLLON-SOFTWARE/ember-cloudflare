@@ -10,6 +10,7 @@ import attachment from "./campfire/attachment.svg";
 import boost from "./campfire/boost.svg";
 import bot from "./campfire/bot.svg";
 import broom from "./campfire/broom.svg";
+import camera from "./campfire/camera.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
 import commonFileText from "./campfire/common-file-text.svg";
@@ -118,6 +119,10 @@ export function Bot(props: CampfireIconProps) {
 
 export function Broom(props: CampfireIconProps) {
   return <CampfireIcon src={broom} {...props} />;
+}
+
+export function Camera(props: CampfireIconProps) {
+  return <CampfireIcon src={camera} {...props} />;
 }
 
 export function Cancel(props: CampfireIconProps) {

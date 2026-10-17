@@ -1,4 +1,5 @@
 import {
+  AVATAR_PATH,
   roomSocketQuery,
   type Account,
   type AccountChanges,
@@ -76,26 +77,53 @@ async function dataOf<T>(response: Response): Promise<T> {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body) headers.set("Content-Type", "application/json");
+  // A form says its own type, with the boundary between its parts.
+  if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   return dataOf<T>(await fetch(path, { ...init, headers }));
 }
+
+/** A photo chosen for an avatar, with the variant made of it, or null where none could be made (`avatarVariantOf`). */
+export interface ChosenPhoto {
+  file: File;
+  variant: Blob | null;
+}
+
+/**
+ * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields`,
+ * those of a sign-up form, as JSON in its `user`, as ember-rust's forms send `user[avatar]` with the
+ * rest of `user`.
+ */
+function photoForm({ file, variant }: ChosenPhoto, fields?: SignUp): FormData {
+  const form = new FormData();
+  if (fields) form.set("user", JSON.stringify(fields));
+  form.set("avatar", file);
+  if (variant) form.set("variant", variant, "variant");
+  return form;
+}
+
+/** What a sign-up form sends: its fields as JSON, or with the photo chosen, a form. */
+const signUpBody = (fields: SignUp, photo: ChosenPhoto | null) => (photo ? photoForm(photo, fields) : JSON.stringify(fields));
 
 /** Whether Ember is set up yet, and who this browser is signed in as. */
 export async function fetchBootstrap(): Promise<Bootstrap> {
   return request<Bootstrap>("/api/bootstrap");
 }
 
-/** Sets up the workspace with its first administrator, and signs this browser in as them. */
-export async function setUpWorkspace(administrator: SignUp): Promise<NewWorkspace> {
-  return request<NewWorkspace>("/api/first_run", { method: "POST", body: JSON.stringify(administrator) });
+/**
+ * Sets up the workspace with its first administrator, with the photo they chose, if any, and signs this
+ * browser in as them. A photo that's refused fails with an ApiError for the `avatar` field.
+ */
+export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null): Promise<NewWorkspace> {
+  return request<NewWorkspace>("/api/first_run", { method: "POST", body: signUpBody(administrator, photo) });
 }
 
 /**
- * Joins the workspace with the code from its join link, as someone new, and signs this browser in as
- * them. The code is the link's own path segment, which needs no escaping.
+ * Joins the workspace with the code from its join link, as someone new, with the photo they chose, if
+ * any, and signs this browser in as them. The code is the link's own path segment, which needs no
+ * escaping. A photo that's refused fails with an ApiError for the `avatar` field.
  */
-export async function joinWorkspace(joinCode: string, person: SignUp): Promise<Me> {
-  return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(person) })).user;
+export async function joinWorkspace(joinCode: string, person: SignUp, photo: ChosenPhoto | null = null): Promise<Me> {
+  return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: signUpBody(person, photo) })).user;
 }
 
 /** Signs in with an email address and password. */
@@ -169,6 +197,19 @@ export async function fetchProfile(): Promise<ProfileAnswer> {
  */
 export async function changeProfile(changes: ProfileChanges): Promise<ProfileAnswer> {
   return request<ProfileAnswer>("/api/users/me/profile", { method: "PATCH", body: JSON.stringify(changes) });
+}
+
+/**
+ * Makes `photo` your avatar, answering your profile as it is then, with a new sign-in link. Fails with a
+ * 413 ApiError for a photo over 16 MB, and a 503 where Ember isn't set up to store files.
+ */
+export async function changeAvatar(photo: ChosenPhoto): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>(AVATAR_PATH, { method: "PUT", body: photoForm(photo) });
+}
+
+/** Takes away your avatar, so your initials show, answering your profile as it is then. */
+export async function removeAvatar(): Promise<ProfileAnswer> {
+  return request<ProfileAnswer>(AVATAR_PATH, { method: "DELETE" });
 }
 
 /** Workspace settings: the workspace, its join code, and whether this person can change it. */

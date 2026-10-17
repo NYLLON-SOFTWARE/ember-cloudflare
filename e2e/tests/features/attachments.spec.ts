@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { feature } from "@ember/parity";
 import { uploadPartPath, uploadsPath, type Message, type Upload } from "@ember/protocol";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { cookieHeader } from "../../fixtures";
+import { cookieHeader, drawnPicture } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 /**
@@ -19,23 +19,6 @@ async function upload(request: APIRequestContext, member: Member, roomId: string
   const finished = await request.put(uploadPartPath(roomId, id, 1), { data: content, headers });
   expect(finished.status(), await finished.text()).toBe(201);
   return (await finished.json()) as Message;
-}
-
-/** A picture `width` by `height`, drawn in `member`'s browser as a PNG, as Playwright picks it. */
-async function picture(member: Member, name: string, width: number, height: number) {
-  const bytes = await member.page.evaluate(
-    async ([width, height]) => {
-      const canvas = new OffscreenCanvas(width, height);
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#c33";
-      context.fillRect(0, 0, width, height);
-      context.fillStyle = "#33c";
-      context.fillRect(0, 0, width / 2, height / 2);
-      return [...new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer())];
-    },
-    [width, height] as const,
-  );
-  return { name, mimeType: "image/png", buffer: Buffer.from(bytes) };
 }
 
 /** A second of video, 320 by 180, as a WebM file that Chromium plays. */
@@ -158,7 +141,7 @@ test.describe(feature("attachments.previews"), () => {
   test("shows a picture by the thumbnail its uploader's browser makes, to everyone, in a box half its size up to 480px wide", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
-    await attachFiles(ada).setInputFiles(await picture(ada, "mural.png", 2400, 1600));
+    await attachFiles(ada).setInputFiles(await drawnPicture(ada.page, "mural.png", 2400, 1600));
     await ada.page.getByRole("button", { name: "Send Message" }).click();
 
     for (const member of [ada, grace]) {
@@ -197,7 +180,7 @@ test.describe(feature("attachments.previews"), () => {
 
   test("shows a picture without a thumbnail, as a bot's, as itself, and a file the browser couldn't make one of as its card", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
-    const { buffer } = await picture(ada, "dot.png", 40, 20);
+    const { buffer } = await drawnPicture(ada.page, "dot.png", 40, 20);
     const { attachment } = await upload(request, ada, rooms.general.id, "dot.png", buffer, "image/png");
     const dot = ada.page.getByRole("img", { name: "dot.png" });
     await expect(dot).toHaveAttribute("src", attachment!.url);
@@ -299,7 +282,7 @@ test.describe(feature("attachments.download-share"), () => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { beforeOpen: canShare });
     await upload(request, ada, rooms.general.id, "Q3 report.txt", "Up and to the right");
-    const { buffer } = await picture(ada, "dot.png", 40, 20);
+    const { buffer } = await drawnPicture(ada.page, "dot.png", 40, 20);
     await upload(request, ada, rooms.general.id, "dot.png", buffer, "image/png");
     const report = { type: "text/plain", size: "Up and to the right".length };
 
@@ -322,7 +305,7 @@ test.describe(feature("attachments.lightbox"), () => {
   test("opens a picture's original in the image viewer, which downloads it, and closes it with Escape", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
-    await attachFiles(ada).setInputFiles(await picture(ada, "mural.png", 2400, 1600));
+    await attachFiles(ada).setInputFiles(await drawnPicture(ada.page, "mural.png", 2400, 1600));
     await ada.page.getByRole("button", { name: "Send Message" }).click();
 
     const link = grace.page.getByRole("link", { name: "mural.png" });
@@ -335,7 +318,7 @@ test.describe(feature("attachments.lightbox"), () => {
 
     const [download] = await Promise.all([grace.page.waitForEvent("download"), viewer.getByRole("link", { name: "Download file" }).click()]);
     expect(download.suggestedFilename()).toBe("mural.png");
-    expect((await readFile(await download.path())).length).toBe((await picture(ada, "mural.png", 2400, 1600)).buffer.length);
+    expect((await readFile(await download.path())).length).toBe((await drawnPicture(ada.page, "mural.png", 2400, 1600)).buffer.length);
     await expect(viewer).toBeVisible();
 
     await grace.page.keyboard.press("Escape");

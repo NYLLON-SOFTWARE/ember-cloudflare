@@ -7,7 +7,7 @@ import { MAX_ID_LENGTH } from "./pages.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
-export { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
+export { AVATAR_BOX, AVATAR_PATH, AVATAR_TOO_LARGE, avatarColor, avatarSvg, crc32, initials, MAX_AVATAR_SIZE } from "./avatars.ts";
 export {
   botMessagesPath,
   BOTS_FORBIDDEN,
@@ -25,6 +25,7 @@ export {
 export {
   FILE_TOO_LARGE,
   isPreviewed,
+  isVariable,
   isWebImage,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
@@ -346,6 +347,10 @@ export interface Profile {
   emailAddress: string | null;
   /** What you say about yourself, or null when you haven't said. */
   bio: string | null;
+  /** Your avatar, as the people directory gives it (`DirectoryUser.avatarUrl`). */
+  avatarUrl: string;
+  /** Whether you've uploaded an avatar, which Remove avatar takes away, though one that can't be resized shows your initials. */
+  avatar: boolean;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */

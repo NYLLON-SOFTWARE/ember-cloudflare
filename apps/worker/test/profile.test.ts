@@ -35,6 +35,9 @@ async function listed(viewer: Session, userId: UserId): Promise<DirectoryUser> {
   return users.find((user) => user.id === userId)!;
 }
 
+/** What your profile says of the avatar of someone who hasn't uploaded one: their initials, as the directory gives them. */
+const initialsOf = async (session: Session) => ({ avatarUrl: (await listed(session, session.user.id)).avatarUrl, avatar: false });
+
 interface StoredPerson {
   name: string;
   email_address: string | null;
@@ -59,19 +62,21 @@ describe(feature("users.profile"), () => {
     const response = await api("/api/users/me/profile", { headers: as(administrator) });
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({ profile: { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null }, transferId: expect.any(String) } satisfies ProfileAnswer);
-    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral" } satisfies Profile);
+    const profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null, ...(await initialsOf(administrator)) };
+    expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
+    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", ...(await initialsOf(grace)) } satisfies Profile);
   });
 
   it("saves your name, email address and bio, answering your profile as it is then", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
-    const changed: Profile = { name: "Grace Brewster Hopper", emailAddress: "grace@example.com", bio: "Wrote the first compiler" };
+    const changed = { name: "Grace Brewster Hopper", emailAddress: "grace@example.com", bio: "Wrote the first compiler" };
 
     const response = await save(grace, changed);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ profile: changed, transferId: expect.any(String) } satisfies ProfileAnswer);
-    expect(await profileOf(grace)).toEqual(changed);
+    const profile: Profile = { ...changed, ...(await initialsOf(grace)) };
+    expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
+    expect(await profileOf(grace)).toEqual(profile);
     expect(await (await me(grace)).json()).toEqual({ user: { id: grace.user.id, name: "Grace Brewster Hopper", administrator: false } });
     expect(await listed(administrator, grace.user.id)).toMatchObject({ name: "Grace Brewster Hopper", bio: "Wrote the first compiler" });
   });
@@ -80,15 +85,19 @@ describe(feature("users.profile"), () => {
     const grace = await signIn("Grace Hopper");
     await workspaceSql("UPDATE users SET bio = ?, updated_at = ? WHERE id = ?", "Rear admiral", LONG_AGO, grace.user.id);
 
+    const initials = await initialsOf(grace);
     for (const body of [{}, { name: "Grace Hopper" }, { bio: "Rear admiral", password: "" }]) {
       const response = await save(grace, body);
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral" }, transferId: expect.any(String) });
+      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", ...initials }, transferId: expect.any(String) });
       expect((await stored(grace.user.id)).updated_at).toBe(LONG_AGO);
     }
 
-    expect(await (await save(grace, { bio: "Admiral" })).json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral" }, transferId: expect.any(String) });
+    const answer = await (await save(grace, { bio: "Admiral" })).json();
     expect((await stored(grace.user.id)).updated_at > LONG_AGO).toBe(true);
+    // The avatar's address changes with it, as it's versioned by when they last changed.
+    expect(answer).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral", ...(await initialsOf(grace)) }, transferId: expect.any(String) });
+    expect((await initialsOf(grace)).avatarUrl).not.toBe(initials.avatarUrl);
   });
 
   it("takes the name as typed, even blank, as ember-rust's server does", async () => {

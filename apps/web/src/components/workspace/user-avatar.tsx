@@ -27,6 +27,9 @@ function drawn({ id, name }: User): string {
 /** The address of someone's avatar: the image the people directory gives, or their initials until it lists them. */
 export const avatarUrlOf = (people: People, user: User) => people.get(user.id)?.avatarUrl ?? drawn(user);
 
+/** When someone last changed, as an address of their avatar says (`?v=`), so a later address has a larger one; 0 for initials drawn in the page. */
+export const avatarVersionOf = (avatarUrl: string) => Number(new URL(avatarUrl, location.origin).searchParams.get("v"));
+
 interface Props {
   /** Someone, with their avatar's address where it's known, as the directory lists it. */
   user: User & Partial<Pick<DirectoryUser, "avatarUrl">>;
@@ -42,8 +45,8 @@ interface Props {
  * Someone's avatar, the image the people directory gives the address of, or `user` does until the
  * directory lists them, as a bot just added, hidden from screen readers as ember-rust's are
  * (helpers/users.rs, `avatar_tag`) unless it has a label. Until it loads, or if it can't, or neither
- * gives one, their initials show as the Worker would draw them.
- * Messages use squares with ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and
+ * gives one, their initials show as the Worker would draw them. A photo that isn't square covers it, as
+ * Campfire's `.avatar img` does. Messages use squares with ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and
  * presence use circles.
  */
 export function UserAvatar({ user, className, square = false, lazy = false, label }: Props) {
@@ -59,7 +62,7 @@ export function UserAvatar({ user, className, square = false, lazy = false, labe
       aria-hidden={label === undefined || undefined}
       loading={lazy ? "lazy" : undefined}
       onError={() => served && setFailed(served)}
-      className={cn("inline-block size-9 shrink-0 select-none bg-cover", square ? "rounded-[6px]" : "rounded-full", className)}
+      className={cn("inline-block size-9 shrink-0 select-none bg-cover object-cover", square ? "rounded-[6px]" : "rounded-full", className)}
       style={{ backgroundImage: `url("${placeholder}")` }}
     />
   );

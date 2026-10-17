@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
-import { ArrowRight, Eye, Lock, Mail, User as UserIcon, type EmberIconProps } from "@/components/icons/ember";
+import avatarPlaceholder from "@/components/avatar-placeholder.svg";
+import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type EmberIconProps } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { navigate } from "@/hooks/use-route";
 import { ApiError, setUpWorkspace } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -10,15 +12,15 @@ import { loadPage } from "@/lib/page";
 
 // ember-rust's Set up Ember page (crates/views/templates/first_runs/show.html and the macros in
 // components/ui.html), styled as its basecoat card (crates/assets/overrides/basecoat/src/theme.css).
-// It has no profile photo yet: that waits for file uploads. Entering its fields doesn't select what's
-// in them, since it isn't one of ember-rust's app pages, which do (`useSelectOnEntry`).
+// Entering its fields doesn't select what's in them, since it isn't one of ember-rust's app pages, which
+// do (`useSelectOnEntry`).
 
 const TITLE = "Set up Ember";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */
 const INPUT = "h-10 touch:h-11 rounded-[0.7rem] bg-card pr-3 pl-9 text-base shadow-none md:text-base dark:bg-card focus-visible:border-input focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring";
 const FIELD_ICON = "pointer-events-none absolute top-1/2 left-3 z-[1] size-[1.125rem] -translate-y-1/2 text-muted-foreground";
 
-/** Creates the workspace and its first administrator, then opens general, its first room. */
+/** Creates the workspace and its first administrator, with the photo they choose, then opens general, its first room. */
 export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => void }) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
@@ -27,6 +29,7 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
+  const photo = useChosenPhoto();
 
   useEffect(() => {
     const title = document.title;
@@ -39,18 +42,21 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
     setPasswordTooShort(false);
     setProblem(null);
     try {
-      const workspace = await setUpWorkspace({ name, emailAddress, password });
+      const workspace = await setUpWorkspace({ name, emailAddress, password }, await photo.photo());
       navigate(`/rooms/${workspace.room.id}`, { replace: true });
       onSetUp(workspace);
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
-      // As ember-rust re-renders the form: the name and email stay, and the password starts over.
+      // As ember-rust re-renders the form: the name and email stay, and the password starts over. The
+      // photo stays too, where ember-rust's form comes back without it.
       if (error.field === "password") {
         setPassword("");
         setPasswordTooShort(true);
         return passwordInput.current?.focus();
       }
+      // A photo that's refused goes, so the form can be sent without it.
+      if (error.field === "avatar") return photo.refuse(error.message);
       // Someone else set it up first, or the setup link's 15 minutes ran out: the Worker's pages say which.
       if (error.status === 409) return loadPage("/");
       if (error.status === 403) return loadPage("/first_run");
@@ -81,6 +87,7 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
           }}
         >
           <div className="grid gap-7 px-5 pt-6 pb-7">
+            <AvatarField photo={photo} disabled={busy} />
             <div className="grid gap-6">
               <Field id="user_name" label="Name" icon={UserIcon}>
                 <Input
@@ -118,6 +125,48 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
         </form>
       </section>
     </main>
+  );
+}
+
+/**
+ * ember-rust's `ui::avatar`: the photo to start with, which shows as it's chosen, in a 96px circle with
+ * a camera on its corner, and says why one is refused in place of its description. It can't change while
+ * the form is sent with it.
+ */
+function AvatarField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean }) {
+  return (
+    <div className="grid min-w-0 justify-items-center gap-3.5">
+      <label
+        htmlFor="user_avatar"
+        className="group relative block size-24 cursor-pointer rounded-full has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-4 has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-ring"
+      >
+        <span className="sr-only">Upload profile image (optional)</span>
+        <img src={photo.preview ?? avatarPlaceholder} alt="Avatar preview" width={96} height={96} className="size-full rounded-full border bg-muted object-cover" />
+        <span className="absolute -right-[0.2rem] -bottom-[0.2rem] grid size-[2.375rem] place-items-center rounded-full border bg-card text-foreground shadow-[0_1px_3px_#0002] group-hover:bg-muted">
+          <Camera className="size-[1.125rem]" />
+        </span>
+        <input
+          ref={photo.input}
+          id="user_avatar"
+          type="file"
+          accept="image/*"
+          aria-invalid={photo.refusal ? true : undefined}
+          aria-describedby="avatar-description"
+          disabled={disabled}
+          onChange={photo.choose}
+          className="absolute inset-0 size-full cursor-pointer rounded-[inherit] opacity-0 disabled:cursor-default"
+        />
+      </label>
+      {photo.refusal ? (
+        <p id="avatar-description" role="alert" className="text-sm leading-normal text-destructive">
+          {photo.refusal}
+        </p>
+      ) : (
+        <p id="avatar-description" className="text-sm leading-normal text-muted-foreground">
+          Add a profile photo (optional).
+        </p>
+      )}
+    </div>
   );
 }
 

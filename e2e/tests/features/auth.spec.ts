@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED } from "@ember/protocol";
 import type { Page } from "@playwright/test";
-import { ADMINISTRATOR, administratorOn, editorField, invitation, logOut, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, administratorOn, drawnPicture, editorField, invitation, logOut, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test, unique } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
@@ -76,6 +76,20 @@ test.describe(feature("auth.sign-up"), () => {
     await page.getByLabel("Password").fill("compiler");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");
+  });
+
+  test("someone new joins with a photo, which is their avatar from then on", async ({ page, request, session }) => {
+    await page.goto(`/join/${(await invitation(request, session)).joinCode}`);
+    const preview = page.getByRole("img", { name: "Your profile photo" });
+    await expect(page.getByText("Optional", { exact: true })).toBeVisible();
+    await page.getByLabel("Upload photo").setInputFiles(await drawnPicture(page, "portrait.png", 300, 600));
+    await expect(preview).toHaveAttribute("src", /^blob:/);
+    await join(page, `grace-${crypto.randomUUID()}@example.com`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
+
+    // The variant their browser made of it, within 512×512, which needs no scaling down.
+    const avatar = page.getByRole("link", { name: "Your profile" }).locator("img");
+    expect(await shownPicture(avatar)).toEqual({ type: "image/webp", width: 256, height: 512 });
   });
 
   test("sends an email address that has an account to sign in with it filled in", async ({ page, request, session }) => {

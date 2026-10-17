@@ -27,6 +27,10 @@ describe(feature("users.avatars"), () => {
     expect(image).not.toHaveAttribute("loading");
   });
 
+  it("crops a photo that isn't square to fill its square, as Campfire's `.avatar img` does", () => {
+    expect(picture(<UserAvatar user={ada} />).image).toHaveClass("object-cover");
+  });
+
   it("draws the initials while the directory doesn't list someone", () => {
     expect(picture(<UserAvatar user={{ id: ada.id, name: ada.name }} />, new Map()).image).toHaveAttribute("src", drawn);
   });

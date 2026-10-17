@@ -2,18 +2,34 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, Platform, Profile, ProfileAnswer, ProfileChanges, SidebarRoom } from "@ember/protocol";
+import {
+  AVATAR_PATH,
+  AVATAR_TOO_LARGE,
+  MAX_AVATAR_SIZE,
+  type Account,
+  type DirectoryUser,
+  type Platform,
+  type Profile,
+  type ProfileAnswer,
+  type ProfileChanges,
+  type SidebarRoom,
+} from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
+import { PeopleContext, type People } from "@/hooks/use-directory";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
 import { PUSH_ON } from "@/test-push";
-import { ProfilePage } from "./profile-page";
+import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
+
+vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program" };
+/** Ada's avatar as the profile loads it: her initials, until she uploads one. */
+const INITIALS = "/users/t0k3n/avatar?v=1";
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false };
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
@@ -23,10 +39,19 @@ interface Answers {
   loaded?: () => Response | Promise<Response>;
   /** What saving it answers, rather than the profile with the changes sent. */
   saved?: () => Response | Promise<Response>;
+  /** What saving an avatar answers, rather than the profile with an avatar. */
+  uploaded?: () => Response | Promise<Response>;
 }
 
+/** Ada's avatar once she has uploaded one. */
+const UPLOADED = "/users/t0k3n/avatar?v=2";
+
 /** Answers the page's requests as the server does, or as `answers` says. */
-function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer), saved }: Answers = {}) {
+function serve({
+  loaded = () => Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer),
+  saved,
+  uploaded = () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+}: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     switch (request) {
@@ -36,6 +61,10 @@ function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK
         const { password: _, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
         return saved ? saved() : Response.json({ profile: { ...profile, ...changes }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       }
+      case `PUT ${AVATAR_PATH}`:
+        return uploaded();
+      case `DELETE ${AVATAR_PATH}`:
+        return Response.json({ profile: { ...profile, avatarUrl: "/users/t0k3n/avatar?v=3" }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       default:
         throw new Error(`Unexpected request for ${request}`);
     }
@@ -45,19 +74,28 @@ function serve({ loaded = () => Response.json({ profile, transferId: LOADED_LINK
 /** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
 function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
   const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
-  const page = (listed: SidebarRoom[] | null) => (
+  const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
     <AccountContext value={shown}>
-      <PushContext value={{ ...PUSH_ON, platform }}>
-        <FlashProvider workspace>
-          <Sheet>
-            <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
-          </Sheet>
-        </FlashProvider>
-      </PushContext>
+      <PeopleContext value={people}>
+        <PushContext value={{ ...PUSH_ON, platform }}>
+          <FlashProvider workspace>
+            <Sheet>
+              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+            </Sheet>
+          </FlashProvider>
+        </PushContext>
+      </PeopleContext>
     </AccountContext>
   );
   const { rerender } = render(page(rooms));
-  return { onSignOut, onFailed, answered, user: userEvent.setup(), showRooms: (listed: SidebarRoom[]) => rerender(page(listed)) };
+  return {
+    onSignOut,
+    onFailed,
+    answered,
+    user: userEvent.setup(),
+    showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
+    showPeople: (people: People) => rerender(page(rooms, people)),
+  };
 }
 
 const field = (label: string) => screen.getByLabelText(label);
@@ -313,5 +351,128 @@ describe(feature("notifications.install-instructions"), () => {
     showPage(account, null, CHROME_MAC);
     await loaded();
     expect(install()).toBeUndefined();
+  });
+});
+
+describe(feature("users.avatar-upload"), () => {
+  const avatar = () => screen.getByRole("img", { name: "Your avatar" });
+  const picker = () => screen.getByLabelText("Upload avatar", { exact: false });
+  const removeButton = () => screen.queryByRole("button", { name: "Remove avatar" });
+  /** What each avatar saved sent, in order. */
+  const uploads = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([, init]) => init?.method === "PUT")
+      .map(([, init]) => init?.body as FormData);
+  const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
+
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+
+  it("shows your avatar above the form, to change with a photo, as ember-rust's profile does", async () => {
+    showPage();
+    expect(picker()).toBeDisabled();
+    await loaded();
+    expect(avatar()).toHaveAttribute("src", INITIALS);
+    expect(picker()).toBeEnabled();
+    expect(picker()).toHaveAttribute("type", "file");
+    expect(picker()).toHaveAttribute("accept", "image/*");
+    expect(picker()).toHaveAccessibleDescription("Choose a profile photo");
+    expect(picker().compareDocumentPosition(field("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // Nothing to remove while your initials show.
+    expect(removeButton()).toBeNull();
+  });
+
+  it("saves a photo as soon as it's picked, showing it meanwhile, with its variant and ember-rust's notice", async () => {
+    let answer = (_: Response) => {};
+    serve({ uploaded: () => new Promise((resolve) => (answer = resolve)) });
+    const { onFailed, user } = showPage();
+    await loaded();
+    const photo = moon();
+    await user.upload(picker(), photo);
+
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    expect(avatar()).toHaveAttribute("src", "blob:moon");
+    expect(picker()).toBeDisabled();
+    const [sent] = uploads();
+    expect(sent!.get("avatar")).toMatchObject({ name: "moon.jpg", type: "image/jpeg" });
+    expect(sent!.get("variant")).toMatchObject({ type: "image/webp" });
+
+    await act(async () => answer(Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK })));
+    expect(await screen.findByRole("alert")).toHaveTextContent(AVATAR_CHANGED);
+    expect(avatar()).toHaveAttribute("src", UPLOADED);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:moon");
+    expect(picker()).toBeEnabled();
+    expect(removeButton()).toBeInTheDocument();
+    // A new sign-in link, as ember-rust's page comes back with one.
+    expect(screen.getByRole("textbox", { name: "Use this link to login automatically on another device" })).toHaveValue(
+      `http://localhost:3000/session/transfers/${SAVED_LINK}`,
+    );
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("removes your avatar with Remove avatar, saying nothing, as ember-rust's page comes back", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: LOADED_LINK }) });
+    const { user } = showPage();
+    await loaded();
+    await user.click(removeButton()!);
+
+    await waitFor(() => expect(removeButton()).toBeNull());
+    expect(avatar()).toHaveAttribute("src", "/users/t0k3n/avatar?v=3");
+    expect(fetch).toHaveBeenCalledWith(AVATAR_PATH, expect.objectContaining({ method: "DELETE" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps a photo saved meanwhile when a profile's save is answered after it", async () => {
+    let answerSave = (_: Response) => {};
+    serve({ saved: () => new Promise((resolve) => (answerSave = resolve)) });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Bio"), "!");
+    await user.click(saveButton());
+    await user.upload(picker(), moon());
+    await waitFor(() => expect(avatar()).toHaveAttribute("src", UPLOADED));
+
+    // The save was made before the photo was, so its answer has the avatar from before.
+    await act(async () => answerSave(Response.json({ profile: { ...profile, bio: "Wrote the first program!" }, transferId: SAVED_LINK })));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(avatar()).toHaveAttribute("src", UPLOADED);
+    expect(removeButton()).toBeInTheDocument();
+  });
+
+  it("shows your avatar as another tab changes it, once the people directory hears", async () => {
+    const { showPeople } = showPage();
+    await loaded();
+    const listed = (avatarUrl: string): People => new Map([[ada.id, { id: ada.id, name: ada.name, bio: null, role: "member", status: "active", avatarUrl } satisfies DirectoryUser]]);
+    // The directory can list an avatar from before the profile loaded.
+    showPeople(listed("/users/t0k3n/avatar?v=0"));
+    expect(avatar()).toHaveAttribute("src", INITIALS);
+    showPeople(listed(UPLOADED));
+    expect(avatar()).toHaveAttribute("src", UPLOADED);
+  });
+
+  it("says a photo over 16 MB is too large without sending it", async () => {
+    const { user } = showPage();
+    await loaded();
+    const huge = moon();
+    Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
+    await user.upload(picker(), huge);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
+    expect(uploads()).toEqual([]);
+    expect(avatar()).toHaveAttribute("src", INITIALS);
+  });
+
+  it("says why a photo couldn't be saved, showing your avatar as it was", async () => {
+    serve({ uploaded: () => Response.json({ error: "Ember isn't set up to store files" }, { status: 503 }) });
+    const { onFailed, user } = showPage();
+    await loaded();
+    await user.upload(picker(), moon());
+
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 503, message: "Ember isn't set up to store files" })));
+    expect(avatar()).toHaveAttribute("src", INITIALS);
+    expect(picker()).toBeEnabled();
   });
 });

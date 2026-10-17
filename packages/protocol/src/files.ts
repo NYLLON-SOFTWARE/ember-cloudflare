@@ -41,16 +41,19 @@ export const PREVIEW_MAX_HEIGHT = 800;
 export const MAX_PREVIEW_SIZE = 5 * 1024 * 1024;
 
 /**
- * The pictures ember-rust makes a thumbnail of: Active Storage's `variable_content_types`, less the BMP,
- * ICO and PSD that Campfire's config/initializers/vips.rb takes out (crates/storage/src/content_types.rs).
+ * The pictures ember-rust resizes, for a thumbnail or an avatar: Active Storage's `variable_content_types`,
+ * less the BMP, ICO and PSD that Campfire's config/initializers/vips.rb takes out (crates/storage/src/content_types.rs).
  */
-const THUMBNAILED_TYPES = new Set(["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif"]);
+const VARIABLE_TYPES = new Set(["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif"]);
 
 /** Active Storage's `web_image_content_types`: the pictures every browser shows. */
 const WEB_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
+/** Whether ember-rust resizes a picture of `contentType`: `ActiveStorage::Blob#variable?`. */
+export const isVariable = (contentType: string) => VARIABLE_TYPES.has(contentType);
+
 /** Whether a message shows a file of `contentType` by its preview: a picture's thumbnail or a video's poster. */
-export const isPreviewed = (contentType: string) => THUMBNAILED_TYPES.has(contentType) || contentType.startsWith("video");
+export const isPreviewed = (contentType: string) => isVariable(contentType) || contentType.startsWith("video");
 
 /** Whether every browser shows a picture of `contentType`. */
 export const isWebImage = (contentType: string) => WEB_IMAGE_TYPES.has(contentType);

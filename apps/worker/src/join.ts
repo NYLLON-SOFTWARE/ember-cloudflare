@@ -1,5 +1,6 @@
 import { isPasswordTooLong, parseSignUp, PASSWORD_TOO_LONG, type Me } from "@ember/protocol";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import { signUpOf, signUpPhoto } from "./avatars";
 import type { Env } from "./env";
 import { appPage, empty, formAnswer, home } from "./pages";
 import { passwordHasher } from "./passwords";
@@ -32,24 +33,28 @@ export async function joinPage(request: Request, env: Env, code: string): Promis
 
 /**
  * `POST /api/join/<code>`: adds the person the join form describes as a member, in every open room,
- * and signs this browser in as them. Someone whose email address is taken goes to sign in with it
- * filled in, and nothing is created.
+ * with the photo it brings, and signs this browser in as them. Someone whose email address is taken
+ * goes to sign in with it filled in, and nothing is created.
  */
 export async function join(request: Request, env: Env, code: string): Promise<Response> {
   const [session, known] = await Promise.all([authenticate(request, env), workspace(env).isJoinCode(code)]);
   if (session) return formAnswer({ error: "You're signed in already", redirect: "/" }, 409);
   if (!known) return formAnswer({ error: "Not found" }, 404);
 
-  const form = parseSignUp(await request.json().catch(() => null));
+  const sent = await signUpOf(request);
+  if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
+  const form = parseSignUp(sent.fields);
   if (typeof form === "string") return formAnswer({ error: form }, 400);
   // Unlike ember-rust, which takes an empty password and makes an account nobody can sign in to. A
   // long one is refused for the reason first run's is.
   if (form.password === "") return formAnswer({ error: PASSWORD_BLANK, field: "password" }, 422);
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
+  const avatar = await signUpPhoto(env, sent.photo);
+  if (avatar && "error" in avatar) return formAnswer({ error: avatar.error, field: "avatar" }, avatar.status);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);
   const token = newSessionToken();
-  const person = { name: form.name, emailAddress: form.emailAddress, passwordDigest };
+  const person = { name: form.name, emailAddress: form.emailAddress, passwordDigest, avatar };
   const user = await workspace(env).join(code, person, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   if (user === "not found") return formAnswer({ error: "Not found" }, 404);
   if (!user) {

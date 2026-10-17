@@ -1,12 +1,14 @@
 import { feature } from "@ember/parity";
-import { PASSWORD_TOO_SHORT } from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, PASSWORD_TOO_SHORT } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "@/lib/page";
+import avatarPlaceholder from "./avatar-placeholder.svg";
 import { SetupPage } from "./setup-page";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
+vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "general", icon: null } };
 
@@ -22,11 +24,22 @@ async function fillIn(password: string) {
   return user;
 }
 
+beforeEach(() => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
   history.replaceState(null, "", "/");
 });
+
+const preview = () => screen.getByRole("img", { name: "Avatar preview" });
+const photoField = () => screen.getByLabelText("Upload profile image (optional)", { exact: false });
+const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
+/** What the form sent, as a form when it brought a photo. */
+const sent = () => vi.mocked(fetch).mock.calls.at(-1)![1]!.body;
 
 describe(feature("auth.first-run"), () => {
   it("asks for the administrator's name, email address and password", () => {
@@ -126,5 +139,82 @@ describe(feature("auth.first-run"), () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers a photo, optional, which shows as it's chosen, as ember-rust's `ui::avatar` does", async () => {
+    render(<SetupPage onSetUp={() => {}} />);
+    expect(preview()).toHaveAttribute("src", avatarPlaceholder);
+    expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
+    expect(photoField()).toHaveAccessibleDescription("Add a profile photo (optional).");
+    expect(photoField().compareDocumentPosition(screen.getByLabelText("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await userEvent.upload(photoField(), moon());
+    expect(preview()).toHaveAttribute("src", "blob:moon");
+  });
+
+  it("sends the photo chosen, and its variant, with the rest of the form", async () => {
+    answer(201, workspace);
+    const onSetUp = vi.fn();
+    render(<SetupPage onSetUp={onSetUp} />);
+    await userEvent.upload(photoField(), moon());
+    await fillIn("correct horse");
+
+    await waitFor(() => expect(onSetUp).toHaveBeenCalledWith(workspace));
+    const form = sent() as FormData;
+    expect(JSON.parse(String(form.get("user")))).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" });
+    expect(form.get("avatar")).toMatchObject({ name: "moon.jpg", type: "image/jpeg" });
+    expect(form.get("variant")).toMatchObject({ type: "image/webp" });
+  });
+
+  it("keeps the photo when the password is too short", async () => {
+    answer(422, { error: PASSWORD_TOO_SHORT, field: "password" });
+    render(<SetupPage onSetUp={() => {}} />);
+    await userEvent.upload(photoField(), moon());
+    await fillIn("🔐🔐🔐🔐");
+
+    await waitFor(() => expect(screen.getByLabelText("Password")).toHaveFocus());
+    expect(preview()).toHaveAttribute("src", "blob:moon");
+    expect(photoField()).toBeEnabled();
+  });
+
+  it("keeps the photo it sends until it's answered", async () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+    render(<SetupPage onSetUp={() => {}} />);
+    await userEvent.upload(photoField(), moon());
+    await fillIn("correct horse");
+
+    expect(photoField()).toBeDisabled();
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  });
+
+  it("refuses a photo over 16 MB at once, saying so in place of its description", async () => {
+    answer(201, workspace);
+    render(<SetupPage onSetUp={() => {}} />);
+    const huge = moon();
+    Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
+    await userEvent.upload(photoField(), huge);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
+    expect(photoField()).toHaveAccessibleDescription(AVATAR_TOO_LARGE);
+    expect(photoField()).toHaveAttribute("aria-invalid", "true");
+    expect(preview()).toHaveAttribute("src", avatarPlaceholder);
+    await fillIn("correct horse");
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    expect(typeof sent()).toBe("string");
+  });
+
+  it("lets go of a photo the Worker refuses, saying why, so the form can be sent without it", async () => {
+    const fetch = answer(503, { error: "Ember isn't set up to store files", field: "avatar" });
+    render(<SetupPage onSetUp={() => {}} />);
+    await userEvent.upload(photoField(), moon());
+    const user = await fillIn("correct horse");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ember isn't set up to store files");
+    expect(preview()).toHaveAttribute("src", avatarPlaceholder);
+    expect(photoField()).toHaveValue("");
+    fetch.mockResolvedValue(Response.json(workspace, { status: 201 }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(sent()))).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" });
   });
 });

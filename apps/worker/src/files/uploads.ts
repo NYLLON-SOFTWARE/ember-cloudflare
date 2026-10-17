@@ -45,7 +45,8 @@ const NOT_SIGNED_IN = "Not signed in";
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 const UPLOAD_NOT_FOUND = "Upload not found";
 const ALREADY_POSTED = "The file is posted already";
-const NO_STORAGE = "Ember isn't set up to store files";
+/** What a request that would store a file answers without an R2 bucket bound as FILES. */
+export const NO_STORAGE = "Ember isn't set up to store files";
 
 /**
  * The types a preview can be, by its bytes, with the extension each gives its name: the formats Active

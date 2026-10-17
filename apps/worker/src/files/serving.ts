@@ -55,7 +55,7 @@ export function fileAddressOf(pathname: string): FileAddress | null {
 const notFound = () => new Response(null, { status: 404, headers: { "Content-Type": "text/html" } });
 
 /** Whether R2 sent the file's bytes along with what it knows of it. */
-const hasBody = (object: R2Object): object is R2ObjectBody => "body" in object;
+export const hasBody = (object: R2Object): object is R2ObjectBody => "body" in object;
 
 /** What `?disposition=` asks for, the last one if there are several, as Rack reads the query. */
 const dispositionOf = (request: Request) => new URL(request.url).searchParams.getAll("disposition").at(-1) ?? "inline";

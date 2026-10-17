@@ -91,3 +91,22 @@ export function avatarSvg(userId: string, name: string): string {
     ``,
   ].join("\n");
 }
+
+// Avatars people upload, as ember-rust's profile, setup and sign-up forms take them, which the Worker
+// keeps in R2 with the variant ember-rust serves of them. The uploader's browser makes the variant,
+// where ember-rust makes it with libvips.
+
+/** Where your avatar goes: `PUT` uploads one, as a form's `avatar` and `variant`, and `DELETE` removes it. */
+export const AVATAR_PATH = "/api/users/me/avatar";
+
+/** The box an avatar's variant fits within, as ember-rust's `resize_to_limit: [512, 512]` scales it. */
+export const AVATAR_BOX = 512;
+
+/**
+ * The largest avatar Ember takes, in decimal bytes, where ember-rust takes one as large as any file: the
+ * Worker reads an avatar into memory to keep it, and a Worker has 128 MB for every request at once.
+ */
+export const MAX_AVATAR_SIZE = 16_000_000;
+
+/** What the Worker's 413 and the app say of a larger one. */
+export const AVATAR_TOO_LARGE = "Photos must be 16 MB or smaller.";
