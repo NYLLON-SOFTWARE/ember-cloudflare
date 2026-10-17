@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 164 ported and 2 partial of 172 features; 0 not started, 6 not applicable.
+**Overall:** 165 ported and 1 partial of 172 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 18 | 0 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 3 | 0 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 9 | 1 | 0 | 1 | 11 |
+| [Attachments](#attachments) | 10 | 0 | 0 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 6 | 0 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 10 | 1 | 0 | 4 | 15 |
-| **Total** | **164** | **2** | **0** | **6** | **172** |
+| **Total** | **165** | **1** | **0** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1389,7 +1389,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | Download and share files | `attachments.download-share` | Ember | ✅ Ported | Web: [share-button](apps/web/src/components/share-button.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [share](apps/web/src/lib/share.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | File links | `attachments.serving` | Campfire | ✅ Ported | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Files leave with their messages | `attachments.purge` | Campfire | ✅ Ported | Worker: [purge](apps/worker/test/purge.test.ts) |
-| How files are recognized | `attachments.types` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
+| How files are recognized | `attachments.types` | Campfire | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [files](apps/worker/test/files.test.ts), [heif-sizes](apps/worker/test/heif-sizes.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Direct uploads | `attachments.direct-uploads` | Campfire | ➖ Not applicable |  |
 
 <details>
@@ -1513,14 +1513,14 @@ Sources: [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/
 
 ember-rust tests: [`crates/ember/src/app/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app/tests.rs) · [`crates/db/src/tests/message_test.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/tests/message_test.rs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
-**How files are recognized** (`attachments.types`) 🟡
+**How files are recognized** (`attachments.types`) ✅
 
 - Any type can be sent, and files of unknown type are `application/octet-stream`.
 - A file's type comes from its magic bytes (within its first 65,555 bytes), then its declared type, then its extension, each later one winning only when it's a more specific kind of the current pick: a `.docx` beats a zip's magic bytes, and when the bytes say nothing, a declared `image/jpeg` beats a `.png` extension.
 - Images record their width and height, swapped for EXIF orientations that turn them by 90°; an image that can't be read records nothing.
 - Videos record width and height (the height from the display aspect ratio, both swapped when rotated by 90° or 270°), duration and angle; audio records duration, bit rate, sample rate and tags.
 
-Note: Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. Other images, AVIF and HEIC among them, record nothing, nor do videos and audio, which ember-rust analyzes with FFmpeg: they record only that they were identified and analyzed. A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.
+Note: Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. An AVIF's or HEIC's size is read from its boxes as ember-rust's libvips 8.16 reads it with libheif 1.19: its primary image's extents, cropped to its clean aperture and turned by its rotation, but never by its EXIF orientation, which libvips drops from a HEIF, and none for a file libheif refuses. Where those boxes come after the first 10 MiB, Ember records none, where libvips reads on. Videos and audio record only that they were identified and analyzed, where ember-rust records what FFmpeg finds, which a Worker can't run: of that, only a video's width and height show, as its size, which Ember takes from its poster (`attachments.previews`). A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.
 
 Sources: [`crates/storage/src/marcel.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/marcel.rs) · [`crates/storage/src/tables.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/tables.rs) · [`crates/storage/src/analyze.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/analyze.rs) · [`crates/storage/src/blob.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/blob.rs)
 

@@ -1,6 +1,6 @@
 // The width and height Active Storage records for an image (`ImageAnalyzer::Vips#metadata`, which ember-rust
-// ports in crates/storage/src/analyze.rs), read without libvips from the headers of the formats browsers show:
-// JPEG, PNG, GIF, WebP and TIFF, as libvips 8.16's loaders for them read them.
+// ports in crates/storage/src/analyze.rs), read without libvips from the headers of JPEG, PNG, GIF, WebP, TIFF
+// and HEIF files, AVIF and HEIC among them, as libvips 8.16's loaders for them read them.
 
 export interface ImageSize {
   width: number;
@@ -189,6 +189,246 @@ function tiff(view: DataView, bytes: Uint8Array): Header | null {
   return width === null || height === null ? null : { width, height, orientation: null };
 }
 
+/** The major brands libvips 8.16 opens a HEIF of (heifload.c's `heif_magic`). */
+const HEIF_BRANDS = new Set(["heic", "heix", "hevc", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "avif"]);
+
+/** The brands libheif 1.19, which libvips reads HEIFs with, opens a file that's compatible with one of. */
+const LIBHEIF_BRANDS = ["heic", "heix", "mif1", "avif", "1pic", "jpeg"];
+
+/** The item types libheif reads as images, besides a `mime` item that's a JPEG. */
+const HEIF_IMAGES = new Set(["jpeg", "hvc1", "av01", "vvc1", "avc1", "unci", "j2k1", "mski", "grid", "iovl", "iden", "tili"]);
+
+/** The most pixels libvips lets libheif open an image of: 16,384 squared, as heifsave writes at most. */
+const MAX_HEIF_PIXELS = 0x4000 ** 2;
+
+/** The largest `int`, which libheif takes for a side or a fraction's term. */
+const MAX_INT = 2 ** 31 - 1;
+
+/**
+ * A HEIF's size as libvips reads it with libheif: its primary image's, from its properties, where that's one
+ * of its top-level images, and otherwise the first of them, in the order of their ids. Those are the images
+ * that aren't hidden, nor another image's thumbnail (`thmb`) or auxiliary image (`auxl`), such as its alpha
+ * channel. A file libheif refuses, without the boxes it needs or with any image it can't read, is unreadable.
+ */
+function heif(view: DataView, bytes: Uint8Array): Header | null {
+  // libvips takes an `ftyp` box of whole words with one of its major brands, and libheif one in its first
+  // 1,024 bytes that's compatible with one of its own.
+  const ftypSize = view.getUint32(0);
+  if (ascii(bytes, 4, 4) !== "ftyp" || !HEIF_BRANDS.has(ascii(bytes, 8, 4)) || ftypSize % 4 || ftypSize < 16 || ftypSize > 1024) return null;
+  const compatible = Array.from({ length: (ftypSize - 16) / 4 }, (_, n) => ascii(bytes, 16 + 4 * n, 4));
+  if (!LIBHEIF_BRANDS.some((brand) => compatible.includes(brand))) return null;
+
+  const meta = metaAfter(view, bytes, ftypSize);
+  if (!meta || meta.view.getUint8(0) !== 0) return null;
+  const children = [...boxesIn(meta.bytes, 4)];
+  const [hdlr, pitm, iloc, iinf, iprp, iref] = ["hdlr", "pitm", "iloc", "iinf", "iprp", "iref"].map((type) => children.find((box) => box.type === type));
+  if (hdlr && (hdlr.view.getUint8(0) !== 0 || hdlr.bytes.length < 24 || ascii(hdlr.bytes, 8, 4) !== "pict")) return null;
+  if (!pitm || !iloc || !iinf || !iprp || pitm.view.getUint8(0) > 1) return null;
+  const primary = pitm.view.getUint8(0) === 0 ? pitm.view.getUint16(4) : pitm.view.getUint32(4);
+  const items = itemsOf(iinf);
+  const images = [...items.keys()].filter((id) => isHeifImage(items.get(id)!)).sort((a, b) => a - b);
+  if (!images.includes(primary) || items.get(primary)!.hidden) return null;
+
+  const iprpChildren = [...boxesIn(iprp.bytes)];
+  const ipco = iprpChildren.find((box) => box.type === "ipco");
+  if (!ipco) return null;
+  const properties = [...boxesIn(ipco.bytes)];
+  const associations = associationsOf(iprpChildren.filter((box) => box.type === "ipma"));
+  const sizes = new Map<number, Header>();
+  for (const id of images) {
+    const places = associations.get(id);
+    if (!places || places.some((place) => place > properties.length)) return null;
+    const size = sizeOf(places.filter((place) => place > 0).map((place) => properties[place - 1]!));
+    if (!size) return null;
+    sizes.set(id, size);
+  }
+
+  const references = iref ? referencesOf(iref) : [];
+  const isBeneath = (id: number) => references.some(({ type, from, to }) => from === id && (type === "thmb" || (type === "auxl" && to.some((other) => sizes.has(other)))));
+  const topLevel = images.filter((id) => !items.get(id)!.hidden && !isBeneath(id));
+  const shown = topLevel.includes(primary) ? primary : topLevel[0];
+  return shown === undefined ? null : sizes.get(shown)!;
+}
+
+/** An ISO base media file's box: its type and its contents, whose view throws at reading past their end. */
+interface Box {
+  type: string;
+  bytes: Uint8Array;
+  view: DataView;
+}
+
+/**
+ * The box at `at` in `bytes`, whose size, where it's 1, follows its type in 64 bits, and where it's 0, runs
+ * to the end. libheif refuses one that's smaller than its header or runs past the end.
+ */
+function boxAt(view: DataView, bytes: Uint8Array, at: number): Box | null {
+  const size = view.getUint32(at);
+  const [start, end] = size === 1 ? [at + 16, at + Number(view.getBigUint64(at + 8))] : [at + 8, size === 0 ? bytes.length : at + size];
+  if (end < start || end > bytes.length) return null;
+  const contents = bytes.subarray(start, end);
+  return { type: ascii(bytes, at + 4, 4), bytes: contents, view: new DataView(contents.buffer, contents.byteOffset, contents.byteLength) };
+}
+
+/** The boxes in `bytes` from `at`, each in turn. */
+function* boxesIn(bytes: Uint8Array, at = 0): Generator<Box> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  while (at < bytes.length) {
+    const box = boxAt(view, bytes, at);
+    if (!box) throw new RangeError("A box runs past its parent");
+    yield box;
+    at = box.bytes.byteOffset - bytes.byteOffset + box.bytes.length;
+  }
+}
+
+/**
+ * The `meta` box libheif finds by skipping from box to box after the `ftyp` box at the start, which it
+ * does while one starts at least 32 bytes before the end.
+ */
+function metaAfter(view: DataView, bytes: Uint8Array, at: number): Box | null {
+  while (at + 32 <= bytes.length) {
+    if (view.getUint32(at) === 0) return null;
+    // Past the end, and smaller than its header, only a `meta` box is refused, but no other box could be read after it.
+    const box = boxAt(view, bytes, at);
+    if (!box) return null;
+    if (box.type === "meta") return box;
+    at = box.bytes.byteOffset - bytes.byteOffset + box.bytes.length;
+  }
+  return null;
+}
+
+/** An item of a HEIF's: its type, whether it's hidden, and a `mime` item's content type. */
+interface Item {
+  type: string;
+  hidden: boolean;
+  contentType?: string;
+}
+
+/** The items an `iinf` box lists, as many as it says it has, by their ids, the first for each id. */
+function itemsOf({ bytes, view }: Box): Map<number, Item> {
+  const items = new Map<number, Item>();
+  const wide = view.getUint8(0) !== 0;
+  const count = wide ? view.getUint32(4) : view.getUint16(4);
+  const listed = boxesIn(bytes, wide ? 8 : 6);
+  for (let n = 0; n < count; n++) {
+    const next = listed.next();
+    if (next.done) break;
+    if (next.value.type !== "infe") continue;
+    const infe = next.value;
+    const version = infe.view.getUint8(0);
+    if (version > 3) throw new RangeError(`An infe box of version ${version}`);
+    const id = version === 3 ? infe.view.getUint32(4) : infe.view.getUint16(4);
+    // Before version 2, an item has no type, so it's no image.
+    const type = version < 2 ? "" : ascii(infe.bytes, version === 3 ? 10 : 8, 4);
+    // Past its name, a `mime` item's content type.
+    const afterName = version < 2 ? 0 : cString(infe.bytes, version === 3 ? 14 : 12)[1];
+    const contentType = type === "mime" ? cString(infe.bytes, afterName)[0] : undefined;
+    if (!items.has(id)) items.set(id, { type, hidden: version >= 2 && (infe.view.getUint32(0) & 1) === 1, contentType });
+  }
+  return items;
+}
+
+/** The NUL-terminated string at `at` and where the next starts, as libheif reads one: empty at the end, refused where it runs past it. */
+function cString(bytes: Uint8Array, at: number): [string, number] {
+  if (at >= bytes.length) return ["", bytes.length];
+  const length = bytes.subarray(at).indexOf(0);
+  if (length < 0) throw new RangeError("A string runs past its box");
+  return [ascii(bytes, at, length), at + length + 1];
+}
+
+/** Whether libheif reads `item` as an image. */
+const isHeifImage = ({ type, contentType }: Item) => HEIF_IMAGES.has(type) || (type === "mime" && contentType === "image/jpeg");
+
+/** An `iref` box's references, each from one item to others, which libheif reads one after another, past each one's header. */
+function referencesOf({ bytes, view }: Box): Array<{ type: string; from: number; to: number[] }> {
+  const version = view.getUint8(0);
+  if (version > 1) throw new RangeError(`An iref box of version ${version}`);
+  const [idOf, idSize] = version === 0 ? [(at: number) => view.getUint16(at), 2] : [(at: number) => view.getUint32(at), 4];
+  const references = [];
+  for (let at = 4; at < bytes.length; ) {
+    const type = ascii(bytes, at + 4, 4);
+    at += view.getUint32(at) === 1 ? 16 : 8;
+    const from = idOf(at);
+    const count = view.getUint16(at + idSize);
+    if (count === 0) throw new RangeError("A reference to nothing");
+    at += idSize + 2;
+    references.push({ type, from, to: Array.from({ length: count }, (_, n) => idOf(at + n * idSize)) });
+    at += count * idSize;
+  }
+  return references;
+}
+
+/** Each item's properties, by their places in `ipco` counting from 1, from its first entry in the `ipma` boxes. */
+function associationsOf(ipmas: Box[]): Map<number, number[]> {
+  const items = new Map<number, number[]>();
+  for (const { view } of ipmas) {
+    const version = view.getUint8(0);
+    if (version > 1) throw new RangeError(`An ipma box of version ${version}`);
+    // Its flags say whether each place takes 15 bits or 7, after a bit saying whether it's essential.
+    const wide = (view.getUint32(0) & 1) === 1;
+    const count = view.getUint32(4);
+    for (let at = 8, entry = 0; entry < count && at < view.byteLength; entry++) {
+      const id = version === 0 ? view.getUint16(at) : view.getUint32(at);
+      at += version === 0 ? 2 : 4;
+      const places: number[] = [];
+      for (let left = view.getUint8(at++); left > 0; left--, at += wide ? 2 : 1) places.push(wide ? view.getUint16(at) & 0x7fff : view.getUint8(at) & 0x7f);
+      if (!items.has(id)) items.set(id, places);
+    }
+  }
+  return items;
+}
+
+/**
+ * The size of an image with `properties`: its extents (`ispe`), set to the clean aperture (`clap`) it's
+ * cropped to, and swapped for a rotation (`irot`) of 90° or 270°, as its properties come, in their order.
+ * libheif turns or mirrors (`imir`) only an image with extents. libvips drops a HEIF's EXIF orientation,
+ * so it's never swapped.
+ */
+function sizeOf(properties: Box[]): Header | null {
+  let size = { width: 0, height: 0 };
+  let extents = false;
+  for (const { type, view } of properties) {
+    if (type !== "ispe") continue;
+    if (view.getUint8(0) !== 0) return null;
+    const [width, height] = [view.getUint32(4), view.getUint32(8)];
+    if (!width || !height || width > MAX_INT || height > MAX_INT || width * height > MAX_HEIF_PIXELS) return null;
+    [size, extents] = [{ width, height }, true];
+  }
+  for (const { type, view } of properties) {
+    if (type === "clap") {
+      const aperture = cleanAperture(view);
+      if (!aperture) return null;
+      size = aperture;
+    } else if (type === "irot" || type === "imir") {
+      // Its byte's lowest bits turn it by quarters, or say which way to mirror it.
+      const turned = type === "irot" && (view.getUint8(0) & 1) === 1;
+      if ((turned || type === "imir") && !extents) return null;
+      if (turned) size = { width: size.height, height: size.width };
+    }
+  }
+  return { ...size, orientation: null };
+}
+
+/** libheif's largest term of a fraction, which it halves both terms of until neither is larger. */
+const MAX_FRACTION = 0x10000;
+
+/** A `clap` box's width and height, rounded as libheif rounds them, or null where libheif refuses it. */
+function cleanAperture(view: DataView): ImageSize | null {
+  const term = (n: number) => view.getUint32(4 * n);
+  const [width, widthOver, height, heightOver, leftOver, topOver] = [term(0), term(1), term(2), term(3), term(5), term(7)];
+  if ([width, widthOver, height, heightOver, leftOver, topOver].some((value) => value > MAX_INT)) return null;
+  if ([widthOver, heightOver, leftOver, topOver].includes(0)) return null;
+  return { width: rounded(width, widthOver), height: rounded(height, heightOver) };
+}
+
+/** `numerator / denominator` to the nearest whole number, halves up, once libheif has halved its terms. */
+function rounded(numerator: number, denominator: number): number {
+  while (denominator > MAX_FRACTION || (denominator > 1 && numerator > MAX_FRACTION)) {
+    numerator = Math.trunc(numerator / 2);
+    denominator = Math.trunc(denominator / 2);
+  }
+  return Math.trunc((numerator + Math.trunc(denominator / 2)) / denominator);
+}
+
 /** The orientation in `exif`, a TIFF structure as EXIF keeps one, where libexif can read one. */
 function exifOrientation(exif: Uint8Array): number | null {
   const view = new DataView(exif.buffer, exif.byteOffset, exif.byteLength);
@@ -220,4 +460,4 @@ function firstIfd(view: DataView, bytes: Uint8Array) {
 }
 
 /** Each format libvips reads here, whose signatures never overlap. */
-const FORMATS = [jpeg, png, gif, webp, tiff];
+const FORMATS = [jpeg, png, gif, webp, tiff, heif];
