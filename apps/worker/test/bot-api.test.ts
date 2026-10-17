@@ -48,6 +48,13 @@ async function addBot(administrator: Session, name = "Build Bot"): Promise<BotSe
   return ((await response.json()) as BotAnswer).bot;
 }
 
+/** Gives `bot` a new key, as `administrator` can on its edit page, answering it as the page then shows it. */
+async function newKeyFor(administrator: Session, bot: BotSettings): Promise<BotSettings> {
+  const response = await api(`/api/account/bots/${bot.id}/key`, { method: "PUT", headers: { Cookie: administrator.cookie } });
+  expect(response.status, await response.clone().text()).toBe(200);
+  return ((await response.json()) as BotAnswer).bot;
+}
+
 /** Sets Ember up with a bot, which is in first run's general room. */
 async function withBot() {
   const administrator = await setUp();
@@ -62,6 +69,19 @@ const botPath = (room: RoomId, key: string, query = "") => `/rooms/${room}/${key
 /** Posts `body` to `room` as the bot whose key is `key`, as `curl -d` does unless `headers` say otherwise. */
 const postAs = (key: string, room: RoomId, body: BodyInit | null, headers: Record<string, string> = {}) =>
   api(botPath(room, key), { method: "POST", body, headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers } });
+
+/** A body its sender holds back until `meanwhile` has run, once the Worker has begun to read it. */
+const heldBack = (text: string, meanwhile: () => Promise<unknown>) =>
+  new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        await meanwhile();
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
 
 /** Reads `room` as the bot whose key is `key`. */
 const readAs = (key: string, room: RoomId, query = "", init: RequestInit = {}) => api(botPath(room, key, query), init);
@@ -152,8 +172,7 @@ describe(feature("bots.api-auth"), () => {
 
   it("stops taking a key once its bot is deleted, or given a new one", async () => {
     const { administrator, bot, general } = await withBot();
-    const reset = await api(`/api/account/bots/${bot.id}/key`, { method: "PUT", headers: { Cookie: administrator.cookie } });
-    const { bot: renewed } = (await reset.json()) as BotAnswer;
+    const renewed = await newKeyFor(administrator, bot);
     expect((await postAs(bot.key, general, "Old key")).status).toBe(401);
     expect((await postAs(renewed.key, general, "New key")).status).toBe(201);
 
@@ -161,6 +180,26 @@ describe(feature("bots.api-auth"), () => {
     expect((await postAs(renewed.key, general, "Deleted")).status).toBe(401);
     expect((await readAs(renewed.key, general)).status).toBe(401);
     expect((await storedIn(general)).map(({ body }) => body)).toEqual(["New key"]);
+  });
+
+  it("checks the key again once the body has arrived, so a bot given a new key or taken out of the room while it sends posts nothing", async () => {
+    const { administrator, bot, general } = await withBot();
+    let renewed = bot;
+    const reset = await postAs(bot.key, general, heldBack("Old key", async () => {
+      renewed = await newKeyFor(administrator, bot);
+    }));
+    expect([reset.status, await reset.json()]).toEqual([401, { error: "Unknown bot key" }]);
+
+    const room = await createRoom("Launch", { closedTo: [administrator.user.id, bot.id], as: administrator });
+    const takeBotOut = JSON.stringify({ kind: "closed", memberIds: [administrator.user.id] });
+    const out = await postAs(renewed.key, room.id, heldBack("Taken out", async () => {
+      expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: takeBotOut })).status).toBe(200);
+    }));
+    expect([out.status, await out.text()]).toEqual([404, ""]);
+
+    expect(await storedIn(general)).toEqual([]);
+    expect(await storedIn(room.id)).toEqual([]);
+    expect((await postAs(renewed.key, general, "New key")).status).toBe(201);
   });
 
   it("answers an empty 404 for a room the bot isn't in, once the key is checked, and never wakes it", async () => {

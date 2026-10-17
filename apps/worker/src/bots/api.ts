@@ -58,12 +58,14 @@ const unknownKey = () => Response.json({ error: UNKNOWN_BOT_KEY }, { status: 401
 
 /**
  * The bot the key segment `key` names, as ember-rust's `allow_bot_access` finds it, if it's in room
- * `roomId`, as `set_room` finds the room: "not found" if it isn't, or null unless the key is an active
- * bot's own.
+ * `roomId`, as `set_room` finds the room, or what the request answers otherwise: 401 unless the key is an
+ * active bot's own, and an empty 404 when the bot isn't in the room.
  */
-async function botIn(env: Env, roomId: RoomId, key: string): Promise<User | "not found" | null> {
+async function botIn(env: Env, roomId: RoomId, key: string): Promise<User | Response> {
   const parts = botKeyParts(segmentText(key));
-  return parts && workspace(env).botInRoom(parts.botId, parts.token, roomId);
+  const bot = parts && (await workspace(env).botInRoom(parts.botId, parts.token, roomId));
+  if (!bot) return unknownKey();
+  return bot === "not found" ? head(404) : bot;
 }
 
 /** A path segment as Rails reads it, or "" for malformed percent-encoding, which names nothing. */
@@ -80,12 +82,16 @@ function segmentText(segment: string): string {
  * message, as `create` posts `raw_request_body`, answering 201 with where the message is.
  */
 async function createMessage(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
-  const bot = await botIn(env, roomId, key);
-  if (!bot) return unknownKey();
-  if (bot === "not found") return head(404);
+  let bot = await botIn(env, roomId, key);
+  if (bot instanceof Response) return bot;
   if (isForm(request)) return Response.json({ error: FILES_NOT_YET }, { status: 415 });
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
+  // ember-rust checks the key once it has the whole body, which here arrives as slowly as its sender
+  // likes: long enough for the bot to be deleted, given a new key or taken out of the room since the check
+  // above, which only spares reading the body of a request that can't post.
+  bot = await botIn(env, roomId, key);
+  if (bot instanceof Response) return bot;
   // `raw_request_body.blank?`: empty or only spaces.
   if (markup.trim() === "") return head(422);
   const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, bot, markup);
@@ -134,8 +140,7 @@ async function readAtMost(stream: ReadableStream<Uint8Array>, limit: number): Pr
  */
 async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
   const bot = await botIn(env, roomId, key);
-  if (!bot) return unknownKey();
-  if (bot === "not found") return head(404);
+  if (bot instanceof Response) return bot;
   const url = new URL(request.url);
   const cursor = { before: present(url.searchParams.get("before")), after: present(url.searchParams.get("after")) };
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, cursor);
