@@ -28,6 +28,12 @@ async function addBot(administrator: Session, name: string, webhookUrl?: string)
   return ((await response.json()) as BotAnswer).bot;
 }
 
+/** Renames `bot` as `administrator`. */
+async function renameBot(administrator: Session, bot: BotSettings, name: string): Promise<void> {
+  const response = await api(`/api/account/bots/${bot.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
+
 /** Deletes `bot` as `administrator`, which leaves it in its DMs. */
 async function deleteBot(administrator: Session, bot: BotSettings): Promise<void> {
   const response = await api(`/api/account/bots/${bot.id}`, { method: "DELETE", headers: { Cookie: administrator.cookie } });
@@ -217,15 +223,18 @@ describe(feature("bots.webhook-delivery"), () => {
   it("takes only the bot's own @mentions out of the plain text, case for case, then whitespace at either end", () => {
     const space = String.fromCodePoint(0xa0, 0x2003, 0x3000);
     const webhook: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
-    const plain = (plainText: string) => (JSON.parse(webhookPayload("r1", webhook, { id: "m1", body: "", plainText })) as { message: { body: { plain: string } } }).message.body.plain;
+    const plain = (plainText: string, mentions: User[] = []) =>
+      (JSON.parse(webhookPayload("r1", webhook, { id: "m1", body: "", plainText, mentions })) as { message: { body: { plain: string } } }).message.body.plain;
 
     expect(plain(`${space}@Build Bot deploy @build bot and @Build Botty${space}`)).toBe("deploy @build bot and ty");
     expect(plain("@Build Bot")).toBe("");
+    // Its mentions go by the name the message gives it, which is newer where it was renamed then the message edited.
+    expect(plain("@Deploy Bot ship it", [{ id: "b1", name: "Deploy Bot" }])).toBe("ship it");
   });
 
   it("writes the payload as Campfire does, with HTML's characters escaped, and a DM's name null", () => {
     const webhook: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
-    const payload = webhookPayload("r1", webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B" });
+    const payload = webhookPayload("r1", webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B", mentions: [] });
 
     expect(payload).toBe(
       escaped('{"user":{"id":"u1","name":"Ada <3"},"room":{"id":"r1","name":null,"path":"/rooms/r1/b1-AbC123/messages"},"message":{"id":"m1","body":{"html":"<p>A &amp; B</p>","plain":"A & B"},"path":"/rooms/r1/@m1"}}'),
@@ -306,7 +315,9 @@ describe(feature("bots.webhook-jobs"), () => {
       await post(client, `<p>Four ${mention(bot)}</p>`),
     ];
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
-    // The third and fourth wait their turn, by which time one is edited and the other deleted.
+    // The third and fourth wait their turn, by which time the bot is renamed, the third edited, which
+    // mentions it by its new name, and the fourth deleted.
+    await renameBot(ada, bot, "Deploy Bot");
     client.send({ type: "message.update", messageId: third!.id, body: `<p>Three, edited ${mention(bot)}</p>` });
     await client.next("message.updated");
     client.send({ type: "message.delete", messageId: fourth!.id });

@@ -1,4 +1,4 @@
-import { botMessagesPath, type Message, type RoomId } from "@ember/protocol";
+import { botMessagesPath, type Message, type RoomId, type User } from "@ember/protocol";
 import type { MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";
 import { railsJson } from "./rails-json";
@@ -23,14 +23,23 @@ const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent
  * address is the one the bot posts to there, with its key, and the message's is its permalink, both
  * without an origin, as Rails' path helpers write them.
  */
-export function webhookPayload(roomId: RoomId, webhook: MessageWebhook, message: Pick<Message, "id" | "body" | "plainText">): string {
+export function webhookPayload(roomId: RoomId, webhook: MessageWebhook, message: Pick<Message, "id" | "body" | "plainText" | "mentions">): string {
   const { author, roomName, bot, token } = webhook;
+  const plain = withoutMentionsOf(nameIn(message, bot), message.plainText);
   return railsJson({
     user: { id: author.id, name: author.name },
     room: { id: roomId, name: roomName, path: botMessagesPath(roomId, botKeyOf(bot.id, token)) },
-    message: { id: message.id, body: { html: message.body, plain: withoutMentionsOf(bot.name, message.plainText) }, path: `/rooms/${roomId}/@${message.id}` },
+    message: { id: message.id, body: { html: message.body, plain }, path: `/rooms/${roomId}/@${message.id}` },
   });
 }
+
+/**
+ * The name `message`'s plain text gives `bot`: the one its mentions of it have, from when the text was
+ * last written, which an edit since a rename the delivery hasn't heard of makes the new name, or where
+ * it isn't mentioned by name, the one the delivery has. Campfire reads both as the delivery runs, so
+ * they always agree.
+ */
+const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentions.find(({ id }) => id === bot.id)?.name || bot.name;
 
 /** `without_recipient_mentions`: `text` without its @mentions of `name`, matched case for case, nor whitespace at either end. */
 const withoutMentionsOf = (name: string, text: string) => text.replaceAll(`@${name}`, "").replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
