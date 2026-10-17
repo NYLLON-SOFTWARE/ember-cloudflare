@@ -11,6 +11,7 @@ import {
   type Boost,
   type ClientFrame,
   type Message,
+  type NewUpload,
   type RoomId,
   type ServerFrame,
   type TimelinePage,
@@ -23,7 +24,9 @@ import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
-import { sortableId } from "./ids";
+import { Blobs, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
+import type { Uploader } from "./files/uploads";
+import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
@@ -96,6 +99,9 @@ const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
 const WEBHOOKS_AT_ONCE = 2;
 const WEBHOOKS_WAITING = 1024;
 
+/** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
+const KEY_LENGTH = 28;
+
 /** What sends each of a room's logs (see `couriersFor`). */
 interface Couriers {
   /** Sends the Workspace the room's events, which it marks the room unread and read by. */
@@ -113,6 +119,7 @@ export class ChatRoom extends DurableObject<Env> {
   private store: MessageStore | null = null;
   private revocations: Revocations | null = null;
   private log: RoomLog | null = null;
+  private blobs: Blobs | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
@@ -215,6 +222,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
     await this.storeFor(roomId).deleteAllMessages();
+    await this.blobsFor(roomId).deleteAll();
     await this.logFor(roomId).forget();
     await searchIndex(this.env).forget(roomId);
     await this.ctx.storage.put(DELETED_ROOM, roomId);
@@ -233,7 +241,7 @@ export class ChatRoom extends DurableObject<Env> {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
       // Its tables went too, so anything after this opens the database afresh.
-      this.db = this.store = this.revocations = this.log = null;
+      this.db = this.store = this.revocations = this.log = this.blobs = null;
       return undefined;
     });
     if (undelivered === undefined) return;
@@ -385,6 +393,69 @@ export class ChatRoom extends DurableObject<Env> {
       await this.removeBoost(store, boost);
       return true;
     });
+  }
+
+  /**
+   * Starts `uploader`'s upload of `file` to the room, answering the file's key, or null once the room has
+   * heard that their access ended, or the room was deleted, after the Workspace checked, as it turns away
+   * a socket then.
+   */
+  async startUpload(roomId: RoomId, uploader: Uploader, file: NewUpload): Promise<string | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      const key = base36(KEY_LENGTH);
+      const blob = { id: key, uploaderId: uploader.userId, filename: file.name, contentType: file.type, byteSize: file.size };
+      await this.blobsFor(roomId).create(blob, new Date().toISOString());
+      return key;
+    });
+  }
+
+  /** `uploaderId`'s upload `key` to the room, as far as it has come, or null if they have no such upload. */
+  async uploadOf(roomId: RoomId, uploaderId: UserId, key: string): Promise<RoomBlob | null> {
+    return this.serially(async () => {
+      const blob = await this.blobsFor(roomId).find(key);
+      return blob?.uploaderId === uploaderId ? blob : null;
+    });
+  }
+
+  /**
+   * Records what the first part of `uploader`'s upload `key` says the file is, with what R2 then has of
+   * it, unless another request has recorded its own first part, answering the upload as it is then. Answers
+   * null when the room turns the uploader away, as `startUpload` does, or they have no such upload.
+   */
+  async identifyUpload(
+    roomId: RoomId,
+    uploader: Uploader,
+    key: string,
+    identified: Identified,
+    stored: { multipartUploadId: string; part: UploadedPart } | { completedAt: string },
+  ): Promise<RoomBlob | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      const blobs = this.blobsFor(roomId);
+      const blob = await blobs.find(key);
+      if (blob?.uploaderId !== uploader.userId) return null;
+      return (await blobs.identify(key, identified, stored)) ?? blob;
+    });
+  }
+
+  /**
+   * Records `part` of `uploader`'s upload `key` in more than one part, answering the upload as it is
+   * then, or null as `identifyUpload` answers it, or when the upload hasn't started in R2.
+   */
+  async recordUploadPart(roomId: RoomId, uploader: Uploader, key: string, part: UploadedPart): Promise<RoomBlob | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      const blobs = this.blobsFor(roomId);
+      const blob = await blobs.find(key);
+      if (blob?.uploaderId !== uploader.userId || blob.multipartUploadId === null) return null;
+      return blob.completedAt ? blob : blobs.recordPart(blob, part);
+    });
+  }
+
+  /** Records that R2 has put upload `key` together, answering it, or null once the room no longer has it. */
+  async completeUpload(roomId: RoomId, key: string): Promise<RoomBlob | null> {
+    return this.serially(() => this.blobsFor(roomId).complete(key, new Date().toISOString()));
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -593,6 +664,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   private logFor(roomId: RoomId): RoomLog {
     return (this.log ??= new RoomLog(this.dbFor(), roomId));
+  }
+
+  private blobsFor(roomId: RoomId): Blobs {
+    return (this.blobs ??= new Blobs(this.dbFor(), roomId));
   }
 
   /** Logs that `userId` has read the room, for the Workspace to clear their mark, and sends it the log. */

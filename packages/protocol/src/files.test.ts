@@ -1,0 +1,43 @@
+import { feature } from "@ember/parity";
+import { describe, expect, it } from "vitest";
+import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, parseNewUpload, uploadPartPath, uploadsPath, type RoomId } from "./index";
+
+describe(feature("attachments.size-limit"), () => {
+  it("takes a file of up to 250,000,000 bytes, and an empty one", () => {
+    expect(parseNewUpload({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE })).toEqual({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE });
+    expect(parseNewUpload({ name: ".keep", type: "", size: 0 })).toEqual({ name: ".keep", type: "", size: 0 });
+    expect(parseNewUpload({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE + 1 })).toBe(FILE_TOO_LARGE);
+    expect(FILE_TOO_LARGE).toBe("Files must be 250 MB or smaller.");
+  });
+});
+
+describe(feature("attachments.types"), () => {
+  it("keeps the name and type as the browser gives them, whatever they are", () => {
+    const upload = { name: "  weird & -name- ünï.png ", type: "application/x-anything; charset=utf-8", size: 42 };
+    expect(parseNewUpload(upload)).toEqual(upload);
+    const longest = { name: `${"n".repeat(MAX_FILE_NAME_LENGTH - 4)}.png`, type: "t".repeat(255), size: 1 };
+    expect(parseNewUpload(longest)).toEqual(longest);
+    expect(parseNewUpload({ ...upload, name: "🌍.png" })).toEqual({ ...upload, name: "🌍.png" });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "moon.jpg", type: "image/jpeg", size: 1 }], "Expected a JSON object"],
+    ["a name that isn't text", { name: 7, type: "", size: 1 }, "A file needs a name"],
+    ["a blank name", { name: " \t", type: "", size: 1 }, "A file needs a name"],
+    ["a name longer than any file system's", { name: `${"n".repeat(MAX_FILE_NAME_LENGTH)}.png`, type: "", size: 1 }, "That file's name can't be kept"],
+    ["half a character", { name: "\ud83cmoon.jpg", type: "", size: 1 }, "That file's name can't be kept"],
+    ["a type that isn't text", { name: "moon.jpg", type: null, size: 1 }, "A file's type must be text"],
+    ["a type longer than any", { name: "moon.jpg", type: "t".repeat(256), size: 1 }, "A file's type must be text"],
+    ["a size that isn't a number", { name: "moon.jpg", type: "", size: "12794" }, "A file's size must be a number of bytes"],
+    ["a size that isn't whole", { name: "moon.jpg", type: "", size: 1.5 }, "A file's size must be a number of bytes"],
+    ["a negative size", { name: "moon.jpg", type: "", size: -1 }, "A file's size must be a number of bytes"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseNewUpload(body)).toBe(error);
+  });
+
+  it("uploads to the room's address, a part at a time", () => {
+    expect(uploadsPath("lobby" as RoomId)).toBe("/api/rooms/lobby/uploads");
+    expect(uploadPartPath("lobby" as RoomId, "1ykrknnn9r4youv0f71wrntkzilx", 2)).toBe("/api/rooms/lobby/uploads/1ykrknnn9r4youv0f71wrntkzilx/parts/2");
+  });
+});

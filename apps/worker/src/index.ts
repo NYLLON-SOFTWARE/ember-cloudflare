@@ -59,6 +59,8 @@ import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSI
 import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
+import { fileAddressOf, serveFile } from "./files/serving";
+import { startUpload, uploadPart } from "./files/uploads";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -691,6 +693,12 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const involvement = pathname.match(/^\/api\/rooms\/([^/]+)\/involvement$/);
   if (involvement && request.method === "PUT")
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
+  const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
+  if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
+  // A file's key never needs percent-encoding either, so an encoded segment names no upload.
+  const part = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/([^/]+)\/parts\/([1-9][0-9]*)$/);
+  if (part && request.method === "PUT")
+    return () => (isRoomId(part[1]!) ? uploadPart(request, env, part[1]!, part[2]!, Number(part[3])) : problem(404, ROOM_NOT_FOUND));
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return () => (isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
   if (room && request.method === "DELETE") return () => (isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
@@ -714,6 +722,10 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
+  // Nor are a room's files, which ember-rust serves from Active Storage's controllers rather than
+  // Campfire's, to whoever has the address, whatever their browser.
+  const file = fileAddressOf(pathname);
+  if (file) return write ? notFound(request) : serveFile(request, env, file);
   const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname);
   // First, as ember-rust's `reject_banned_ip` (concerns.rs): once a route is found, so an unknown
   // address still answers 404, a banned IP address can't change anything, sign in or join.
@@ -760,9 +772,10 @@ export default {
   async fetch(request, env): Promise<Response> {
     if (!isHttps(request) && requiresHttps(request, env)) return redirectToHttps(request);
     const { pathname } = new URL(request.url);
-    // /up skips ember-rust's before-actions, so it's never checked and carries no version.
+    // /up skips ember-rust's before-actions, so it's never checked and carries no version, and
+    // Active Storage's files, which Campfire's controllers don't serve, carry none either.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
     const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, env, pathname, error));
-    return withHeaders(response, request, env, { version: !isUp });
+    return withHeaders(response, request, env, { version: !isUp && !fileAddressOf(pathname) });
   },
 } satisfies ExportedHandler<Env>;

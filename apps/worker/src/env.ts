@@ -15,6 +15,11 @@ export interface Env {
   SEARCH_INDEX: DurableObjectNamespace<SearchIndex>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
+  /**
+   * The R2 bucket that keeps the files people upload to rooms, as ember-rust keeps them on disk.
+   * Unbound, Ember keeps none: uploading answers 503 and a file's address 404.
+   */
+  FILES?: R2Bucket;
   STORAGE_BACKEND: StorageBackend;
   /**
    * Comma-separated addresses of rooms from before the Workspace kept a list, which it registers as

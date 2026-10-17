@@ -1,9 +1,15 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
+import { readdir, readFile } from "node:fs/promises";
 import { defineConfig } from "vitest/config";
 
 // The Worker's suite runs inside workerd once per storage backend; the deploy scripts' tests run in Node.
 const migrations = await readD1Migrations("./migrations");
 const searchMigrations = await readD1Migrations("./search-migrations");
+// ember-rust's recorded images (test/fixtures/README.md), as Base64, since workerd can't read the disk.
+const storageFiles = "./test/fixtures/storage";
+const recordedImages = Object.fromEntries(
+  await Promise.all((await readdir(storageFiles)).map(async (name) => [name, (await readFile(`${storageFiles}/${name}`)).toString("base64")])),
+);
 
 const backend = (name: "do-sqlite" | "d1") => ({
   extends: true as const,
@@ -22,6 +28,7 @@ const backend = (name: "do-sqlite" | "d1") => ({
           VAPID_PRIVATE_KEY: "qfXLHghuG1rSHZUVo9SscNRI-0EIHRbIrfeGCqbAwak=",
           TEST_MIGRATIONS: migrations,
           TEST_SEARCH_MIGRATIONS: searchMigrations,
+          TEST_RECORDED_IMAGES: recordedImages,
         },
         d1Databases: name === "d1" ? ["DB"] : [],
       },

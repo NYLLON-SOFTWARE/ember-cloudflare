@@ -64,7 +64,8 @@ export function up(request: Request): Response {
 /**
  * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
  * their storage, so a deploy can be checked without signing in. It says whether push notifications
- * are on too, and why not, which ember-rust only logs, but they don't decide whether it's healthy.
+ * are on too, and why not, which ember-rust only logs, and whether there's a bucket for files, but
+ * neither decides whether it's healthy.
  */
 export async function health(env: Env): Promise<Response> {
   const storage = env.STORAGE_BACKEND;
@@ -78,5 +79,5 @@ export async function health(env: Env): Promise<Response> {
     return Response.json({ ok: false, storage, error: "Storage isn't answering" }, { status: 503 });
   }
   const push = await webPush(env);
-  return Response.json({ ok: true, storage, push: push.on ? { on: true } : { on: false, reason: push.reason } });
+  return Response.json({ ok: true, storage, push: push.on ? { on: true } : { on: false, reason: push.reason }, files: { on: env.FILES !== undefined } });
 }

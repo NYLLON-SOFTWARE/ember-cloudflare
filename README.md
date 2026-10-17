@@ -161,6 +161,18 @@ they see this project's address. Each push is an outgoing request, of which the 
 allows 50 per invocation, so there the pushes past that, for a message with more subscribers or a run
 of messages sent together, fail and are logged; the Paid plan allows 10,000.
 
+### Files
+
+The files people upload go to an R2 bucket, bound as `FILES` in `apps/worker/wrangler.jsonc` and
+named `ember`. Turn R2 on for your Cloudflare account, then deploy: Wrangler binds the account's
+bucket of that name, and creates it if there's none and its token may, or make it yourself first
+with `pnpm --filter @ember/worker exec wrangler r2 bucket create ember`. Change `bucket_name` to use
+another. `wrangler dev` keeps files on your machine. Without the binding Ember keeps no files, and
+`/api/health` says so.
+
+A file goes up in parts of 10 MiB, since a Worker takes at most 100 MB a request, and R2 puts them
+back together. R2 deletes the parts of an upload nobody finishes after a week.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
