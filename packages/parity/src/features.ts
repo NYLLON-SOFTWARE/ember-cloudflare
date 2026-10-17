@@ -1482,7 +1482,7 @@ export const features = [
     id: "attachments.svg-preview",
     title: "Safe SVG previews",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "SVG files up to 5 MiB (5,242,880 bytes) show an image, with the file name as its alt text, above their file card, which always stays.",
       "Once the preview is within 200px of the screen, the page fetches the file from this site, gives up past 5 MiB, and shows it from a data URL only after it decodes, so its scripts and external resources never run. It's never inline SVG, an `<object>`, an `<iframe>` or a blob URL.",
@@ -1490,6 +1490,8 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/svg_preview_controller.js", "crates/ember/src/controllers/presenters.rs", "crates/views/src/messages/presentation.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
+    notes:
+      "The app loads an SVG's preview as ember-rust's controller does (apps/web/src/lib/svg-preview.ts), once it's within 200px of the timeline's view, where ember-rust's watches the screen, which its scrolling timeline clips, so it waits until the SVG is in view. The app needs JavaScript, so there's no page without it. ember-rust's SVG gets the zoom-in cursor Campfire gives every picture in a message, though nothing opens it, and Ember's keeps the plain one. SVGs are served as `application/octet-stream` attachments since `attachments.serving`.",
   },
   {
     id: "attachments.download-share",

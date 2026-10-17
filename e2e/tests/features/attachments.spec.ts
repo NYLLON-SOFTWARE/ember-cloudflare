@@ -212,6 +212,37 @@ test.describe(feature("attachments.previews"), () => {
   });
 });
 
+test.describe(feature("attachments.svg-preview"), () => {
+  test("shows an SVG above its card from a data URL, where its scripts don't run and what it links to doesn't load, and downloads it", async ({ members, request }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    const requested: string[] = [];
+    grace.page.on("request", (sent) => requested.push(new URL(sent.url()).pathname));
+    const badge = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" onload="fetch('/svg/onload')">`,
+      `<rect width="120" height="60" fill="#c33"/>`,
+      `<image href="/svg/image.png" width="10" height="10"/>`,
+      `<script>fetch("/svg/script")</script>`,
+      `</svg>`,
+    ].join("");
+    await attachFiles(ada).setInputFiles({ name: "badge.svg", mimeType: "image/svg+xml", buffer: Buffer.from(badge) });
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    for (const member of [ada, grace]) {
+      const image = member.message("badge.svg").getByRole("img", { name: "badge.svg" });
+      await expect(image).toHaveAttribute("src", `data:image/svg+xml;base64,${Buffer.from(badge).toString("base64")}`);
+      expect(await image.evaluate((element: HTMLImageElement) => [element.naturalWidth, element.naturalHeight])).toEqual([120, 60]);
+      await expect(downloadLink(member, "badge.svg")).toBeVisible();
+    }
+    expect(requested.filter((path) => path.startsWith("/svg/"))).toEqual([]);
+
+    // Shown, it's still a download, which no browser runs as a page.
+    const shown = await request.get((await downloadLink(grace, "badge.svg").getAttribute("href"))!.replace(/\?.*/, ""));
+    expect(shown.headers()["content-type"]).toBe("application/octet-stream");
+    expect(shown.headers()["content-disposition"]).toMatch(/^attachment; /);
+  });
+});
+
 test.describe(feature("attachments.progress"), () => {
   test("shows each upload's card until the room posts its file, and why one failed", async ({ members }) => {
     const ada = await members.signIn("Ada");

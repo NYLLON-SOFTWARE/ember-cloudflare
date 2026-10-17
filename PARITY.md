@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 118 ported and 45 partial of 172 features; 3 not started, 6 not applicable.
+**Overall:** 119 ported and 45 partial of 172 features; 2 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 11 | 7 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 7 | 1 | 2 | 1 | 11 |
+| [Attachments](#attachments) | 8 | 1 | 1 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **118** | **45** | **3** | **6** | **172** |
+| **Total** | **119** | **45** | **2** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1383,7 +1383,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | Upload progress | `attachments.progress` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [upload-card](apps/web/src/components/workspace/upload-card.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Image, video and file previews | `attachments.previews` | Campfire | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [attachment](apps/web/src/components/workspace/attachment.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [previews](apps/web/src/lib/previews.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Image viewer | `attachments.lightbox` | Campfire | ✅ Ported | Web: [lightbox](apps/web/src/components/lightbox.test.tsx), [attachment](apps/web/src/components/workspace/attachment.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
+| Safe SVG previews | `attachments.svg-preview` | Ember | ✅ Ported | Web: [attachment](apps/web/src/components/workspace/attachment.test.tsx), [svg-preview](apps/web/src/lib/svg-preview.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Download and share files | `attachments.download-share` | Ember | ✅ Ported | Web: [share-button](apps/web/src/components/share-button.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [share](apps/web/src/lib/share.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | File links | `attachments.serving` | Campfire | ✅ Ported | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Files leave with their messages | `attachments.purge` | Campfire | ⬜ Not started |  |
@@ -1461,11 +1461,13 @@ Sources: [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NY
 
 ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Safe SVG previews** (`attachments.svg-preview`) ⬜
+**Safe SVG previews** (`attachments.svg-preview`) ✅
 
 - SVG files up to 5 MiB (5,242,880 bytes) show an image, with the file name as its alt text, above their file card, which always stays.
 - Once the preview is within 200px of the screen, the page fetches the file from this site, gives up past 5 MiB, and shows it from a data URL only after it decodes, so its scripts and external resources never run. It's never inline SVG, an `<object>`, an `<iframe>` or a blob URL.
 - Larger, broken or cross-origin SVGs, and pages without JavaScript, show only the card, and SVG files always download as `application/octet-stream` attachments.
+
+Note: The app loads an SVG's preview as ember-rust's controller does (apps/web/src/lib/svg-preview.ts), once it's within 200px of the timeline's view, where ember-rust's watches the screen, which its scrolling timeline clips, so it waits until the SVG is in view. The app needs JavaScript, so there's no page without it. ember-rust's SVG gets the zoom-in cursor Campfire gives every picture in a message, though nothing opens it, and Ember's keeps the plain one. SVGs are served as `application/octet-stream` attachments since `attachments.serving`.
 
 Sources: [`crates/assets/overrides/controllers/svg_preview_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/svg_preview_controller.js) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs)
 
