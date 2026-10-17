@@ -60,7 +60,7 @@ import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
-import { startUpload, uploadPart } from "./files/uploads";
+import { startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -699,6 +699,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const part = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/([^/]+)\/parts\/([1-9][0-9]*)$/);
   if (part && request.method === "PUT")
     return () => (isRoomId(part[1]!) ? uploadPart(request, env, part[1]!, part[2]!, Number(part[3])) : problem(404, ROOM_NOT_FOUND));
+  const preview = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/([^/]+)\/preview$/);
+  if (preview && request.method === "PUT")
+    return () => (isRoomId(preview[1]!) ? uploadPreview(request, env, preview[1]!, preview[2]!) : problem(404, ROOM_NOT_FOUND));
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return () => (isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
   if (room && request.method === "DELETE") return () => (isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));

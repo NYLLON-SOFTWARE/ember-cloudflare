@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 111 ported and 52 partial of 172 features; 3 not started, 6 not applicable.
+**Overall:** 112 ported and 51 partial of 172 features; 3 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 9 | 9 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 2 | 6 | 2 | 1 | 11 |
+| [Attachments](#attachments) | 3 | 5 | 2 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **111** | **52** | **3** | **6** | **172** |
+| **Total** | **112** | **51** | **3** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1378,10 +1378,10 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Attach files | `attachments.upload` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
+| Attach files | `attachments.upload` | Campfire | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | 250 MB file limit | `attachments.size-limit` | Ember | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx) |
 | Upload progress | `attachments.progress` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [upload-card](apps/web/src/components/workspace/upload-card.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| Image, video and file previews | `attachments.previews` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx) |
+| Image, video and file previews | `attachments.previews` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [attachment](apps/web/src/components/workspace/attachment.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [previews](apps/web/src/lib/previews.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
 | Download and share files | `attachments.download-share` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
@@ -1393,7 +1393,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 <details>
 <summary>Behaviors and sources</summary>
 
-**Attach files** (`attachments.upload`) 🟡
+**Attach files** (`attachments.upload`) ✅
 
 - Files are attached with Attach files (several at once, of any type), by pasting, or by dropping them on the messages or the composer. Files pasted or dropped onto the text box are queued too, never placed in the text, and the same file can be picked again.
 - Queued files show as chips sorted by name, images as thumbnails and other files as a file icon, captioned with the name up to its last dot, then "." and the extension; clicking a chip removes it.
@@ -1403,7 +1403,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 - Uploading into a room that was deleted, or that the sender has left, stores nothing and shows "Upload failed. Please attach the file and try again."
 - A file message's text, for search, push and webhooks, is its file name.
 
-Note: The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. A chip shows a name with no dot whole, where ember-rust's puts a dot before it, and tells screen readers it removes its file, where ember-rust's gives only the name, and a picture's thumbnail is let go once its chip goes, where ember-rust keeps them until the page goes. Still to come: images' thumbnails and videos' posters (`attachments.previews`).
+Note: The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. A chip shows a name with no dot whole, where ember-rust's puts a dot before it, and tells screen readers it removes its file, where ember-rust's gives only the name, and a picture's thumbnail is let go once its chip goes, where ember-rust keeps them until the page goes. Thumbnails and posters are made in the uploader's browser (`attachments.previews`), so a file whose preview can't be made, or takes more than five seconds, is posted without one, where ember-rust's server fails the upload, keeping its message but not broadcasting it.
 
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`reference/app/javascript/controllers/drop_target_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/drop_target_controller.js) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/vips.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/vips.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`reference/app/models/message/attachment.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/attachment.rb)
 
@@ -1443,7 +1443,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - A file card's name isn't a link, so a PDF can be downloaded but not opened in place.
 - Downloads return the original file.
 
-Note: File cards: the file's icon on a tile, its name and Download, as ember-rust draws them, in place of the message's text. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`). Still to come: images and videos, which show as file cards until then, and Share (`attachments.download-share`).
+Note: Previews are made in the uploader's browser as it uploads a file (apps/web/src/lib/previews.ts), where ember-rust's server makes them, and sent before its last part, unless the browser takes more than five seconds; the Worker takes a WebP, JPEG or PNG of up to 5 MiB within 1200×800, keeps it in R2 beside the file and serves it under the file's signature at `/previews/…`. A thumbnail is WebP, or where the browser can't encode WebP, as Safari can't, a JPEG, or a PNG for a picture that can be see-through, and a video's poster is its frame a tenth of a second in, where ember-rust's ffmpeg takes the first. A video's size is its poster's, since the Worker can't read a video's own. A picture the uploader's browser can't decode, as Chrome can't decode HEIC or TIFF, or sent without a thumbnail, as a bot's will be, shows itself if it's a PNG, JPEG, GIF or WebP of up to 5 MiB, so a small animated GIF moves, and its card otherwise, and a video without a poster loads enough to show its first frame (`preload="metadata"`), where ember-rust's server makes both regardless. ember-rust's box for a picture is half its size, but the picture in it at most 480px wide, which leaves the box blank below a picture shown more than 480px wide; Ember's box keeps to the picture's limits, so it's always the picture's shape. A picture's alt text and a video's name are the file's name, where ember-rust's have none. File cards: the file's icon on a tile, its name and Download, as ember-rust draws them. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`). Still to come: the image viewer, until which a picture links to its file (`attachments.lightbox`), and Share (`attachments.download-share`).
 
 Sources: [`reference/app/helpers/messages/attachment_presentation.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages/attachment_presentation.rb) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 

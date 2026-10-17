@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { feature } from "@ember/parity";
 import { uploadPartPath, uploadsPath, type Message, type Upload } from "@ember/protocol";
 import type { APIRequestContext, Locator } from "@playwright/test";
@@ -6,18 +7,44 @@ import { cookieHeader } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 /**
- * Uploads `text` as a text file called `name` to `roomId` for `member`, in one part, as the composer
- * will, and returns the message the room posts it as.
+ * Uploads `content` as a file called `name` to `roomId` for `member`, in one part and without a preview,
+ * as a bot's files come, and returns the message the room posts it as.
  */
-async function upload(request: APIRequestContext, member: Member, roomId: string, name: string, text: string): Promise<Message> {
+async function upload(request: APIRequestContext, member: Member, roomId: string, name: string, content: string | Buffer, type = "text/plain"): Promise<Message> {
   const headers = { Cookie: cookieHeader(member.session) };
-  const file = { name, type: "text/plain", size: new TextEncoder().encode(text).length, clientMessageId: crypto.randomUUID() };
+  const file = { name, type, size: typeof content === "string" ? new TextEncoder().encode(content).length : content.length, clientMessageId: crypto.randomUUID() };
   const started = await request.post(uploadsPath(roomId), { data: file, headers });
   expect(started.status(), await started.text()).toBe(201);
   const { id } = (await started.json()) as Upload;
-  const finished = await request.put(uploadPartPath(roomId, id, 1), { data: text, headers });
+  const finished = await request.put(uploadPartPath(roomId, id, 1), { data: content, headers });
   expect(finished.status(), await finished.text()).toBe(201);
   return (await finished.json()) as Message;
+}
+
+/** A picture `width` by `height`, drawn in `member`'s browser as a PNG, as Playwright picks it. */
+async function picture(member: Member, name: string, width: number, height: number) {
+  const bytes = await member.page.evaluate(
+    async ([width, height]) => {
+      const canvas = new OffscreenCanvas(width, height);
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#c33";
+      context.fillRect(0, 0, width, height);
+      context.fillStyle = "#33c";
+      context.fillRect(0, 0, width / 2, height / 2);
+      return [...new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer())];
+    },
+    [width, height] as const,
+  );
+  return { name, mimeType: "image/png", buffer: Buffer.from(bytes) };
+}
+
+/** A second of video, 320 by 180, as a WebM file that Chromium plays. */
+const clip = resolve(import.meta.dirname, "files/clip.webm");
+
+/** The width and height of the box `locator` takes up. */
+async function sizeOf(locator: Locator): Promise<[number, number]> {
+  const box = await locator.boundingBox();
+  return [box!.width, box!.height];
 }
 
 /** The link on a file message's card that downloads its file. */
@@ -102,6 +129,64 @@ test.describe(feature("attachments.upload"), () => {
     await ada.page.getByRole("button", { name: "Send Message" }).click();
     expect(await downloaded(ada, "on the messages.txt")).toBe("Dropped on the messages");
     for (const name of ["pasted.txt", "on the composer.txt"]) await expect(downloadLink(ada, name)).toBeVisible();
+  });
+});
+
+test.describe(feature("attachments.previews"), () => {
+  test("shows a picture by the thumbnail its uploader's browser makes, to everyone, in a box half its size up to 480px wide", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await attachFiles(ada).setInputFiles(await picture(ada, "mural.png", 2400, 1600));
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    for (const member of [ada, grace]) {
+      const link = member.page.getByRole("link", { name: "mural.png" });
+      await expect(link).toHaveAttribute("href", /^\/files\/[0-9a-z]+\/[\w-]+\/mural\.png$/);
+      const thumbnail = link.getByRole("img", { name: "mural.png" });
+      await expect(thumbnail).toHaveAttribute("src", /^\/previews\/[0-9a-z]+\/[\w-]+\/mural\.png$/);
+      // Scaled down to fit 1200×800, and shown at half that, 480px wide at most.
+      await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => [image.naturalWidth, image.naturalHeight])).toEqual([1200, 800]);
+      expect(await sizeOf(link)).toEqual([480, 320]);
+      await expect(member.page.getByRole("link", { name: "Download mural.png" })).toHaveCount(0);
+    }
+    const preview = await ada.page.request.get((await ada.page.getByRole("img", { name: "mural.png" }).getAttribute("src"))!);
+    expect(preview.headers()["content-type"]).toBe("image/webp");
+  });
+
+  test("plays a video in place, in a box half its size, behind the poster its uploader's browser makes, loading nothing until it's played", async ({ members, request }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await attachFiles(ada).setInputFiles(clip);
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    for (const member of [ada, grace]) {
+      const video = member.page.getByRole("article").locator("video");
+      await expect(video).toHaveAccessibleName("clip.webm");
+      await expect(video).toHaveAttribute("src", /^\/files\/[0-9a-z]+\/[\w-]+\/clip\.webm$/);
+      await expect(video).toHaveAttribute("poster", /^\/previews\/[0-9a-z]+\/[\w-]+\/clip\.webm$/);
+      await expect(video).toHaveAttribute("preload", "none");
+      expect(await sizeOf(video)).toEqual([160, 90]);
+      // HAVE_NOTHING: none of it has loaded.
+      expect(await video.evaluate((element: HTMLVideoElement) => element.readyState)).toBe(0);
+    }
+    const poster = await request.get((await ada.page.locator("video").getAttribute("poster"))!);
+    expect(poster.headers()["content-type"]).toBe("image/webp");
+  });
+
+  test("shows a picture without a thumbnail, as a bot's, as itself, and a file the browser couldn't make one of as its card", async ({ members, request, rooms }) => {
+    const ada = await members.signIn("Ada");
+    const { buffer } = await picture(ada, "dot.png", 40, 20);
+    const { attachment } = await upload(request, ada, rooms.general.id, "dot.png", buffer, "image/png");
+    const dot = ada.page.getByRole("img", { name: "dot.png" });
+    await expect(dot).toHaveAttribute("src", attachment!.url);
+    expect(await sizeOf(ada.page.getByRole("link", { name: "dot.png" }))).toEqual([20, 10]);
+
+    // Chromium can't decode HEIC, so this one goes without.
+    const heic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypheic"), Buffer.alloc(12)]);
+    await attachFiles(ada).setInputFiles({ name: "photo.heic", mimeType: "image/heic", buffer: heic });
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+    await expect(downloadLink(ada, "photo.heic")).toBeVisible();
+    await expect(ada.page.getByRole("img", { name: "photo.heic" })).toHaveCount(0);
   });
 });
 

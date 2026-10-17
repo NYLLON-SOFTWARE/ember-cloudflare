@@ -25,6 +25,7 @@ import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { attachedFile, Blobs, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
+import type { ImageSize } from "./files/images";
 import type { Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
@@ -445,6 +446,17 @@ export class ChatRoom extends DurableObject<Env> {
       const blob = await blobs.find(key);
       if (blob?.uploaderId !== uploader.user.id || blob.multipartUploadId === null) return null;
       return blob.completedAt ? blob : blobs.recordPart(blob, part);
+    });
+  }
+
+  /**
+   * Records that `uploader`'s upload `key` has a preview of `size`, unless the room has posted the file
+   * already, answering the upload as it is then, or null as `identifyUpload` answers it.
+   */
+  async recordUploadPreview(roomId: RoomId, uploader: Uploader, key: string, size: ImageSize): Promise<RoomBlob | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      return this.blobsFor(roomId).recordPreview(key, uploader.user.id, size);
     });
   }
 

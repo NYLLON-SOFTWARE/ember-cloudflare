@@ -7,7 +7,7 @@ import { messagePath } from "@/hooks/use-route";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { FileCard } from "./file-card";
+import { Attachment } from "./attachment";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
@@ -219,7 +219,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
             </div>
           ) : message.attachment ? (
             <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
-              <FileCard file={message.attachment} />
+              <Attachment file={message.attachment} />
             </div>
           ) : (
             <MessageBody

@@ -138,6 +138,24 @@ describe(feature("attachments.previews"), () => {
       cleanup();
     }
   });
+
+  it("shows a picture message's thumbnail and a video message's player in place of its text, and in its editor", async () => {
+    const moon: StoredFile = { ...report, name: "moon.jpg", contentType: "image/jpeg", width: 640, height: 480, previewUrl: "/previews/k1/s1/moon.jpg" };
+    for (const threaded of [false, true]) {
+      const { article } = show(fileMessage({ plainText: moon.name, attachment: moon }), { threaded });
+      expect(within(article).getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", moon.previewUrl);
+      expect(within(article).queryByRole("link", { name: "Download moon.jpg" })).not.toBeInTheDocument();
+      cleanup();
+    }
+
+    const launch: StoredFile = { ...report, name: "launch.mp4", contentType: "video/mp4", width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" };
+    const { article, user } = show(fileMessage({ plainText: launch.name, attachment: launch }));
+    expect(article.querySelector("video")).toHaveAttribute("poster", launch.previewUrl);
+    await user.click(within(article).getByRole("button", { name: "Message options" }));
+    await user.click(within(actionBar()).getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Delete message" })).toHaveFocus();
+    expect(article.querySelector("video")).toHaveAttribute("src", launch.url);
+  });
 });
 
 describe(feature("attachments.progress"), () => {

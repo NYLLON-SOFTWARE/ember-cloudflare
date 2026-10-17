@@ -1,18 +1,30 @@
-import { FILE_TOO_LARGE, parseNewUpload, type Message, type RoomId, type Upload, type User } from "@ember/protocol";
+import {
+  FILE_TOO_LARGE,
+  MAX_PREVIEW_SIZE,
+  parseNewUpload,
+  PREVIEW_MAX_HEIGHT,
+  PREVIEW_MAX_WIDTH,
+  type Message,
+  type RoomId,
+  type Upload,
+  type User,
+} from "@ember/protocol";
 import { credentialsOf } from "../auth";
 import type { Env } from "../env";
 import { addressTag, MAX_ADDRESS_LENGTH, sessionTag } from "../revocations";
 import { workspace, type Credentials } from "../workspace";
-import { objectKey, type Identified, type RoomBlob } from "./blobs";
-import { sanitizedFilename } from "./filename";
+import { objectKey, previewKey, type Identified, type RoomBlob } from "./blobs";
+import { extname, sanitizedFilename } from "./filename";
 import { imageSize } from "./images";
-import { identify } from "./marcel";
+import { byMagic, identify } from "./marcel";
 
 // Uploading files to a room into R2, in parts, since a Worker takes at most 100 MB a request where
 // ember-rust takes a file of up to 250 MB in one. The room keeps each upload (blobs.ts), and the first
 // part says what the file is, as Active Storage identifies a blob, then analyzes it, once it has it all.
 // Once R2 has all of it, the room posts it as its uploader's message. R2 keeps the file with its type
-// and name, so serving it (serving.ts) needs nothing else.
+// and name, so serving it (serving.ts) needs nothing else. Before the last part, the uploader's browser
+// may send the file's preview, an image's thumbnail or a video's poster, which ember-rust makes on the
+// server, and the message shows it.
 
 /** How much of a file each part but the last carries: more than R2's least, 5 MiB, and few enough parts for the largest file. */
 export const UPLOAD_PART_SIZE = 10 * 1024 * 1024;
@@ -32,7 +44,21 @@ export const metadataOf = (bytes: Uint8Array, contentType: string) => JSON.strin
 const NOT_SIGNED_IN = "Not signed in";
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 const UPLOAD_NOT_FOUND = "Upload not found";
+const ALREADY_POSTED = "The file is posted already";
 const NO_STORAGE = "Ember isn't set up to store files";
+
+/**
+ * The types a preview can be, by its bytes, with the extension each gives its name: the formats Active
+ * Storage writes thumbnails and posters in that every browser shows (`ActiveStorage::Blob#default_variant_format`).
+ */
+const PREVIEW_EXTENSIONS = new Map([
+  ["image/webp", "webp"],
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+]);
+
+/** What the preview of a file named `name` is called, as Active Storage names a variant: the file's name with its type's extension. */
+const previewName = (name: string, contentType: string) => `${name.slice(0, name.length - extname(name).length)}.${PREVIEW_EXTENSIONS.get(contentType)}`;
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -149,6 +175,42 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
     if (!(await isWhole(files, recorded))) throw error;
   }
   return posted(await room.finishUpload(roomId, uploader, key));
+}
+
+/**
+ * `PUT /api/rooms/<room>/uploads/<key>/preview`, a WebP, JPEG or PNG within 1200×800 and 5 MiB: stores
+ * the preview of one of the uploader's own uploads, in place of any it had, answering 204. Once the room
+ * posts the file, its message shows the preview, if it's an image or a video. It has to come before the
+ * part that finishes the upload, since that posts the message, so it answers 409 after.
+ */
+export async function uploadPreview(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, NOT_SIGNED_IN);
+  const files = env.FILES;
+  if (!files) return problem(503, NO_STORAGE);
+  let uploader = await uploaderIn(env, credentials, roomId);
+  if (uploader instanceof Response) return uploader;
+  const room = env.CHAT_ROOM.getByName(roomId);
+  const upload = await room.uploadOf(roomId, uploader.user.id, key);
+  if (!upload) return problem(404, UPLOAD_NOT_FOUND);
+  if (upload.completedAt) return problem(409, ALREADY_POSTED);
+
+  const length = Number(request.headers.get("Content-Length") ?? NaN);
+  if (!Number.isSafeInteger(length)) return problem(411, "A preview needs its Content-Length");
+  if (length > MAX_PREVIEW_SIZE) return problem(413, "A preview is at most 5 MiB");
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  const contentType = byMagic(bytes) ?? "";
+  const size = PREVIEW_EXTENSIONS.has(contentType) ? imageSize(bytes, contentType) : null;
+  if (!size) return problem(415, "A preview is a WebP, JPEG or PNG image");
+  if (size.width > PREVIEW_MAX_WIDTH || size.height > PREVIEW_MAX_HEIGHT) return problem(422, "A preview fits within 1200×800");
+
+  // Again now the preview has arrived, as for a part.
+  uploader = await uploaderIn(env, credentials, roomId);
+  if (uploader instanceof Response) return uploader;
+  await files.put(previewKey(key), bytes, { httpMetadata: { contentType }, customMetadata: { filename: previewName(upload.filename, contentType) } });
+  const recorded = await room.recordUploadPreview(roomId, uploader, key, size);
+  if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
+  return recorded.completedAt ? problem(409, ALREADY_POSTED) : new Response(null, { status: 204 });
 }
 
 /** Whether R2 has all of `upload`'s file, as once its parts are put together. */

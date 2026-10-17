@@ -1,6 +1,18 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, MAX_ID_LENGTH, parseNewUpload, uploadPartPath, uploadsPath, type RoomId } from "./index";
+import {
+  FILE_TOO_LARGE,
+  isPreviewed,
+  isWebImage,
+  MAX_FILE_NAME_LENGTH,
+  MAX_FILE_SIZE,
+  MAX_ID_LENGTH,
+  parseNewUpload,
+  uploadPartPath,
+  uploadPreviewPath,
+  uploadsPath,
+  type RoomId,
+} from "./index";
 
 const clientMessageId = "5s1fw6nd9fk";
 
@@ -59,5 +71,24 @@ describe(feature("attachments.types"), () => {
   it("uploads to the room's address, a part at a time", () => {
     expect(uploadsPath("lobby" as RoomId)).toBe("/api/rooms/lobby/uploads");
     expect(uploadPartPath("lobby" as RoomId, "1ykrknnn9r4youv0f71wrntkzilx", 2)).toBe("/api/rooms/lobby/uploads/1ykrknnn9r4youv0f71wrntkzilx/parts/2");
+  });
+});
+
+describe(feature("attachments.previews"), () => {
+  it("previews the pictures ember-rust makes thumbnails of and every video, and sends a preview beside the upload's parts", () => {
+    const previewed = ["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif", "video/mp4", "video/quicktime", "video/webm"];
+    expect(previewed.filter(isPreviewed)).toEqual(previewed);
+    // Campfire leaves BMP, ICO and PSD out, and SVGs get previews of their own.
+    expect(["image/bmp", "image/vnd.microsoft.icon", "image/vnd.adobe.photoshop", "image/svg+xml", "application/pdf", "audio/mpeg", "text/plain", ""].filter(isPreviewed)).toEqual([]);
+    expect(uploadPreviewPath("lobby" as RoomId, "1ykrknnn9r4youv0f71wrntkzilx")).toBe("/api/rooms/lobby/uploads/1ykrknnn9r4youv0f71wrntkzilx/preview");
+  });
+
+  it("knows the pictures every browser shows, as Active Storage's `web_image_content_types` lists them", () => {
+    expect(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/heic", "image/tiff", "image/svg+xml"].filter(isWebImage)).toEqual([
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp",
+    ]);
   });
 });

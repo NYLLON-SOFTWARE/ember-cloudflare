@@ -7,7 +7,7 @@ import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
-import { FileCard } from "./file-card";
+import { Attachment } from "./attachment";
 import { avatarUrlOf } from "./user-avatar";
 
 /**
@@ -166,7 +166,7 @@ export function FileMessageEditor({ file, onDelete, onClose, ref }: FileMessageE
       }}
     >
       <div className="min-w-0 flex-1">
-        <FileCard file={file} />
+        <Attachment file={file} />
         <div className="flex justify-center pt-2">
           <DeleteButton ref={deleteButton} onDelete={onDelete} className="mb-4" autoFocus />
         </div>
