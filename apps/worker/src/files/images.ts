@@ -198,6 +198,27 @@ const LIBHEIF_BRANDS = ["heic", "heix", "mif1", "avif", "1pic", "jpeg"];
 /** The item types libheif reads as images, besides a `mime` item that's a JPEG. */
 const HEIF_IMAGES = new Set(["jpeg", "hvc1", "av01", "vvc1", "avc1", "unci", "j2k1", "mski", "grid", "iovl", "iden", "tili"]);
 
+/**
+ * The configuration libheif needs among an image's properties, by the image's type. It reads a tiled image's
+ * (`tilC`) only with its experimental features, so it reads no file with a tiled image.
+ */
+const HEIF_CONFIGURATIONS = new Map([["hvc1", "hvcC"], ["av01", "av1C"], ["vvc1", "vvcC"], ["avc1", "avcC"], ["j2k1", "j2kH"], ["unci", "uncC"], ["tili", "tilC"]]);
+
+/**
+ * The boxes libheif reads, as its release preset builds it: with its uncompressed codec's (`cmpd`, `uncC`,
+ * `cmpC`, `icef` and `cpat`), but without its experimental features'. It can't read an image with an
+ * essential property of any other type.
+ */
+const LIBHEIF_BOXES = new Set([
+  "ftyp", "free", "skip", "meta", "hdlr", "pitm", "iloc", "iinf", "infe", "iprp", "ipco", "ipma", "ispe", "auxC", "irot", "imir", "clap",
+  "iref", "hvcC", "av1C", "vvcC", "idat", "grpl", "pymd", "altr", "ster", "dinf", "dref", "url ", "colr", "pixi", "pasp", "lsel", "a1op",
+  "a1lx", "clli", "mdcv", "amve", "cmin", "cmex", "udes", "jpgC", "cmpd", "uncC", "cmpC", "icef", "cpat", "j2kH", "cdef", "cmap", "pclr",
+  "j2kL", "mskC", "avcC", "mdat",
+]);
+
+/** The `uuid` boxes libheif reads, by their UUIDs: camera intrinsics and extrinsics, as a draft wrote them. */
+const LIBHEIF_UUIDS = new Set(["22cc04c7d6d94e079d904eb6ecbaf3a3", "4363e9145b7d4aab97aebea69803b434"]);
+
 /** The most pixels libvips lets libheif open an image of: 16,384 squared, as heifsave writes at most. */
 const MAX_HEIF_PIXELS = 0x4000 ** 2;
 
@@ -208,7 +229,8 @@ const MAX_INT = 2 ** 31 - 1;
  * A HEIF's size as libvips reads it with libheif: its primary image's, from its properties, where that's one
  * of its top-level images, and otherwise the first of them, in the order of their ids. Those are the images
  * that aren't hidden, nor another image's thumbnail (`thmb`) or auxiliary image (`auxl`), such as its alpha
- * channel. A file libheif refuses, without the boxes it needs or with any image it can't read, is unreadable.
+ * channel. A file libheif refuses, without the boxes it needs or with any image it can't read, is unreadable:
+ * one without its codec's configuration, with an essential property libheif doesn't know, or too large.
  */
 function heif(view: DataView, bytes: Uint8Array): Header | null {
   // libvips takes an `ftyp` box of whole words with one of its major brands, and libheif one in its first
@@ -236,16 +258,18 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
   const associations = associationsOf(iprpChildren.filter((box) => box.type === "ipma"));
   const sizes = new Map<number, Header>();
   for (const id of images) {
-    const places = associations.get(id);
-    if (!places || places.some((place) => place > properties.length)) return null;
-    const size = sizeOf(places.filter((place) => place > 0).map((place) => properties[place - 1]!));
+    const associated = associations.get(id);
+    if (!associated || associated.some(({ place }) => place > properties.length)) return null;
+    const own = associated.filter(({ place }) => place > 0).map(({ place, essential }) => ({ property: properties[place - 1]!, essential }));
+    if (!isReadable(items.get(id)!.type, own)) return null;
+    const size = sizeOf(own.map(({ property }) => property));
     if (!size) return null;
     sizes.set(id, size);
   }
 
   const references = iref ? referencesOf(iref) : [];
-  const isBeneath = (id: number) => references.some(({ type, from, to }) => from === id && (type === "thmb" || (type === "auxl" && to.some((other) => sizes.has(other)))));
-  const topLevel = images.filter((id) => !items.get(id)!.hidden && !isBeneath(id));
+  const beneath = new Set(references.filter(({ type, to }) => type === "thmb" || (type === "auxl" && to.some((other) => sizes.has(other)))).map(({ from }) => from));
+  const topLevel = images.filter((id) => !items.get(id)!.hidden && !beneath.has(id));
   const shown = topLevel.includes(primary) ? primary : topLevel[0];
   return shown === undefined ? null : sizes.get(shown)!;
 }
@@ -357,9 +381,15 @@ function referencesOf({ bytes, view }: Box): Array<{ type: string; from: number;
   return references;
 }
 
-/** Each item's properties, by their places in `ipco` counting from 1, from its first entry in the `ipma` boxes. */
-function associationsOf(ipmas: Box[]): Map<number, number[]> {
-  const items = new Map<number, number[]>();
+/** An item's association with a property: the property's place in `ipco`, counting from 1, and whether it's essential to the item. */
+interface Association {
+  place: number;
+  essential: boolean;
+}
+
+/** Each item's associations with properties, from its first entry in the `ipma` boxes. */
+function associationsOf(ipmas: Box[]): Map<number, Association[]> {
+  const items = new Map<number, Association[]>();
   for (const { view } of ipmas) {
     const version = view.getUint8(0);
     if (version > 1) throw new RangeError(`An ipma box of version ${version}`);
@@ -369,12 +399,31 @@ function associationsOf(ipmas: Box[]): Map<number, number[]> {
     for (let at = 8, entry = 0; entry < count && at < view.byteLength; entry++) {
       const id = version === 0 ? view.getUint16(at) : view.getUint32(at);
       at += version === 0 ? 2 : 4;
-      const places: number[] = [];
-      for (let left = view.getUint8(at++); left > 0; left--, at += wide ? 2 : 1) places.push(wide ? view.getUint16(at) & 0x7fff : view.getUint8(at) & 0x7f);
-      if (!items.has(id)) items.set(id, places);
+      const associated: Association[] = [];
+      for (let left = view.getUint8(at++); left > 0; left--, at += wide ? 2 : 1) {
+        const [bits, essentialBit] = wide ? [view.getUint16(at), 0x8000] : [view.getUint8(at), 0x80];
+        associated.push({ place: bits & (essentialBit - 1), essential: (bits & essentialBit) !== 0 });
+      }
+      if (!items.has(id)) items.set(id, associated);
     }
   }
   return items;
+}
+
+/**
+ * Whether libheif reads an image of `type` with `properties`: they need its codec's configuration, and
+ * each one that's essential to it must be a box libheif reads.
+ */
+function isReadable(type: string, properties: Array<{ property: Box; essential: boolean }>): boolean {
+  const configuration = HEIF_CONFIGURATIONS.get(type);
+  if (configuration && !properties.some(({ property }) => property.type === configuration && isRead(property))) return false;
+  return properties.every(({ property, essential }) => !essential || isRead(property));
+}
+
+/** Whether libheif reads `box`, rather than keeping it as one it doesn't know. */
+function isRead({ type, bytes }: Box): boolean {
+  if (type !== "uuid") return LIBHEIF_BOXES.has(type);
+  return LIBHEIF_UUIDS.has(Array.from(bytes.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join(""));
 }
 
 /**

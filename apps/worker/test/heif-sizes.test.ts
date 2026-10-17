@@ -4,7 +4,7 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { metadataOf } from "../src/files/uploads";
-import { alpha, av1C, clap, exifOrientation, type HeifFile, heifFile, hvcC, imir, irot, ispe } from "./heif-files";
+import { alpha, av1C, avcC, box, clap, essential, exifOrientation, type HeifFile, heifFile, hvcC, imir, irot, ispe, j2kH, type Property, uncC, unknownBox, uuidBox, vvcC } from "./heif-files";
 
 /** The width and height recorded for `file`, or null where none is. */
 function recordedSize(file: HeifFile | Uint8Array, contentType = "image/avif") {
@@ -13,10 +13,10 @@ function recordedSize(file: HeifFile | Uint8Array, contentType = "image/avif") {
 }
 
 /** An AV1 image's properties: its configuration and its extents, then `more`. */
-const image = (width: number, height: number, ...more: Uint8Array[]) => [av1C, ispe(width, height), ...more];
+const image = (width: number, height: number, ...more: Property[]) => [av1C, ispe(width, height), ...more];
 
 /** An AVIF of one image, `width` by `height`, with `more` properties. */
-const avif = (width: number, height: number, ...more: Uint8Array[]): HeifFile => ({ items: [{ id: 1, properties: image(width, height, ...more) }] });
+const avif = (width: number, height: number, ...more: Property[]): HeifFile => ({ items: [{ id: 1, properties: image(width, height, ...more) }] });
 
 describe(feature("attachments.types"), () => {
   it("records an AVIF's or a HEIC's size from its image's extents, without reading its picture", () => {
@@ -106,6 +106,34 @@ describe(feature("attachments.types"), () => {
     // libheif 1.19 checks every image as it reads a file. Later versions read these sizes.
     expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, hidden: true, properties: image(20000, 20000) }] })).toBeNull();
     expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, hidden: true }] })).toBeNull();
+  });
+
+  it("needs each image's codec configuration, though it isn't the one shown, and reads no file with a tiled image", () => {
+    const heic = { brand: "heic", compatible: ["mif1", "heic"], items: [{ id: 1, type: "hvc1", properties: [ispe(4032, 3024)] }] };
+    expect(recordedSize(heic, "image/heic")).toBeNull();
+    expect(recordedSize({ items: [{ id: 1, properties: [ispe(1200, 800)] }] })).toBeNull();
+    /** An AVIF with a hidden image of `type` too, with `properties`. libvips doesn't ask its bit depth, which some codecs take from its picture. */
+    const withHidden = (type: string, ...properties: Property[]) => ({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, hidden: true, type, properties: [...properties, ispe(640, 480)] }] });
+    // libheif 1.19 needs it of every image as it reads a file, where later versions need it only of the one shown.
+    for (const [type, configuration] of [["hvc1", hvcC], ["vvc1", vvcC], ["avc1", avcC], ["j2k1", j2kH], ["unci", uncC]] as const) {
+      expect(recordedSize(withHidden(type, configuration)), type).toEqual({ width: 1200, height: 800 });
+      expect(recordedSize(withHidden(type)), type).toBeNull();
+    }
+    // A JPEG's configuration is optional, and libheif reads a tiled image's only with its experimental features.
+    expect(recordedSize(withHidden("jpeg"))).toEqual({ width: 1200, height: 800 });
+    expect(recordedSize(withHidden("tili", box("tilC")))).toBeNull();
+  });
+
+  it("records nothing for a file with an image whose essential property libheif doesn't know", () => {
+    expect(recordedSize(avif(1200, 800, unknownBox()))).toEqual({ width: 1200, height: 800 });
+    expect(recordedSize(avif(1200, 800, essential(unknownBox())))).toBeNull();
+    expect(recordedSize({ wide: true, items: [{ id: 1, properties: image(1200, 800, essential(unknownBox())) }] })).toBeNull();
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, hidden: true, properties: image(1200, 800, essential(unknownBox())) }] })).toBeNull();
+    // Ones it knows can be essential, as an AVIF's configuration and transformations must be.
+    expect(recordedSize({ items: [{ id: 1, properties: [essential(av1C), ispe(1200, 800), essential(irot(1)), essential(imir())] }] })).toEqual({ width: 800, height: 1200 });
+    // Of `uuid` boxes, it knows only camera intrinsics' and extrinsics', as a draft wrote them.
+    expect(recordedSize(avif(1200, 800, essential(uuidBox("22cc04c7d6d94e079d904eb6ecbaf3a3"))))).toEqual({ width: 1200, height: 800 });
+    expect(recordedSize(avif(1200, 800, essential(uuidBox("22cc04c7d6d94e079d904eb6ecbaf3a4"))))).toBeNull();
   });
 
   it("reads the major brands libvips 8.16 takes, of files compatible with a brand libheif takes", () => {

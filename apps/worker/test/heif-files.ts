@@ -45,6 +45,30 @@ export const av1C = box("av1C", Uint8Array.of(0x81, 0x00, 0x0c, 0x00));
 /** The HEVC configuration of an 8-bit 4:2:0 image, in the Main profile, with no parameter sets. */
 export const hvcC = box("hvcC", Uint8Array.of(1, 0x01, 0x60, 0, 0, 0, 0x90, 0, 0, 0, 0, 0, 0x5d, 0xf0, 0, 0xfc, 0xfd, 0xf8, 0xf8, 0, 0, 0x0f, 0));
 
+/** The VVC configuration of an 8-bit 4:2:0 image, in the Main 10 profile, with no parameter sets. */
+export const vvcC = fullBox("vvcC", 0, 0, Uint8Array.of(0x07, 0x00, 0x11, 0x1f, 0x01, 0x02, 0x33, 0x00, 0x00, 0x02, 0x80, 0x01, 0xe0, 0x00, 0x00, 0x00));
+
+/** The AVC configuration of an image in the Baseline profile, with no parameter sets. */
+export const avcC = box("avcC", Uint8Array.of(1, 66, 0, 30, 0xff, 0xe0, 0));
+
+/** A JPEG 2000 image's header, with none of the boxes it can hold. */
+export const j2kH = box("j2kH");
+
+/** The configuration of an uncompressed image of 8-bit red, green and blue. */
+export const uncC = fullBox("uncC", 1, 0, encoder.encode("rgb3"));
+
+/** A property of a type no reader knows. */
+export const unknownBox = () => box("zzzz", Uint8Array.of(1));
+
+/** A `uuid` box of `uuid`, written in hex, holding what camera intrinsics would: a full box of a focal length and principal point of 0. */
+export const uuidBox = (uuid: string) => box("uuid", Uint8Array.from(uuid.match(/../g)!, (pair) => parseInt(pair, 16)), new Uint8Array(16));
+
+/** A property marked essential to its item: a reader that doesn't know its type can't read the item. */
+export const essential = (property: Uint8Array) => ({ essential: property });
+
+/** A property of an item's, which may be marked essential to it. */
+export type Property = Uint8Array | ReturnType<typeof essential>;
+
 /** What makes an auxiliary image an alpha channel. */
 export const alpha = fullBox("auxC", 0, 0, encoder.encode("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0"));
 
@@ -58,7 +82,7 @@ export interface Item {
   type?: string;
   hidden?: boolean;
   /** Its properties, in the order its entry in the `ipma` box lists them; none for an item that isn't an image. */
-  properties?: Uint8Array[];
+  properties?: Property[];
   /** What it holds in the `mdat` box. */
   data?: Uint8Array;
 }
@@ -95,9 +119,12 @@ export function heifFile({ brand = "avif", compatible = ["avif", "mif1", "miaf"]
   const mdat = box("mdat", ...located.map(({ data }) => data!));
 
   const properties: Uint8Array[] = [];
+  /** `property`'s place in the `ipco` box, after its bit saying whether it's essential. */
+  const placeOf = (property: Property) =>
+    property instanceof Uint8Array ? properties.push(property) : properties.push(property.essential) | (wide ? 0x8000 : 0x80);
   const entries = items
     .filter(({ properties }) => properties)
-    .map(({ id: item, properties: own }) => concat(id(item), numbers(1, own!.length), numbers(wide ? 2 : 1, ...own!.map((property) => properties.push(property)))));
+    .map(({ id: item, properties: own }) => concat(id(item), numbers(1, own!.length), numbers(wide ? 2 : 1, ...own!.map(placeOf))));
   /** The `meta` box, with each located item's data at `offsets`. */
   const meta = (offsets: number[]) => {
     const children = {
