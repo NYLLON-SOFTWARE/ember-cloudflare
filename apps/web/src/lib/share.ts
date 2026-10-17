@@ -7,7 +7,7 @@ export const canShare = () => "canShare" in navigator;
 
 /**
  * How sharing a file went: the sheet opened, or was asked to; the file came too late for the click that
- * asked for it, so the next Share of it opens the sheet at once; or the file couldn't be had.
+ * asked for it, so the next Share of it opens the sheet at once; or the file couldn't be had or shared.
  */
 export type Shared = "opened" | "ready" | "failed";
 
@@ -22,16 +22,22 @@ let ready: { url: string; file: File } | null = null;
  * `Ember_<random>` with its type's extension. Closing the sheet rejects, which needs no answer. A browser
  * opens the sheet only for a few seconds after a click, which downloading a large file can outlast, so a
  * file that comes too late is kept for the next Share of it, where ember-rust's tries again from the start
- * each time. An error page isn't shared as the file, as ember-rust's would.
+ * each time. An error page isn't shared as the file, as ember-rust's would, and a file the browser won't
+ * share, as Chrome won't share a program, fails.
  */
 export async function shareFile(url: string, title = ""): Promise<Shared> {
-  const file = ready?.url === url ? ready.file : await download(url);
+  const kept = ready?.url === url ? ready.file : null;
   ready = null;
+  const file = kept ?? (await download(url));
   if (!file) return "failed";
   try {
     await navigator.share({ title, text: "", files: [file] });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "NotAllowedError") return keep(url, file);
+    if (!(error instanceof DOMException)) return "failed";
+    if (error.name === "AbortError") return "opened";
+    // Refused for want of a fresh click, unless it had one, as a file kept for this Share has.
+    if (error.name === "NotAllowedError" && !kept) return keep(url, file);
+    return "failed";
   }
   return "opened";
 }

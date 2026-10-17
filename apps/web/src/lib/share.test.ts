@@ -67,6 +67,24 @@ describe(feature("attachments.download-share"), () => {
     expect(share).not.toHaveBeenCalled();
   });
 
+  it("fails for a file the browser won't share, even one kept for a fresh click", async () => {
+    // As Chrome refuses a program right in the click that asked, after the download that outlasted the one before.
+    const refused = () => new DOMException("Permission denied", "NotAllowedError");
+    const share = vi
+      .fn()
+      .mockRejectedValueOnce(tooLate())
+      .mockRejectedValueOnce(refused())
+      .mockRejectedValueOnce(new TypeError("An invalid file was given"))
+      .mockRejectedValueOnce(new DOMException("Unsupported file", "DataError"));
+    stub(share, vi.fn().mockResolvedValue(moon()));
+
+    expect(await shareFile(MOON)).toBe("ready");
+    expect(await shareFile(MOON)).toBe("failed");
+    expect(await shareFile(MOON)).toBe("failed");
+    expect(await shareFile(MOON)).toBe("failed");
+    expect(share).toHaveBeenCalledTimes(4);
+  });
+
   it("needs no answer when the sheet is closed", async () => {
     stub(vi.fn().mockRejectedValue(new DOMException("Share canceled", "AbortError")), vi.fn().mockResolvedValue(moon()));
     expect(await shareFile(MOON)).toBe("opened");
