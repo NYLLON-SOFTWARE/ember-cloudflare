@@ -28,10 +28,14 @@ export async function isFileSignature(secret: string, key: string, given: string
 }
 
 /**
- * The address that shows file `key`, named `name`, which Active Storage's routes escape as a path, and
- * the one that downloads it, which asks for it as an attachment.
+ * `name` as an address holds it, escaped as Active Storage's routes escape a path. A name a browser would
+ * take out of the address, `.` or `..`, or no name at all, goes in as `-`, as sanitizing replaces what a
+ * name can't hold, where ember-rust's address for it serves nothing.
  */
+const addressName = (name: string) => (name === "" || name === "." || name === ".." ? "-" : escapePath(name));
+
+/** The address that shows file `key`, named `name`, and the one that downloads it, which asks for it as an attachment. */
 export async function fileUrls(secret: string, key: string, name: string): Promise<{ url: string; downloadUrl: string }> {
-  const url = `/files/${key}/${await signature(secret, key)}/${escapePath(name)}`;
+  const url = `/files/${key}/${await signature(secret, key)}/${addressName(name)}`;
   return { url, downloadUrl: `${url}?disposition=attachment` };
 }

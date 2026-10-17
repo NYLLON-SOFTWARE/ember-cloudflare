@@ -1,8 +1,10 @@
 import { feature } from "@ember/parity";
 import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, type RoomId, type StoredFile, type Upload } from "@ember/protocol";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { fileUrls } from "../src/files/addresses";
+import { objectKey, type UploadedPart } from "../src/files/blobs";
 import { UPLOAD_PART_SIZE } from "../src/files/uploads";
 import { api, apiWith, createRoom, freshDeploy, freshRoom, recordedImage, roomSql, roomStub, sendPart, signIn, startUpload, upload, type Session } from "./support";
 
@@ -102,6 +104,26 @@ describe(feature("attachments.types"), () => {
     expect(await again.json()).toEqual(file);
   });
 
+  it("finishes an upload whose parts R2 put together for a request that didn't live to tell the room", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const earth = fileOf(UPLOAD_PART_SIZE + 1_000, recordedImage("earth-thumb.png"));
+    const upload = await started(ada, room, "earth.png", earth);
+    expect((await sendPart(ada, room, upload.id, 1, partOf(earth, upload, 1))).status).toBe(204);
+    const blob = await blobOf(room, upload.id);
+    const multipart = (env as unknown as Env).FILES!.resumeMultipartUpload(objectKey(upload.id), blob!.multipart_upload_id as string);
+    const last = await multipart.uploadPart(2, partOf(earth, upload, 2));
+    await multipart.complete([...(JSON.parse(blob!.parts as string) as UploadedPart[]), last]);
+
+    // Sent again, the last part finds no upload to join, and the file whole.
+    const again = await sendPart(ada, room, upload.id, 2, partOf(earth, upload, 2));
+    expect(again.status, await again.clone().text()).toBe(201);
+    const file = (await again.json()) as StoredFile;
+    expect(file).toMatchObject({ id: upload.id, name: "earth.png", contentType: "image/png", byteSize: earth.length });
+    expect(await digestOf(await (await fetchFile(file.url)).arrayBuffer())).toBe(await digestOf(earth));
+    expect(await blobOf(room, upload.id)).toMatchObject({ completed_at: expect.any(String) });
+  });
+
   it("takes a file's type from its bytes over the type the browser declares and its name, as Marcel does", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
@@ -173,6 +195,15 @@ describe(feature("attachments.serving"), () => {
     const served = await fetchFile(report.url.replace(/[^/]+$/, "anything-else.exe"));
     expect(served.headers.get("Content-Type")).toBe("application/pdf");
     expect(served.headers.get("Content-Disposition")).toBe(`inline; filename="report- Q3-Q4-.pdf"; filename*=UTF-8''report-%20Q3-Q4-.pdf`);
+
+    // A name a browser would take out of the address goes in it as "-".
+    for (const name of [" . ", "..", "\0"]) {
+      const file = await upload(ada, room, name, new TextEncoder().encode("hi"));
+      expect(file.url).toMatch(/\/-$/);
+      const shown = await fetchFile(file.url);
+      expect(shown.status, name).toBe(200);
+      expect(shown.headers.get("Content-Disposition")).toBe(`attachment; filename="${file.name}"; filename*=UTF-8''${file.name}`);
+    }
   });
 
   it("serves only images and PDFs inline, and types a page could run as binary data", async () => {

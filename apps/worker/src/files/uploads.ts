@@ -116,11 +116,17 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   // A part after the first, or the first again, once the first has started the upload.
   if (upload.multipartUploadId === null) return problem(409, "The first part goes first");
   const multipart = files.resumeMultipartUpload(objectKey(key), upload.multipartUploadId);
-  const { partNumber, etag } = await multipart.uploadPart(n, request.body!);
+  const part = await multipart.uploadPart(n, request.body!).catch(async (error: unknown) => {
+    // A request that put the parts together but didn't live to record it left the file whole, and no
+    // upload to add a part to, so this records that it's whole in its place.
+    if (!(await isWhole(files, upload))) throw error;
+    return null;
+  });
   // Again, as for the first part.
   uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
-  const recorded = await room.recordUploadPart(roomId, uploader, key, { partNumber, etag });
+  if (!part) return completed(env, roomId, key);
+  const recorded = await room.recordUploadPart(roomId, uploader, key, part);
   if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
   if (recorded.completedAt) return Response.json(await storedFile(env, recorded), { status: 201 });
   if (recorded.parts.length < uploadParts(recorded.byteSize)) return new Response(null, { status: 204 });
@@ -128,11 +134,19 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   try {
     await multipart.complete(recorded.parts);
   } catch (error) {
-    // A request that put the parts together but didn't live to record it leaves the file whole.
-    if ((await files.head(objectKey(key)))?.size !== recorded.byteSize) throw error;
+    // Another request put the parts together first.
+    if (!(await isWhole(files, recorded))) throw error;
   }
-  const completed = await room.completeUpload(roomId, key);
-  return completed ? Response.json(await storedFile(env, completed), { status: 201 }) : problem(404, UPLOAD_NOT_FOUND);
+  return completed(env, roomId, key);
+}
+
+/** Whether R2 has all of `upload`'s file, as once its parts are put together. */
+const isWhole = async (files: R2Bucket, upload: RoomBlob) => (await files.head(objectKey(upload.id)))?.size === upload.byteSize;
+
+/** What a part that finishes upload `key` answers once the room records that R2 has all of it: 201 with the file. */
+async function completed(env: Env, roomId: RoomId, key: string): Promise<Response> {
+  const blob = await env.CHAT_ROOM.getByName(roomId).completeUpload(roomId, key);
+  return blob ? Response.json(await storedFile(env, blob), { status: 201 }) : problem(404, UPLOAD_NOT_FOUND);
 }
 
 /**
