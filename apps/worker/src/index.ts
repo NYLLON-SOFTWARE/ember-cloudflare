@@ -1,6 +1,8 @@
 import {
   AVATAR_PATH,
   CloseCode,
+  LOGO_PATH,
+  LOGO_TOO_LARGE,
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
@@ -17,6 +19,7 @@ import {
   signOutEndpointOf,
   transferIdFromPath,
   workspacePageOf,
+  type Account,
   type Bootstrap,
   type ChangedPerson,
   type CustomStyles,
@@ -35,7 +38,7 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { mentionPromptItem } from "@ember/richtext";
-import { isAccountLogoPath, showAccountLogo } from "./account-logo";
+import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
 import {
   clientOf,
   credentialsFor,
@@ -234,6 +237,38 @@ async function changeCustomStyles(request: Request, env: Env): Promise<Response>
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return typeof change === "string" ? problem(422, change) : json({ account });
+}
+
+/**
+ * Gives the workspace the logo the form brings, as ember-rust's workspace settings save `account[logo]`
+ * as soon as one is chosen (accounts.rs), answering the account then. Who's asking is checked before the
+ * logo is read, and again as it's given to the workspace.
+ */
+async function changeLogo(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const administrator = await workspace(env).canAdminister(credentials);
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  if (!env.FILES) return problem(503, NO_STORAGE);
+  const form = await pictureFormOf(request, LOGO_TOO_LARGE);
+  if (!(form instanceof FormData)) return problem(form.status, form.error);
+  const logo = await storeLogo(env, env.FILES, form);
+  if ("error" in logo) return problem(logo.status, logo.error);
+  return logoChanged(await workspace(env).changeLogo(credentials, logo));
+}
+
+/** Takes the workspace's logo away, as ember-rust's `logos#destroy` does, answering the account then. */
+async function removeLogo(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return logoChanged(credentials && (await workspace(env).changeLogo(credentials, null)));
+}
+
+/** What a change to the workspace's logo answers: the account as it is then, or why it was refused. */
+function logoChanged(account: Account | "forbidden" | null): Response {
+  if (!account) return problem(401, "Not signed in");
+  if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return json({ account });
 }
 
 /**
@@ -662,6 +697,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
+  if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
+  if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
   if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);

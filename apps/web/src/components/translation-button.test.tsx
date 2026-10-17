@@ -8,7 +8,7 @@ import { TRANSLATIONS } from "@/lib/translations";
 import { TranslationButton } from "./translation-button";
 
 /** A workspace whose administrator has shown translation buttons. */
-const shown: Account = { name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false };
+const shown: Account = { name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null };
 
 /** The workspace name's button, after a field, in `account`. */
 function showButton(account = shown) {

@@ -47,10 +47,10 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
       {problem && <Problem>{problem}</Problem>}
       <AuthCard onAnimationEnd={(event) => event.target === event.currentTarget && setShaking(false)} className={shaking ? "motion-safe:animate-shake" : undefined}>
         {asGuest ? (
-          <GuestSignIn onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
+          <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
         ) : (
           <>
-            <AuthHeading title={`Sign in to ${workspace.account.name}`}>Welcome back. Pick up the conversation.</AuthHeading>
+            <AuthHeading title={`Sign in to ${workspace.account.name}`} logo={workspace.account.logo}>Welcome back. Pick up the conversation.</AuthHeading>
             <form
               className={AUTH_FORM}
               onSubmit={(event) => {

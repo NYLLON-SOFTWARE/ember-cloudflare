@@ -223,6 +223,15 @@ export function editorField(scope: Page | Locator, name: string): Locator {
   return scope.getByRole("textbox", { name }).and(scope.locator("[data-lexical-editor]"));
 }
 
+/**
+ * Waits for the clock's next second, so a change after it gives an avatar or the logo a new address:
+ * their versions count seconds, as ember-rust's do, and a browser keeps a picture at an address a while.
+ */
+export async function nextSecond(): Promise<void> {
+  const second = Math.floor(Date.now() / 1000);
+  await expect.poll(() => Math.floor(Date.now() / 1000), { intervals: [100] }).toBeGreaterThan(second);
+}
+
 /** A picture `width` by `height`, drawn in `page`'s browser as a PNG, as Playwright picks a file. */
 export async function drawnPicture(page: Page, name: string, width: number, height: number) {
   const bytes = await page.evaluate(

@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
-import { ADMINISTRATOR, drawnPicture, shownPicture, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, nextSecond, shownPicture, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const unique = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
@@ -10,15 +10,6 @@ async function openYourProfile(page: Page): Promise<void> {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
   await expect(page).toHaveURL(/\/users\/me\/profile$/);
   await expect(page.getByLabel("Name", { exact: true })).toBeEnabled();
-}
-
-/**
- * Waits for the clock's next second, so a change after it gives an avatar a new address: its version
- * counts seconds, as ember-rust's does, and a browser keeps the picture at an address for 30 minutes.
- */
-async function nextSecond(): Promise<void> {
-  const second = Math.floor(Date.now() / 1000);
-  await expect.poll(() => Math.floor(Date.now() / 1000), { intervals: [100] }).toBeGreaterThan(second);
 }
 
 test.describe(feature("users.profile"), () => {

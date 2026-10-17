@@ -1,5 +1,6 @@
 import {
   AVATAR_PATH,
+  LOGO_PATH,
   roomSocketQuery,
   type Account,
   type AccountChanges,
@@ -46,6 +47,7 @@ import {
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
 // so nothing here handles a token.
@@ -220,6 +222,31 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** A logo chosen for the workspace, with the variants made of it, or null where none could be made (`logoVariantsOf`). */
+export interface ChosenLogo {
+  file: File;
+  variants: LogoVariants | null;
+}
+
+/**
+ * Makes `logo` the workspace's, answering the workspace as it is then. Fails with a 403 ApiError for
+ * anyone but an administrator, a 413 for a logo over 16 MB, and a 503 where Ember isn't set up to store files.
+ */
+export async function changeLogo({ file, variants }: ChosenLogo): Promise<Account> {
+  const form = new FormData();
+  form.set("logo", file);
+  if (variants) {
+    form.set("large", variants.large, "large");
+    form.set("small", variants.small, "small");
+  }
+  return (await request<{ account: Account }>(LOGO_PATH, { method: "PUT", body: form })).account;
+}
+
+/** Takes away the workspace's logo, so Ember's flame shows, answering the workspace as it is then. Fails as `changeLogo` does. */
+export async function removeLogo(): Promise<Account> {
+  return (await request<{ account: Account }>(LOGO_PATH, { method: "DELETE" })).account;
 }
 
 /** The workspace's custom CSS, for the Custom CSS page. Fails with a 403 ApiError for anyone but an administrator. */

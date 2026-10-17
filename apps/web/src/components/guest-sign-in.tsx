@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
+import { AuthLogo } from "@/components/auth-page";
 import { ArrowRight, User as UserIcon } from "@/components/icons/ember";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { signInAsGuest } from "@/lib/api";
  * EMBER_GUEST_SIGN_IN allows it. ember-rust has no such thing; it stands in for joining until join
  * links are ported.
  */
-export function GuestSignIn({ onSignedIn, onUsePassword }: { onSignedIn: (me: Me) => void; onUsePassword: () => void }) {
+export function GuestSignIn({ logo, onSignedIn, onUsePassword }: { logo: string | null; onSignedIn: (me: Me) => void; onUsePassword: () => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -19,7 +20,7 @@ export function GuestSignIn({ onSignedIn, onUsePassword }: { onSignedIn: (me: Me
   return (
     <>
       <div className="mb-7 text-center">
-        <img src="/ember-icon.png" alt="" width={48} height={48} className="mx-auto mb-5 size-12 object-contain" />
+        <AuthLogo logo={logo} />
         <h1 className="mb-2 text-2xl leading-tight font-[650]">Welcome to Ember</h1>
         <p className="text-muted-foreground">Pick the name people will see next to your messages.</p>
       </div>

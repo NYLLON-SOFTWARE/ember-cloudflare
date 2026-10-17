@@ -60,9 +60,15 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 /** What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, and anyone may create rooms. */
 export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false } as const;
 
-/** The workspace's account, with the code in its join link, which only the people in it see. */
-export interface JoinableAccount extends Account {
+/**
+ * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
+ * with the code in its join link, which only the people in it see, when it last changed, which the
+ * logo's address goes by, and the logo as R2 keeps it.
+ */
+export interface JoinableAccount extends Omit<Account, "logo"> {
   joinCode: string;
+  updatedAt: string;
+  storedLogo: StoredPicture | null;
 }
 
 /** The account first run creates. */
@@ -276,8 +282,8 @@ interface AvatarColumns {
 
 const avatarOf = (row: AvatarColumns): StoredPicture | null => (row.avatar_key === null ? null : { key: row.avatar_key, variant: row.avatar_variant });
 
-/** What takes the reservation of `avatar`'s key, if there is one, in the batch that gives someone it. */
-const keeping = (avatar: StoredPicture | null): Statement[] => (avatar ? [statement(KEEP_PICTURE, avatar.key)] : []);
+/** What takes the reservation of `picture`'s key, if there is one, in the batch that gives someone or the workspace it. */
+const keeping = (picture: StoredPicture | null): Statement[] => (picture ? [statement(KEEP_PICTURE, picture.key)] : []);
 
 const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   id: row.id,
@@ -953,6 +959,9 @@ const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_
 /** Gives someone an avatar, or none, recording when, which changes its address. */
 const CHANGE_AVATAR = `UPDATE users SET avatar_key = ?, avatar_variant = ?, updated_at = ? WHERE id = ?`;
 
+/** Gives the workspace a logo, or none, and records when. */
+const CHANGE_LOGO = `UPDATE accounts SET logo_key = ?, logo_variant = ?, updated_at = ?`;
+
 /** Reserves a picture's key, or queues R2 deleting what it keeps there, at a time. */
 const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_key, due_at) VALUES (?, ?)`;
 
@@ -1073,9 +1082,15 @@ export class WorkspaceStore {
 
   /** The workspace's account, or null until first run creates it. */
   async account(): Promise<JoinableAccount | null> {
-    const [row] = await this.db.all<{ name: string; join_code: string; settings: string | null; custom_styles: string | null }>(
-      `SELECT name, join_code, settings, custom_styles FROM accounts`,
-    );
+    const [row] = await this.db.all<{
+      name: string;
+      join_code: string;
+      settings: string | null;
+      custom_styles: string | null;
+      updated_at: string;
+      logo_key: string | null;
+      logo_variant: string | null;
+    }>(`SELECT name, join_code, settings, custom_styles, updated_at, logo_key, logo_variant FROM accounts`);
     if (!row) return null;
     const settings = storedSettings(row.settings);
     return {
@@ -1084,6 +1099,8 @@ export class WorkspaceStore {
       hideTranslationButtons: hidesTranslationButtons(settings),
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
+      updatedAt: row.updated_at,
+      storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
@@ -1809,8 +1826,20 @@ export class WorkspaceStore {
   }
 
   /**
+   * Gives the workspace `logo`, which R2 has stored under a key reserved for it, or takes its logo away
+   * with null, recording when, and queues R2 deleting the one it had, `previous`, at `dueAt`.
+   */
+  async changeLogo(logo: StoredPicture | null, previous: string | null, now: string, dueAt: number): Promise<void> {
+    await this.db.batch([
+      statement(CHANGE_LOGO, logo?.key ?? null, logo?.variant ?? null, now),
+      ...keeping(logo),
+      ...(previous ? [statement(QUEUE_PICTURE_DELETION, previous, dueAt)] : []),
+    ]);
+  }
+
+  /**
    * Reserves `key` for a picture R2 is about to store, until `dueAt`, when R2 deletes whatever is there
-   * unless someone has been given the picture by then.
+   * unless someone or the workspace has been given the picture by then.
    */
   async reservePicture(key: string, dueAt: number): Promise<void> {
     await this.db.run(QUEUE_PICTURE_DELETION, key, dueAt);

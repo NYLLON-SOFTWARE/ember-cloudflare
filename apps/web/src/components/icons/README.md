@@ -20,7 +20,9 @@ icons, byte for byte: the home-screen icon and the installed app's. `shortcuts/a
 shortcuts. The favicon,
 `logos/app-icon-48.png`, is the same image scaled from 512px down to 48px: browsers fetch the favicon
 while the page loads, and in Lighthouse the 121 KB original delayed a room's largest paint by about
-390 ms on mobile and 80 ms on desktop.
+390 ms on mobile and 80 ms on desktop. For the same reason, while the workspace has a logo the app
+points the favicon at the logo's 192-pixel variant, and only the Apple touch icon at its 512-pixel
+one (`hooks/use-account-logo.ts`).
 `ember-icon.png` is ember-rust's `crates/assets/overrides/ember-icon.png` (the flame on the rail and the
 sign-in card) scaled from 1254px down to 192px, so the page doesn't load 595 KB for a 44px mark.
 `browsers/` holds Campfire's browser logos, byte for byte, for the Worker's "Upgrade to a supported web

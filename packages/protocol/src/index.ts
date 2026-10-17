@@ -7,7 +7,20 @@ import { MAX_ID_LENGTH } from "./pages.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
-export { AVATAR_BOX, AVATAR_PATH, AVATAR_TOO_LARGE, avatarColor, avatarSvg, crc32, initials, MAX_AVATAR_SIZE } from "./avatars.ts";
+export {
+  AVATAR_BOX,
+  AVATAR_PATH,
+  AVATAR_TOO_LARGE,
+  avatarColor,
+  avatarSvg,
+  crc32,
+  initials,
+  LOGO_BOXES,
+  LOGO_PATH,
+  LOGO_TOO_LARGE,
+  MAX_AVATAR_SIZE,
+  MAX_LOGO_SIZE,
+} from "./avatars.ts";
 export {
   botMessagesPath,
   BOTS_FORBIDDEN,
@@ -274,6 +287,11 @@ export interface Account {
   customStyles: string;
   /** Whether only administrators can create rooms, as "Must be admin to create new rooms" says. Off until one turns it on. */
   restrictRoomCreation: boolean;
+  /**
+   * The address of the workspace's logo, which changes whenever the account does, as ember-rust's
+   * `fresh_account_logo_path` makes it, or null while there's none, when pages show Ember's flame.
+   */
+  logo: string | null;
 }
 
 /** What `GET /api/account` answers for workspace settings. */

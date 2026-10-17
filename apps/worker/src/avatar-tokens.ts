@@ -32,8 +32,8 @@ export async function avatarTokenUser(token: string, secret: string): Promise<Us
   return given.length === expected.length && crypto.subtle.timingSafeEqual(given, expected) ? userId : null;
 }
 
-/** `updated_at.to_fs(:number)`: when someone last changed, to the second, as 14 digits. */
-const versionOf = (updatedAt: string) => updatedAt.slice(0, 19).replace(/\D/g, "");
+/** `updated_at.to_fs(:number)`: when someone or something last changed, to the second, as 14 digits. */
+export const versionOf = (updatedAt: string) => updatedAt.slice(0, 19).replace(/\D/g, "");
 
 /**
  * The tokens the directory has listed, under the secret that made them, since signing is most of what

@@ -1,5 +1,7 @@
+import { AccountLogo } from "@/components/account-logo";
 import { Link } from "@/components/icons/ember";
 import { TranslationButton } from "@/components/translation-button";
+import { useAccount } from "@/hooks/use-account";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons } from "./link-buttons";
 
@@ -12,11 +14,17 @@ const BUTTON = "grid size-[38px] flex-none cursor-pointer place-items-center rou
 /** Welcomes people to the workspace's first room with its join link, to copy or share. */
 export function InvitationCard({ joinCode }: { joinCode: string }) {
   const url = joinUrl(joinCode);
+  const { logo } = useAccount();
 
   return (
     <div className="mx-6 mb-1 w-[560px] max-w-[calc(100%-48px)] rounded-[14px] border bg-background p-[22px] max-[68.75rem]:mx-[18px] max-[68.75rem]:max-w-[calc(100%-36px)] max-[68.75rem]:p-[18px] max-md:mx-3 max-md:max-w-[calc(100%-24px)] max-md:p-4">
       <div className="mb-5 flex items-start gap-3.5 max-md:mb-3.5 max-md:gap-3">
-        <img src="/ember-icon.png" alt="Ember" width={44} height={44} className="size-11 flex-none object-contain" />
+        {/* The logo on the card's background, in an 11px rounded square, as `#system_welcome .account-logo`. */}
+        {logo ? (
+          <AccountLogo src={logo} className="size-11 flex-none rounded-[11px] bg-background" />
+        ) : (
+          <img src="/ember-icon.png" alt="Ember" width={44} height={44} className="size-11 flex-none object-contain" />
+        )}
         <div>
           <h2 className="mb-[3px] text-[17px] font-[650] max-md:text-[15px]">Welcome to Ember</h2>
           <p className="text-muted-foreground max-md:text-[13px]">To invite people to chat, share the join link below.</p>

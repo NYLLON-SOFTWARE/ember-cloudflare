@@ -36,7 +36,7 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
-import { directoryOf } from "./avatar-tokens";
+import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
@@ -91,12 +91,19 @@ const DELIVERIES_PER_RUN = 40;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 
+/**
+ * ember-rust's `fresh_account_logo_path`, which account-logo.ts serves: versioned by when the account
+ * last changed, so a new logo, or any other change to the account, gets past the copies browsers keep.
+ */
+const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
+
 /** The account as every page shows it, without its join code, which only the people in it see. */
-const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation }: JoinableAccount): Account => ({
+const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation, updatedAt, storedLogo }: JoinableAccount): Account => ({
   name,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
+  logo: storedLogo && accountLogoPath(updatedAt),
 });
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
@@ -165,7 +172,7 @@ export interface BotAccess {
 }
 
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
-export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS };
+export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
 
 /** A join link's code, as ember-rust makes them (account.rs): 12 random letters and digits in fours, like aB3d-Ef5h-iJ7k. */
 const newJoinCode = () => alphanumeric(12).match(/.{4}/g)!.join("-");
@@ -414,6 +421,29 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Gives the workspace `logo`, which R2 has stored under a key `reservePicture` reserved, or takes its
+   * logo away with null, as the person `credentials` signs in, as ember-rust's account form and
+   * `logos#destroy` do (accounts.rs, logos.rs), answering the account as it is then: "forbidden" unless
+   * they're an administrator, or null without a valid session. R2 deletes the logo it had, and everyone's
+   * workspace sockets hear of the change, which gives the logo a new address.
+   */
+  async changeLogo(credentials: Credentials, logo: StoredPicture | null): Promise<Account | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      // As removing a logo that isn't there changes nothing in ember-rust.
+      if (logo === null && account.storedLogo === null) return accountOf(account);
+      const previous = account.storedLogo?.key ?? null;
+      const shown = await this.publishAccount({ ...account, storedLogo: logo }, (now) => this.store.changeLogo(logo, previous, now, Date.parse(now)));
+      if (previous) await this.wakeAt(Date.now());
+      return shown;
+    });
+  }
+
+  /** The workspace's logo as R2 keeps it, or null while it has none, as before first run. */
+  async logo(): Promise<StoredPicture | null> {
+    return (await this.joinableAccount())?.storedLogo ?? null;
+  }
+
+  /**
    * Changes the account with `change`, one change at a time, if `credentials` signs in an administrator
    * as they are then: "forbidden" if it signs in anyone else, or null without a valid session.
    */
@@ -433,17 +463,17 @@ export class Workspace extends DurableObject<Env> {
    * the account as it is now.
    */
   private async publishAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<Account> {
-    await this.saveAccount(account, save);
-    const shown = accountOf(account);
+    const shown = accountOf(await this.saveAccount(account, save));
     this.broadcast({ type: "account.updated", account: shown });
     return shown;
   }
 
-  /** Saves the account as `account` with `save`, remembering it as that once it's saved. */
-  private async saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<void> {
+  /** Saves the account as `account` with `save`, remembering it as that, changed now, once it's saved, and answering it. */
+  private async saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<JoinableAccount> {
+    const now = new Date().toISOString();
     this.accountChanges++;
     try {
-      await save(new Date().toISOString());
+      await save(now);
     } catch (error) {
       // On D1 a change can be saved and its answer lost, so the account is read again.
       this.knownAccount = null;
@@ -451,7 +481,7 @@ export class Workspace extends DurableObject<Env> {
     } finally {
       this.accountChanges++;
     }
-    this.knownAccount = account;
+    return (this.knownAccount = { ...account, updatedAt: now });
   }
 
   private async helpContact(): Promise<HelpContact | null> {
@@ -490,7 +520,7 @@ export class Workspace extends DurableObject<Env> {
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS };
+    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null };
     this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };
@@ -1607,7 +1637,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
-   * avatars people replaced or removed, and those nobody was given once their reservations ran out.
+   * avatars and logos people replaced or removed, and those nobody was given once their reservations ran out.
    * When R2 fails, they're tried again later, as a revocation is.
    */
   private async deletePictures(limit: number): Promise<void> {

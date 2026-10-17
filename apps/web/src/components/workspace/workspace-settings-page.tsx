@@ -1,6 +1,8 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
+  LOGO_TOO_LARGE,
   MAX_ACCOUNT_NAME_LENGTH,
+  MAX_LOGO_SIZE,
   type Account,
   type AccountSettings,
   type DirectoryUser,
@@ -10,6 +12,7 @@ import {
   type SidebarRoom,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Add, Art, Bot, Crown } from "@/components/icons/campfire";
@@ -22,12 +25,14 @@ import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeAccount, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removePerson } from "@/lib/api";
+import { changeAccount, changeLogo, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removeLogo, removePerson } from "@/lib/api";
+import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { InviteLink } from "./invite-link";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
+import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
@@ -64,12 +69,14 @@ interface Props {
 }
 
 /**
- * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators rename
- * the workspace, show or hide the translation buttons, and have a link to the Custom CSS page, and
- * members see its name. Then comes the Rooms section with New room, which members don't get while only
- * administrators can create rooms, and where administrators switch that on or off and put the rooms in
- * order for everyone. Then the join link, which administrators can regenerate, the people, whom
- * administrators can make administrators or members and remove, and "Ember™ version" at the foot.
+ * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators change
+ * the workspace's logo, which a logo picked saves at once, showing it meanwhile, and Remove logo takes
+ * away, rename the workspace, show or hide the translation buttons, and have a link to the Custom CSS
+ * page, and members see its logo and name. Then comes the Rooms section with New room, which members
+ * don't get while only administrators can create rooms, and where administrators switch that on or off
+ * and put the rooms in order for everyone. Then the join link, which administrators can regenerate, the
+ * people, whom administrators can make administrators or members and remove, and "Ember™ version" at
+ * the foot.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -88,6 +95,9 @@ export function WorkspaceSettingsPage({
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  /** The address of the logo picked, shown while it saves. */
+  const [pickedLogo, setPickedLogo] = useState<string | null>(null);
+  const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   // Where the Hide translation buttons switch was moved to, while that's saved, and Must be admin to create new rooms.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
@@ -152,6 +162,38 @@ export function WorkspaceSettingsPage({
       },
     );
   };
+
+  // The picked logo's address is let go of once the saved one takes its place.
+  useEffect(() => () => void (pickedLogo && URL.revokeObjectURL(pickedLogo)), [pickedLogo]);
+
+  /** Saves `file` as the workspace's logo, as ember-rust's picker sends the account's form once a logo is picked. */
+  const saveLogo = (file: File) => {
+    if (file.size > MAX_LOGO_SIZE) return flash("alert", LOGO_TOO_LARGE);
+    setPickedLogo(URL.createObjectURL(file));
+    showLogo(logoVariantsOf(file).then((variants) => changeLogo({ file, variants })), CHANGES_SAVED);
+  };
+
+  /** Shows the workspace's logo as `change` saves it, flashing `notice` once it has. */
+  function showLogo(change: Promise<Account>, notice?: string) {
+    setSavingLogo(true);
+    const answered = askForAccount();
+    change.then(
+      (account) => {
+        answered(account);
+        if (!mounted.current) return;
+        setSavingLogo(false);
+        setPickedLogo(null);
+        setSettings((settings) => settings && { ...settings, account });
+        if (notice) flash("notice", notice);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setSavingLogo(false);
+        setPickedLogo(null);
+        onFailed(error);
+      },
+    );
+  }
 
   // As ember-rust's switches do: saved at once, with no notice after, then `settled` is called.
   const saveSwitch = (settings: AccountSettings, settled: () => void) => {
@@ -254,6 +296,17 @@ export function WorkspaceSettingsPage({
         {settings &&
           (settings.canAdminister ? (
             <>
+              <PicturePicker
+                id="account_logo"
+                src={pickedLogo ?? account.logo ?? STOCK_LOGO}
+                alt="Workspace logo"
+                label="Upload logo"
+                description="Choose a workspace logo"
+                onChoose={saveLogo}
+                disabled={savingLogo}
+                // As ember-rust's Remove logo does: no confirmation first, and no notice after.
+                remove={account.logo ? { label: "Remove logo", onRemove: () => showLogo(removeLogo()) } : null}
+              />
               <form onSubmit={save} className="flex flex-col gap-4">
                 <Field id="account_name" label="Workspace name" translation="account_name">
                   {/* Not focused as the page opens, and the cursor goes where it's put, as in ember-rust. */}
@@ -287,7 +340,11 @@ export function WorkspaceSettingsPage({
               </div>
             </>
           ) : (
-            <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
+            <>
+              {/* `account_logo_tag(style: "txt-xx-large center")`: 5ch wide at 2.4rem. */}
+              <AccountLogo src={account.logo ?? STOCK_LOGO} className="mx-auto w-[5ch] text-[2.4rem]" />
+              <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
+            </>
           ))}
         {(me.administrator || !account.restrictRoomCreation) && (
           <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">
