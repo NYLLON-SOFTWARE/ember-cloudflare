@@ -1,9 +1,13 @@
 import { feature } from "@ember/parity";
 import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { svgDataUrl } from "@/lib/svg-preview";
 import { Attachment } from "./attachment";
+
+// jsdom decodes no SVGs, so lib/svg-preview.test.ts tests how they're loaded, and e2e/ shows real ones.
+vi.mock("@/lib/svg-preview", () => ({ svgDataUrl: vi.fn() }));
 
 /** A file called `name` of `contentType`, as a message has it. */
 const stored = (name: string, contentType: string, overrides: Partial<StoredFile> = {}): StoredFile => {
@@ -72,8 +76,8 @@ describe(feature("attachments.previews"), () => {
     expect(without.parentElement).not.toHaveAttribute("style");
   });
 
-  it("shows any other file as its card, SVGs included until they get previews of their own", () => {
-    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("theme.mp3", "audio/mpeg"), stored("logo.svg", "image/svg+xml", { byteSize: 100 })]) {
+  it("shows any other file as its card", () => {
+    for (const file of [stored("Q3 report.pdf", "application/pdf"), stored("theme.mp3", "audio/mpeg")]) {
       const { container } = render(<Attachment file={file} />);
       expect(card(file.name)).toBeInTheDocument();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
@@ -131,5 +135,102 @@ describe(feature("attachments.lightbox"), () => {
     await userEvent.click(screen.getByRole("link", { name: "photo.heic" }));
     expect(within(viewer()!).getByRole("img", { name: "photo.heic" })).toHaveAttribute("src", photo.previewUrl);
     expect(within(viewer()!).getByRole("link", { name: "Download file" })).toHaveAttribute("href", photo.downloadUrl);
+  });
+});
+
+/** Watches for an SVG's preview coming near the view, as the browser's observers do, but only says so when told to. */
+class FakeIntersectionObserver {
+  static made: FakeIntersectionObserver[] = [];
+  watched: Element[] = [];
+  disconnected = false;
+
+  constructor(
+    readonly callback: IntersectionObserverCallback,
+    readonly options: IntersectionObserverInit,
+  ) {
+    FakeIntersectionObserver.made.push(this);
+  }
+
+  observe(element: Element) {
+    this.watched.push(element);
+  }
+
+  disconnect() {
+    this.disconnected = true;
+  }
+
+  /** Says what it watches has come within its margin of the view. */
+  near() {
+    const entries = this.watched.map((target) => ({ target, isIntersecting: true }) as unknown as IntersectionObserverEntry);
+    this.callback(entries, this as unknown as IntersectionObserver);
+  }
+}
+
+describe(feature("attachments.svg-preview"), () => {
+  const DATA_URL = "data:image/svg+xml;base64,PHN2Zy8+";
+
+  beforeEach(() => {
+    FakeIntersectionObserver.made = [];
+    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    vi.mocked(svgDataUrl).mockResolvedValue(DATA_URL);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(svgDataUrl).mockReset();
+  });
+
+  it("shows an SVG of up to 5 MiB above its card once it's within 200px of the timeline's view, from the data URL its download makes", async () => {
+    const logo = stored("logo.svg", "image/svg+xml", { byteSize: MAX_PREVIEW_SIZE });
+    const { container } = render(
+      <div style={{ overflowY: "auto" }}>
+        <Attachment file={logo} />
+      </div>,
+    );
+    const [observer] = FakeIntersectionObserver.made;
+    expect(observer!.options).toEqual({ root: container.firstChild, rootMargin: "200px" });
+    expect(svgDataUrl).not.toHaveBeenCalled();
+    expect(card("logo.svg")).toBeInTheDocument();
+
+    observer!.near();
+    expect(observer!.disconnected).toBe(true);
+    expect(svgDataUrl).toHaveBeenCalledWith(logo.downloadUrl, expect.any(AbortSignal));
+    const image = await screen.findByRole("img", { name: "logo.svg" });
+    expect(image).toHaveAttribute("src", DATA_URL);
+    expect(image.compareDocumentPosition(card("logo.svg")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows only the card of a bigger SVG, and of one that doesn't load or decode", async () => {
+    render(<Attachment file={stored("poster.svg", "image/svg+xml", { byteSize: MAX_PREVIEW_SIZE + 1 })} />);
+    expect(FakeIntersectionObserver.made).toEqual([]);
+    expect(card("poster.svg")).toBeInTheDocument();
+    cleanup();
+
+    vi.mocked(svgDataUrl).mockResolvedValue(null);
+    render(<Attachment file={stored("broken.svg", "image/svg+xml")} />);
+    const [observer] = FakeIntersectionObserver.made;
+    // Outside a timeline, it watches the screen.
+    expect(observer!.options.root).toBeNull();
+    await act(async () => observer!.near());
+    expect(svgDataUrl).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(card("broken.svg")).toBeInTheDocument();
+  });
+
+  it("stops watching for an SVG, or loading it, when its message goes", () => {
+    let loading!: AbortSignal;
+    vi.mocked(svgDataUrl).mockImplementation((_url, signal) => {
+      loading = signal;
+      return new Promise(() => {});
+    });
+    const watching = render(<Attachment file={stored("logo.svg", "image/svg+xml")} />);
+    watching.unmount();
+    expect(FakeIntersectionObserver.made[0]!.disconnected).toBe(true);
+
+    const loaded = render(<Attachment file={stored("logo.svg", "image/svg+xml")} />);
+    FakeIntersectionObserver.made[1]!.near();
+    expect(loading.aborted).toBe(false);
+    loaded.unmount();
+    expect(loading.aborted).toBe(true);
   });
 });

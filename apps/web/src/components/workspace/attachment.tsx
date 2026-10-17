@@ -1,16 +1,19 @@
 import { isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Lightbox } from "@/components/lightbox";
 import type { Size } from "@/lib/previews";
+import { svgDataUrl } from "@/lib/svg-preview";
 import { cn } from "@/lib/utils";
 import { FileCard } from "./file-card";
 
 /**
  * A file message's file, as ember-rust's `attachment_presentation` shows it (crates/views/src/messages/presentation.rs):
- * a video plays in place, a picture shows its thumbnail, or without one, as a bot's has none, itself if it's
- * a picture every browser shows of up to 5 MiB, and every other file shows its card.
+ * an SVG of up to 5 MiB shows above its card, a video plays in place, a picture shows its thumbnail, or
+ * without one, as a bot's has none, itself if it's a picture every browser shows of up to 5 MiB, and every
+ * other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
+  if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
   if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
   const picture = file.previewUrl ?? (isWebImage(file.contentType) && file.byteSize <= MAX_PREVIEW_SIZE ? file.url : null);
   return picture ? <PicturePreview file={file} src={picture} /> : <FileCard file={file} />;
@@ -87,4 +90,47 @@ function VideoPreview({ file }: { file: StoredFile }) {
       />
     </div>
   );
+}
+
+/**
+ * An SVG, which shows above its card once it's within 200px of the timeline's view, as ember-rust's
+ * `svg_preview` shows one: from a data URL (lib/svg-preview.ts), and only once it's decoded, so one that's
+ * too big, broken or not an SVG leaves the card alone. ember-rust's watches the screen, which its scrolling
+ * timeline clips, so it waits until it's in view. Its alt text is the file's name, as ember-rust's is.
+ */
+function SvgPreview({ file }: { file: StoredFile }) {
+  const element = useRef<HTMLDivElement>(null);
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    const abort = new AbortController();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void svgDataUrl(file.downloadUrl, abort.signal).then((url) => {
+          if (!abort.signal.aborted) setSrc(url);
+        });
+      },
+      { root: scrollerOf(element.current!), rootMargin: "200px" },
+    );
+    observer.observe(element.current!);
+    return () => {
+      observer.disconnect();
+      abort.abort();
+    };
+  }, [file.downloadUrl]);
+  return (
+    <div ref={element} className="max-w-full">
+      {src && <img src={src} alt={file.name} className="mb-2.5 block max-h-[400px] max-w-[min(100%,600px)] rounded-[10px] border object-contain object-left-top" />}
+      <FileCard file={file} />
+    </div>
+  );
+}
+
+/** The nearest of `element`'s ancestors that scrolls, as the timeline does, or null for the page. */
+function scrollerOf(element: HTMLElement): HTMLElement | null {
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(ancestor).overflowY)) return ancestor;
+  }
+  return null;
 }
