@@ -210,9 +210,10 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
             </h3>
           )}
 
-          {/* A grouped message has no header, so its mark follows the text. Where Message options is 44px, the
-              text stops 32px short of the row's end, clear of it. A file message shows its file in place of its
-              text, as ember-rust's `message_presentation` does, and its upload's card until the room has it. */}
+          {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
+              Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
+              shows its file in place of its text, as ember-rust's `message_presentation` does, and its upload's
+              card until the room has it. */}
           {upload ? (
             <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
               <UploadCard upload={upload} />
@@ -220,6 +221,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           ) : message.attachment ? (
             <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
               <Attachment file={message.attachment} />
+              {threaded && edited}
             </div>
           ) : (
             <MessageBody

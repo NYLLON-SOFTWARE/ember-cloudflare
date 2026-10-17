@@ -2,6 +2,7 @@ import { isPreviewed, type RoomId, type StoredFile, type UserId } from "@ember/p
 import { statement, type Db, type Statement } from "../db";
 import { sanitizedFilename } from "./filename";
 import type { ImageSize } from "./images";
+import type { StreamedFile } from "./streamed";
 
 // A room's files as its storage keeps them (migrations/0028_blobs.sql), in its Durable Object SQLite
 // storage or in D1 (see db.ts), from when someone starts uploading one until R2 has all of it and the
@@ -231,6 +232,23 @@ export class Blobs {
           id,
         )
       : statement(`UPDATE blobs SET completed_at = ?, message_id = ? WHERE room_id = ? AND id = ?`, completedAt, messageId, this.roomId, id);
+  }
+
+  /**
+   * What records that R2 has all of file `id`, which it was sent as it arrived, `byteSize` bytes that
+   * their first part identified as `identified` says, as `finished` records a file the uploader sized first.
+   */
+  streamed(id: string, messageId: string, completedAt: string, { byteSize, identified }: StreamedFile): Statement {
+    return statement(
+      `UPDATE blobs SET byte_size = ?, content_type = ?, metadata = ?, completed_at = ?, message_id = ? WHERE room_id = ? AND id = ?`,
+      byteSize,
+      identified.contentType,
+      identified.metadata,
+      completedAt,
+      messageId,
+      this.roomId,
+      id,
+    );
   }
 
   /** Marks deleted, at `now`, the uploads started by `startedBy` that are still unfinished. */

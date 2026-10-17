@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { feature } from "@ember/parity";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
-import { ADMINISTRATOR, editorField, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, editorField, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** A command that posts to a room as a bot: its room's address on this server, then the bot's key. */
@@ -174,6 +174,17 @@ test.describe(feature("bots.api-post"), () => {
     expect(read.status()).toBe(200);
     expect(((await read.json()) as Array<{ body: { plain_text: string }; creator: { name: string } }>).at(-1)).toMatchObject({ body: { plain_text: text }, creator: { name } });
   });
+
+  test("a bot posts a picture as `curl -F` sends one, which shows in the room at once as itself", async ({ page }) => {
+    const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
+    const url = await openGeneralFor(page, name);
+    const chart = await drawnPicture(page, `chart-${crypto.randomUUID().slice(0, 8)}.png`, 40, 20);
+    expect((await page.request.post(url, { multipart: { attachment: chart } })).status()).toBe(201);
+
+    const picture = page.getByRole("img", { name: chart.name });
+    await expect(page.getByRole("article").filter({ has: picture })).toContainText(name);
+    expect(await shownPicture(picture)).toEqual({ type: "image/png", width: 40, height: 20 });
+  });
 });
 
 test.describe(feature("bots.api-edit-delete"), () => {
@@ -190,6 +201,25 @@ test.describe(feature("bots.api-edit-delete"), () => {
 
     expect((await page.request.delete(message)).status()).toBe(204);
     await expect(edited).toHaveCount(0);
+  });
+
+  test("a bot gives its message a file, shown in place of its text, then takes the file away, which the room shows at once", async ({ page }) => {
+    const url = await openGeneralFor(page, `Build Bot ${crypto.randomUUID().slice(0, 8)}`);
+    const tag = crypto.randomUUID().slice(0, 8);
+    const message = messageUrl(url, await page.request.post(url, { data: `Build log ${tag}`, headers: FORM }));
+    const text = page.getByRole("article").filter({ hasText: `Build log ${tag}` });
+    await expect(text).toBeVisible();
+
+    const log = { name: `build-${tag}.log`, mimeType: "text/plain", buffer: Buffer.from("All green\n") };
+    expect((await page.request.put(message, { multipart: { attachment: log } })).status()).toBe(200);
+    const file = page.getByRole("article").filter({ hasText: log.name });
+    await expect(file.getByRole("link", { name: `Download ${log.name}` })).toBeVisible();
+    await expect(file).toContainText("(edited)");
+    await expect(text).toHaveCount(0);
+
+    expect((await page.request.put(message, { multipart: { attachment: "" } })).status()).toBe(200);
+    await expect(text).toContainText("(edited)");
+    await expect(file).toHaveCount(0);
   });
 });
 
@@ -254,6 +284,25 @@ test.describe(feature("bots.webhook-reply"), () => {
       await expect(reply).toBeVisible();
       await expect(reply).toContainText(name);
       expect(webhook.received).toHaveLength(1);
+    } finally {
+      await webhook.close();
+    }
+  });
+
+  test("a picture a bot's webhook answers shows in the room as the bot's file", async ({ page }) => {
+    let chart = Buffer.alloc(0);
+    const webhook = await listenAsWebhook((response) => response.writeHead(200, { "Content-Type": "image/png" }).end(chart));
+    try {
+      const tag = crypto.randomUUID().slice(0, 8);
+      const name = `Build Bot ${tag}`;
+      await openGeneralFor(page, name, webhook.url);
+      chart = (await drawnPicture(page, "chart.png", 40, 20)).buffer;
+      await mentionBot(page, "Chart it ", name, tag);
+
+      // Named by its type, as Campfire names a file a webhook answers.
+      const reply = page.getByRole("article").filter({ hasText: name }).filter({ has: page.getByRole("img", { name: "attachment.png" }) });
+      await expect(reply).toBeVisible();
+      expect(await shownPicture(reply.getByRole("img", { name: "attachment.png" }))).toEqual({ type: "image/png", width: 40, height: 20 });
     } finally {
       await webhook.close();
     }

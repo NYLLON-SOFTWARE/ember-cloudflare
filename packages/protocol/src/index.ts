@@ -36,12 +36,15 @@ export {
   type NewBot,
 } from "./bots.ts";
 export {
+  FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
+  isKeepableFileName,
   isPreviewed,
   isVariable,
   isWebImage,
   MAX_FILE_NAME_LENGTH,
   MAX_FILE_SIZE,
+  MAX_FILE_TYPE_LENGTH,
   MAX_PREVIEW_SIZE,
   parseNewUpload,
   PREVIEW_MAX_HEIGHT,
@@ -547,7 +550,7 @@ export interface Message {
   mentions: User[];
   createdAt: string;
   updatedAt: string;
-  /** When its text last changed, or null if it never has. */
+  /** When its text last changed, or a bot changed its file, or null if neither has. */
   editedAt: string | null;
   boosts: Boost[];
   /**

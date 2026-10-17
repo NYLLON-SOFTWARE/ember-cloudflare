@@ -381,6 +381,35 @@ export class MessageStore {
     return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
 
+  /**
+   * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
+   * as a bot's edit does (ember-rust's `replace_attachment`), marking it edited, as a change to its text
+   * does, and the file it had deleted, for the room to purge. Its text stays, and so does its plain text,
+   * unless it has no text, when that's its file's name, as a file message's is.
+   */
+  async updateAttachment(message: Message, posted: PostedFile | null, now: string): Promise<{ message: Message; seq: number }> {
+    const plainText = message.body === "" ? (posted?.file.name ?? "") : message.plainText;
+    const seq = await this.change((seq) => [
+      // First, while the message still names the file it had.
+      deletingFilesOf(this.roomId, JSON.stringify([message.id]), now),
+      statement(
+        `UPDATE messages SET attachment = ?, plain_text = ?, updated_at = ?, edited_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        posted ? JSON.stringify(posted.file) : null,
+        plainText,
+        now,
+        now,
+        seq,
+        this.roomId,
+        message.id,
+      ),
+      logIndexing(this.roomId, message.id),
+      ...(posted ? [posted.finished(message.id)] : []),
+    ]);
+    const { attachment: _, ...rest } = message;
+    const attachment = posted && (await shownFile(posted.file, await this.sign()));
+    return { message: { ...rest, ...(attachment && { attachment }), plainText, updatedAt: now, editedAt: now }, seq };
+  }
+
   /** The ids of up to `limit` of `creatorId`'s messages here, only those written by `until` unless it's null. */
   async messageIdsBy(creatorId: UserId, limit: number, until: string | null): Promise<string[]> {
     const rows =

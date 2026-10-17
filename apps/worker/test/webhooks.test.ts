@@ -1,9 +1,14 @@
 import { feature } from "@ember/parity";
 import type { BotAnswer, BotSettings, NewWorkspace, RoomId, User } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobQueue } from "../src/at-once";
-import { postWebhook, WebhookError, webhookPayload } from "../src/bots/webhooks";
+import { postWebhook, WebhookError, webhookPayload, type Keep } from "../src/bots/webhooks";
+import type { ChatRoom } from "../src/chat-room";
+import type { Env } from "../src/env";
+import { objectKey } from "../src/files/blobs";
 import type { RoomEvent } from "../src/room-log";
 import { MESSAGE_WEBHOOKS, type MessageWebhook } from "../src/workspace-store";
 import {
@@ -16,6 +21,7 @@ import {
   post,
   pushBrowser,
   recordedImage,
+  roomStub,
   settle,
   shown,
   signIn,
@@ -89,6 +95,12 @@ function bots(answer: (delivery: Delivery) => Promise<Response> = async () => ne
   });
   return delivered;
 }
+
+/** The R2 bucket that keeps files. */
+const files = () => (env as unknown as Env).FILES!;
+
+/** Stands in for keeping a file, where the answer brings none. */
+const noFile: Keep<never> = () => expect.unreachable("The answer brings no file");
 
 /** What the request `delivery` sent, read as JSON. */
 const payloadOf = (delivery: Delivery) =>
@@ -281,14 +293,14 @@ describe(feature("bots.webhook-delivery"), () => {
       return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.com/" } });
     }) as typeof fetch;
 
-    expect(await postWebhook("http://bots.example.com:8080/hook?x=1#here", "{}", { send })).toEqual({ status: 302, reply: null });
+    expect(await postWebhook("http://bots.example.com:8080/hook?x=1#here", "{}", noFile, { send })).toEqual({ status: 302, reply: null });
     expect(sent).toEqual(["POST http://bots.example.com:8080/hook?x=1#here manual"]);
   });
 
   it("sends nothing to a URL that isn't an http or https URL with a host", async () => {
     const send = vi.fn() as unknown as typeof fetch;
     for (const url of ["", "ftp://bots.example.com/hook", "bots.example.com/hook", "http://", "mailto:bots@example.com", "http://bots.example.com:99999/"]) {
-      await expect(postWebhook(url, "{}", { send })).rejects.toThrow(new WebhookError("bad URI"));
+      await expect(postWebhook(url, "{}", noFile, { send })).rejects.toThrow(new WebhookError("bad URI"));
     }
     expect(send).not.toHaveBeenCalled();
   });
@@ -299,7 +311,7 @@ describe(feature("bots.webhook-delivery"), () => {
       throw new TypeError(`Fetch failed: ${url} refused the connection`);
     }) as typeof fetch;
 
-    await expect(postWebhook(url, "{}", { send })).rejects.toThrow(new WebhookError("TypeError: Fetch failed: [FILTERED] refused the connection"));
+    await expect(postWebhook(url, "{}", noFile, { send })).rejects.toThrow(new WebhookError("TypeError: Fetch failed: [FILTERED] refused the connection"));
   });
 });
 
@@ -355,25 +367,89 @@ describe(feature("bots.webhook-reply"), () => {
     client.close();
   });
 
-  it("posts nothing for a reply it can't post, logging why: a file, until bots can post files, or text with nothing in it", async () => {
+  it("posts a file a bot says back as its message, which R2 keeps as it arrives, as Campfire's receive_attachment_reply_to does", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
-    bots(async (delivery) =>
-      payloadOf(delivery).message.body.plain === "One"
-        ? new Response(new Uint8Array([0xff, 0xd8, 0xff]), { headers: { "Content-Type": "image/jpeg" } })
-        : new Response(" <p> </p> ", { headers: { "Content-Type": "text/html" } }),
-    );
+    bots(async () => new Response(recordedImage("moon-thumb.jpg"), { headers: { "Content-Type": "image/jpeg" } }));
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    const { message } = await client.next("message.created");
+    expect(message).toMatchObject({
+      creator: { id: bot.id, name: "Build Bot" },
+      body: "",
+      plainText: "attachment.jpeg",
+      attachment: { name: "attachment.jpeg", contentType: "image/jpeg", byteSize: recordedImage("moon-thumb.jpg").length, width: 640, height: 640 },
+    });
+    const kept = await files().get(objectKey(message.attachment!.id));
+    expect(new Uint8Array(await kept!.arrayBuffer())).toEqual(recordedImage("moon-thumb.jpg"));
+    await vi.waitFor(() => expect(logs).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} performed: 200`));
+    client.close();
+  });
+
+  it("posts nothing for text with nothing in it, logging why", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    bots(async () => new Response(" <p> </p> ", { headers: { "Content-Type": "text/html" } }));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const client = await connect(general, ada);
 
-    const [first, second] = [await post(client, `<p>One ${mention(bot)}</p>`), await post(client, `<p>Two ${mention(bot)}</p>`)];
-    await vi.waitFor(() => {
-      expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${first.id} to bot ${bot.id} failed:`, "its reply, attachment.jpeg (image/jpeg), is a file, which bots can't post yet");
-      expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${second.id} to bot ${bot.id} failed:`, "its reply wasn't posted: Your message is empty.");
-    });
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: Your message is empty."));
     await settle(client);
     expect(client.pending("message.created")).toEqual([]);
     client.close();
+  });
+
+  it("posts no file without an R2 bucket, logging why", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    bots(async () => new Response(new Uint8Array([0xff, 0xd8, 0xff]), { headers: { "Content-Type": "image/jpeg" } }));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(general, ada);
+    await runInDurableObject(roomStub(general), (room: ChatRoom) => {
+      const object = room as unknown as { env: Env };
+      object.env = { ...object.env, FILES: undefined };
+    });
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() =>
+      expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply, attachment.jpeg (image/jpeg), is a file, and Ember isn't set up to store files"),
+    );
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    client.close();
+  });
+
+  it("keeps none of a file a bot says back once its room is deleted while it arrives", async () => {
+    const { ada } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    const room = await createRoom("Launch", { as: ada });
+    // The webhook sends its file once the test lets it, waiting in the room's own I/O context.
+    let [reading, answering] = [false, false];
+    bots(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          reading = true;
+          while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+          controller.enqueue(recordedImage("moon-thumb.jpg"));
+          controller.close();
+        },
+      });
+      return new Response(body, { headers: { "Content-Type": "image/jpeg" } });
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(room.id, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(reading).toBe(true));
+    expect((await api(`/api/rooms/${room.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
+    // Once the room has heard.
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
+    answering = true;
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
+    expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
   });
 });
 

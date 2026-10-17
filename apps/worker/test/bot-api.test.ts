@@ -461,15 +461,6 @@ describe(feature("bots.api-post"), () => {
     expect(await storedIn(general)).toEqual([]);
   });
 
-  it("answers 415 to a form, as `curl -F` sends a file, until files can be stored", async () => {
-    const { bot, general } = await withBot();
-    const form = new FormData();
-    form.set("attachment", new File(["report"], "report.txt", { type: "text/plain" }));
-    const response = await api(botPath(general, bot.key), { method: "POST", body: form });
-    expect([response.status, await response.json()]).toEqual([415, { error: "Bots can't post files yet" }]);
-    expect(await storedIn(general)).toEqual([]);
-  });
-
   it("posts nothing once the room has been deleted, which a post let through just before can find", async () => {
     const { administrator, bot, general } = await withBot();
     const room = await createRoom("Launch", { as: administrator });
@@ -722,16 +713,6 @@ describe(feature("bots.api-edit-delete"), () => {
     const tooMuch = await editAs(bot.key, general, id, "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1));
     expect([tooMuch.status, await tooMuch.json()]).toEqual([413, { status: 413, error: "Content Too Large" }]);
     expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
-  });
-
-  it("answers 415 to a form, as `curl -F` sends a file, until files can be stored", async () => {
-    const { bot, general } = await withBot();
-    const id = await posted(bot.key, general, "Report attached");
-    const form = new FormData();
-    form.set("attachment", new File(["report"], "report.txt", { type: "text/plain" }));
-    const response = await api(messagePath(general, bot.key, id), { method: "PATCH", body: form });
-    expect([response.status, await response.json()]).toEqual([415, { error: "Bots can't post files yet" }]);
-    expect(await storedIn(general)).toMatchObject([{ id, body: "Report attached" }]);
   });
 
   it("deletes the bot's own message, with its boosts, live, answering 204", async () => {
