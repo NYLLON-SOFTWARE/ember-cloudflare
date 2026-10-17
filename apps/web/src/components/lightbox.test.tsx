@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FlashProvider } from "./flash";
 import { Lightbox } from "./lightbox";
 
 const QR_CODE = "/qr_code/aHR0cDovL3gvP2E=";
@@ -58,11 +59,15 @@ describe(feature("attachments.lightbox"), () => {
 
   it("shares the file, named Ember_ and something random, with an empty title and text", async () => {
     const share = vi.fn().mockRejectedValue(new DOMException("Closed", "AbortError"));
-    const fetch = vi.fn().mockResolvedValue({ blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml; charset=utf-8" }) });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["<svg/>"], { type: "image/svg+xml; charset=utf-8" }) });
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
     vi.stubGlobal("fetch", fetch);
-    render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
+    render(
+      <FlashProvider>
+        <Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />
+      </FlashProvider>,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Share file" }));
     await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
@@ -73,5 +78,29 @@ describe(feature("attachments.lightbox"), () => {
     // ember-rust's name would end ".svg+xml; charset=utf-8", the whole of the type after its "/".
     expect(files[0]!.name).toMatch(/^Ember_[a-z0-9]+\.svg$/);
     expect(files[0]!.type).toBe("image/svg+xml; charset=utf-8");
+  });
+
+  it("takes Download and Share from the file's download address where it's given, as a message's picture gives it, and names the image", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["moon"], { type: "image/jpeg" }) });
+    stubNavigator("canShare", () => true);
+    stubNavigator("share", share);
+    vi.stubGlobal("fetch", fetch);
+    const moon = "/files/k1/s1/moon.jpg";
+    render(
+      <FlashProvider>
+        <Lightbox src={moon} alt="moon.jpg" downloadUrl={`${moon}?disposition=attachment`} onClose={() => {}} />
+      </FlashProvider>,
+    );
+
+    expect(screen.getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", moon);
+    const download = screen.getByRole("link", { name: "Download file" });
+    expect(download).toHaveAttribute("href", `${moon}?disposition=attachment`);
+    // The server names the file it downloads.
+    expect(download).not.toHaveAttribute("download");
+    await userEvent.click(screen.getByRole("button", { name: "Share file" }));
+    await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
+    expect(fetch).toHaveBeenCalledWith(`${moon}?disposition=attachment`);
+    expect((share.mock.calls[0] as [{ files: File[] }])[0].files[0]!.name).toMatch(/^Ember_[a-z0-9]+\.jpeg$/);
   });
 });

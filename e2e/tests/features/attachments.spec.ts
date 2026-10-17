@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { feature } from "@ember/parity";
 import { uploadPartPath, uploadsPath, type Message, type Upload } from "@ember/protocol";
-import type { APIRequestContext, Locator } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { cookieHeader } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
@@ -46,6 +46,28 @@ async function sizeOf(locator: Locator): Promise<[number, number]> {
   const box = await locator.boundingBox();
   return [box!.width, box!.height];
 }
+
+/**
+ * Gives `page` a share sheet that keeps what it's given, as browsers that can share have one: the title
+ * and text, and each file's name, type and size, as `shared()` reads them.
+ */
+async function canShare(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperties(Navigator.prototype, {
+      canShare: { value: () => true, configurable: true },
+      share: {
+        value: async ({ title, text, files = [] }: ShareData) => {
+          const sheet = window as unknown as { shared: unknown[] };
+          sheet.shared = [...(sheet.shared ?? []), { title, text, files: files.map(({ name, type, size }) => ({ name, type, size })) }];
+        },
+        configurable: true,
+      },
+    });
+  });
+}
+
+/** What `member`'s share sheet has been given so far. */
+const shared = (member: Member) => member.page.evaluate(() => (window as unknown as { shared?: unknown[] }).shared ?? []);
 
 /** The link on a file message's card that downloads its file. */
 const downloadLink = (member: Member, name: string) => member.message(name).getByRole("link", { name: `Download ${name}` });
@@ -237,6 +259,57 @@ test.describe(feature("attachments.download-share"), () => {
     const bar = await grace.actions("Q3 report.txt");
     await expect(bar.getByRole("link", { name: "Download" })).toHaveAttribute("href", attachment!.downloadUrl);
     await expect(bar.getByRole("button", { name: "Reply" })).toHaveCount(0);
+    // Chromium on Linux can't share.
+    await expect(bar.getByRole("button", { name: "Share" })).toHaveCount(0);
+    await expect(grace.message("Q3 report.txt").getByRole("button", { name: "Share Q3 report.txt" })).toHaveCount(0);
+  });
+
+  test("shares a file from its card and its image viewer untitled, and from its message's actions titled with its name", async ({ members, request, rooms }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace", { beforeOpen: canShare });
+    await upload(request, ada, rooms.general.id, "Q3 report.txt", "Up and to the right");
+    const { buffer } = await picture(ada, "dot.png", 40, 20);
+    await upload(request, ada, rooms.general.id, "dot.png", buffer, "image/png");
+    const report = { type: "text/plain", size: "Up and to the right".length };
+
+    // Each fetches its file before it shares, so each waits for the last to land.
+    await grace.message("Q3 report.txt").getByRole("button", { name: "Share Q3 report.txt" }).click();
+    await expect.poll(async () => (await shared(grace)).length).toBe(1);
+    await (await grace.actions("Q3 report.txt")).getByRole("button", { name: "Share" }).click();
+    await expect.poll(async () => (await shared(grace)).length).toBe(2);
+    await grace.page.getByRole("link", { name: "dot.png" }).click();
+    await grace.page.getByRole("dialog", { name: "Image Viewer (Press escape to close)" }).getByRole("button", { name: "Share file" }).click();
+    await expect.poll(() => shared(grace)).toEqual([
+      { title: "", text: "", files: [{ name: expect.stringMatching(/^Ember_[a-z0-9]+\.plain$/), ...report }] },
+      { title: "Q3 report.txt", text: "", files: [{ name: expect.stringMatching(/^Ember_[a-z0-9]+\.plain$/), ...report }] },
+      { title: "", text: "", files: [{ name: expect.stringMatching(/^Ember_[a-z0-9]+\.png$/), type: "image/png", size: buffer.length }] },
+    ]);
+  });
+});
+
+test.describe(feature("attachments.lightbox"), () => {
+  test("opens a picture's original in the image viewer, which downloads it, and closes it with Escape", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await attachFiles(ada).setInputFiles(await picture(ada, "mural.png", 2400, 1600));
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+
+    const link = grace.page.getByRole("link", { name: "mural.png" });
+    await link.click();
+    const viewer = grace.page.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+    const original = viewer.getByRole("img", { name: "mural.png" });
+    await expect(original).toHaveAttribute("src", (await link.getAttribute("href"))!);
+    await expect.poll(() => original.evaluate((image: HTMLImageElement) => [image.naturalWidth, image.naturalHeight])).toEqual([2400, 1600]);
+    await expect(viewer.getByRole("button", { name: "Close image viewer" })).toBeFocused();
+
+    const [download] = await Promise.all([grace.page.waitForEvent("download"), viewer.getByRole("link", { name: "Download file" }).click()]);
+    expect(download.suggestedFilename()).toBe("mural.png");
+    expect((await readFile(await download.path())).length).toBe((await picture(ada, "mural.png", 2400, 1600)).buffer.length);
+    await expect(viewer).toBeVisible();
+
+    await grace.page.keyboard.press("Escape");
+    await expect(viewer).toHaveCount(0);
+    await expect(link).toBeFocused();
   });
 });
 

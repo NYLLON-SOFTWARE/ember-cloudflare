@@ -1,7 +1,8 @@
 import { feature } from "@ember/parity";
 import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
-import { cleanup, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { Attachment } from "./attachment";
 
 /** A file called `name` of `contentType`, as a message has it. */
@@ -79,5 +80,56 @@ describe(feature("attachments.previews"), () => {
       expect(container.querySelector("video")).not.toBeInTheDocument();
       cleanup();
     }
+  });
+});
+
+describe(feature("attachments.lightbox"), () => {
+  /** The image viewer, which is only in the page while it's open. */
+  const viewer = () => screen.queryByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+
+  it("opens a picture's original in the image viewer, named for its file, with Download taking the file's download address", async () => {
+    const moon = stored("moon.jpg", "image/jpeg", { width: 2400, height: 1600, previewUrl: "/previews/k1/s1/moon.jpg" });
+    render(<Attachment file={moon} />);
+    expect(viewer()).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("link", { name: "moon.jpg" }));
+    expect(viewer()).toHaveAttribute("open");
+    expect(within(viewer()!).getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", moon.url);
+    const download = within(viewer()!).getByRole("link", { name: "Download file" });
+    expect(download).toHaveAttribute("href", moon.downloadUrl);
+    expect(download).not.toHaveAttribute("download");
+
+    await userEvent.click(screen.getByRole("button", { name: "Close image viewer" }));
+    expect(viewer()).not.toBeInTheDocument();
+  });
+
+  it.each([{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }])(
+    "leaves a click on a picture with %o to the browser, which opens the file somewhere else",
+    (init) => {
+      const moon = stored("moon.jpg", "image/jpeg", { width: 2400, height: 1600, previewUrl: "/previews/k1/s1/moon.jpg" });
+      render(<Attachment file={moon} />);
+      // After the picture has had the click, whether it kept the browser from following its link; then
+      // this keeps jsdom, which can't, from trying.
+      const leftToTheBrowser = vi.fn();
+      document.addEventListener(
+        "click",
+        (event) => {
+          leftToTheBrowser(!event.defaultPrevented);
+          event.preventDefault();
+        },
+        { once: true },
+      );
+      fireEvent.click(screen.getByRole("link", { name: "moon.jpg" }), init);
+      expect(leftToTheBrowser).toHaveBeenCalledWith(true);
+      expect(viewer()).not.toBeInTheDocument();
+    },
+  );
+
+  it("opens a picture not every browser shows, such as a HEIC, as its thumbnail", async () => {
+    const photo = stored("photo.heic", "image/heic", { width: 4032, height: 3024, previewUrl: "/previews/k1/s1/photo.heic" });
+    render(<Attachment file={photo} />);
+    await userEvent.click(screen.getByRole("link", { name: "photo.heic" }));
+    expect(within(viewer()!).getByRole("img", { name: "photo.heic" })).toHaveAttribute("src", photo.previewUrl);
+    expect(within(viewer()!).getByRole("link", { name: "Download file" })).toHaveAttribute("href", photo.downloadUrl);
   });
 });

@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Download, Remove, Share } from "@/components/icons/campfire";
+import { ShareButton } from "@/components/share-button";
+import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
 // ember-rust's image viewer (crates/views/templates/layouts/_lightbox.html), opened and cleared as
 // Campfire's lightbox_controller.js does and styled by its lightbox.css. It keeps its buttons clear
-// of a phone's notch, rounded corners and home indicator, which lightbox.css doesn't, and Download
-// saves even a file that isn't served as an attachment, where ember-rust's leaves the app to show a
-// QR code.
+// of a phone's notch, rounded corners and home indicator, which lightbox.css doesn't, Download saves
+// even a file that isn't served as an attachment, where ember-rust's leaves the app to show a QR code,
+// and the image can be named for screen readers, where ember-rust's has no alt text.
 
 /** A circle `.btn` in a corner: 36px, as zz-ember.css sizes buttons, and 44px for fingers. */
 const BUTTON = "grid size-9 cursor-pointer place-items-center rounded-full border bg-background [grid-area:1/1] touch:size-11";
@@ -15,8 +17,12 @@ const BUTTON = "grid size-9 cursor-pointer place-items-center rounded-full borde
 interface LightboxProps {
   /** The image to show, or null while the viewer is closed. */
   src: string | null;
-  /** The name Download saves it under, unless the server names it. */
-  filename: string;
+  /** What the image is, for screen readers. */
+  alt?: string;
+  /** Where Download and Share get its file, as a message's picture gives its file's download address: the image itself if not given. */
+  downloadUrl?: string;
+  /** The name Download saves it under, where the server doesn't name it. */
+  filename?: string;
   /** Called when Escape or Close has closed the viewer. */
   onClose: () => void;
 }
@@ -26,10 +32,8 @@ interface LightboxProps {
  * It's rendered into the body, where ember-rust's layout keeps it, so it takes the page's text size
  * wherever it's opened from.
  */
-export function Lightbox({ src, filename, onClose }: LightboxProps) {
+export function Lightbox({ src, alt = "", downloadUrl = src ?? undefined, filename, onClose }: LightboxProps) {
   const dialog = useRef<HTMLDialogElement>(null);
-  // As ember-rust's web_share_controller.js decides, before it's ever asked to share.
-  const canShare = "canShare" in navigator;
 
   useEffect(() => {
     if (src && !dialog.current?.open) dialog.current?.showModal();
@@ -42,42 +46,23 @@ export function Lightbox({ src, filename, onClose }: LightboxProps) {
       onClose={onClose}
       className="inset-0 m-auto h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-lightbox pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1ch,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1ch,env(safe-area-inset-left))] backdrop:backdrop-blur-[66px] open:grid open:grid-cols-1 open:grid-rows-1 open:place-items-center"
     >
-      {src && <img src={src} alt="" className="max-h-full max-w-full [grid-area:1/1]" />}
+      {src && <img src={src} alt={alt} className="max-h-full max-w-full [grid-area:1/1]" />}
       <button type="button" onClick={() => dialog.current?.close()} className={cn(BUTTON, "self-start justify-self-end")}>
         <Remove className="w-[1.3em]" />
         <span className="sr-only">Close image viewer</span>
       </button>
-      <a href={src ?? undefined} download={filename} className={cn(BUTTON, "self-end justify-self-end ios-pwa:hidden")}>
+      <a href={downloadUrl} download={filename} className={cn(BUTTON, "self-end justify-self-end ios-pwa:hidden")}>
         <Download className="w-[1.3em]" />
         <span className="sr-only">Download file</span>
       </a>
-      {canShare && (
-        <button type="button" onClick={() => src && void shareFile(src)} className={cn(BUTTON, "self-start justify-self-start")}>
+      {canShare() && downloadUrl && (
+        <ShareButton url={downloadUrl} className={cn(BUTTON, "self-start justify-self-start")}>
           <Share className="w-[1.3em]" />
           <span className="sr-only">Share file</span>
-        </button>
+        </ShareButton>
       )}
     </dialog>,
     document.body,
   );
 }
 
-/**
- * Offers the file at `url` to the system's share sheet as ember-rust's web_share_controller.js does,
- * named `Ember_<random>` with an empty title and text. Closing the sheet rejects, which needs no answer.
- */
-async function shareFile(url: string) {
-  try {
-    const blob = await (await fetch(url)).blob();
-    const name = `Ember_${Math.random().toString(36).slice(2)}.${extensionOf(blob.type)}`;
-    await navigator.share({ title: "", text: "", files: [new File([blob], name, { type: blob.type })] });
-  } catch {
-    // Nothing to show.
-  }
-}
-
-/**
- * The extension for a file of `type`: "svg" for a QR code's `image/svg+xml; charset=utf-8`. ember-rust
- * keeps all of the type after its "/", so its QR codes end ".svg+xml; charset=utf-8".
- */
-const extensionOf = (type: string) => type.replace(/^[^/]*\/|[+;].*$/g, "");

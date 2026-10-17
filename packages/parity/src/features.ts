@@ -1179,7 +1179,7 @@ export const features = [
     id: "messages.actions",
     title: "Message action bar",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Hovering a message with a mouse, or opening its Message options, shows its bar: three quick reactions, Reply (or Download and Share for files), Copy link, Edit, then More reactions, followed by Message options itself when using a mouse.",
       "Leaving the message closes a bar that hovering opened after 180ms, unless the pointer comes back or the bar has focus. Clicking Message options pins such a bar open, and only one bar is open at a time.",
@@ -1189,20 +1189,20 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/controllers/message_actions_controller.js", "crates/views/templates/messages/_actions.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it, and a bar Add a boost opened opens beside Add a boost, as one Message options opened does beside it, where ember-rust's opens at Message options and can cover Add a boost. A file message's bar has Download in place of Reply, hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it. Still to come: Share (`attachments.download-share`).",
+    notes: "The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it, and a bar Add a boost opened opens beside Add a boost, as one Message options opened does beside it, where ember-rust's opens at Message options and can cover Add a boost. A file message's bar has Download in place of Reply, hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it, then Share (`attachments.download-share`).",
   },
   {
     id: "messages.reply",
     title: "Reply with a quote",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Reply replaces whatever is in the composer with the message as a quote, followed by its author and a `#` link back to it, then an empty line with the cursor in it.",
       "Mentions in the quote become the person's name without \"@\", and link previews are dropped; a message that was only a preview is quoted as its address. File messages offer Download and Share instead.",
     ],
     sources: ["reference/app/javascript/controllers/reply_controller.js", "crates/assets/overrides/controllers/composer_controller.js", "crates/views/templates/messages/_actions.html"],
     upstreamTests: ["reference/test/system/composer_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. File messages offer Download in place of Reply (`messages.actions`). Still to come: their Share (`attachments.download-share`).",
+    notes: "A mention is quoted as the person's name as the people directory lists it now. What's written becomes the composer's draft, and the room hears you're typing, as when you write it yourself. File messages offer Download and Share in place of Reply (`messages.actions`, `attachments.download-share`).",
   },
   {
     id: "messages.copy-link",
@@ -1450,7 +1450,7 @@ export const features = [
     id: "attachments.previews",
     title: "Image, video and file previews",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Images (PNG, JPEG, GIF, WebP, TIFF, AVIF, HEIC, HEIF) show their thumbnail, loaded lazily, at half its size scaled into 1200×800, at most 480px wide, and at most 640px or 70% of the screen tall, whichever is smaller. The thumbnail is still, so an animated image shows its first frame until opened.",
       "Videos play in place behind a WebP poster and load nothing until played (`preload=\"none\"`).",
@@ -1461,13 +1461,13 @@ export const features = [
     sources: ["reference/app/helpers/messages/attachment_presentation.rb", "crates/views/src/messages/presentation.rs", "crates/ember/src/controllers/presenters.rs", "crates/storage/src/content_types.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "crates/ember/src/controllers/messages/tests.rs"],
     notes:
-      "Previews are made in the uploader's browser as it uploads a file (apps/web/src/lib/previews.ts), where ember-rust's server makes them, and sent before its last part, unless the browser takes more than five seconds; the Worker takes a WebP, JPEG or PNG of up to 5 MiB within 1200×800, keeps it in R2 beside the file and serves it under the file's signature at `/previews/…`. A thumbnail is WebP, or where the browser can't encode WebP, as Safari can't, a JPEG, or a PNG for a picture that can be see-through, and a video's poster is its frame a tenth of a second in, where ember-rust's ffmpeg takes the first. A video's size is its poster's, since the Worker can't read a video's own. A picture the uploader's browser can't decode, as Chrome can't decode HEIC or TIFF, or sent without a thumbnail, as a bot's will be, shows itself if it's a PNG, JPEG, GIF or WebP of up to 5 MiB, so a small animated GIF moves, and its card otherwise, and a video without a poster loads enough to show its first frame (`preload=\"metadata\"`), where ember-rust's server makes both regardless. ember-rust's box for a picture is half its size, but the picture in it at most 480px wide, which leaves the box blank below a picture shown more than 480px wide; Ember's box keeps to the picture's limits, so it's always the picture's shape. A picture's alt text and a video's name are the file's name, where ember-rust's have none. File cards: the file's icon on a tile, its name and Download, as ember-rust draws them. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`). Still to come: the image viewer, until which a picture links to its file (`attachments.lightbox`), and Share (`attachments.download-share`).",
+      "Previews are made in the uploader's browser as it uploads a file (apps/web/src/lib/previews.ts), where ember-rust's server makes them, and sent before its last part, unless the browser takes more than five seconds; the Worker takes a WebP, JPEG or PNG of up to 5 MiB within 1200×800, keeps it in R2 beside the file and serves it under the file's signature at `/previews/…`. A thumbnail is WebP, or where the browser can't encode WebP, as Safari can't, a JPEG, or a PNG for a picture that can be see-through, and a video's poster is its frame a tenth of a second in, where ember-rust's ffmpeg takes the first. A video's size is its poster's, since the Worker can't read a video's own. A picture the uploader's browser can't decode, as Chrome can't decode HEIC or TIFF, or sent without a thumbnail, as a bot's will be, shows itself if it's a PNG, JPEG, GIF or WebP of up to 5 MiB, so a small animated GIF moves, and its card otherwise, and a video without a poster loads enough to show its first frame (`preload=\"metadata\"`), where ember-rust's server makes both regardless. ember-rust's box for a picture is half its size, but the picture in it at most 480px wide, which leaves the box blank below a picture shown more than 480px wide; Ember's box keeps to the picture's limits, so it's always the picture's shape. A picture's alt text and a video's name are the file's name, where ember-rust's have none. A picture opens in the image viewer (`attachments.lightbox`). File cards: the file's icon on a tile, its name, Download and Share, as ember-rust draws them. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`).",
   },
   {
     id: "attachments.lightbox",
     title: "Image viewer",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Clicking an image opens the original file, not its thumbnail, in a dialog (\"Image Viewer (Press escape to close)\") over the blurred page, behind the page's own background color at 66% opacity.",
       "Close (\"Close image viewer\") sits at the top right, Download (\"Download file\", hidden in the iOS home-screen app) at the bottom right and Share (\"Share file\", only where the browser can share) at the top left; Download and Share use the file's download link.",
@@ -1475,7 +1475,8 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/_lightbox.html", "reference/app/javascript/controllers/lightbox_controller.js", "reference/app/assets/stylesheets/lightbox.css"],
     upstreamTests: ["parity/screens.yml"],
-    notes: "Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
+    notes:
+      "A message's picture opens it, as ember-rust's `lightboxed_image_preview` does, and so does a QR code (`accounts.qr-codes`). A picture shows its original, unless not every browser shows its type, such as a HEIC or TIFF, which shows its thumbnail, where ember-rust's shows the original, which Chrome can't. A message's picture puts its viewer in the page only while it's open, so a timeline of pictures holds no viewer for each, where ember-rust's layout keeps one in every page, and the image's alt text is the file's name, where ember-rust's has none. A click on a picture with Ctrl, Shift, Alt or ⌘, or with the middle button, follows its link as the browser would, opening the file elsewhere, where ember-rust's opens the viewer. Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's \"/\", ending the name `.svg+xml; charset=utf-8`.",
   },
   {
     id: "attachments.svg-preview",
@@ -1494,7 +1495,7 @@ export const features = [
     id: "attachments.download-share",
     title: "Download and share files",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A file message's action bar offers Download and Share in place of Reply. Wherever Download appears (the bar, the file card, the image viewer), it's hidden in the iOS home-screen app.",
       "Share shows wherever the browser has `navigator.canShare`, without checking the file first. It fetches the whole file and shares it as `Ember_<random>.<MIME subtype>`, such as `.jpeg`, or `.octet-stream` for an SVG.",
@@ -1503,7 +1504,7 @@ export const features = [
     sources: ["crates/assets/overrides/controllers/web_share_controller.js", "crates/views/templates/messages/_actions.html", "crates/views/src/messages/presentation.rs", "crates/views/templates/layouts/_lightbox.html", "reference/app/assets/stylesheets/utilities.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
     notes:
-      "Download: in a file message's bar in place of Reply, and on its file card, each hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it. Still to come: Share.",
+      "Download: in a file message's bar in place of Reply, on its file card and in the image viewer, each hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it. Share: after Download in the bar, titled with the file's name and sharing its address for showing, and on the card and in the image viewer, untitled and sharing its download address, as ember-rust's do, wherever `navigator.canShare` exists (src/lib/share.ts). The shared file is named `Ember_<random>` with its type's extension up to any `+` or `;`, so an SVG, which is served as `application/octet-stream`, ends `.octet-stream`, as in ember-rust, but a QR code ends `.svg` where ember-rust's ends `.svg+xml; charset=utf-8`. Closing the share sheet is caught, where ember-rust leaves its rejection unhandled. A browser opens the sheet only for a few seconds after a click, which downloading a large file can outlast: then the file is kept for a minute, and \"Your file is ready. Choose Share again to share it.\" is flashed, so the next Share of it opens the sheet at once, where ember-rust's downloads it again and fails again. A file that can't be downloaded, as one deleted since the page loaded, isn't shared, where ember-rust's shares the error page as the file, and \"Couldn't share the file.\" is flashed, as it is for a file the browser won't share, such as a program in Chrome. The image viewer covers the flash, as ember-rust's dialogs do.",
   },
   {
     id: "attachments.serving",
