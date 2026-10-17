@@ -41,6 +41,7 @@ import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
+import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -57,6 +58,7 @@ import {
   type DirectoryEntry,
   type JoinableAccount,
   type NewPerson,
+  type OwnProfileEntry,
   type ProfileEntry,
   type PushDelivery,
   type RoomEventDeliveries,
@@ -188,7 +190,12 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
 
-const profileOf = ({ name, emailAddress, bio }: ProfileEntry): Profile => ({ name, emailAddress, bio });
+/**
+ * How long a picture's key stays reserved for whatever gives someone the picture, which the Worker
+ * calls once R2 has stored it: far longer than that takes. R2 then deletes whatever is there, unless
+ * someone has the picture.
+ */
+const PICTURE_RESERVATION_MS = 60 * 60 * 1000;
 
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
@@ -1146,16 +1153,26 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
-  /** Someone as the people directory lists them, with their avatar's address. */
-  private async directoryUser(person: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([person], this.env.SESSION_SECRET))[0]!;
+  /**
+   * Someone as the people directory lists them, with their avatar's address, and nothing else known of
+   * them, such as their email address, whatever `person` brings.
+   */
+  private async directoryUser({ id, name, bio, role, status, updatedAt }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, bio, role, status, updatedAt }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
   async profile(credentials: Credentials): Promise<YourProfile | null> {
     const user = await this.authenticate(credentials);
-    const person = user && (await this.store.personWithProfile(user.id));
-    return person && { userId: person.id, profile: profileOf(person) };
+    const person = user && (await this.store.ownProfile(user.id));
+    return person && this.yourProfile(person);
+  }
+
+  /** `person`'s profile, as their own profile page shows it. */
+  private async yourProfile(person: OwnProfileEntry): Promise<YourProfile> {
+    const { name, emailAddress, bio, avatar } = person;
+    const { avatarUrl } = await this.directoryUser(person);
+    return { userId: person.id, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null } };
   }
 
   /**
@@ -1177,15 +1194,15 @@ export class Workspace extends DurableObject<Env> {
       // save whose session was still valid before then mustn't put back a password of its own.
       const user = await this.authenticate(credentials);
       if (!user) return null;
-      const person = await this.store.personWithProfile(user.id);
+      const person = await this.store.ownProfile(user.id);
       if (!person) return null;
-      const profile: Profile = {
+      const profile = {
         name: changes.name ?? person.name,
         emailAddress: changes.emailAddress === undefined ? person.emailAddress : changes.emailAddress || null,
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
       };
       const listed = profile.name !== person.name || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return { userId: user.id, profile };
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person);
       if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
         return "email address taken";
       }
@@ -1206,11 +1223,45 @@ export class Workspace extends DurableObject<Env> {
           this.knownHelpContact = undefined;
         }
       }
-      if (listed) {
-        const { id, role, status } = person;
-        this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name: profile.name, bio: profile.bio, role, status, updatedAt: now }) });
-      }
-      return { userId: user.id, profile };
+      const changed = { ...person, ...profile, updatedAt: now };
+      if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+      return this.yourProfile(changed);
+    });
+  }
+
+  /**
+   * Reserves `key` for a picture R2 is about to store, which an hour later R2 deletes unless someone has
+   * been given it by then: the Worker stores a picture before the Workspace gives it to anyone, and
+   * nothing else would delete it if that never happens.
+   */
+  async reservePicture(key: string): Promise<void> {
+    const dueAt = Date.now() + PICTURE_RESERVATION_MS;
+    await this.store.reservePicture(key, dueAt);
+    await this.wakeAt(dueAt);
+  }
+
+  /**
+   * Gives the person `credentials` signs in `avatar`, which R2 has stored under a key `reservePicture`
+   * reserved, or takes theirs away with null, as ember-rust's profile form and `avatars#destroy` do,
+   * answering their profile then, or null without a valid session. R2 deletes the avatar they had, and
+   * everyone's workspace sockets hear of the change, which gives their avatar a new address.
+   */
+  async changeAvatar(credentials: Credentials, avatar: StoredPicture | null): Promise<YourProfile | null> {
+    return this.oneAtATime(async () => {
+      const user = await this.authenticate(credentials);
+      if (!user) return null;
+      const person = await this.store.ownProfile(user.id);
+      if (!person) return null;
+      // As removing an avatar that isn't there changes nothing in ember-rust.
+      if (avatar === null && person.avatar === null) return this.yourProfile(person);
+      const now = Date.now();
+      const updatedAt = new Date(now).toISOString();
+      const previous = person.avatar?.key ?? null;
+      await this.store.changeAvatar(user.id, avatar, previous, updatedAt, now);
+      if (previous) await this.wakeAt(now);
+      const changed = { ...person, avatar, updatedAt };
+      this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+      return this.yourProfile(changed);
     });
   }
 
@@ -1467,7 +1518,8 @@ export class Workspace extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     const revocations = await this.deliverRevocations(DELIVERIES_PER_RUN);
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
-    await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+    const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
+    await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
     await this.scheduleDelivery();
   }
 
@@ -1534,10 +1586,10 @@ export class Workspace extends DurableObject<Env> {
    * workspace had when the index was new is asked once (migrations/0022_pending_reindexes.sql). One that
    * can't be reached is asked again later, as a revocation is.
    */
-  private async deliverReindexes(limit: number): Promise<void> {
-    if (limit <= 0) return;
+  private async deliverReindexes(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
     const due = await this.store.dueReindexes(Date.now(), limit);
-    if (due.length === 0) return;
+    if (due.length === 0) return 0;
     const delivered: RoomId[] = [];
     const failed: RoomId[] = [];
     await eachAtMost(due, ROOMS_AT_ONCE, async (roomId) => {
@@ -1550,6 +1602,26 @@ export class Workspace extends DurableObject<Env> {
       }
     });
     await this.store.settleReindexes(delivered, failed, Date.now());
+    return due.length;
+  }
+
+  /**
+   * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
+   * avatars people replaced or removed, and those nobody was given once their reservations ran out.
+   * When R2 fails, they're tried again later, as a revocation is.
+   */
+  private async deletePictures(limit: number): Promise<void> {
+    if (limit <= 0) return;
+    const due = await this.store.duePictureDeletions(Date.now(), limit);
+    if (due.length === 0) return;
+    try {
+      if (!this.env.FILES) throw new Error("No R2 bucket is bound as FILES");
+      await this.env.FILES.delete(due.flatMap(pictureObjects));
+      await this.store.settlePictureDeletions(due, [], Date.now());
+    } catch (error) {
+      console.error("Could not delete pictures from R2; trying again later", error);
+      await this.store.settlePictureDeletions([], due, Date.now());
+    }
   }
 
   /** Sets the alarm for the outbox's next delivery due, if any is waiting. */

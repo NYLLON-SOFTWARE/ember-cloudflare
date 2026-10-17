@@ -1,22 +1,36 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { MAX_BIO_LENGTH, MAX_PASSWORD_LENGTH, type Me, type Profile, type ProfileChanges, type SidebarRoom } from "@ember/protocol";
+import { useContext, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  AVATAR_TOO_LARGE,
+  MAX_AVATAR_SIZE,
+  MAX_BIO_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  type Me,
+  type Profile,
+  type ProfileAnswer,
+  type ProfileChanges,
+  type SidebarRoom,
+} from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Logout } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
+import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { usePush } from "@/hooks/use-push";
 import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { changeProfile, fetchProfile, isSignedOut } from "@/lib/api";
+import { changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
+import { avatarVariantOf } from "@/lib/previews";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { ConversationNotifications } from "./conversation-notifications";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
+import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
+import { avatarUrlOf } from "./user-avatar";
 
 interface Props {
   me: Me;
@@ -31,6 +45,12 @@ interface Props {
 }
 
 const FIELDS = ["name", "emailAddress", "password", "bio"] as const;
+
+/** What ember-rust's profile says once it has saved a new avatar. */
+export const AVATAR_CHANGED = "It may take up to 30 minutes to change everywhere.";
+
+/** Your avatar as the page shows it: its address, and whether you've uploaded one, which Remove avatar takes away. */
+type Picture = Pick<Profile, "avatarUrl" | "avatar">;
 
 /** The form's fields as typed. */
 type Fields = Record<(typeof FIELDS)[number], string>;
@@ -61,20 +81,26 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 }
 
 /**
- * ember-rust's profile (users/profiles/show.html), as far as it's built: how to install Ember, for the
- * browsers ember-rust tells, then your name, email address, a new password and your bio, which Save
- * changes saves with the notice "✓", keeping the page where ember-rust reloads it, then your
- * notification level in each of your rooms and DMs, then a sign-in link for you, a new one each time the
- * page loads or saves, as each of ember-rust's pages has, and Log out in the top bar. Go Back returns to
- * the page it was opened from. Your name and bio reach everyone's open pages at once, through the
- * workspace socket, as your new name reaches the rail. There's no photo picker until photos are stored.
+ * ember-rust's profile (users/profiles/show.html): how to install Ember, for the browsers ember-rust
+ * tells, then your avatar, which a photo picked saves at once, showing it meanwhile, with the notice
+ * "It may take up to 30 minutes to change everywhere.", and Remove avatar takes away, then your name,
+ * email address, a new password and your bio, which Save changes saves with the notice "✓", keeping the
+ * page where ember-rust reloads it, then your notification level in each of your rooms and DMs, then a
+ * sign-in link for you, a new one each time the page loads or saves, as each of ember-rust's pages has,
+ * and Log out in the top bar. Go Back returns to the page it was opened from. Your avatar, name and bio
+ * reach everyone's open pages at once, through the workspace socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
+  const [picture, setPicture] = useState<Picture | null>(null);
+  /** The address of the photo picked, shown while it saves. */
+  const [picked, setPicked] = useState<string | null>(null);
+  const [savingPicture, setSavingPicture] = useState(false);
   const [transferId, setTransferId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const people = useContext(PeopleContext);
   const back = useBackPath();
   const flash = useFlash();
   const mounted = useMounted();
@@ -88,7 +114,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         if (stopped) return;
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
-        setTransferId(answer.transferId);
+        showAnswer(answer);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -97,6 +123,42 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     );
     return () => void (stopped = true);
   }, [onFailed]);
+
+  // The picked photo's address is let go of once the saved one takes its place.
+  useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
+
+  /** Shows your avatar, and a new sign-in link, as an answer has them. */
+  function showAnswer({ profile, transferId }: ProfileAnswer) {
+    setPicture({ avatarUrl: profile.avatarUrl, avatar: profile.avatar });
+    setTransferId(transferId);
+  }
+
+  /** Saves `file` as your avatar, as ember-rust's picker sends its form once a photo is picked. */
+  const saveAvatar = (file: File) => {
+    if (file.size > MAX_AVATAR_SIZE) return flash("alert", AVATAR_TOO_LARGE);
+    setPicked(URL.createObjectURL(file));
+    savePicture(avatarVariantOf(file).then((variant) => changeAvatar({ file, variant })), AVATAR_CHANGED);
+  };
+
+  /** Shows your avatar as `change` saves it, flashing `notice` once it has. */
+  function savePicture(change: Promise<ProfileAnswer>, notice?: string) {
+    setSavingPicture(true);
+    change.then(
+      (answer) => {
+        if (!mounted.current) return;
+        setSavingPicture(false);
+        setPicked(null);
+        showAnswer(answer);
+        if (notice) flash("notice", notice);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setSavingPicture(false);
+        setPicked(null);
+        onFailed(error);
+      },
+    );
+  }
 
   const change = (field: keyof Fields) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setFields((fields) => fields && { ...fields, [field]: event.target.value });
@@ -113,7 +175,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
-        setTransferId(answer.transferId);
+        showAnswer(answer);
         flash("notice", "✓");
       },
       (error: unknown) => {
@@ -136,6 +198,16 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
       <Panel aria-busy={fields === null} className="flex flex-col gap-x-[1ch] gap-y-4">
         <PageHeading title="Your profile">Manage how you appear to the people in your workspace.</PageHeading>
         <InstallInstructions platform={platform} />
+        <PicturePicker
+          id="user_avatar"
+          src={picked ?? picture?.avatarUrl ?? avatarUrlOf(people, me)}
+          alt="Your avatar"
+          label="Upload avatar"
+          description="Choose a profile photo"
+          onChoose={saveAvatar}
+          disabled={!picture || savingPicture}
+          remove={picture?.avatar ? { label: "Remove avatar", onRemove: () => savePicture(removeAvatar()) } : null}
+        />
         <form onSubmit={save} className={AUTH_FORM}>
           {/* Nothing is focused as the page opens, as in ember-rust. */}
           <Field id="user_name" label="Name" translation="user_name">

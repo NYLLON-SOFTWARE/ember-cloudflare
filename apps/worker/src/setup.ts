@@ -1,5 +1,6 @@
 import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import { signUpOf, signUpPhoto } from "./avatars";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
 import type { Env } from "./env";
 import { notFound, refused } from "./error-pages";
@@ -216,7 +217,7 @@ async function route(request: Request, env: Env, lock: UsableLock, pathname: str
 
 /**
  * `POST /api/first_run`: creates the workspace with the person the Set up Ember form describes as its
- * first administrator, and signs this browser in as them.
+ * first administrator, with the photo it brings, and signs this browser in as them.
  */
 export async function firstRun(request: Request, env: Env): Promise<Response> {
   const lock = await lockOf(env);
@@ -228,17 +229,21 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
     return formAnswer({ error: "Setup is locked" }, 403, forget);
   }
 
-  const form = parseSignUp(await request.json().catch(() => null));
+  const sent = await signUpOf(request);
+  if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
+  const form = parseSignUp(sent.fields);
   if (typeof form === "string") return formAnswer({ error: form }, 400);
   // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
   // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
   // form can send.
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
+  const avatar = await signUpPhoto(env, sent.photo);
+  if (avatar && "error" in avatar) return formAnswer({ error: avatar.error, field: "avatar" }, avatar.status);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);
   const token = newSessionToken();
-  const administrator = { name: form.name, emailAddress: form.emailAddress, passwordDigest };
+  const administrator = { name: form.name, emailAddress: form.emailAddress, passwordDigest, avatar };
   const created = await workspace(env).createWorkspace(administrator, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   // Another first run finished first. Like ember-rust, send this one home without signing it in.
   if (!created) return formAnswer(setUp, 409, forget);

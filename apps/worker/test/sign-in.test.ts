@@ -267,7 +267,7 @@ describe(feature("auth.help-contact"), () => {
       let finishReading!: (contact: HelpContact | null) => void;
       vi.spyOn(store, "helpContact").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null);
-      await workspace.createWorkspace({ name: ada.name, emailAddress: ada.emailAddress, passwordDigest: await hashPassword(ada.password) }, "digest", { ip: null, userAgent: null });
+      await workspace.createWorkspace({ name: ada.name, emailAddress: ada.emailAddress, passwordDigest: await hashPassword(ada.password), avatar: null }, "digest", { ip: null, userAgent: null });
       finishReading(null);
       await reading;
     });

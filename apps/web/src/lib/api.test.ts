@@ -1,7 +1,25 @@
 import { feature } from "@ember/parity";
-import type { NewRoom, Sidebar } from "@ember/protocol";
+import { AVATAR_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, changeRoom, createRoom, fetchMe, fetchNewRoomForm, fetchRoomSettings, fetchSidebar, forgetStoredSession, joinWorkspace, roomSocketUrl, setFavorite, setFavoriteOrder, signOut, workspaceSocketUrl } from "./api";
+import {
+  ApiError,
+  changeAvatar,
+  changeRoom,
+  createRoom,
+  fetchMe,
+  fetchNewRoomForm,
+  fetchRoomSettings,
+  fetchSidebar,
+  forgetStoredSession,
+  joinWorkspace,
+  removeAvatar,
+  roomSocketUrl,
+  setFavorite,
+  setFavoriteOrder,
+  setUpWorkspace,
+  signOut,
+  workspaceSocketUrl,
+} from "./api";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,12 +55,54 @@ describe(feature("auth.sign-up"), () => {
     expect(fetch).toHaveBeenCalledWith("/api/join/aB3d-Ef5h-iJ7k", expect.objectContaining({ method: "POST", body: JSON.stringify(grace) }));
   });
 
+  it("sends a photo chosen as a form whose `user` is the rest, leaving the browser to say its type", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ user: { id: "u2", name: "Grace Hopper" } }, { status: 201 }));
+    const file = new File(["grace"], "grace.jpg", { type: "image/jpeg" });
+    await joinWorkspace("aB3d-Ef5h-iJ7k", grace, { file, variant: new Blob(["variant"], { type: "image/webp" }) });
+    const [, init] = fetch.mock.calls[0]!;
+    const form = init!.body as FormData;
+    expect([...form.keys()]).toEqual(["user", "avatar", "variant"]);
+    expect(JSON.parse(String(form.get("user")))).toEqual(grace);
+    expect(form.get("avatar")).toMatchObject({ name: "grace.jpg", type: "image/jpeg" });
+    expect(form.get("variant")).toMatchObject({ name: "variant", type: "image/webp" });
+    expect(new Headers(init!.headers).has("Content-Type")).toBe(false);
+  });
+
   it("says where the server sends someone it turns away", async () => {
     const signIn = "/session/new?email_address=grace%40example.com";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: "That email address has an account already", redirect: signIn }, { status: 409 }));
     const failure = await joinWorkspace("aB3d-Ef5h-iJ7k", grace).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ status: 409, redirect: signIn });
+  });
+});
+
+describe(feature("auth.first-run"), () => {
+  it("sends the administrator as JSON without a photo, and as a form with one, leaving out a variant that couldn't be made", async () => {
+    const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({}, { status: 201 }));
+    await setUpWorkspace(ada);
+    expect(fetch).toHaveBeenLastCalledWith("/api/first_run", expect.objectContaining({ method: "POST", body: JSON.stringify(ada) }));
+    expect(new Headers(fetch.mock.calls[0]![1]!.headers).get("Content-Type")).toBe("application/json");
+
+    await setUpWorkspace(ada, { file: new File(["ada"], "ada.heic", { type: "image/heic" }), variant: null });
+    expect([...(fetch.mock.calls[1]![1]!.body as FormData).keys()]).toEqual(["user", "avatar"]);
+  });
+});
+
+describe(feature("users.avatar-upload"), () => {
+  it("changes your avatar with a form of the photo and its variant, and removes it", async () => {
+    const answer = { profile: { name: "Ada", emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true }, transferId: "u1.t" } satisfies ProfileAnswer;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(answer));
+    const file = new File(["ada"], "ada.jpg", { type: "image/jpeg" });
+    expect(await changeAvatar({ file, variant: new Blob(["variant"], { type: "image/webp" }) })).toEqual(answer);
+    const [path, init] = fetch.mock.calls[0]!;
+    expect(path).toBe(AVATAR_PATH);
+    expect(init).toMatchObject({ method: "PUT" });
+    expect([...(init!.body as FormData).keys()]).toEqual(["avatar", "variant"]);
+
+    expect(await removeAvatar()).toEqual(answer);
+    expect(fetch).toHaveBeenLastCalledWith(AVATAR_PATH, expect.objectContaining({ method: "DELETE" }));
   });
 });
 

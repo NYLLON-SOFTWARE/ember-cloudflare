@@ -1,14 +1,16 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
+import avatarPlaceholder from "./avatar-placeholder.svg";
 import { JoinPage } from "./join-page";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
+vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const grace = { id: "u2", name: "Grace Hopper" };
 const workspace: Omit<Bootstrap, "user"> = {
@@ -33,11 +35,20 @@ async function join(emailAddress = "grace@example.com") {
   await user.type(screen.getByLabelText("Password"), "compiler{Enter}");
 }
 
+beforeEach(() => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:moon");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
   history.replaceState(null, "", "/");
 });
+
+const photo = () => screen.getByRole("img", { name: "Your profile photo" });
+const photoField = () => screen.getByLabelText("Upload photo");
+const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
 
 describe(feature("auth.sign-up"), () => {
   it("asks for a name, email address and password, as ember-rust's join page does", () => {
@@ -117,6 +128,56 @@ describe(feature("auth.sign-up"), () => {
     await join();
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
     expect(screen.getByLabelText("Email address")).toHaveValue("grace@example.com");
+  });
+
+  it("offers a photo, optional, with Upload photo, which shows as it's chosen, as ember-rust's join page does", async () => {
+    render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    expect(photo()).toHaveAttribute("src", avatarPlaceholder);
+    expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
+    expect(screen.getByText("Optional")).toBeInTheDocument();
+    expect(photoField().compareDocumentPosition(screen.getByLabelText("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await userEvent.upload(photoField(), moon());
+    expect(photo()).toHaveAttribute("src", "blob:moon");
+  });
+
+  it("sends the photo chosen, and its variant, with the rest of the form", async () => {
+    const fetch = respond(201, { user: grace });
+    const onJoined = vi.fn();
+    render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={onJoined} />);
+    await userEvent.upload(photoField(), moon());
+    await join();
+
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith(grace));
+    const form = fetch.mock.calls[0]![1]!.body as FormData;
+    expect(JSON.parse(String(form.get("user")))).toEqual({ name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" });
+    expect(form.get("avatar")).toMatchObject({ name: "moon.jpg", type: "image/jpeg" });
+    expect(form.get("variant")).toMatchObject({ type: "image/webp" });
+  });
+
+  it("refuses a photo over 16 MB at once, saying so in place of Optional", async () => {
+    render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    const huge = moon();
+    Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
+    await userEvent.upload(photoField(), huge);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
+    expect(screen.queryByText("Optional")).toBeNull();
+    expect(photo()).toHaveAttribute("src", avatarPlaceholder);
+  });
+
+  it("lets go of a photo the Worker refuses, saying why, so the form can be sent without it", async () => {
+    const fetch = respond(413, { error: AVATAR_TOO_LARGE, field: "avatar" });
+    render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    await userEvent.upload(photoField(), moon());
+    await join();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
+    expect(photo()).toHaveAttribute("src", avatarPlaceholder);
+    fetch.mockResolvedValue(Response.json({ user: grace }, { status: 201 }));
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(typeof fetch.mock.calls[1]![1]!.body).toBe("string");
   });
 
   it("sends the form once while it's on its way", async () => {

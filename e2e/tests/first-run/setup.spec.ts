@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "@playwright/test";
-import { ADMINISTRATOR } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, shownPicture } from "../../fixtures";
 
 // The test server starts empty, so this sets it up through the Set up Ember page before any other
 // suite runs; they then find the workspace, its general and random rooms, and its administrator there.
@@ -18,6 +18,9 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page.getByLabel("Name")).toBeFocused();
 
     const password = page.getByLabel("Password", { exact: true });
+    const preview = page.getByRole("img", { name: "Avatar preview" });
+    await page.getByLabel("Upload profile image (optional)").setInputFiles(await drawnPicture(page, "portrait.png", 640, 960));
+    await expect(preview).toHaveAttribute("src", /^blob:/);
     await page.getByLabel("Name").fill(ADMINISTRATOR.name);
     await page.getByLabel("Email address").fill(ADMINISTRATOR.emailAddress);
     // Eight UTF-16 units satisfy the browser's minlength, but the server counts four characters.
@@ -28,6 +31,8 @@ test.describe(feature("auth.first-run"), () => {
     await expect(password).toHaveValue("");
     await expect(password).toHaveAttribute("aria-invalid", "true");
     await expect(page.getByLabel("Name")).toHaveValue(ADMINISTRATOR.name);
+    // The photo stays chosen too.
+    await expect(preview).toHaveAttribute("src", /^blob:/);
 
     await password.fill(ADMINISTRATOR.password);
     await page.getByRole("button", { name: "Show password" }).click();
@@ -37,6 +42,8 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(page).toHaveURL(/\/rooms\/[^/]+$/);
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", ADMINISTRATOR.name);
+    // Their avatar is the variant their browser made of the photo, within 512×512.
+    expect(await shownPicture(page.getByRole("link", { name: "Your profile" }).locator("img"))).toEqual({ type: "image/webp", width: 341, height: 512 });
     // Setup made the rooms general and random, and nothing else.
     const rooms = page.getByRole("region", { name: "Rooms" }).getByRole("link");
     await expect(rooms).toHaveCount(2);

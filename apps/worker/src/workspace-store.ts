@@ -28,6 +28,7 @@ import {
   type UserStatus,
 } from "@ember/protocol";
 import { statement, type Db, type Statement } from "./db";
+import type { StoredPicture } from "./files/pictures";
 import { messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -80,6 +81,8 @@ export interface NewPerson {
   name: string;
   emailAddress: string;
   passwordDigest: string;
+  /** The avatar they chose, which R2 has stored under a key the Workspace reserved, or null. */
+  avatar: StoredPicture | null;
 }
 
 /** A session and the person it signs in. */
@@ -107,6 +110,11 @@ export interface ProfileEntry extends DirectoryEntry {
   emailAddress: string | null;
 }
 
+/** The same, with the avatar they've uploaded, if any, as their own profile page shows them. */
+export interface OwnProfileEntry extends ProfileEntry {
+  avatar: StoredPicture | null;
+}
+
 /** A bot as the bots page lists it, with its token, which its key is made from, and the rooms it's in but its DMs. */
 export interface StoredBot extends DirectoryEntry {
   /** Null for a bot from before bots had tokens, which no key works for. */
@@ -128,14 +136,15 @@ export interface NewStoredBot {
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
-export interface ProfileChange extends Profile {
+export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio"> {
   passwordDigest: string | null;
 }
 
-/** What someone's avatar is drawn from. */
+/** What someone's avatar is drawn from: the picture they uploaded, if any, else their name, or the bot picture for a bot. */
 export interface AvatarOwner {
   name: string;
   bot: boolean;
+  avatar: StoredPicture | null;
 }
 
 /** What changing a room changed, and who's in it then. */
@@ -258,6 +267,17 @@ interface DirectoryRow {
   status: number;
   updated_at: string;
 }
+
+/** The columns that say what avatar someone has uploaded (migrations/0032_avatars.sql). */
+interface AvatarColumns {
+  avatar_key: string | null;
+  avatar_variant: string | null;
+}
+
+const avatarOf = (row: AvatarColumns): StoredPicture | null => (row.avatar_key === null ? null : { key: row.avatar_key, variant: row.avatar_variant });
+
+/** What takes the reservation of `avatar`'s key, if there is one, in the batch that gives someone it. */
+const keeping = (avatar: StoredPicture | null): Statement[] => (avatar ? [statement(KEEP_PICTURE, avatar.key)] : []);
 
 const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   id: row.id,
@@ -927,6 +947,18 @@ const SESSION_IP_ADDRESSES = `SELECT DISTINCT ip_address FROM sessions WHERE use
 /** Someone as the directory lists them, with their email address, whatever their status. */
 const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
 
+/** The same, with the avatar they've uploaded. */
+const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant FROM users WHERE id = ?`;
+
+/** Gives someone an avatar, or none, recording when, which changes its address. */
+const CHANGE_AVATAR = `UPDATE users SET avatar_key = ?, avatar_variant = ?, updated_at = ? WHERE id = ?`;
+
+/** Reserves a picture's key, or queues R2 deleting what it keeps there, at a time. */
+const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_key, due_at) VALUES (?, ?)`;
+
+/** Takes a picture's reservation, now that someone has it, so R2 keeps it. */
+const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?`;
+
 /** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
 const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, password_digest = coalesce(?, password_digest), updated_at = ?
   WHERE id = ?`;
@@ -1099,14 +1131,17 @@ export class WorkspaceStore {
     const results = await this.db.batch([
       statement(`INSERT INTO accounts (id, name, join_code, settings, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, account.id, account.name, account.joinCode, NEW_ACCOUNT_SETTINGS, now, now),
       statement(
-        `INSERT INTO users (id, name, email_address, password_digest, role, created_at, updated_at) VALUES (?, ?, ?, ?, ${ADMINISTRATOR}, ?, ?)`,
+        `INSERT INTO users (id, name, email_address, password_digest, role, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ?, ?, ${ADMINISTRATOR}, ?, ?, ?, ?)`,
         administrator.id,
         administrator.name,
         administrator.emailAddress,
         administrator.passwordDigest,
+        administrator.avatar?.key ?? null,
+        administrator.avatar?.variant ?? null,
         now,
         now,
       ),
+      ...keeping(administrator.avatar),
       ...rooms.flatMap((room) => [statement(INSERT_FIRST_ROOM, room.id, room.name, administrator.id, now), statement(GRANT_FIRST_ROOM, now, now, room.id)]),
       statement(GRANT_OPEN_ROOMS_TO_USER, administrator.id, now, now),
       statement(INSERT_SESSION, sessionId, administrator.id, tokenDigest, client.ip, client.userAgent, now, now, now),
@@ -1123,14 +1158,17 @@ export class WorkspaceStore {
   async createMember(person: NewPerson, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
       statement(
-        `INSERT INTO users (id, name, email_address, password_digest, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, name, email_address, password_digest, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         person.id,
         person.name,
         person.emailAddress,
         person.passwordDigest,
+        person.avatar?.key ?? null,
+        person.avatar?.variant ?? null,
         now,
         now,
       ),
+      ...keeping(person.avatar),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
     ]);
@@ -1413,14 +1451,15 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge or reindex is due, if any is waiting, leaving out the purges
-   * waiting on their rooms' revocations, which are due no sooner.
+   * When the outbox's next revocation, purge, reindex or picture deletion is due, if any is waiting,
+   * leaving out the purges waiting on their rooms' revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null }>(
-      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex`,
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null }>(
+      `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
+        (SELECT min(due_at) FROM pending_picture_deletions) AS picture`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -1747,8 +1786,63 @@ export class WorkspaceStore {
 
   /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */
   async avatarOwner(userId: UserId): Promise<AvatarOwner | null> {
-    const [row] = await this.db.all<{ name: string; role: number }>(`SELECT name, role FROM users WHERE id = ?`, userId);
-    return row ? { name: row.name, bot: ROLES[row.role] === "bot" } : null;
+    const [row] = await this.db.all<{ name: string; role: number } & AvatarColumns>(`SELECT name, role, avatar_key, avatar_variant FROM users WHERE id = ?`, userId);
+    return row ? { name: row.name, bot: ROLES[row.role] === "bot", avatar: avatarOf(row) } : null;
+  }
+
+  /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
+  async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null }>(OWN_PROFILE, userId);
+    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row) } : null;
+  }
+
+  /**
+   * Gives someone `avatar`, which R2 has stored under a key reserved for it, or takes theirs away with
+   * null, recording when, and queues R2 deleting the one they had, `previous`, at `dueAt`.
+   */
+  async changeAvatar(userId: UserId, avatar: StoredPicture | null, previous: string | null, now: string, dueAt: number): Promise<void> {
+    await this.db.batch([
+      statement(CHANGE_AVATAR, avatar?.key ?? null, avatar?.variant ?? null, now, userId),
+      ...keeping(avatar),
+      ...(previous ? [statement(QUEUE_PICTURE_DELETION, previous, dueAt)] : []),
+    ]);
+  }
+
+  /**
+   * Reserves `key` for a picture R2 is about to store, until `dueAt`, when R2 deletes whatever is there
+   * unless someone has been given the picture by then.
+   */
+  async reservePicture(key: string, dueAt: number): Promise<void> {
+    await this.db.run(QUEUE_PICTURE_DELETION, key, dueAt);
+  }
+
+  /** Up to `limit` of the keys due by `now` whose pictures R2 is to delete, those due longest first. */
+  async duePictureDeletions(now: number, limit: number): Promise<string[]> {
+    const rows = await this.db.all<{ object_key: string }>(
+      `SELECT object_key FROM pending_picture_deletions WHERE due_at <= ? ORDER BY due_at, object_key LIMIT ?`,
+      now,
+      limit,
+    );
+    return rows.map((row) => row.object_key);
+  }
+
+  /**
+   * Forgets the pictures `deleted` names, and puts off the ones `failed` names, each for twice as long as
+   * the time before, up to the longest wait. It never gives one up, which would leave the picture in R2.
+   */
+  async settlePictureDeletions(deleted: string[], failed: string[], now: number): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM pending_picture_deletions WHERE object_key IN (SELECT value FROM json_each(?))`, JSON.stringify(deleted)),
+      // As a purge's wait.
+      statement(
+        `UPDATE pending_picture_deletions SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE object_key IN (SELECT value FROM json_each(?))`,
+        now,
+        LONGEST_RETRY_MS,
+        FIRST_RETRY_MS,
+        DELIVERY_ATTEMPTS,
+        JSON.stringify(failed),
+      ),
+    ]);
   }
 
   /** Room `roomId`, unless it's a DM or someone isn't in it, and whether they can change it. */

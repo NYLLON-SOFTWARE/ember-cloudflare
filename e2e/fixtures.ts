@@ -223,6 +223,33 @@ export function editorField(scope: Page | Locator, name: string): Locator {
   return scope.getByRole("textbox", { name }).and(scope.locator("[data-lexical-editor]"));
 }
 
+/** A picture `width` by `height`, drawn in `page`'s browser as a PNG, as Playwright picks a file. */
+export async function drawnPicture(page: Page, name: string, width: number, height: number) {
+  const bytes = await page.evaluate(
+    async ([width, height]) => {
+      const canvas = new OffscreenCanvas(width, height);
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#c33";
+      context.fillRect(0, 0, width, height);
+      context.fillStyle = "#33c";
+      context.fillRect(0, 0, width / 2, height / 2);
+      return [...new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer())];
+    },
+    [width, height] as const,
+  );
+  return { name, mimeType: "image/png", buffer: Buffer.from(bytes) };
+}
+
+/** The size of the picture `image` shows, once it has loaded, and its type, as the server answers it. */
+export async function shownPicture(image: Locator): Promise<{ type: string | null; width: number; height: number }> {
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete)).toBe(true);
+  return image.evaluate(async (element: HTMLImageElement) => ({
+    type: (await fetch(element.currentSrc)).headers.get("Content-Type"),
+    width: element.naturalWidth,
+    height: element.naturalHeight,
+  }));
+}
+
 /**
  * Another person in a room, connected over a real WebSocket from the test runner. Use it to
  * seed messages and presence without driving a second browser.

@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fitted, previewOf } from "./previews";
+import { avatarVariantOf, fitted, previewOf } from "./previews";
 
 // jsdom decodes no pictures, plays no videos and draws nothing, so these stand in for the browser's,
 // and e2e/ makes real previews.
@@ -189,5 +189,42 @@ describe(feature("attachments.previews"), () => {
     expect(canvases).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(await encoding).toBeNull();
+  });
+});
+
+describe(feature("users.avatar-upload"), () => {
+  it("makes an avatar's variant within 512×512, as ember-rust's `:square` variant, and lets go of the file", async () => {
+    expect(fitted({ width: 4000, height: 3000 }, { width: 512, height: 512 })).toEqual({ width: 512, height: 384 });
+    decodes(3000, 4000);
+    const variant = await avatarVariantOf(file("ada.jpg", "image/jpeg"));
+    expect(variant?.type).toBe("image/webp");
+    expect(canvases).toMatchObject([{ width: 384, height: 512, drawn: [[expect.any(HTMLImageElement), 0, 0, 384, 512]] }]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:file");
+
+    // A small photo keeps its size.
+    decodes(96, 96);
+    await avatarVariantOf(file("dot.png", "image/png"));
+    expect(canvases[1]).toMatchObject({ width: 96, height: 96 });
+  });
+
+  it("makes a JPEG of a JPEG, and a PNG of a picture that may be see-through, where the browser can't encode WebP", async () => {
+    encodes.delete("image/webp");
+    decodes(800, 600);
+    expect((await avatarVariantOf(file("ada.jpg", "image/jpeg")))?.type).toBe("image/jpeg");
+    expect((await avatarVariantOf(file("ada.png", "image/png")))?.type).toBe("image/png");
+  });
+
+  it("makes none of a file ember-rust doesn't resize, or that the browser can't decode", async () => {
+    for (const [name, type] of [
+      ["logo.svg", "image/svg+xml"],
+      ["ada.bmp", "image/bmp"],
+      ["launch.mp4", "video/mp4"],
+      ["photo", ""],
+    ]) expect(await avatarVariantOf(file(name!, type!))).toBeNull();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+
+    decodes(0, 0, false);
+    expect(await avatarVariantOf(file("ada.heic", "image/heic"))).toBeNull();
+    expect(canvases).toEqual([]);
   });
 });

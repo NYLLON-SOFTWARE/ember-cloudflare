@@ -1,4 +1,5 @@
 import {
+  AVATAR_PATH,
   CloseCode,
   isPasswordTooLong,
   isRoomId,
@@ -51,7 +52,7 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import { avatarTokenOf, showAvatar } from "./avatars";
+import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
@@ -60,7 +61,8 @@ import type { Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
-import { startUpload, uploadPart, uploadPreview } from "./files/uploads";
+import { pictureFormOf } from "./files/pictures";
+import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -342,6 +344,30 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (!yours) return problem(401, "Not signed in");
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   return profileAnswer(yours, env);
+}
+
+/**
+ * Gives you the avatar the form brings, as ember-rust's profile form saves `user[avatar]` as soon as
+ * one is chosen (profiles.rs), answering your profile then. Who's asking is checked before the picture
+ * is read, and again as it's given to them.
+ */
+async function changeAvatar(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials || !(await workspace(env).authenticate(credentials))) return problem(401, "Not signed in");
+  if (!env.FILES) return problem(503, NO_STORAGE);
+  const form = await pictureFormOf(request);
+  if (!(form instanceof FormData)) return problem(form.status, form.error);
+  const avatar = await storeAvatar(env, env.FILES, form);
+  if ("error" in avatar) return problem(avatar.status, avatar.error);
+  const yours = await workspace(env).changeAvatar(credentials, avatar);
+  return yours ? profileAnswer(yours, env) : problem(401, "Not signed in");
+}
+
+/** Takes your avatar away, as ember-rust's `avatars#destroy` does, answering your profile then. */
+async function removeAvatar(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const yours = credentials && (await workspace(env).changeAvatar(credentials, null));
+  return yours ? profileAnswer(yours, env) : problem(401, "Not signed in");
 }
 
 /**
@@ -658,6 +684,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);
+  if (pathname === AVATAR_PATH && request.method === "DELETE") return () => removeAvatar(request, env);
   const someone = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (someone && request.method === "GET") return () => showPerson(request, env, segmentText(someone[1]!));
   const ban = pathname.match(/^\/api\/users\/([^/]+)\/ban$/);
