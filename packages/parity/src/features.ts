@@ -1412,13 +1412,13 @@ export const features = [
     sources: ["crates/assets/overrides/controllers/composer_controller.js", "crates/views/templates/rooms/show/_composer.html", "reference/app/javascript/controllers/drop_target_controller.js", "crates/ember/src/controllers/messages.rs", "crates/ember/src/active_storage.rs", "crates/storage/src/vips.rs", "crates/db/src/models/message.rs", "reference/app/models/message/attachment.rb"],
     upstreamTests: ["crates/ember/src/controllers/messages/tests.rs", "parity/kro/workspace.test.mjs", "reference/test/models/message/attachment_test.rb"],
     notes:
-      "The server's half, and the message a file becomes. The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. Still to come: the composer's attachments, Attach files, pasting and dropping, the chips and uploading them one at a time (plan 7.2b), and images' thumbnails and videos' posters (`attachments.previews`).",
+      "The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. A chip shows a name with no dot whole, where ember-rust's puts a dot before it, and tells screen readers it removes its file, where ember-rust's gives only the name, and a picture's thumbnail is let go once its chip goes, where ember-rust keeps them until the page goes. Still to come: images' thumbnails and videos' posters (`attachments.previews`).",
   },
   {
     id: "attachments.size-limit",
     title: "250 MB file limit",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Files over 250,000,000 bytes aren't queued (exactly 250,000,000 is fine): one alert under the chips lists \"<name> is too large. Choose a file that’s 250 MB or smaller.\" for each, joined by spaces, and other files still queue.",
       "The alert stays through sending and removing chips, and clears on the next pick, drop or paste, even a paste of plain text.",
@@ -1427,13 +1427,13 @@ export const features = [
     sources: ["crates/kit/src/body.rs", "crates/assets/overrides/models/file_uploader.js", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/file-uploader.test.mjs", "crates/kit/tests/http.rs"],
     notes:
-      "The server's half. A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with \"Files must be 250 MB or smaller.\" before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413. The composer's half comes with the composer's attachments.",
+      "A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with \"Files must be 250 MB or smaller.\" before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413.",
   },
   {
     id: "attachments.progress",
     title: "Upload progress",
     origin: "ember",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "Each upload shows a card (\"Upload <name>\") with its name, its size (\"<n> KB\" rounded up, at least 1, under 1,000,000 bytes, otherwise \"<n.n> MB\"), a progress bar (\"Upload progress for <name>\") and a status: \"Uploading · <n>%\" (rounded down), then \"Processing…\" at 100% until the message arrives and takes the card's place.",
       "A failed card turns red and its status reads \"Upload failed\". Its reason is \"Files must be 250 MB or smaller.\" for a 413, \"Connection lost. Please attach the file and try again.\" when the connection drops, and \"Upload failed. Please attach the file and try again.\" for any other answer, even a success that isn't the expected stream, such as a sign-in page.",
@@ -1443,6 +1443,8 @@ export const features = [
     ],
     sources: ["crates/assets/overrides/models/file_uploader.js", "crates/assets/overrides/controllers/composer_controller.js", "crates/assets/overrides/controllers/messages_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/file-uploader.test.mjs"],
+    notes:
+      "Progress counts every part sent so far, as the app sends a file in parts of 10 MiB (`attachments.size-limit`). A card isn't faded as a message on its way is, and its message stays busy to screen readers until the upload fails, so they're told why it failed but not each step it takes.",
   },
   {
     id: "attachments.previews",
@@ -2249,7 +2251,7 @@ export const features = [
     id: "composer.layout",
     title: "Composer",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The composer is a rounded card at least 108px tall (100px on phones), with the text on top and Attach files, Formatting options and a round Send button below, on phones too.",
       "The buttons are titled \"Attach files\", \"Formatting options\" and \"Send message\", and screen readers call them \"Attach a file\", \"Rich text\" and \"Send Message\".",
@@ -2257,7 +2259,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_composer.html", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.",
+    notes: "Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.",
   },
   {
     id: "composer.draft",
@@ -2290,7 +2292,7 @@ export const features = [
     id: "composer.paste",
     title: "Pasting into the composer",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Pasted files join the files waiting to be sent rather than going into the text.",
       "A pasted address goes in as a link and asks for its preview (see `unfurl.composer`); pasted over selected text, it only turns the selection into a link.",
@@ -2299,7 +2301,7 @@ export const features = [
     ],
     sources: ["crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js", "crates/assets/overrides/controllers/composer_controller.js"],
     upstreamTests: ["reference/test/system/composer_test.rb"],
-    notes: "Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until the composer takes files (`attachments.upload`).",
+    notes: "Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files wait with the files picked to go with the next message (`attachments.upload`).",
   },
 
   // Workspace interface

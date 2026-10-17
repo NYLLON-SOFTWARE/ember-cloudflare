@@ -156,6 +156,22 @@ describe(feature("ui.empty-room"), () => {
   });
 });
 
+describe(feature("attachments.upload"), () => {
+  it("hands the files dropped anywhere on the room's messages to the composer, as a copy", () => {
+    const onDropFiles = vi.fn();
+    const { container } = render(list({ messages: messages(1, 3) }, vi.fn(), null, { onDropFiles }));
+    const messageArea = container.firstElementChild as HTMLElement;
+    const file = new File(["a"], "a.txt");
+    const dataTransfer = { files: [file], dropEffect: "none" };
+    // Each is cancelled, so the browser doesn't open the file in place of the page.
+    expect(fireEvent.dragEnter(messageArea, { dataTransfer })).toBe(false);
+    expect(fireEvent.dragOver(messageArea, { dataTransfer })).toBe(false);
+    expect(dataTransfer.dropEffect).toBe("copy");
+    expect(fireEvent.drop(within(messageArea).getByText("m2"), { dataTransfer })).toBe(false);
+    expect(onDropFiles).toHaveBeenCalledExactlyOnceWith([file]);
+  });
+});
+
 describe(feature("dms.naming"), () => {
   it("names a DM's messages and its beginning for the others in it", () => {
     render(

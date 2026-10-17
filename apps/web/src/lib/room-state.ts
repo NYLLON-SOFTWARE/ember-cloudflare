@@ -15,6 +15,18 @@ export interface PendingMessage extends Message {
   failed?: boolean;
   /** Written without a connection, to send once the room lets one in again, unless the page goes offline first. */
   queued?: boolean;
+  /** A file on its way to becoming a message of its own, which its card shows in the message's place. */
+  upload?: PendingUpload;
+}
+
+/** A file being uploaded, as ember-rust's card for it shows it (composer_controller.js#pendingUploadProgress). */
+export interface PendingUpload {
+  name: string;
+  size: number;
+  /** How much of it has gone, as a percentage rounded down. */
+  percent: number;
+  /** Why it failed, once it has. */
+  error?: string;
 }
 
 /**
@@ -85,6 +97,10 @@ export type RoomAction =
   | { type: "frame"; frame: ServerFrame; now: number }
   | { type: "pending"; message: PendingMessage }
   | { type: "sent"; clientMessageIds: string[] }
+  | { type: "upload-progress"; clientMessageId: string; percent: number }
+  | { type: "upload-failed"; clientMessageId: string; error: string }
+  /** The message a file was posted as, as its upload's last part answers with it. */
+  | { type: "uploaded"; message: Message }
   | { type: "loading-older" }
   | { type: "loading-newer" }
   | { type: "loading-page" }
@@ -184,6 +200,28 @@ function cut(state: RoomState, from: "start" | "end"): RoomState {
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
 
+/** The timeline with the upload this page sent as `clientMessageId` changed by `update`, while it's still on its way. */
+const uploading = (messages: RoomState["messages"], clientMessageId: string, update: (upload: PendingUpload) => PendingUpload) =>
+  messages.map((m) => (isPending(m) && m.upload && m.clientMessageId === clientMessageId ? { ...m, upload: update(m.upload) } : m));
+
+/**
+ * `message` as the room stored it. A confirmed message goes where the room put it, at the end, not where its
+ * optimistic copy sat: the room may have stored someone else's first. ember-rust's messages_controller does
+ * the same. One the timeline has already, as when an upload's answer and the room both bring it, stays
+ * where it is.
+ */
+function received(state: RoomState, message: Message): RoomState {
+  const others = state.messages.filter((m) => !confirms(message, m));
+  const typing = withoutTyping(state.typing, message.creator.id);
+  const shown = others.some((m) => m.id === message.id);
+  const arrivals = others.length < state.messages.length || shown ? state.arrivals : state.arrivals + 1;
+  // A timeline that doesn't hold the newest messages shows this one once it pages forward to it, where
+  // ember-rust's adds it after the gap.
+  if (state.hasNewer) return { ...state, messages: others, typing, arrivals };
+  const messages = shown ? replace(others, message.id, () => message) : [...others, message];
+  return cut({ ...state, messages, typing, arrivals }, "start");
+}
+
 export const isQueued = (m: Message | PendingMessage): m is PendingMessage => isPending(m) && m.queued === true;
 
 const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
@@ -225,6 +263,14 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
       return { ...state, messages: state.messages.map((m) => (sent(m) ? dequeued(m) : m)) };
     }
+    case "upload-progress":
+      return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, percent: action.percent })) };
+    // An upload whose message the room has brought already stays posted, as its answer may be lost after
+    // the room has stored it, as ember-rust's composer keeps it.
+    case "upload-failed":
+      return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, error: action.error })) };
+    case "uploaded":
+      return received(state, action.message);
     case "loading-older":
       return { ...state, loadingOlder: true };
     case "loading-newer":
@@ -286,19 +332,8 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         "start",
       );
     }
-    case "message.created": {
-      const { message } = frame;
-      // A confirmed message goes where the room put it, at the end, not where its optimistic copy sat:
-      // the room may have stored someone else's first. ember-rust's messages_controller does the same.
-      const others = state.messages.filter((m) => !confirms(message, m));
-      const typing = withoutTyping(state.typing, message.creator.id);
-      const arrivals = others.length < state.messages.length ? state.arrivals : state.arrivals + 1;
-      // A timeline that doesn't hold the newest messages shows this one once it pages forward to it, where
-      // ember-rust's adds it after the gap.
-      if (state.hasNewer) return { ...state, messages: others, typing, arrivals };
-      const messages = others.some((m) => m.id === message.id) ? replace(others, message.id, () => message) : [...others, message];
-      return cut({ ...state, messages, typing, arrivals }, "start");
-    }
+    case "message.created":
+      return received(state, frame.message);
     case "message.updated":
       return { ...state, messages: replace(state.messages, frame.message.id, () => frame.message) };
     case "message.deleted":

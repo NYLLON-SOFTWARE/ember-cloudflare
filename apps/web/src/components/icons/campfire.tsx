@@ -49,6 +49,7 @@ import personAdd from "./campfire/person-add.svg";
 import qrCode from "./campfire/qr-code.svg";
 import refresh from "./campfire/refresh.svg";
 import remove from "./campfire/remove.svg";
+import removeCircle from "./campfire/remove-circle.svg";
 import search from "./campfire/search.svg";
 import share from "./campfire/share.svg";
 import textOptions from "./campfire/text-options.svg";
@@ -273,6 +274,10 @@ export function Refresh(props: CampfireIconProps) {
 
 export function Remove(props: CampfireIconProps) {
   return <CampfireIcon src={remove} {...props} />;
+}
+
+export function RemoveCircle(props: CampfireIconProps) {
+  return <CampfireIcon src={removeCircle} {...props} />;
 }
 
 export function Search(props: CampfireIconProps) {

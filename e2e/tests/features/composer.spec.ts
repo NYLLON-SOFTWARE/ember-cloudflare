@@ -37,11 +37,13 @@ async function openRoom(member: Member, name: string) {
 }
 
 test.describe(feature("composer.layout"), () => {
-  test("is a card at least 108px tall, with the text on top and Formatting options and a round Send button below", async ({ members }) => {
+  test("is a card at least 108px tall, with the text on top and Attach files, Formatting options and a round Send button below", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
     const send = ada.page.getByRole("button", { name: "Send Message" });
+    const attachFiles = ada.page.locator("label").filter({ has: ada.page.getByLabel("Attach a file") });
     await expect(field).toHaveAttribute("placeholder", "Message #general");
+    await expect(attachFiles).toHaveAttribute("title", "Attach files");
     await expect(formattingOptions(ada)).toHaveAttribute("title", "Formatting options");
     await expect(send).toHaveAttribute("title", "Send message");
 
@@ -51,6 +53,8 @@ test.describe(feature("composer.layout"), () => {
     const sendBox = await box(send);
     expect(sendBox.y).toBeGreaterThanOrEqual(fieldBox.y + fieldBox.height);
     expect((await box(formattingOptions(ada))).y).toBe(sendBox.y);
+    expect((await box(attachFiles)).y).toBe(sendBox.y);
+    expect((await box(attachFiles)).x).toBeLessThan((await box(formattingOptions(ada))).x);
     expect(sendBox.width).toBe(sendBox.height);
     expect(parseFloat(await send.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThanOrEqual(sendBox.width / 2);
   });
@@ -406,7 +410,7 @@ test.describe(feature("composer.paste"), () => {
     await expect(formatted.getByRole("link", { name: "linked" })).toHaveAttribute("href", "https://example.com/");
   });
 
-  test("leaves pasted files out of the text, as files can't be sent yet", async ({ members }) => {
+  test("waits to send pasted files rather than putting them in the text", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.composer().pressSequentially("Look");
     await ada.composer().evaluate((content) => {
@@ -416,6 +420,7 @@ test.describe(feature("composer.paste"), () => {
     });
     await expect(ada.composer()).toHaveText("Look");
     await expect(ada.composer().locator("img, action-text-attachment, figure")).toHaveCount(0);
+    await expect(ada.page.getByRole("button", { name: "Remove screenshot.png" })).toBeVisible();
   });
 });
 

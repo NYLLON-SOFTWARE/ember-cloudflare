@@ -49,7 +49,7 @@ export interface RoomViewHandle {
 }
 
 export function RoomView({ room, messageId, invitation, me, favorite, gone, onStarred, involvement, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
-  const { state, postMessage, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
+  const { state, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
@@ -154,6 +154,7 @@ export function RoomView({ room, messageId, invitation, me, favorite, gone, onSt
           onLoadOlder={loadOlder}
           onLoadNewer={loadNewer}
           onJumpToNewest={() => jump(null)}
+          onDropFiles={(files) => composer.current?.addFiles(files)}
         />
         {deleted ? (
           <RoomDeleted />
@@ -169,6 +170,7 @@ export function RoomView({ room, messageId, invitation, me, favorite, gone, onSt
             // Only while the room's first messages are on their way, not once it's been out of reach a while.
             deferEditor={state.status === "connecting" && !state.offline}
             onSend={postMessage}
+            onSendFiles={postFiles}
             onTyping={typing}
             onEditLastMessage={editLastMessage}
           />

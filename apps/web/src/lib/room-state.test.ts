@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
-import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type RoomState } from "./room-state";
+import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type PendingUpload, type RoomState } from "./room-state";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -285,6 +285,55 @@ describe(feature("realtime.reconnect"), () => {
       ["m1", false],
       ["m2", false],
     ]);
+  });
+});
+
+describe(feature("attachments.progress"), () => {
+  const CONNECTION_LOST = "Connection lost. Please attach the file and try again.";
+  /** A file this page is uploading as `id`, as its card shows it. */
+  const uploading = (id: string, upload: Partial<PendingUpload> = {}): PendingMessage => ({
+    ...sending(id),
+    body: "",
+    plainText: "moon.jpg",
+    upload: { name: "moon.jpg", size: 2_500_000, percent: 0, ...upload },
+  });
+  /** The message the room posts the file uploaded as `clientMessageId` as. */
+  const posted = (id: string, clientMessageId: string) => message({ id, clientMessageId, body: "", plainText: "moon.jpg" });
+  const upload = (state: RoomState, action: Parameters<typeof roomReducer>[1]) => roomReducer(state, action);
+
+  it("shows how an upload goes, and why it failed, on its card, which stays", () => {
+    let state = upload(opened([]), { type: "pending", message: uploading("c1") });
+    state = upload(state, { type: "upload-progress", clientMessageId: "c1", percent: 42 });
+    expect(state.messages).toEqual([uploading("c1", { percent: 42 })]);
+    state = upload(state, { type: "upload-failed", clientMessageId: "c1", error: CONNECTION_LOST });
+    expect(state.messages).toEqual([uploading("c1", { percent: 42, error: CONNECTION_LOST })]);
+    // Only this page's own uploads.
+    expect(upload(state, { type: "upload-progress", clientMessageId: "c2", percent: 50 }).messages).toEqual(state.messages);
+  });
+
+  it("swaps in the message an upload answers with, after what was sent before it finished, whether the room brings it first or after", () => {
+    // The text sent with the file goes before it's posted, so the file's message goes after it.
+    let state = upload(opened([]), { type: "pending", message: uploading("c1") });
+    state = upload(state, { type: "pending", message: sending("c2") });
+    state = upload(state, { type: "uploaded", message: posted("m1", "c1") });
+    expect(ids(state)).toEqual(["c2", "m1"]);
+    state = created(state, posted("m1", "c1"));
+    expect(ids(state)).toEqual(["c2", "m1"]);
+
+    state = upload(state, { type: "pending", message: uploading("c3") });
+    state = created(state, posted("m2", "c3"));
+    state = upload(state, { type: "uploaded", message: posted("m2", "c3") });
+    expect(ids(state)).toEqual(["c2", "m1", "m2"]);
+    // This page's own, so none counts as coming.
+    expect(state.arrivals).toBe(0);
+  });
+
+  it("keeps a file's message the room brought when its upload's answer is lost after", () => {
+    let state = upload(opened([]), { type: "pending", message: uploading("c1") });
+    state = created(state, posted("m1", "c1"));
+    state = upload(state, { type: "upload-progress", clientMessageId: "c1", percent: 100 });
+    state = upload(state, { type: "upload-failed", clientMessageId: "c1", error: CONNECTION_LOST });
+    expect(state.messages).toEqual([posted("m1", "c1")]);
   });
 });
 

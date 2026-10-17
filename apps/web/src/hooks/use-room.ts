@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState } from "react";
+import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
@@ -17,6 +17,7 @@ import { writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
@@ -61,9 +62,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // message but before the confirmation came back, and a reconnect's welcome only holds the newest page,
   // which a later `resumed` doesn't go back past. So ask the room about the sent messages a reconnect
   // doesn't confirm, which the reducer keeps as sending until it answers. Those written while it was away
-  // never went, so they aren't asked about.
+  // never went, so they aren't asked about, and nor are files, whose uploads answer for them.
   const checkUnconfirmed = useEffectEvent((room: ReconnectingSocket, snapshot: Message[]) => {
-    const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued ? [] : [m.clientMessageId]));
+    const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued || m.upload ? [] : [m.clientMessageId]));
     for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
       room.send({ type: "message.check", clientMessageIds: clientMessageIds.slice(i, i + MAX_CHECKED_MESSAGES) });
     }
@@ -183,6 +184,19 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // Says why something written didn't go, as the room says why it refused something.
   const warn = useCallback((message: string) => dispatch({ type: "frame", frame: { type: "error", message }, now: Date.now() }), []);
 
+  // Whether the timeline is reading older history, or on its way back from it. Files go one after another,
+  // each long after the page that sent them rendered, so this is the timeline as it is now.
+  const awayFromNewest = useRef(false);
+  useLayoutEffect(() => {
+    awayFromNewest.current = state.hasNewer || state.loadingPage;
+  }, [state.hasNewer, state.loadingPage]);
+
+  // A message sent goes at the end of the newest page, which a timeline reading older history asks for
+  // first, as ember-rust's insertPendingMessage does.
+  const toNewest = useCallback(() => {
+    if (awayFromNewest.current && send({ type: "history.around" })) dispatch({ type: "loading-page" });
+  }, [send]);
+
   // Answers whether the message went. One longer than the room takes doesn't, and stays where it was written.
   const postMessage = useCallback(
     (body: string) => {
@@ -191,31 +205,39 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         warn(MESSAGE_TOO_LONG);
         return false;
       }
-      const clientMessageId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      const message: PendingMessage = {
-        id: clientMessageId,
-        clientMessageId,
-        roomId,
-        creator: me,
-        body,
-        plainText: text,
-        mentions,
-        createdAt: now,
-        updatedAt: now,
-        editedAt: null,
-        boosts: [],
-        pending: true,
-      };
-      // It goes at the end of the newest page, which a timeline reading older history asks for first, as
-      // ember-rust's insertPendingMessage does. Until the room has let a connection in, it waits, behind
-      // any already waiting, and shows as not sent once the page is offline.
-      if ((state.hasNewer || state.loadingPage) && send({ type: "history.around" })) dispatch({ type: "loading-page" });
-      if (!send({ type: "message.create", clientMessageId, body })) message.queued = true;
+      const message = pendingMessage(crypto.randomUUID(), roomId, me, body, text, mentions, new Date().toISOString());
+      toNewest();
+      // Until the room has let a connection in, it waits, behind any already waiting, and shows as not
+      // sent once the page is offline.
+      if (!send({ type: "message.create", clientMessageId: message.clientMessageId, body })) message.queued = true;
       dispatch({ type: "pending", message });
       return true;
     },
-    [me, roomId, send, warn, state.hasNewer, state.loadingPage],
+    [me, roomId, send, warn, toNewest],
+  );
+
+  // ember-rust's composer_controller.js#submitFiles: each file goes as a message of its own, one at a time,
+  // its card showing how its upload goes until the room posts it. Leaving the room drops those whose upload
+  // hasn't started.
+  const postFiles = useCallback(
+    async (files: File[]) => {
+      const room = socket.current;
+      for (const file of files) {
+        if (socket.current !== room) return;
+        const clientMessageId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const upload = { name: file.name, size: file.size, percent: 0 };
+        toNewest();
+        dispatch({ type: "pending", message: { ...pendingMessage(clientMessageId, roomId, me, "", file.name, [], now), upload } });
+        try {
+          const message = await uploadFile(roomId, file, clientMessageId, (percent) => dispatch({ type: "upload-progress", clientMessageId, percent }));
+          dispatch({ type: "uploaded", message });
+        } catch (error) {
+          dispatch({ type: "upload-failed", clientMessageId, error: error instanceof UploadError ? error.message : UPLOAD_FAILED });
+        }
+      }
+    },
+    [me, roomId, toNewest],
   );
 
   // Starting is throttled, and stopping isn't, as in ember-rust: a start within a second of the last
@@ -283,5 +305,31 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
-  return { state, postMessage, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
+  return { state, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
+}
+
+/** A message `me` is sending to `roomId` as `clientMessageId`, as the timeline shows it until the room has it. */
+function pendingMessage(
+  clientMessageId: string,
+  roomId: string,
+  me: User,
+  body: string,
+  plainText: string,
+  mentions: Message["mentions"],
+  now: string,
+): PendingMessage {
+  return {
+    id: clientMessageId,
+    clientMessageId,
+    roomId,
+    creator: me,
+    body,
+    plainText,
+    mentions,
+    createdAt: now,
+    updatedAt: now,
+    editedAt: null,
+    boosts: [],
+    pending: true,
+  };
 }

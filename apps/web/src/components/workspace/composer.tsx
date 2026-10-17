@@ -1,11 +1,13 @@
-import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
-import type { User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { ArrowUp, TextOptions } from "@/components/icons/campfire";
+import { ArrowUp, Attachment, CommonFileText, RemoveCircle, TextOptions } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
+import { dropTarget } from "@/lib/drop-target";
 import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
+import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 
@@ -118,6 +120,90 @@ function useLinkPreviews(): (link: PastedLink) => Promise<void> {
   };
 }
 
+/** A file picked to send, keyed, since two can share a name. */
+interface PickedFile {
+  key: number;
+  file: File;
+}
+
+/**
+ * The files picked to send with the next message, as ember-rust's composer_controller.js keeps them: in
+ * order of their names, leaving out any over 250 MB, which it says until more are picked.
+ */
+function usePickedFiles() {
+  const [files, setFiles] = useState<PickedFile[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
+  const lastKey = useRef(0);
+  // Reads the files as they're given: a field's, a paste's or a drop's are gone once its event is over.
+  const add = (picked: Iterable<File>) => {
+    const fitting: PickedFile[] = [];
+    const refused: string[] = [];
+    for (const file of picked) {
+      if (file.size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(file.name));
+      else fitting.push({ key: ++lastKey.current, file });
+    }
+    setErrors(refused);
+    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => a.file.name.localeCompare(b.file.name)));
+  };
+  const remove = (key: number) => setFiles((files) => files.filter((picked) => picked.key !== key));
+  return { files, errors, add, remove, clear: () => setFiles([]) };
+}
+
+/**
+ * A file's name as its chip shows it: what runs to an ellipsis, up to its last dot, and its extension,
+ * which doesn't. A name with no dot shows whole, where ember-rust's begins with one.
+ */
+function splitName(name: string): [string, string] {
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? [name, ""] : [name.slice(0, dot + 1), name.slice(dot + 1)];
+}
+
+/**
+ * The address of a picture's thumbnail, which is let go once its chip goes, where ember-rust's are kept
+ * until the page is.
+ */
+function useThumbnail(file: File): string | undefined {
+  const [thumbnail, setThumbnail] = useState<string>();
+  useLayoutEffect(() => {
+    if (!isImage(file)) return;
+    const url = URL.createObjectURL(file);
+    setThumbnail(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return thumbnail;
+}
+
+const isImage = (file: File) => file.type.startsWith("image/");
+
+/**
+ * A file picked to send, as ember-rust's composer lists it (composer_controller.js#updateFileList,
+ * Campfire's composer.css, zz-ember.css): a picture's thumbnail, or Campfire's file icon, over its name
+ * and a remove-circle. Pressing it takes the file back out, which it says to screen readers too, where
+ * ember-rust's gives only the name.
+ */
+function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const thumbnail = useThumbnail(file);
+  const [name, extension] = splitName(file.name);
+  const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
+  return (
+    <button type="button" aria-label={`Remove ${file.name}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
+      {isImage(file) ? (
+        <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
+      ) : (
+        // `colorize--black` darkens the tile's border along with its icon in dark mode.
+        <span className={cn(tile, "flex items-center justify-center dark:invert")}>
+          <CommonFileText tone="color" className="w-[55%]" />
+        </span>
+      )}
+      <span className="flex max-w-full items-center px-[1ch] text-[0.8rem]">
+        <span className="truncate">{name}</span>
+        <span className="shrink-0">{extension}</span>
+        <RemoveCircle className="ms-[0.5em] -me-[0.5em] size-[1.3em] shrink-0" />
+      </span>
+    </button>
+  );
+}
+
 /** Whether `target` is the page itself, as when nothing has focus, rather than anything on it. */
 function isPage(target: EventTarget | null): boolean {
   return target === document.body || target === document.getElementById("main-content");
@@ -147,6 +233,8 @@ interface Props {
   deferEditor?: boolean;
   /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
   onSend: (body: string) => boolean;
+  /** Sends files, each as a message of its own, before the message written with them. */
+  onSendFiles: (files: File[]) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
@@ -157,15 +245,18 @@ export interface ComposerHandle {
   focus(): void;
   /** Writes `markup` in place of what's written, as Reply does, taking focus. */
   replace(markup: string): void;
+  /** Adds files to send with the next message, as dropping them on the room's messages does. */
+  addFiles(files: Iterable<File>): void;
 }
 
 /**
  * ember-rust's composer (rooms/show/_composer.html, composer_controller.js and zz-ember.css): a card
- * with the editor on top, and below it Formatting options, which shows Lexxy's toolbar under the text,
- * and a round Send button. @ offers the room's people to mention. What's written is kept as a draft
- * until it's sent.
+ * with the editor on top, and below it Attach files, Formatting options, which shows Lexxy's toolbar
+ * under the text, and a round Send button. @ offers the room's people to mention. Files picked, pasted
+ * or dropped wait above the card to go with the next message. What's written is kept as a draft until
+ * it's sent.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, onSend, onTyping, onEditLastMessage, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, onSend, onSendFiles, onTyping, onEditLastMessage, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -180,6 +271,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const [focusAtOpen] = useState(() => document.activeElement);
   const editorShown = useEditorShown(deferEditor);
   const previewLink = useLinkPreviews();
+  const picked = usePickedFiles();
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
   // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
@@ -204,6 +296,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       setDraft(markup);
       wrote(markup);
     },
+    addFiles: picked.add,
   }));
 
   // ember-rust's Up Arrow (rooms/show.html, messages_controller.js#editMyLastMessage): with nothing written,
@@ -226,11 +319,16 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
 
-  // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends
-  // what's written unless it's blank, closes the toolbar and focuses the editor, on touch screens too.
+  // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends the
+  // files picked, then what's written unless it's blank, closes the toolbar and focuses the editor, on
+  // touch screens too.
   const submit = () => {
     const written = editor.current;
     if (!written || disabled) return;
+    if (picked.files.length > 0) {
+      onSendFiles(picked.files.map(({ file }) => file));
+      picked.clear();
+    }
     if (!written.isBlank()) {
       // One the room won't take, as when it's too long, stays to be cut down.
       if (!onSend(written.value())) return;
@@ -290,8 +388,26 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
           event.preventDefault();
           submit();
         }}
+        // Pasted files are picked rather than written, which Lexxy leaves them out of, and any paste clears
+        // what was said about files too large, as in ember-rust.
+        onPaste={(event) => {
+          if (event.clipboardData.files.length > 0) event.preventDefault();
+          picked.add(event.clipboardData.files);
+        }}
+        {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
+        {/* ember-rust's `.composer__filelist`: the files picked, and those too large to send. */}
+        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
+          {picked.files.map(({ key, file }) => (
+            <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
+          ))}
+          {picked.errors.length > 0 && (
+            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
+              {picked.errors.join(" ")}
+            </p>
+          )}
+        </div>
         <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 max-md:min-h-[100px] max-md:p-2.5">
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -317,6 +433,30 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
             </Suspense>
           </div>
           <div className="flex flex-none items-center gap-0.5">
+            {/* Campfire's `.input--file` (inputs.css): the file field fills the button, unseen, so pressing it
+                anywhere opens the browser's file picker, and the button shows when the field has focus. */}
+            <label
+              title="Attach files"
+              className={cn(
+                BUTTON,
+                "relative rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover",
+                "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-3 has-[:focus-visible]:outline-foreground",
+              )}
+            >
+              <Attachment className="size-[18px] opacity-70" />
+              <input
+                type="file"
+                multiple
+                disabled={disabled}
+                onChange={(event) => {
+                  picked.add(event.target.files ?? []);
+                  // So picking the same file again is a change.
+                  event.target.value = "";
+                }}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              />
+              <span className="sr-only">Attach a file</span>
+            </label>
             <button
               type="button"
               disabled={disabled}

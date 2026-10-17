@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 107 ported and 55 partial of 172 features; 4 not started, 6 not applicable.
+**Overall:** 111 ported and 52 partial of 172 features; 3 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,16 +26,16 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 9 | 9 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 0 | 7 | 3 | 1 | 11 |
+| [Attachments](#attachments) | 2 | 6 | 2 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
 | [Bots and webhooks](#bots-and-webhooks) | 11 | 4 | 0 | 0 | 15 |
-| [Composer](#composer) | 2 | 3 | 0 | 0 | 5 |
+| [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **107** | **55** | **4** | **6** | **172** |
+| **Total** | **111** | **52** | **3** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1378,9 +1378,9 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Attach files | `attachments.upload` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| 250 MB file limit | `attachments.size-limit` | Ember | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts) |
-| Upload progress | `attachments.progress` | Ember | ⬜ Not started |  |
+| Attach files | `attachments.upload` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
+| 250 MB file limit | `attachments.size-limit` | Ember | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx) |
+| Upload progress | `attachments.progress` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [upload-card](apps/web/src/components/workspace/upload-card.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Image, video and file previews | `attachments.previews` | Campfire | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx) |
 | Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
@@ -1403,31 +1403,33 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 - Uploading into a room that was deleted, or that the sender has left, stores nothing and shows "Upload failed. Please attach the file and try again."
 - A file message's text, for search, push and webhooks, is its file name.
 
-Note: The server's half, and the message a file becomes. The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. Still to come: the composer's attachments, Attach files, pasting and dropping, the chips and uploading them one at a time (plan 7.2b), and images' thumbnails and videos' posters (`attachments.previews`).
+Note: The app starts an upload with the id of the message the file is to be (`clientMessageId`), sends its parts (`attachments.size-limit`), and the part that completes it posts it as the uploader's message, recording that the upload finished in the same transaction, then tells the room, marks it unread, pushes it, delivers it to bots and has search index it, as any new message. Its text is empty, and its plain text, which search, pushes and bots read, the file's name as Active Storage sanitizes it, as Campfire's `Filename#to_s` writes it, where ember-rust's `plain_text_body` takes it as uploaded. A part sent again once the message is posted answers that message, or 404 once it's deleted, and the room refuses to post for an uploader whose access it has heard ended, as it refuses their parts. A chip shows a name with no dot whole, where ember-rust's puts a dot before it, and tells screen readers it removes its file, where ember-rust's gives only the name, and a picture's thumbnail is let go once its chip goes, where ember-rust keeps them until the page goes. Still to come: images' thumbnails and videos' posters (`attachments.previews`).
 
 Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`reference/app/javascript/controllers/drop_target_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/drop_target_controller.js) · [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/vips.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/vips.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`reference/app/models/message/attachment.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/message/attachment.rb)
 
 ember-rust tests: [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`reference/test/models/message/attachment_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/models/message/attachment_test.rb)
 
-**250 MB file limit** (`attachments.size-limit`) 🟡
+**250 MB file limit** (`attachments.size-limit`) ✅
 
 - Files over 250,000,000 bytes aren't queued (exactly 250,000,000 is fine): one alert under the chips lists "&lt;name&gt; is too large. Choose a file that’s 250 MB or smaller." for each, joined by spaces, and other files still queue.
 - The alert stays through sending and removing chips, and clears on the next pick, drop or paste, even a paste of plain text.
 - The server answers 413 as soon as a larger file arrives and saves nothing; the upload's card then says "Files must be 250 MB or smaller."
 
-Note: The server's half. A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with "Files must be 250 MB or smaller." before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413. The composer's half comes with the composer's attachments.
+Note: A Worker takes at most 100 MB a request, so the app starts an upload with the file's name, type and size (`POST /api/rooms/<room>/uploads`), then sends it in parts of 10 MiB that R2 puts back together. Starting one over 250,000,000 bytes answers 413 with "Files must be 250 MB or smaller." before any of it is sent, and stores nothing. Each part has to be as long as its place in the file says, by its `Content-Length` (411 without one): a shorter one answers 400 and a longer one 413.
 
 Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs) · [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/file-uploader.test.mjs) · [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/tests/http.rs)
 
-**Upload progress** (`attachments.progress`) ⬜
+**Upload progress** (`attachments.progress`) ✅
 
 - Each upload shows a card ("Upload &lt;name&gt;") with its name, its size ("&lt;n&gt; KB" rounded up, at least 1, under 1,000,000 bytes, otherwise "&lt;n.n&gt; MB"), a progress bar ("Upload progress for &lt;name&gt;") and a status: "Uploading · &lt;n&gt;%" (rounded down), then "Processing…" at 100% until the message arrives and takes the card's place.
 - A failed card turns red and its status reads "Upload failed". Its reason is "Files must be 250 MB or smaller." for a 413, "Connection lost. Please attach the file and try again." when the connection drops, and "Upload failed. Please attach the file and try again." for any other answer, even a success that isn't the expected stream, such as a sign-in page.
 - The uploader also has "Upload canceled." and "Upload timed out. Please attach the file and try again.", but nothing in the app cancels an upload or sets a timeout, so neither appears.
 - Failed cards stay until the page reloads, with no retry or dismiss. The other files carry on, and the composer stays usable while files upload.
 - If the message's broadcast arrives before a lost response, the message is kept and no error shows.
+
+Note: Progress counts every part sent so far, as the app sends a file in parts of 10 MiB (`attachments.size-limit`). A card isn't faded as a message on its way is, and its message stays busy to screen readers until the upload fails, so they're told why it failed but not each step it takes.
 
 Sources: [`crates/assets/overrides/models/file_uploader.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/models/file_uploader.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js) · [`crates/assets/overrides/controllers/messages_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/messages_controller.js)
 
@@ -2190,10 +2192,10 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Send from the keyboard | `composer.send` | Campfire | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
-| Composer | `composer.layout` | Ember | 🟡 Partial | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Composer | `composer.layout` | Ember | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 | Keep drafts | `composer.draft` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts), [link-previews](e2e/tests/features/link-previews.spec.ts), [mentions](e2e/tests/features/mentions.spec.ts) |
 | Formatting toolbar | `composer.formatting-toolbar` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
-| Pasting into the composer | `composer.paste` | Campfire | 🟡 Partial | E2E: [composer](e2e/tests/features/composer.spec.ts) |
+| Pasting into the composer | `composer.paste` | Campfire | ✅ Ported | Web: [composer](apps/web/src/components/workspace/composer.test.tsx)<br>E2E: [composer](e2e/tests/features/composer.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -2211,13 +2213,13 @@ Sources: [`crates/assets/overrides/controllers/composer_controller.js`](https://
 
 ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Composer** (`composer.layout`) 🟡
+**Composer** (`composer.layout`) ✅
 
 - The composer is a rounded card at least 108px tall (100px on phones), with the text on top and Attach files, Formatting options and a round Send button below, on phones too.
 - The buttons are titled "Attach files", "Formatting options" and "Send message", and screen readers call them "Attach a file", "Rich text" and "Send Message".
 - The text box is named "Write a message", with the placeholder "Message #general" ("Message Ada" in a DM). It grows up to min(32dvh, 300px) and is focused on load, except on touch devices.
 
-Note: There's no Attach files button until files can be sent. Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.
+Note: Touch is judged by the main pointer, so a laptop with a touchscreen focuses the composer on load. The text takes the card's padding and all the room above the buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px. Its text is 16px wherever the main pointer is coarse, as in all of Ember's text fields, so iOS doesn't zoom in on a tablet; ember-rust's is 16px only up to 900px wide. The editor's code, as big as the rest of the app's, loads once the first room's messages are painted, which it would otherwise hold up, so until then the composer shows only its placeholder, and it's focused then only if focus hasn't gone elsewhere meanwhile.
 
 Sources: [`crates/views/templates/rooms/show/_composer.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_composer.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
@@ -2245,14 +2247,14 @@ Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://g
 
 ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/system/composer_test.rb)
 
-**Pasting into the composer** (`composer.paste`) 🟡
+**Pasting into the composer** (`composer.paste`) ✅
 
 - Pasted files join the files waiting to be sent rather than going into the text.
 - A pasted address goes in as a link and asks for its preview (see `unfurl.composer`); pasted over selected text, it only turns the selection into a link.
 - Pasted text that looks like Markdown is converted, keeping its line breaks; other text goes in as it is, and anything pasted into a code block stays raw.
 - Pasted formatting, tables included, is kept as far as messages allow.
 
-Note: Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files are left out until the composer takes files (`attachments.upload`).
+Note: Lexxy's own pasting, which writes what ember-rust's does with addresses, Markdown, plain text, code blocks and formatting. Pasted files wait with the files picked to go with the next message (`attachments.upload`).
 
 Sources: [`crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js) · [`crates/assets/overrides/controllers/composer_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/composer_controller.js)
 
