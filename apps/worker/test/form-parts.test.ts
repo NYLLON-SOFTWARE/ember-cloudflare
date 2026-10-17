@@ -84,6 +84,20 @@ describe(feature("bots.api-post"), () => {
     }
   });
 
+  it("keeps bytes that only look like a delimiter, the boundary with more after it than padding and a line break, as Rack does", async () => {
+    const text = `line one\r\n--${BOUNDARY}XYZ\r\nline three\r\n--${BOUNDARY} \tand more\r\n--${BOUNDARY}-\r\nline seven`;
+    const body = formOf([
+      { headers: fileHeaders("report.txt"), body: text },
+      { headers: ['Content-Disposition: form-data; name="note"'], body: "after" },
+    ]);
+    for (const size of [1, 2, 3, 7, 64, body.length]) {
+      expect(await partsOf(arriving(body, size)), `${size} at a time`).toEqual([
+        { name: "attachment", filename: "report.txt", contentType: "text/plain", text },
+        { name: "note", filename: null, contentType: null, text: "after" },
+      ]);
+    }
+  });
+
   it("skips what's before the first part and after the last, padding after a delimiter, and what's left of a part not read", async () => {
     const body = formOf(
       [
@@ -134,7 +148,9 @@ describe(feature("bots.api-post"), () => {
     await expect(refused(whole.slice(0, whole.indexOf("Content-Type")))).rejects.toThrow(new FormError("The form ends in a part's headers"));
     await expect(refused(`--${BOUNDARY}`)).rejects.toThrow(new FormError("The form ends after a delimiter"));
     await expect(refused(`--${BOUNDARY}${" ".repeat(2000)}\r\n\r\n`)).rejects.toThrow(new FormError("A delimiter has no line break after it"));
-    await expect(refused(`--${BOUNDARY}\r\nX-Long: ${"x".repeat(20_000)}\r\n\r\n`)).rejects.toThrow(new FormError("A part's headers are too long"));
+    const longHeaders = `--${BOUNDARY}\r\nX-Long: ${"x".repeat(20_000)}\r\n\r\n`;
+    await expect(refused(longHeaders)).rejects.toThrow(new FormError("A part's headers are too long"));
+    await expect(partsOf(arriving(new TextEncoder().encode(longHeaders)))).rejects.toThrow(new FormError("A part's headers are too long"));
   });
 
   it("finds a form's boundary in its type, as Rack does, and none for anything else", () => {

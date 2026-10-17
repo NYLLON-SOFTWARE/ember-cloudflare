@@ -11,6 +11,8 @@ const MAX_PADDING_BYTES = 1024;
 const CRLF = new Uint8Array([13, 10]);
 const HEADERS_END = new Uint8Array([13, 10, 13, 10]);
 const DASHES = new Uint8Array([45, 45]);
+const SPACE = 32;
+const TAB = 9;
 
 /** Why a body can't be read as the form its type says it is, as Rack raises `EOFError` and its kin. */
 export class FormError extends Error {}
@@ -78,6 +80,8 @@ export class FormReader {
     for (;;) {
       const at = indexOf(this.buffer, this.delimiter);
       if (at === 0) {
+        // Bytes that only look like a delimiter are the part's.
+        if (!(await this.isDelimiter())) return this.take(this.delimiter.length);
         this.buffer = this.buffer.subarray(this.delimiter.length);
         this.state = "between";
         return null;
@@ -109,6 +113,22 @@ export class FormReader {
     }
   }
 
+  /**
+   * Whether the delimiter at the start of what's arrived is one: it is when two dashes follow it, which
+   * end the form, or a line break after any transport padding, as RFC 2046 has them. Otherwise it's the
+   * part's bytes, as Rack's multipart parser reads a line of a file that starts with the boundary.
+   */
+  private async isDelimiter(): Promise<boolean> {
+    const after = this.delimiter.length;
+    if (startsWith((await this.fill(after + DASHES.length)).subarray(after), DASHES)) return true;
+    for (let at = after; at <= after + MAX_PADDING_BYTES; at++) {
+      const rest = (await this.fill(at + CRLF.length)).subarray(at);
+      if (startsWith(rest, CRLF)) return true;
+      if (rest[0] !== SPACE && rest[0] !== TAB) return false;
+    }
+    return false;
+  }
+
   /** Reads past the rest of a delimiter's line: any transport padding, and its line break. */
   private async skipLine(): Promise<void> {
     for (;;) {
@@ -130,6 +150,7 @@ export class FormReader {
     }
     for (;;) {
       const at = indexOf(this.buffer, HEADERS_END);
+      if (at > MAX_HEADER_BYTES) throw new FormError("A part's headers are too long");
       if (at >= 0) {
         const headers = new TextDecoder().decode(this.buffer.subarray(0, at));
         this.buffer = this.buffer.subarray(at + HEADERS_END.length);
