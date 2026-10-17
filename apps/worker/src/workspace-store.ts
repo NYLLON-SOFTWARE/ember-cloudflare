@@ -133,12 +133,20 @@ export interface StoredBotSettings extends StoredBot {
   webhookUrl: string | null;
 }
 
-/** A bot to add: its id, name and token, and where its webhook delivers, or null for nowhere. */
+/** A bot to add: its id, name and token, where its webhook delivers, or null for nowhere, and its avatar, or null for none. */
 export interface NewStoredBot {
   id: UserId;
   name: string;
   token: string;
   webhookUrl: string | null;
+  avatar: StoredPicture | null;
+}
+
+/** A new avatar for someone, which R2 has stored under a key reserved for it, and the key of the one they had, for R2 to delete at `dueAt`. */
+export interface AvatarChange {
+  avatar: StoredPicture;
+  previous: string | null;
+  dueAt: number;
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
@@ -284,6 +292,16 @@ const avatarOf = (row: AvatarColumns): StoredPicture | null => (row.avatar_key =
 
 /** What takes the reservation of `picture`'s key, if there is one, in the batch that gives someone or the workspace it. */
 const keeping = (picture: StoredPicture | null): Statement[] => (picture ? [statement(KEEP_PICTURE, picture.key)] : []);
+
+/**
+ * What gives `userId` `avatar`, or none, recording when, and queues R2 deleting the one they had,
+ * `previous`, at `dueAt`.
+ */
+const avatarChange = (userId: UserId, avatar: StoredPicture | null, previous: string | null, now: string, dueAt: number): Statement[] => [
+  statement(CHANGE_AVATAR, avatar?.key ?? null, avatar?.variant ?? null, now, userId),
+  ...keeping(avatar),
+  ...(previous ? [statement(QUEUE_PICTURE_DELETION, previous, dueAt)] : []),
+];
 
 const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   id: row.id,
@@ -873,8 +891,8 @@ const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM member
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
 
-/** Adds a bot, as ember-rust's `User.create_bot!` does (user.rs). */
-const INSERT_BOT = `INSERT INTO users (id, name, role, bot_token, created_at, updated_at) VALUES (?, ?, ${BOT}, ?, ?, ?)`;
+/** Adds a bot, with its avatar, as ember-rust's `User.create_bot!` does (user.rs). */
+const INSERT_BOT = `INSERT INTO users (id, name, role, bot_token, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ${BOT}, ?, ?, ?, ?, ?)`;
 
 /**
  * Has a bot's webhook deliver to ?2, adding one if it has none, and records when, unless it delivers
@@ -1763,12 +1781,13 @@ export class WorkspaceStore {
   }
 
   /**
-   * Adds a bot, with its webhook if it has somewhere to deliver, in every open room, as ember-rust's
-   * `User.create_bot!` does (user.rs), in one batch.
+   * Adds a bot, with its webhook if it has somewhere to deliver and its avatar if it has one, in every
+   * open room, as ember-rust's `User.create_bot!` does (user.rs), in one batch.
    */
-  async createBot({ id, name, token, webhookUrl }: NewStoredBot, now: string): Promise<void> {
+  async createBot({ id, name, token, webhookUrl, avatar }: NewStoredBot, now: string): Promise<void> {
     await this.db.batch([
-      statement(INSERT_BOT, id, name, token, now, now),
+      statement(INSERT_BOT, id, name, token, avatar?.key ?? null, avatar?.variant ?? null, now, now),
+      ...keeping(avatar),
       ...(webhookUrl === null ? [] : [statement(SAVE_WEBHOOK, id, webhookUrl, now)]),
       statement(GRANT_OPEN_ROOMS_TO_USER, id, now, now),
     ]);
@@ -1776,12 +1795,14 @@ export class WorkspaceStore {
 
   /**
    * Changes a bot as ember-rust's `update_bot!` does (user.rs), in one batch: its webhook first, which
-   * delivers to `webhookUrl`, or goes when that's "", then its name. What's left out stays as it is.
+   * delivers to `webhookUrl`, or goes when that's "", then its name, then its avatar, as `changeAvatar`
+   * gives someone theirs. What's left out stays as it is.
    */
-  async changeBot(botId: UserId, { name, webhookUrl }: BotChanges, now: string): Promise<void> {
+  async changeBot(botId: UserId, { name, webhookUrl }: BotChanges, now: string, avatar: AvatarChange | null): Promise<void> {
     await this.db.batch([
       ...(webhookUrl === undefined ? [] : [webhookUrl ? statement(SAVE_WEBHOOK, botId, webhookUrl, now) : statement(`DELETE FROM webhooks WHERE user_id = ?`, botId)]),
       ...(name === undefined ? [] : [statement(RENAME_BOT, name, now, botId)]),
+      ...(avatar ? avatarChange(botId, avatar.avatar, avatar.previous, now, avatar.dueAt) : []),
     ]);
   }
 
@@ -1818,11 +1839,7 @@ export class WorkspaceStore {
    * null, recording when, and queues R2 deleting the one they had, `previous`, at `dueAt`.
    */
   async changeAvatar(userId: UserId, avatar: StoredPicture | null, previous: string | null, now: string, dueAt: number): Promise<void> {
-    await this.db.batch([
-      statement(CHANGE_AVATAR, avatar?.key ?? null, avatar?.variant ?? null, now, userId),
-      ...keeping(avatar),
-      ...(previous ? [statement(QUEUE_PICTURE_DELETION, previous, dueAt)] : []),
-    ]);
+    await this.db.batch(avatarChange(userId, avatar, previous, now, dueAt));
   }
 
   /**

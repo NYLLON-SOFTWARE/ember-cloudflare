@@ -1,6 +1,6 @@
 import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
-import { signUpOf, signUpPhoto } from "./avatars";
+import { userFormOf, userFormPhoto } from "./avatars";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
 import type { Env } from "./env";
 import { notFound, refused } from "./error-pages";
@@ -229,7 +229,7 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
     return formAnswer({ error: "Setup is locked" }, 403, forget);
   }
 
-  const sent = await signUpOf(request);
+  const sent = await userFormOf(request);
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
   if (typeof form === "string") return formAnswer({ error: form }, 400);
@@ -238,7 +238,7 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   // form can send.
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
-  const avatar = await signUpPhoto(env, sent.photo);
+  const avatar = await userFormPhoto(env, sent.photo);
   if (avatar && "error" in avatar) return formAnswer({ error: avatar.error, field: "avatar" }, avatar.status);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);

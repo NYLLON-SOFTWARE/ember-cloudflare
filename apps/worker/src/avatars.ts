@@ -96,18 +96,18 @@ export async function storeAvatar(env: Env, files: R2Bucket, form: FormData): Pr
   return storePicture(files, key, upload);
 }
 
-/** What a sign-up form sends: its fields, and the form its photo came in, when one was chosen. */
-export interface SignUp {
+/** What a form of someone's fields sends: the fields, and the form its photo came in, when one was chosen. */
+export interface UserForm {
   fields: unknown;
   photo: FormData | null;
 }
 
 /**
- * What a request to sign up sends, as the setup and join forms send it: JSON, or with a photo, a form
- * whose `user` part is that JSON and whose `avatar` and `variant` parts are the photo, as ember-rust's
- * forms send `user[avatar]` with the rest of `user`.
+ * What a request with someone's fields sends, as the setup, join and bot forms send it: JSON, or with a
+ * photo, a form whose `user` part is that JSON and whose `avatar` and `variant` parts are the photo, as
+ * ember-rust's forms send `user[avatar]` with the rest of `user`.
  */
-export async function signUpOf(request: Request): Promise<SignUp | PictureRefusal> {
+export async function userFormOf(request: Request): Promise<UserForm | PictureRefusal> {
   if (!request.headers.get("Content-Type")?.startsWith("multipart/form-data")) {
     return { fields: await request.json().catch(() => null), photo: null };
   }
@@ -117,8 +117,8 @@ export async function signUpOf(request: Request): Promise<SignUp | PictureRefusa
   return { fields: typeof user === "string" ? parseJson(user) : null, photo: form };
 }
 
-/** The photo `photo` brings, stored for whoever signs up with it, null when there's none, or why it's refused. */
-export async function signUpPhoto(env: Env, photo: FormData | null): Promise<StoredPicture | PictureRefusal | null> {
+/** The photo `photo` brings, stored for whoever is given it, null when there's none, or why it's refused. */
+export async function userFormPhoto(env: Env, photo: FormData | null): Promise<StoredPicture | PictureRefusal | null> {
   if (photo?.get("avatar") == null) return null;
   if (!env.FILES) return { status: 503, error: NO_STORAGE };
   return storeAvatar(env, env.FILES, photo);

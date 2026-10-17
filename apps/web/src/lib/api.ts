@@ -90,12 +90,14 @@ export interface ChosenPhoto {
   variant: Blob | null;
 }
 
+/** The fields of a form that can bring a photo with them: a sign-up form's, or a bot form's. */
+type UserFields = SignUp | NewBot | BotChanges;
+
 /**
- * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields`,
- * those of a sign-up form, as JSON in its `user`, as ember-rust's forms send `user[avatar]` with the
- * rest of `user`.
+ * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields` as
+ * JSON in its `user`, as ember-rust's forms send `user[avatar]` with the rest of `user`.
  */
-function photoForm({ file, variant }: ChosenPhoto, fields?: SignUp): FormData {
+function photoForm({ file, variant }: ChosenPhoto, fields?: UserFields): FormData {
   const form = new FormData();
   if (fields) form.set("user", JSON.stringify(fields));
   form.set("avatar", file);
@@ -103,8 +105,8 @@ function photoForm({ file, variant }: ChosenPhoto, fields?: SignUp): FormData {
   return form;
 }
 
-/** What a sign-up form sends: its fields as JSON, or with the photo chosen, a form. */
-const signUpBody = (fields: SignUp, photo: ChosenPhoto | null) => (photo ? photoForm(photo, fields) : JSON.stringify(fields));
+/** What a sign-up or bot form sends: its fields as JSON, or with the photo chosen, a form. */
+const userBody = (fields: UserFields, photo: ChosenPhoto | null) => (photo ? photoForm(photo, fields) : JSON.stringify(fields));
 
 /** Whether Ember is set up yet, and who this browser is signed in as. */
 export async function fetchBootstrap(): Promise<Bootstrap> {
@@ -116,7 +118,7 @@ export async function fetchBootstrap(): Promise<Bootstrap> {
  * browser in as them. A photo that's refused fails with an ApiError for the `avatar` field.
  */
 export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null): Promise<NewWorkspace> {
-  return request<NewWorkspace>("/api/first_run", { method: "POST", body: signUpBody(administrator, photo) });
+  return request<NewWorkspace>("/api/first_run", { method: "POST", body: userBody(administrator, photo) });
 }
 
 /**
@@ -125,7 +127,7 @@ export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto |
  * escaping. A photo that's refused fails with an ApiError for the `avatar` field.
  */
 export async function joinWorkspace(joinCode: string, person: SignUp, photo: ChosenPhoto | null = null): Promise<Me> {
-  return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: signUpBody(person, photo) })).user;
+  return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: userBody(person, photo) })).user;
 }
 
 /** Signs in with an email address and password. */
@@ -272,14 +274,20 @@ export async function fetchBot(botId: UserId): Promise<BotSettings> {
   return (await request<BotAnswer>(`/api/account/bots/${encodeURIComponent(botId)}`)).bot;
 }
 
-/** Adds a bot. Fails with a 403 ApiError for anyone but an administrator, and a 422 for a name or webhook URL that's refused. */
-export async function createBot(bot: NewBot): Promise<void> {
-  await request("/api/account/bots", { method: "POST", body: JSON.stringify(bot) });
+/**
+ * Adds a bot, with the avatar chosen for it, if any. Fails with a 403 ApiError for anyone but an
+ * administrator, and a 422 for a name or webhook URL that's refused.
+ */
+export async function createBot(bot: NewBot, avatar: ChosenPhoto | null = null): Promise<void> {
+  await request("/api/account/bots", { method: "POST", body: userBody(bot, avatar) });
 }
 
-/** Changes the bot `botId`, leaving what `changes` leaves out. Fails as `fetchBot` does, and as `createBot` does for what's refused. */
-export async function changeBot(botId: UserId, changes: BotChanges): Promise<void> {
-  await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "PATCH", body: JSON.stringify(changes) });
+/**
+ * Changes the bot `botId`, leaving what `changes` leaves out, and gives it the avatar chosen, if any. Fails
+ * as `fetchBot` does, and as `createBot` does for what's refused.
+ */
+export async function changeBot(botId: UserId, changes: BotChanges, avatar: ChosenPhoto | null = null): Promise<void> {
+  await request(`/api/account/bots/${encodeURIComponent(botId)}`, { method: "PATCH", body: userBody(changes, avatar) });
 }
 
 /** Deletes the bot `botId`, which takes it out of every room but its DMs. Fails as `fetchBot` does. */

@@ -1,5 +1,6 @@
 import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings, type UserId } from "@ember/protocol";
 import { credentialsOf } from "../auth";
+import { userFormOf, userFormPhoto } from "../avatars";
 import type { Env } from "../env";
 import { notFound } from "../error-pages";
 import { anyOtherPage } from "../pages";
@@ -37,19 +38,23 @@ export async function botPage(request: Request, env: Env, pathname: string, botI
 
 /**
  * `POST /api/account/bots`, `{ name, webhookUrl }`: adds a bot, as ember-rust's `create` does, answering
- * 201 with the bot as its edit page shows it. As there, someone who isn't an administrator hears so
- * before anything they sent is checked.
+ * 201 with the bot as its edit page shows it. With an avatar, it's a form whose `user` part is that JSON
+ * and whose `avatar` and `variant` parts are the picture, as the setup and join forms send a photo. As in
+ * ember-rust, someone who isn't an administrator hears so before anything they sent is read.
  */
 export async function createBot(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, NOT_SIGNED_IN);
-  const bot = withWebAddress(parseNewBot(await request.json().catch(() => null)));
-  if (typeof bot === "string") {
-    const administrator = await workspace(env).canAdminister(credentials);
-    if (administrator === null) return problem(401, NOT_SIGNED_IN);
-    return administrator ? problem(422, bot) : problem(403, BOTS_FORBIDDEN);
-  }
-  const created = await workspace(env).createBot(credentials, bot);
+  const administrator = await workspace(env).canAdminister(credentials);
+  if (administrator === null) return problem(401, NOT_SIGNED_IN);
+  if (!administrator) return problem(403, BOTS_FORBIDDEN);
+  const sent = await userFormOf(request);
+  if ("error" in sent) return problem(sent.status, sent.error);
+  const bot = withWebAddress(parseNewBot(sent.fields));
+  if (typeof bot === "string") return problem(422, bot);
+  const avatar = await userFormPhoto(env, sent.photo);
+  if (avatar && "error" in avatar) return problem(avatar.status, avatar.error);
+  const created = await workspace(env).createBot(credentials, bot, avatar);
   if (!created) return problem(401, NOT_SIGNED_IN);
   if (created === "forbidden") return problem(403, BOTS_FORBIDDEN);
   return Response.json({ bot: created } satisfies BotAnswer, { status: 201, headers: PRIVATE });
@@ -63,17 +68,22 @@ export async function showBot(request: Request, env: Env, botId: UserId): Promis
 
 /**
  * `PATCH /api/account/bots/:id`, `{ name, webhookUrl }`: changes the active bot `id`, as ember-rust's
- * `update` does, answering it as its edit page then shows it. As there, someone who isn't an
- * administrator hears so first, then a bot that isn't active isn't found, before what was sent is checked.
+ * `update` does, answering it as its edit page then shows it, with a new avatar as `createBot` takes one.
+ * As there, someone who isn't an administrator hears so first, then a bot that isn't active isn't found,
+ * before anything that was sent is read.
  */
 export async function changeBot(request: Request, env: Env, botId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, NOT_SIGNED_IN);
-  const changes = withWebAddress(parseBotChanges(await request.json().catch(() => null)));
-  // Changes that are refused change nothing, but who's asking and which bot are still checked first.
-  const bot = await workspace(env).changeBot(credentials, botId, typeof changes === "string" ? null : changes);
-  if (typeof changes === "string" && typeof bot === "object" && bot !== null) return problem(422, changes);
-  return botAnswer(bot);
+  const found = await workspace(env).bot(credentials, botId);
+  if (!found || typeof found === "string") return botAnswer(found);
+  const sent = await userFormOf(request);
+  if ("error" in sent) return problem(sent.status, sent.error);
+  const changes = withWebAddress(parseBotChanges(sent.fields));
+  if (typeof changes === "string") return problem(422, changes);
+  const avatar = await userFormPhoto(env, sent.photo);
+  if (avatar && "error" in avatar) return problem(avatar.status, avatar.error);
+  return botAnswer(await workspace(env).changeBot(credentials, botId, changes, avatar));
 }
 
 /**
