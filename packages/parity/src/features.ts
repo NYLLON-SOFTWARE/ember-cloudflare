@@ -1545,7 +1545,7 @@ export const features = [
     id: "attachments.types",
     title: "How files are recognized",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Any type can be sent, and files of unknown type are `application/octet-stream`.",
       "A file's type comes from its magic bytes (within its first 65,555 bytes), then its declared type, then its extension, each later one winning only when it's a more specific kind of the current pick: a `.docx` beats a zip's magic bytes, and when the bytes say nothing, a declared `image/jpeg` beats a `.png` extension.",
@@ -1555,7 +1555,7 @@ export const features = [
     sources: ["crates/storage/src/marcel.rs", "crates/storage/src/tables.rs", "crates/storage/src/analyze.rs", "crates/storage/src/blob.rs"],
     upstreamTests: ["crates/storage/tests/vectors.rs", "crates/storage/src/analyze.rs", "crates/ember/src/controllers/messages/tests.rs"],
     notes:
-      "Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. Other images, AVIF and HEIC among them, record nothing, nor do videos and audio, which ember-rust analyzes with FFmpeg: they record only that they were identified and analyzed. A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.",
+      "Files are identified as they're uploaded, from their first part (10 MiB) with a port of Marcel 1.1.0 over ember-rust's tables, which names all 51 of ember-rust's recorded files as Marcel did. Without libvips, an image's width and height are read from its headers for JPEG, PNG, GIF, WebP and TIFF, matching the metadata Rails recorded for ember-rust's 11 images; they swap for EXIF orientations 2, 4, 6 and 8, the ones Rails' pattern picks, though 2 and 4 only mirror an image and 5 and 7 turn it. An AVIF's or HEIC's size is read from its boxes as ember-rust's libvips 8.16 reads it with libheif 1.19: its primary image's extents, cropped to its clean aperture and turned by its rotation, but never by its EXIF orientation, which libvips drops from a HEIF, and none for a file libheif refuses. Where those boxes come after the first 10 MiB, Ember records none, where libvips reads on. Videos and audio record only that they were identified and analyzed, where ember-rust records what FFmpeg finds, which a Worker can't run: of that, only a video's width and height show, as its size, which Ember takes from its poster (`attachments.previews`). A file's name can be at most 255 characters, and can't hold half a character, where ember-rust keeps any.",
   },
   {
     id: "attachments.direct-uploads",

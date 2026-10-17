@@ -6,6 +6,7 @@ import type { Env } from "../src/env";
 import { fileSigner } from "../src/files/addresses";
 import { objectKey, type UploadedPart } from "../src/files/blobs";
 import { UPLOAD_PART_SIZE } from "../src/files/uploads";
+import { heifFile, hvcC, irot, ispe } from "./heif-files";
 import {
   api,
   apiWith,
@@ -217,6 +218,13 @@ describe(feature("attachments.types"), () => {
       completed_at: expect.any(String),
     });
     expect(new Uint8Array(await (await fetchFile(file.url)).arrayBuffer())).toEqual(moon);
+  });
+
+  it("records a HEIC's size, turned as its boxes say", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const photo = heifFile({ brand: "heic", compatible: ["mif1", "heic"], items: [{ id: 1, type: "hvc1", properties: [hvcC, ispe(4032, 3024), irot(3)] }] });
+    expect(await uploadFile(ada, room, "photo.heic", photo)).toMatchObject({ contentType: "image/heic", width: 3024, height: 4032 });
   });
 
   it("uploads a larger file in parts, which can come in any order after the first, and puts them back together", async () => {
