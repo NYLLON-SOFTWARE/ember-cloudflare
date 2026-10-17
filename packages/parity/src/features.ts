@@ -2053,7 +2053,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/concerns.rs", "reference/app/models/user/bot.rb", "reference/app/controllers/messages/by_bots_controller.rb", "reference/app/controllers/concerns/authentication.rb", "crates/db/src/models/user.rs", "crates/ember/src/controllers.rs"],
     upstreamTests: ["reference/test/controllers/messages/by_bots_controller_test.rb", "reference/test/models/user/bot_test.rb", "reference/test/controllers/messages/boosts/by_bots_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs"],
-    notes: "Bots call `/rooms/<room id>/<bot key>/messages`, with or without `.json`, which the Worker answers before any page. The key is read as ember-rust reads it (`User.authenticate_bot`): spaces around it are dropped, as JavaScript trims them, the bot's id is what comes before its first `-` and its token what comes between that and the next, and the token must be the active bot's current one, compared in constant time, so a key with an empty token matches nothing and a deleted bot's key or a replaced one stops working at once. A room the bot isn't in, or that doesn't exist, is an empty 404, and its object is never woken. Posts from banned IP addresses get 429, as other writes do (`users.ban`). Unlike ember-rust, a key that names no active bot answers 401 `{\"error\":\"Unknown bot key\"}`, where ember-rust redirects a script to sign in. These addresses never read a session cookie, so a request carrying one still acts as the bot, where ember-rust acts as the cookie's person, and nothing but the key in the address makes a request anyone's, so posts from other sites are taken without a forgery check. No other address reads a bot key, so a request with only one answers 401 there, where ember-rust answers 403.",
+    notes: "Bots call `/rooms/<room id>/<bot key>/messages` and the addresses of its messages and boosts under it, each with or without `.json`, which the Worker answers before any page. The key is read as ember-rust reads it (`User.authenticate_bot`): spaces around it are dropped, as JavaScript trims them, the bot's id is what comes before its first `-` and its token what comes between that and the next, and the token must be the active bot's current one, compared in constant time, so a key with an empty token matches nothing and a deleted bot's key or a replaced one stops working at once. A room the bot isn't in, or that doesn't exist, is an empty 404, and its object is never woken. Posts, edits, deletions and boosts from banned IP addresses get 429, as other writes do (`users.ban`). Unlike ember-rust, a key that names no active bot answers 401 `{\"error\":\"Unknown bot key\"}`, where ember-rust redirects a script to sign in. These addresses never read a session cookie, so a request carrying one still acts as the bot, where ember-rust acts as the cookie's person, and nothing but the key in the address makes a request anyone's, so posts from other sites are taken without a forgery check. No other address reads a bot key, so a request with only one answers 401 there, where ember-rust answers 403.",
   },
   {
     id: "bots.api-post",
@@ -2095,7 +2095,7 @@ export const features = [
     id: "bots.api-edit-delete",
     title: "Bots edit and delete their messages",
     origin: "campfire",
-    status: "todo",
+    status: "partial",
     behaviors: [
       "PUT or PATCH on `…/messages/<id>` replaces the bot's own message with the raw body and answers 200 with the message's JSON, shaped as in the list. The body isn't checked for blank, so an empty one empties the message.",
       "A multipart `attachment` replaces the message's file and keeps its text, and an empty `attachment=` field removes the file.",
@@ -2105,12 +2105,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/by_bots.rs", "reference/app/controllers/messages/by_bots_controller.rb", "reference/app/controllers/messages_controller.rb", "crates/ember/src/controllers/messages.rs"],
     upstreamTests: ["reference/test/controllers/messages/by_bots_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "parity/screens.yml"],
+    notes: "PUT or PATCH on a message's address for bots, `/rooms/<room id>/<bot key>/messages/<id>`, replaces the text of the bot's own message with the request's body, as rich text, as a socket's edit does: the message is marked edited, and text saved as it was leaves it as it was. It answers 200 with the message as the list writes it, with its ETag. DELETE deletes the message and its boosts and answers 204. Both reach the room live, and search finds the message as it is now. Someone else's message is an empty 403, a message outside the room is 404 `{\"status\":404,\"error\":\"Not Found\"}`, and a room the bot isn't in is an empty 404; none of them changes anything. Unlike ember-rust, which saves any body, an empty one included, text is held to what the edit form allows, as a post's is (`bots.api-post`): text that shows nothing is 422 `{\"error\":\"Your message is empty.\"}`, more than 10,000 characters of it 422 `{\"error\":\"Messages can be up to 10,000 characters.\"}`, and more than 100,000 characters of markup 413. Still to come: files (`attachments.upload`), until when a form answers 415 `{\"error\":\"Bots can't post files yet\"}`.",
   },
   {
     id: "bots.api-boosts",
     title: "Bots boost messages",
     origin: "campfire",
-    status: "todo",
+    status: "ported",
     behaviors: [
       "POSTing to `…/messages/<id>/boosts` boosts the message with the raw body as its content, untrimmed and of any length, and answers 201 with the boost's JSON. A bot may boost any message in the room, its own included, and add the same boost again.",
       "Boost JSON has, in order, `id`, `content`, `created_at`, `booster` (`id`, `name`, `role`, `avatar_url`) and `message` (`id`, `url`).",
@@ -2120,6 +2121,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/messages/boosts/by_bots.rs", "reference/app/controllers/messages/boosts/by_bots_controller.rb", "reference/app/views/messages/boosts/_boost.json.jbuilder", "crates/ember/src/controllers/presenters.rs"],
     upstreamTests: ["reference/test/controllers/messages/boosts/by_bots_controller_test.rb", "crates/ember/src/controllers/messages/tests.rs", "parity/screens.yml"],
+    notes: "POSTing to a message's boosts address for bots, `/rooms/<room id>/<bot key>/messages/<id>/boosts`, boosts it with the request's body and answers 201 with the boost's JSON, in Campfire's order of keys, with its ETag. A bot may boost any message in the room, its own included, and add the same boost again, which the room shows as another reaction, where a person's repeated click adds nothing. DELETE on `…/boosts/<boost id>` removes the bot's own boost on that message with 204. Both reach the room live. A message outside the room, or a room the bot isn't in, is an empty 404, checked before a blank body's empty 422; anyone else's boost, the bot's own under another message, or one already removed is an empty 404. Unlike ember-rust, which keeps the body as it comes, a boost is trimmed and holds at most 16 characters, as a person's does: ember-rust's column is `varchar(16)`, which SQLite doesn't enforce. A longer one is 422 `{\"error\":\"Boosts can be up to 16 characters.\"}`.",
   },
   {
     id: "bots.webhook-delivery",

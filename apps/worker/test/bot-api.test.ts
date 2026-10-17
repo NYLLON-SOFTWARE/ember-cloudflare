@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import {
   HISTORY_PAGE_SIZE,
+  MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
   MAX_MESSAGE_LENGTH,
   MESSAGE_TOO_LONG,
@@ -16,11 +17,29 @@ import {
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
+import { NOT_FOUND } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { AUTHORIZATION_TTL_MS } from "../src/revocations";
 import { COUNT_MESSAGES } from "../src/store";
 import { env } from "cloudflare:workers";
-import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, objectSql, origin, roomSql, roomStub, shown, startDirect, workspaceSql, type Session } from "./support";
+import {
+  api,
+  apiWith,
+  connect,
+  cookieOf,
+  createRoom,
+  freshDeploy,
+  objectSql,
+  origin,
+  post,
+  roomSql,
+  roomStub,
+  settle,
+  shown,
+  startDirect,
+  workspaceSql,
+  type Session,
+} from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };
@@ -91,6 +110,35 @@ const heldBack = (text: string, meanwhile: () => Promise<unknown>) =>
 /** Reads `room` as the bot whose key is `key`. */
 const readAs = (key: string, room: RoomId, query = "", init: RequestInit = {}) => api(botPath(room, key, query), init);
 
+/** Message `id`'s address in `room` for the bot whose key is `key`, followed by `rest`. */
+const messagePath = (room: RoomId, key: string, id: string, rest = "") => `/rooms/${room}/${key}/messages/${id}${rest}`;
+
+/** As `curl -d` sends a body. */
+const FORM_TYPE = { "Content-Type": "application/x-www-form-urlencoded" };
+
+/** Replaces the text of message `id` with `body` as the bot whose key is `key`, with PATCH unless `method` says otherwise. */
+const editAs = (key: string, room: RoomId, id: string, body: BodyInit | null, method = "PATCH", headers: Record<string, string> = {}) =>
+  api(messagePath(room, key, id), { method, body, headers: { ...FORM_TYPE, ...headers } });
+
+/** Deletes message `id` as the bot whose key is `key`. */
+const deleteAs = (key: string, room: RoomId, id: string, headers: Record<string, string> = {}) => api(messagePath(room, key, id), { method: "DELETE", headers });
+
+/** Boosts message `id` with `content` as the bot whose key is `key`. */
+const boostAs = (key: string, room: RoomId, id: string, content: BodyInit | null, headers: Record<string, string> = {}) =>
+  api(messagePath(room, key, id, "/boosts"), { method: "POST", body: content, headers: { ...FORM_TYPE, ...headers } });
+
+/** Removes boost `boostId` from message `id` as the bot whose key is `key`. */
+const unboostAs = (key: string, room: RoomId, id: string, boostId: string, headers: Record<string, string> = {}) =>
+  api(messagePath(room, key, id, `/boosts/${boostId}`), { method: "DELETE", headers });
+
+/** Everything a bot can ask of a message and its boosts, as the bot whose key is `key`. */
+const changesAs = (key: string, room: RoomId, id: string, headers: Record<string, string> = {}) => ({
+  edit: editAs(key, room, id, "Edited", "PATCH", headers),
+  delete: deleteAs(key, room, id, headers),
+  boost: boostAs(key, room, id, "👀", headers),
+  unboost: unboostAs(key, room, id, "0noboost000000", headers),
+});
+
 /** Posts `body` as the bot whose key is `key`, answering the new message's id. */
 async function posted(key: string, room: RoomId, body: string): Promise<string> {
   const response = await postAs(key, room, body);
@@ -106,6 +154,15 @@ async function storedIn(room: RoomId): Promise<Array<{ id: string; creator_id: s
   if (!(env as { DB?: D1Database }).DB && !(await opened(room))) return [];
   return (await roomSql(room, "SELECT id, creator_id, body FROM messages WHERE room_id = ? ORDER BY id", room)) as Array<{ id: string; creator_id: string; body: string }>;
 }
+
+/** The boosts `room` has, oldest first, as its database holds them. */
+const boostsIn = async (room: RoomId) =>
+  (await roomSql(room, "SELECT id, message_id, booster_id, content FROM boosts WHERE room_id = ? ORDER BY id", room)) as Array<{
+    id: string;
+    message_id: string;
+    booster_id: string;
+    content: string;
+  }>;
 
 /** The page of messages a bot reads, parsed. */
 interface ListedMessage {
@@ -166,13 +223,16 @@ describe(feature("bots.api-auth"), () => {
       `-${tokenOf(bot)}`,
       "%E0%A4%A",
     ];
+    const id = await posted(bot.key, general, "Deploying...");
     for (const key of keys) {
       const post = await postAs(key, general, "Hello!");
       expect([key, post.status, await post.json()]).toEqual([key, 401, { error: "Unknown bot key" }]);
       const read = await readAs(key, general);
       expect([key, read.status]).toEqual([key, 401]);
+      for (const [asked, response] of Object.entries(changesAs(key, general, id))) expect([key, asked, (await response).status]).toEqual([key, asked, 401]);
     }
-    expect(await storedIn(general)).toEqual([]);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+    expect(await boostsIn(general)).toEqual([]);
   });
 
   it("stops taking a key once its bot is deleted, or given a new one", async () => {
@@ -222,6 +282,24 @@ describe(feature("bots.api-auth"), () => {
     expect(await storedIn(general)).toEqual([]);
   });
 
+  it("changes nothing for a bot that the room has heard was taken out since its key was checked, as it posts nothing", async () => {
+    const { administrator, bot } = await withBot();
+    const room = await createRoom("Launch", { closedTo: [administrator.user.id, bot.id], as: administrator });
+    const id = await posted(bot.key, room.id, "Deploying...");
+    const boost = (await (await boostAs(bot.key, room.id, id, "👀")).json()) as { id: string };
+    const letThrough = { bot: { id: bot.id, name: bot.name }, authorizedAt: Date.now() };
+    const takeBotOut = JSON.stringify({ kind: "closed", memberIds: [administrator.user.id] });
+    expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: takeBotOut })).status).toBe(200);
+    await revocationsDelivered();
+    const inRoom = roomStub(room.id);
+    expect(await inRoom.editBotMessage(room.id, letThrough, id, "Deployed.")).toBe(NOT_FOUND);
+    expect(await inRoom.deleteBotMessage(room.id, letThrough, id)).toBe(NOT_FOUND);
+    expect(await inRoom.addBotBoost(room.id, letThrough, id, "🎉")).toBe(NOT_FOUND);
+    expect(await inRoom.removeBotBoost(room.id, letThrough, id, boost.id)).toBe(false);
+    expect(await storedIn(room.id)).toMatchObject([{ id, body: "Deploying..." }]);
+    expect(await boostsIn(room.id)).toMatchObject([{ id: boost.id, content: "👀" }]);
+  });
+
   it("answers an empty 404 for a room the bot isn't in, once the key is checked, and never wakes it", async () => {
     const { administrator, bot, general } = await withBot();
     const secrets = await createRoom("Secrets", { closedTo: [administrator.user.id], as: administrator });
@@ -230,6 +308,10 @@ describe(feature("bots.api-auth"), () => {
       expect([room, post.status, post.headers.get("Content-Type"), await post.text()]).toEqual([room, 404, "text/html", ""]);
       const read = await readAs(bot.key, room);
       expect([room, read.status, await read.text()]).toEqual([room, 404, ""]);
+      for (const [asked, response] of Object.entries(changesAs(bot.key, room, "0nothing000000"))) {
+        const answer = await response;
+        expect([room, asked, answer.status, await answer.text()]).toEqual([room, asked, 404, ""]);
+      }
     }
     expect((await postAs(`${bot.id}-wrongwrongxx`, secrets.id, "Hello!")).status).toBe(401);
     expect(await opened(secrets.id)).toBe(false);
@@ -270,10 +352,14 @@ describe(feature("bots.api-auth"), () => {
     expect(signedIn.status).toBe(201);
     expect((await api(`/api/users/${member.user.id}/ban`, { method: "POST", headers: { Cookie: administrator.cookie } })).status).toBe(200);
 
-    const refused = await postAs(bot.key, general, "Hello!", { "CF-Connecting-IP": "203.0.113.9" });
+    const id = await posted(bot.key, general, "Deploying...");
+    const fromBanned = { "CF-Connecting-IP": "203.0.113.9" };
+    const refused = await postAs(bot.key, general, "Hello!", fromBanned);
     expect([refused.status, await refused.text()]).toEqual([429, ""]);
-    expect((await readAs(bot.key, general, "", { headers: { "CF-Connecting-IP": "203.0.113.9" } })).status).toBe(200);
-    expect(await storedIn(general)).toEqual([]);
+    for (const [asked, response] of Object.entries(changesAs(bot.key, general, id, fromBanned))) expect([asked, (await response).status]).toEqual([asked, 429]);
+    expect((await readAs(bot.key, general, "", { headers: fromBanned })).status).toBe(200);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+    expect(await boostsIn(general)).toEqual([]);
   });
 });
 
@@ -542,6 +628,263 @@ describe(feature("bots.api-list"), () => {
   });
 });
 
+describe(feature("bots.api-edit-delete"), () => {
+  it("replaces the text of the bot's own message, with PATCH or PUT, live, answering 200 with the message as the list has it", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const id = await posted(bot.key, general, "Deploying...");
+    await inRoom.next("message.created");
+
+    const response = await editAs(bot.key, general, id, "Deployed.");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("ETag")).toMatch(/^W\/"[0-9a-f]{32}"$/);
+    expect(response.headers.get("Cache-Control")).toBe("max-age=0, private, must-revalidate");
+    const edited = (await response.json()) as ListedMessage;
+    expect(edited).toEqual((await listedBy(bot.key, general))[0]);
+    expect(edited).toMatchObject({ id, body: { plain_text: "Deployed." }, creator: { id: bot.id, role: "bot" }, url: `${origin}/rooms/${general}/@${id}` });
+    const { message } = await inRoom.next("message.updated");
+    expect(message).toMatchObject({ id, plainText: "Deployed.", creator: { id: bot.id } });
+    expect(message.editedAt).not.toBeNull();
+
+    const put = await editAs(bot.key, general, id, "Deployed 🚀 & <em>done</em>", "PUT");
+    const text = await put.text();
+    expect(JSON.parse(text)).toMatchObject({ body: { plain_text: "Deployed 🚀 & done" } });
+    expect(text).not.toMatch(/[<>&]/);
+    expect((await inRoom.next("message.updated")).message.plainText).toBe("Deployed 🚀 & done");
+
+    const json = await api(messagePath(general, bot.key, id, ".json"), { method: "PATCH", body: "Shipped." });
+    expect([json.status, ((await json.json()) as ListedMessage).body.plain_text]).toEqual([200, "Shipped."]);
+  });
+
+  it("leaves a message saved as it was as it was, its update time included", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    const inRoom = await connect(general, administrator);
+    expect((await editAs(bot.key, general, id, "Deploying...")).status).toBe(200);
+    await settle(inRoom);
+    expect(inRoom.pending("message.updated")).toEqual([]);
+    expect(await roomSql(general, "SELECT edited_at, updated_at = created_at AS untouched FROM messages WHERE id = ?", id)).toEqual([{ edited_at: null, untouched: 1 }]);
+  });
+
+  it("answers 403 to someone else's message, cookie or not, and 404 JSON to one outside the room, changing nothing", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const adas = await post(inRoom, "Ada's plan");
+    const elsewhere = await createRoom("Elsewhere", { as: administrator });
+    const outside = await posted(bot.key, elsewhere.id, "Over here");
+
+    // Ada is an administrator, but the request acts as the bot, which isn't.
+    for (const headers of [{}, { Cookie: administrator.cookie }] as Array<Record<string, string>>) {
+      for (const response of [await editAs(bot.key, general, adas.id, "Hijacked!", "PATCH", headers), await deleteAs(bot.key, general, adas.id, headers)]) {
+        expect([response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([403, "text/html", ""]);
+      }
+    }
+    for (const id of [outside, "0nothing000000"]) {
+      for (const response of [await editAs(bot.key, general, id, "Hijacked!"), await deleteAs(bot.key, general, id)]) {
+        expect([id, response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([
+          id,
+          404,
+          "application/json; charset=UTF-8",
+          '{"status":404,"error":"Not Found"}',
+        ]);
+      }
+    }
+    expect(await storedIn(general)).toMatchObject([{ id: adas.id, body: "Ada's plan" }]);
+    expect(await storedIn(elsewhere.id)).toMatchObject([{ id: outside, body: "Over here" }]);
+  });
+
+  it("checks the key again once an edit's body has arrived, as it does a post's", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    const edit = await editAs(bot.key, general, id, heldBack("Deployed.", () => newKeyFor(administrator, bot)));
+    expect([edit.status, await edit.json()]).toEqual([401, { error: "Unknown bot key" }]);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+  });
+
+  it("refuses text that shows nothing, or too much, with 422 and why, where ember-rust empties the message or takes it", async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deploying...");
+    for (const body of [null, "", " \n ", "<p> </p>"]) {
+      const response = await editAs(bot.key, general, id, body);
+      expect([JSON.stringify(body), response.status, await response.json()]).toEqual([JSON.stringify(body), 422, { error: "Your message is empty." }]);
+    }
+    const long = await editAs(bot.key, general, id, "x".repeat(MAX_MESSAGE_LENGTH + 1));
+    expect([long.status, await long.json()]).toEqual([422, { error: MESSAGE_TOO_LONG }]);
+    const tooMuch = await editAs(bot.key, general, id, "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1));
+    expect([tooMuch.status, await tooMuch.json()]).toEqual([413, { status: 413, error: "Content Too Large" }]);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
+  });
+
+  it("answers 415 to a form, as `curl -F` sends a file, until files can be stored", async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Report attached");
+    const form = new FormData();
+    form.set("attachment", new File(["report"], "report.txt", { type: "text/plain" }));
+    const response = await api(messagePath(general, bot.key, id), { method: "PATCH", body: form });
+    expect([response.status, await response.json()]).toEqual([415, { error: "Bots can't post files yet" }]);
+    expect(await storedIn(general)).toMatchObject([{ id, body: "Report attached" }]);
+  });
+
+  it("deletes the bot's own message, with its boosts, live, answering 204", async () => {
+    const { administrator, bot, general } = await withBot();
+    const kept = await posted(bot.key, general, "Deployed.");
+    const id = await posted(bot.key, general, "Deploying...");
+    const inRoom = await connect(general, administrator);
+    inRoom.send({ type: "boost.create", messageId: id, content: "👀" });
+    await inRoom.next("boost.created");
+    expect((await boostAs(bot.key, general, id, "🚀")).status).toBe(201);
+    await inRoom.next("boost.created");
+
+    const response = await deleteAs(bot.key, general, id);
+    expect([response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([204, null, ""]);
+    expect((await inRoom.next("message.deleted")).messageId).toBe(id);
+    expect((await storedIn(general)).map((message) => message.id)).toEqual([kept]);
+    expect(await boostsIn(general)).toEqual([]);
+
+    const again = await api(messagePath(general, bot.key, id, ".json"), { method: "DELETE" });
+    expect([again.status, await again.json()]).toEqual([404, { status: 404, error: "Not Found" }]);
+  });
+
+  it("has search find an edited message by its new text, and a deleted one no more", async () => {
+    const { bot, general } = await withBot();
+    const member = await joinAsGrace();
+    const id = await posted(bot.key, general, "Nightly deploy started");
+    const searched = async (query: string) => {
+      while ((await roomSql(general, "SELECT seq FROM unindexed_messages WHERE room_id = ?", general)).length > 0) await sleep(5);
+      const found = (await (await api(`/api/searches?q=${query}`, { headers: { Cookie: member.cookie } })).json()) as SearchResults;
+      return found.messages.map((message) => message.id);
+    };
+
+    expect((await editAs(bot.key, general, id, "Nightly rollback started")).status).toBe(200);
+    expect(await searched("rollback")).toEqual([id]);
+    expect(await searched("deploy")).toEqual([]);
+    expect((await deleteAs(bot.key, general, id)).status).toBe(204);
+    expect(await searched("rollback")).toEqual([]);
+  });
+});
+
+describe(feature("bots.api-boosts"), () => {
+  /** A boost as the bot API answers it, parsed. */
+  interface BoostAnswer {
+    id: string;
+    content: string;
+    created_at: string;
+    booster: { id: string; name: string; role: string; avatar_url: string };
+    message: { id: string; url: string };
+  }
+
+  it("boosts a message in the room with the request's body, live, answering 201 with the boost", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const adas = await post(inRoom, "Ship it?");
+
+    const response = await boostAs(bot.key, general, adas.id, "👀");
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("ETag")).toMatch(/^W\/"[0-9a-f]{32}"$/);
+    expect(response.headers.get("Cache-Control")).toBe("max-age=0, private, must-revalidate");
+    const answered = (await response.json()) as BoostAnswer;
+    expect(Object.keys(answered)).toEqual(["id", "content", "created_at", "booster", "message"]);
+    expect(Object.keys(answered.booster)).toEqual(["id", "name", "role", "avatar_url"]);
+    const [stored] = await boostsIn(general);
+    expect(answered).toEqual({
+      id: stored!.id,
+      content: "👀",
+      created_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/),
+      booster: { id: bot.id, name: "Build Bot", role: "bot", avatar_url: `${origin}${await avatarOf(administrator, bot.id)}` },
+      message: { id: adas.id, url: `${origin}/rooms/${general}/@${adas.id}` },
+    });
+    const { boost } = await inRoom.next("boost.created");
+    expect(boost).toEqual({ id: stored!.id, messageId: adas.id, booster: { id: bot.id, name: "Build Bot" }, content: "👀", createdAt: answered.created_at });
+
+    const text = await boostAs(bot.key, general, adas.id, "<&> ok");
+    const raw = await text.text();
+    expect(JSON.parse(raw)).toMatchObject({ content: "<&> ok" });
+    expect(raw).toContain('"content":"\\u003c\\u0026\\u003e ok"');
+    const json = await api(messagePath(general, bot.key, adas.id, "/boosts.json"), { method: "POST", body: "Nice!" });
+    expect([json.status, ((await json.json()) as BoostAnswer).content]).toEqual([201, "Nice!"]);
+  });
+
+  it("boosts any message in the room, its own included, and adds the same boost again, as ember-rust does", async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deployed.");
+    const first = (await (await boostAs(bot.key, general, id, "🎉")).json()) as BoostAnswer;
+    const second = (await (await boostAs(bot.key, general, id, "🎉")).json()) as BoostAnswer;
+    expect(second.id).not.toBe(first.id);
+    expect(await boostsIn(general)).toEqual([
+      { id: first.id, message_id: id, booster_id: bot.id, content: "🎉" },
+      { id: second.id, message_id: id, booster_id: bot.id, content: "🎉" },
+    ]);
+  });
+
+  it(`trims a boost, and refuses one with more than ${MAX_BOOST_LENGTH} characters with 422 and why, where ember-rust keeps any`, async () => {
+    const { bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deployed.");
+    expect(((await (await boostAs(bot.key, general, id, "  🎉\n")).json()) as BoostAnswer).content).toBe("🎉");
+    const long = await boostAs(bot.key, general, id, "x".repeat(MAX_BOOST_LENGTH + 1));
+    expect([long.status, await long.json()]).toEqual([422, { error: `Boosts can be up to ${MAX_BOOST_LENGTH} characters.` }]);
+    expect((await boostAs(bot.key, general, id, ` ${"x".repeat(MAX_BOOST_LENGTH)} `)).status).toBe(201);
+    expect((await boostsIn(general)).map(({ content }) => content)).toEqual(["🎉", "x".repeat(MAX_BOOST_LENGTH)]);
+  });
+
+  it("answers an empty 404 for a message outside the room, before an empty 422 for a blank boost", async () => {
+    const { administrator, bot, general } = await withBot();
+    const elsewhere = await createRoom("Elsewhere", { as: administrator });
+    const outside = await posted(bot.key, elsewhere.id, "Over here");
+    const id = await posted(bot.key, general, "Deployed.");
+    for (const [message, content] of [[outside, "👀"], [outside, ""], ["0nothing000000", " "]] as const) {
+      const response = await boostAs(bot.key, general, message, content);
+      expect([message, response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([message, 404, "text/html", ""]);
+    }
+    for (const content of [null, "", " \n\t "]) {
+      const response = await boostAs(bot.key, general, id, content);
+      expect([JSON.stringify(content), response.status, await response.text()]).toEqual([JSON.stringify(content), 422, ""]);
+    }
+    expect(await boostsIn(general)).toEqual([]);
+    expect(await boostsIn(elsewhere.id)).toEqual([]);
+  });
+
+  it("checks the key again once a boost's body has arrived, as it does a post's", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deployed.");
+    const boost = await boostAs(bot.key, general, id, heldBack("🎉", () => newKeyFor(administrator, bot)));
+    expect([boost.status, await boost.json()]).toEqual([401, { error: "Unknown bot key" }]);
+    expect(await boostsIn(general)).toEqual([]);
+  });
+
+  it("removes the bot's own boost on the message, live, answering 204", async () => {
+    const { administrator, bot, general } = await withBot();
+    const id = await posted(bot.key, general, "Deployed.");
+    const { id: boostId } = (await (await boostAs(bot.key, general, id, "🎉")).json()) as BoostAnswer;
+    const inRoom = await connect(general, administrator);
+
+    const response = await unboostAs(bot.key, general, id, boostId);
+    expect([response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([204, null, ""]);
+    expect(await inRoom.next("boost.deleted")).toMatchObject({ boostId, messageId: id });
+    expect(await boostsIn(general)).toEqual([]);
+
+    const again = await unboostAs(bot.key, general, id, boostId);
+    expect([again.status, await again.text()]).toEqual([404, ""]);
+  });
+
+  it("answers an empty 404 to removing someone else's boost, or its own on another message, removing nothing", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const adas = await post(inRoom, "Ship it?");
+    inRoom.send({ type: "boost.create", messageId: adas.id, content: "👍" });
+    const { boost: adasBoost } = await inRoom.next("boost.created");
+    const other = await posted(bot.key, general, "Deployed.");
+    const { id: botsBoost } = (await (await boostAs(bot.key, general, adas.id, "🎉")).json()) as BoostAnswer;
+
+    for (const [message, boostId] of [[adas.id, adasBoost.id], [other, botsBoost], [adas.id, "0noboost000000"]]) {
+      const response = await unboostAs(bot.key, general, message!, boostId!);
+      expect([boostId, response.status, response.headers.get("Content-Type"), await response.text()]).toEqual([boostId, 404, "text/html", ""]);
+    }
+    expect((await boostsIn(general)).map(({ id }) => id)).toEqual([adasBoost.id, botsBoost]);
+  });
+});
+
 describe(feature("bots.log-redaction"), () => {
   it("filters bot keys out of addresses, as Campfire's log does, and leaves other addresses alone", () => {
     expect(withoutBotKeys("POST /rooms/0mgk3x2a9b4c5a/0mgk3x2a9b4c5e-Ab3xK9mQz1Rt/messages")).toBe("POST /rooms/0mgk3x2a9b4c5a/[FILTERED]/messages");
@@ -550,6 +893,7 @@ describe(feature("bots.log-redaction"), () => {
     );
     const twice = withoutBotKeys("/rooms/1/5-Ab3xK9mQz1Rt/messages and /rooms/2/6-Cd4yL0nR2St7/messages.json");
     expect(twice).toBe("/rooms/1/[FILTERED]/messages and /rooms/2/[FILTERED]/messages.json");
+    expect(withoutBotKeys("DELETE /rooms/1/5-Ab3xK9mQz1Rt/messages/9/boosts/11")).toBe("DELETE /rooms/1/[FILTERED]/messages/9/boosts/11");
     for (const path of ["/rooms/1", "/rooms/1/@5", "/api/rooms/1/socket", "/rooms/1/messages"]) expect(withoutBotKeys(path)).toBe(path);
   });
 

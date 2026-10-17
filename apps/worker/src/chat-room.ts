@@ -3,10 +3,12 @@ import {
   CloseCode,
   HISTORY_PAGE_SIZE,
   isMessageTooLong,
+  MAX_BOOST_LENGTH,
   MESSAGE_TOO_LONG,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
+  type Boost,
   type ClientFrame,
   type Message,
   type RoomId,
@@ -75,6 +77,15 @@ const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment
 export interface BotPage extends Omit<TimelinePage, "around"> {
   total: number;
 }
+
+/** What the room answers a bot that names a message it doesn't have. */
+export const NOT_FOUND = "not found";
+/** What the room answers a bot that names someone else's message, which it can't change. */
+export const FORBIDDEN = "forbidden";
+/** What the room answers a bot whose boost has nothing in it. */
+export const BLANK = "blank";
+/** Why the room keeps no longer boost, where ember-rust's column holds 16 characters but SQLite keeps any. */
+const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
 
 /** What sends each of a room's logs (see `couriersFor`). */
 interface Couriers {
@@ -294,6 +305,78 @@ export class ChatRoom extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Replaces the text of the bot's message `messageId` with `markup`, as ember-rust's bot API does
+   * (messages/by_bots.rs `update`): as a socket's message.update does, answering the message as it is
+   * now. Answers `NOT_FOUND` when the room turns the bot away, as `createBotMessage` does, or has no such
+   * message, `FORBIDDEN` when it's someone else's, then why the room keeps nothing of `markup`.
+   */
+  async editBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, markup: string): Promise<Message | string> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const store = this.storeFor(roomId);
+      const message = await this.botsOwn(store, bot, messageId);
+      if (typeof message === "string") return message;
+      const body = await this.prepare(markup);
+      return typeof body === "string" ? body : this.edit(store, message, body, now);
+    });
+  }
+
+  /**
+   * Deletes the bot's message `messageId`, with its boosts, as ember-rust's bot API does
+   * (messages/by_bots.rs `destroy`): as a socket's message.delete does, answering null, or `NOT_FOUND`
+   * when the room turns the bot away, as `createBotMessage` does, or has no such message, and `FORBIDDEN`
+   * when it's someone else's.
+   */
+  async deleteBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string): Promise<string | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const store = this.storeFor(roomId);
+      const message = await this.botsOwn(store, bot, messageId);
+      if (typeof message === "string") return message;
+      await this.deleteMessage(store, message);
+      return null;
+    });
+  }
+
+  /**
+   * Adds the bot's boost of `content`, trimmed, to the message `messageId`, as ember-rust's bot API does
+   * (messages/boosts/by_bots.rs `create`): as a socket's boost.create does, but even when the bot has
+   * added the same one, as there, answering it. Answers `NOT_FOUND` when the room turns the bot away, as
+   * `createBotMessage` does, or has no such message, then `BLANK` when `content` is only spaces, or why
+   * the room keeps no boost of it.
+   */
+  async addBotBoost(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, content: string): Promise<Boost | string> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const store = this.storeFor(roomId);
+      if (!(await store.find(messageId))) return NOT_FOUND;
+      const trimmed = content.trim();
+      if (trimmed === "") return BLANK;
+      if (trimmed.length > MAX_BOOST_LENGTH) return BOOST_TOO_LONG;
+      return this.addBoost(store, messageId, bot, trimmed, now);
+    });
+  }
+
+  /**
+   * Removes the bot's boost `boostId` from the message `messageId`, as ember-rust's bot API does
+   * (messages/boosts/by_bots.rs `destroy`): as a socket's boost.delete does, answering whether it did,
+   * which it does only when the boost is the bot's own, on that message, and the room doesn't turn the
+   * bot away, as `createBotMessage` does.
+   */
+  async removeBotBoost(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, boostId: string): Promise<boolean> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return false;
+      const store = this.storeFor(roomId);
+      const boost = await store.findBoost(boostId);
+      if (!boost || boost.messageId !== messageId || boost.booster.id !== bot.id) return false;
+      await this.removeBoost(store, boost);
+      return true;
+    });
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const frame = typeof raw === "string" ? parseClientFrame(raw) : null;
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });
@@ -355,32 +438,26 @@ export class ChatRoom extends DurableObject<Env> {
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
-        // Saved as it was, it stays as it was, its update time included, as Rails saves nothing then.
-        if (body.html === message.body) return;
-        const { message: updated, seq } = await store.updateBody(message, body, now);
-        this.broadcast({ type: "message.updated", message: updated, seq });
-        return this.couriersFor(store.roomId).index.deliver();
+        await this.edit(store, message, body, now);
+        return;
       }
       case "message.delete": {
         const message = await store.find(frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only delete your own messages");
-        const seq = await store.delete([message.id]);
-        this.broadcast({ type: "message.deleted", messageId: message.id, seq });
-        return this.couriersFor(store.roomId).index.deliver();
+        return this.deleteMessage(store, message);
       }
       case "boost.create": {
         const message = await store.find(frame.messageId);
         if (!message) return this.refuse(ws, "That message no longer exists");
         // Unlike ember-rust, a person adds each reaction once, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
-        const { boost, seq } = await store.addBoost(sortableId(), frame.messageId, user, frame.content, now);
-        return this.broadcast({ type: "boost.created", boost, seq });
+        await this.addBoost(store, frame.messageId, user, frame.content, now);
+        return;
       }
       case "boost.delete": {
         const boost = await store.findBoost(frame.boostId);
         if (!boost || boost.booster.id !== user.id) return this.refuse(ws, "You can only remove your own reactions");
-        const seq = await store.removeBoost(boost);
-        return this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+        return this.removeBoost(store, boost);
       }
       case "typing.start":
       case "typing.stop":
@@ -423,6 +500,50 @@ export class ChatRoom extends DurableObject<Env> {
     couriers.workspace.deliver();
     couriers.index.deliver();
     return message;
+  }
+
+  /**
+   * Replaces `message`'s text with `body`, telling everyone in the room and sending the search index its
+   * log, and answers the message as it is now. Saved as it was, it stays as it was, its update time
+   * included, as Rails saves nothing then.
+   */
+  private async edit(store: MessageStore, message: Message, body: PreparedBody, now: string): Promise<Message> {
+    if (body.html === message.body) return message;
+    const { message: edited, seq } = await store.updateBody(message, body, now);
+    this.broadcast({ type: "message.updated", message: edited, seq });
+    this.couriersFor(store.roomId).index.deliver();
+    return edited;
+  }
+
+  /** Deletes `message`, with its boosts, telling everyone in the room and sending the search index its log. */
+  private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
+    const seq = await store.delete([message.id]);
+    this.broadcast({ type: "message.deleted", messageId: message.id, seq });
+    this.couriersFor(store.roomId).index.deliver();
+  }
+
+  /** Adds `user`'s boost of `content` to the message `messageId`, telling everyone in the room, and answers it. */
+  private async addBoost(store: MessageStore, messageId: string, user: User, content: string, now: string): Promise<Boost> {
+    const { boost, seq } = await store.addBoost(sortableId(), messageId, user, content, now);
+    this.broadcast({ type: "boost.created", boost, seq });
+    return boost;
+  }
+
+  /** Removes `boost`, telling everyone in the room. */
+  private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
+    const seq = await store.removeBoost(boost);
+    this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+  }
+
+  /**
+   * The bot `bot`'s message `messageId`, or `NOT_FOUND` or `FORBIDDEN` when the room has no such message
+   * or it's someone else's, as ember-rust's `set_message` and `ensure_can_administer` decide. A bot is
+   * never an administrator, so the only messages it can change are its own.
+   */
+  private async botsOwn(store: MessageStore, bot: User, messageId: string): Promise<Message | string> {
+    const message = await store.find(messageId);
+    if (!message) return NOT_FOUND;
+    return message.creator.id === bot.id ? message : FORBIDDEN;
   }
 
   /**
@@ -533,12 +654,17 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private wakeAt(roomId: RoomId, time: number): Promise<boolean> {
     return this.serially(async () => {
-      if ((await this.ctx.storage.get(DELETED_ROOM)) !== undefined) return false;
+      if (await this.isDeleted()) return false;
       await this.ctx.storage.put(UNDELIVERED_ROOM, roomId);
       const alarm = await this.ctx.storage.getAlarm();
       if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
       return true;
     });
+  }
+
+  /** Whether the Workspace has deleted the room, which a request it let through just before can still find. */
+  private async isDeleted(): Promise<boolean> {
+    return (await this.ctx.storage.get(DELETED_ROOM)) !== undefined;
   }
 
   /** Everyone with at least one open socket, once each. */
