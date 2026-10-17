@@ -237,7 +237,8 @@ describe(feature("bots.webhook-delivery"), () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
     const delivered = bots();
-    const client = await connect(general, ada);
+    // A hidden tab, so the room's log holds only the messages: one shown would log that it read the room.
+    const client = await connect(general, ada, { visible: false });
     const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
     await vi.waitFor(() => expect(delivered).toHaveLength(1));
 
