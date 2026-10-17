@@ -24,7 +24,7 @@ import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
-import { attachedFile, Blobs, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
+import { attachedFile, Blobs, objectKey, previewKey, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
 import type { ImageSize } from "./files/images";
 import type { Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
@@ -103,12 +103,20 @@ const WEBHOOKS_WAITING = 1024;
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
 
+/** How long an upload may go unfinished, after which the room deletes what R2 has of it. */
+export const UNFINISHED_UPLOAD_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/** How long a deleted room waits to erase itself again when R2 couldn't delete its files. */
+const ERASE_RETRY_MS = 5 * 60 * 1000;
+
 /** What sends each of a room's logs (see `couriersFor`). */
 interface Couriers {
   /** Sends the Workspace the room's events, which it marks the room unread and read by. */
   workspace: Courier;
   /** Sends the search index the messages written, edited and deleted. */
   index: Courier;
+  /** Has R2 delete the files the room has marked deleted. */
+  files: Courier;
 }
 
 /**
@@ -164,8 +172,9 @@ export class ChatRoom extends DurableObject<Env> {
       if (visible) void this.serially(() => this.read(roomId, user.id)).catch((error) => console.error("Could not log a read", error));
       // Otherwise the first socket since the object started sends whatever a restart left in the log.
       else if (!couriers.workspace.checked) couriers.workspace.deliver();
-      // And the search index's, which nothing else here sends.
+      // And the search index's, which nothing else here sends, and the files to delete.
       if (!couriers.index.checked) couriers.index.deliver();
+      if (!couriers.files.checked) couriers.files.deliver();
       return new Response(null, { status: 101, webSocket: client });
     });
   }
@@ -215,42 +224,60 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, as
-   * ember-rust's `Room::destroy` does (room.rs), and has the search index forget them. Nobody is left
-   * to hear who leaves. The record that the room was deleted stays, turning away sockets let through
-   * before then, until none of those could still arrive, when the alarm erases it. A failure has the
-   * Workspace ask again.
+   * ember-rust's `Room::destroy` does (room.rs), with their files, and has the search index forget them.
+   * Nobody is left to hear who leaves. The record that the room was deleted stays, turning away sockets
+   * let through before then, until none of those could still arrive, when the alarm erases it. A failure
+   * has the Workspace ask again.
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
     await this.storeFor(roomId).deleteAllMessages();
-    await this.blobsFor(roomId).deleteAll();
     await this.logFor(roomId).forget();
     await searchIndex(this.env).forget(roomId);
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
+    this.couriersFor(roomId).files.deliver();
   }
 
   /**
-   * Erases what's left of a deleted room: its revocations, and the object's own storage, which on DO
-   * SQLite is everything it kept. An object with nothing stored ceases to exist. Otherwise, sends the
-   * room's logs, which a call that failed left, or which `reindex` filled.
+   * Erases what's left of a deleted room, once R2 has deleted its files. Otherwise, sends the room's
+   * logs, which a call that failed left, or which `reindex` filled, and has R2 delete the files the room
+   * has marked deleted, and the uploads a day old that are still unfinished, coming back for the next
+   * of those once it's a day old.
    */
   override async alarm(): Promise<void> {
-    const undelivered = await this.serially(async () => {
-      const roomId = await this.ctx.storage.get<RoomId>(DELETED_ROOM);
-      if (roomId === undefined) return this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM);
+    const [deleted, undelivered] = await this.serially(() =>
+      Promise.all([this.ctx.storage.get<RoomId>(DELETED_ROOM), this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM)]),
+    );
+    if (deleted !== undefined) return this.erase(deleted);
+    if (undelivered === undefined) return;
+    const couriers = this.couriersFor(undelivered);
+    await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry()]);
+    // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
+    // retried. A courier whose last call failed has set the alarm again, for its next try.
+    if (couriers.workspace.failing || couriers.index.failing || couriers.files.failing) return;
+    const unfinished = await this.serially(() => this.blobsFor(undelivered).oldestUnfinished());
+    if (unfinished === null) await this.ctx.storage.delete(UNDELIVERED_ROOM);
+    else await this.wakeAt(undelivered, Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS);
+  }
+
+  /**
+   * Erases what's left of deleted room `roomId` once R2 has deleted its files: its revocations, and the
+   * object's own storage, which on DO SQLite is everything it kept. An object with nothing stored ceases
+   * to exist. Until R2 has, the alarm tries again later, since the room's record of its files goes too.
+   */
+  private async erase(roomId: RoomId): Promise<void> {
+    const { workspace, index, files } = this.couriersFor(roomId);
+    await files.retry();
+    if (files.failing) return this.ctx.storage.setAlarm(Date.now() + ERASE_RETRY_MS);
+    // A call still out would read its log once the tables are gone, which makes them again.
+    await Promise.all([workspace.settled(), index.settled()]);
+    await this.serially(async () => {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
       // Its tables went too, so anything after this opens the database afresh.
       this.db = this.store = this.revocations = this.log = this.blobs = null;
-      return undefined;
     });
-    if (undelivered === undefined) return;
-    const couriers = this.couriersFor(undelivered);
-    await Promise.all([couriers.workspace.retry(), couriers.index.retry()]);
-    // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
-    // retried. A courier whose last call failed has set the alarm again, for its next try.
-    if (!couriers.workspace.failing && !couriers.index.failing) await this.ctx.storage.delete(UNDELIVERED_ROOM);
   }
 
   /**
@@ -267,7 +294,9 @@ export class ChatRoom extends DurableObject<Env> {
       if (removed.length === 0) return false;
       const seq = await store.delete(removed);
       removed.forEach((messageId, index) => this.broadcast({ type: "message.deleted", messageId, seq: seq + index }));
-      this.couriersFor(roomId).index.deliver();
+      const couriers = this.couriersFor(roomId);
+      couriers.index.deliver();
+      couriers.files.deliver();
       return ids.length > limit;
     });
   }
@@ -399,16 +428,19 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Starts `uploader`'s upload of `file` to the room, answering the file's key, or null once the room has
    * heard that their access ended, or the room was deleted, after the Workspace checked, as it turns away
-   * a socket then.
+   * a socket then. The alarm comes back once it's a day old, to delete it from R2 if it's unfinished.
    */
   async startUpload(roomId: RoomId, uploader: Uploader, file: NewUpload): Promise<string | null> {
-    return this.serially(async () => {
+    const startedAt = Date.now();
+    const key = await this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
       const key = base36(KEY_LENGTH);
       const blob = { id: key, uploaderId: uploader.user.id, filename: file.name, contentType: file.type, byteSize: file.size, clientMessageId: file.clientMessageId };
-      await this.blobsFor(roomId).create(blob, new Date().toISOString());
+      await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
       return key;
     });
+    if (key) await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
+    return key;
   }
 
   /** `uploaderId`'s upload `key` to the room, as far as it has come, or null if they have no such upload. */
@@ -638,11 +670,16 @@ export class ChatRoom extends DurableObject<Env> {
     return edited;
   }
 
-  /** Deletes `message`, with its boosts, telling everyone in the room and sending the search index its log. */
+  /**
+   * Deletes `message`, with its boosts, telling everyone in the room and sending the search index its log,
+   * and has R2 delete its file, if it has one.
+   */
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
     const seq = await store.delete([message.id]);
     this.broadcast({ type: "message.deleted", messageId: message.id, seq });
-    this.couriersFor(store.roomId).index.deliver();
+    const couriers = this.couriersFor(store.roomId);
+    couriers.index.deliver();
+    if (message.attachment) couriers.files.deliver();
   }
 
   /** Adds `user`'s boost of `content` to the message `messageId`, telling everyone in the room, and answers it. */
@@ -727,6 +764,7 @@ export class ChatRoom extends DurableObject<Env> {
     return (this.couriers ??= {
       workspace: new Courier(() => this.sendEvents(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s log to the Workspace`),
       index: new Courier(() => this.sendMessages(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s messages to the search index`, true),
+      files: new Courier(() => this.purgeFiles(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted files to R2`, true),
     });
   }
 
@@ -812,6 +850,32 @@ export class ChatRoom extends DurableObject<Env> {
     await searchIndex(this.env).apply(roomId, seq, messages, ids.filter((id) => !kept.has(id)));
     await log.indexed(seq);
     return logged.length;
+  }
+
+  /**
+   * Has R2 delete the files the room has marked deleted, as many as one call takes, with their previews,
+   * then forgets them, as ember-rust's purge job deletes a blob's files once its message is destroyed
+   * (active_storage.rs `purge`), and answers how many. Uploads still unfinished a day after they started
+   * are marked first, and their uploads in parts aborted. Without a bucket, the room only forgets them.
+   */
+  private async purgeFiles(roomId: RoomId): Promise<number> {
+    const blobs = this.blobsFor(roomId);
+    const deleted = await this.serially(async () => {
+      const now = Date.now();
+      await blobs.deleteUnfinished(new Date(now - UNFINISHED_UPLOAD_KEPT_MS).toISOString(), new Date(now).toISOString());
+      return blobs.deleted(ENTRIES_PER_CALL);
+    });
+    if (deleted.length === 0) return 0;
+    const files = this.env.FILES;
+    if (files) {
+      // An abort that fails, as one of an upload R2 has put together or forgotten does, is left to R2,
+      // which aborts an unfinished upload a week after it started.
+      const aborting = deleted.map(({ id, unfinishedUploadId }) => unfinishedUploadId && files.resumeMultipartUpload(objectKey(id), unfinishedUploadId).abort().catch(() => {}));
+      await Promise.all(aborting);
+      await files.delete(deleted.flatMap(({ id }) => [objectKey(id), previewKey(id)]));
+    }
+    await this.serially(() => blobs.forget(deleted.map(({ id }) => id)));
+    return deleted.length;
   }
 
   /**

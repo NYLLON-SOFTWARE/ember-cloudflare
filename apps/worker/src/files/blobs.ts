@@ -5,7 +5,8 @@ import type { ImageSize } from "./images";
 
 // A room's files as its storage keeps them (migrations/0028_blobs.sql), in its Durable Object SQLite
 // storage or in D1 (see db.ts), from when someone starts uploading one until R2 has all of it and the
-// room has posted it as their message (migrations/0029_file_messages.sql).
+// room has posted it as their message (migrations/0029_file_messages.sql), and until the message is
+// deleted, when the room deletes the file from R2 and forgets it (migrations/0031_purged_files.sql).
 
 /** Where R2 keeps the file whose key is `key`. */
 export const objectKey = (key: string) => `files/${key}`;
@@ -74,6 +75,43 @@ const toBlob = (row: BlobRow): RoomBlob => ({
   preview: row.preview === null ? null : (JSON.parse(row.preview) as ImageSize),
 });
 
+/** A file the room has marked deleted, which R2 is to forget: its key, and whether its upload in parts is unfinished. */
+export interface DeletedBlob {
+  id: string;
+  /** R2's upload of the file in parts, while the room hasn't recorded that it's all there. */
+  unfinishedUploadId: string | null;
+}
+
+/**
+ * Marks deleted the files of the messages a JSON list of their ids names, which keep their files' keys.
+ * `+room_id` has SQLite find each file by its key, where `index_blobs_on_room_id` would have it read every
+ * file the room has.
+ */
+export const DELETE_FILES_OF = `UPDATE blobs SET deleted_at = ? WHERE +room_id = ? AND deleted_at IS NULL AND id IN
+  (SELECT json_extract(attachment, '$.id') FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?)) AND attachment IS NOT NULL)`;
+
+/** Marks deleted the uploads still unfinished that started by a time. */
+export const DELETE_UNFINISHED = `UPDATE blobs SET deleted_at = ? WHERE room_id = ? AND completed_at IS NULL AND created_at <= ? AND deleted_at IS NULL`;
+
+/** When the oldest upload still unfinished started. */
+export const OLDEST_UNFINISHED = `SELECT created_at FROM blobs WHERE room_id = ? AND completed_at IS NULL AND deleted_at IS NULL ORDER BY created_at LIMIT 1`;
+
+/** Some of the files marked deleted. */
+export const DELETED_FILES = `SELECT id, multipart_upload_id, completed_at FROM blobs WHERE room_id = ? AND deleted_at IS NOT NULL LIMIT ?`;
+
+/** Forgets the files marked deleted that a JSON list of their keys names, each found by its key, as `DELETE_FILES_OF` finds them. */
+export const FORGET_FILES = `DELETE FROM blobs WHERE +room_id = ? AND id IN (SELECT value FROM json_each(?)) AND deleted_at IS NOT NULL`;
+
+/**
+ * What marks deleted the files of the messages `listed` names, a JSON list of their ids, at `now`, for
+ * the batch that deletes the messages, which has to run it first.
+ */
+export const deletingFilesOf = (roomId: RoomId, listed: string, now: string): Statement => statement(DELETE_FILES_OF, now, roomId, roomId, listed);
+
+/** What marks deleted every file room `roomId` has, at `now`, uploads under way included, as deleting the room does. */
+export const deletingAllFiles = (roomId: RoomId, now: string): Statement =>
+  statement(`UPDATE blobs SET deleted_at = ? WHERE room_id = ? AND deleted_at IS NULL`, now, roomId);
+
 /** What the first part of a file says of it: its type and Active Storage's metadata. */
 export interface Identified {
   contentType: string;
@@ -127,8 +165,9 @@ export class Blobs {
     );
   }
 
+  /** File `id`, unless it's been marked deleted. */
   async find(id: string): Promise<RoomBlob | null> {
-    const [row] = await this.db.all<BlobRow>(`SELECT * FROM blobs WHERE room_id = ? AND id = ?`, this.roomId, id);
+    const [row] = await this.db.all<BlobRow>(`SELECT * FROM blobs WHERE room_id = ? AND id = ? AND deleted_at IS NULL`, this.roomId, id);
     return row ? toBlob(row) : null;
   }
 
@@ -157,7 +196,7 @@ export class Blobs {
    */
   async recordPreview(id: string, uploaderId: UserId, size: ImageSize): Promise<RoomBlob | null> {
     const [row] = await this.db.all<BlobRow>(
-      `UPDATE blobs SET preview = ? WHERE room_id = ? AND id = ? AND uploader_id = ? AND completed_at IS NULL RETURNING *`,
+      `UPDATE blobs SET preview = ? WHERE room_id = ? AND id = ? AND uploader_id = ? AND completed_at IS NULL AND deleted_at IS NULL RETURNING *`,
       JSON.stringify({ width: size.width, height: size.height }),
       this.roomId,
       id,
@@ -194,8 +233,25 @@ export class Blobs {
       : statement(`UPDATE blobs SET completed_at = ?, message_id = ? WHERE room_id = ? AND id = ?`, completedAt, messageId, this.roomId, id);
   }
 
-  /** Forgets every file the room has, once it's deleted. */
-  async deleteAll(): Promise<void> {
-    await this.db.run(`DELETE FROM blobs WHERE room_id = ?`, this.roomId);
+  /** Marks deleted, at `now`, the uploads started by `startedBy` that are still unfinished. */
+  async deleteUnfinished(startedBy: string, now: string): Promise<void> {
+    await this.db.run(DELETE_UNFINISHED, now, this.roomId, startedBy);
+  }
+
+  /** When the oldest upload still unfinished started, or null when there's none. */
+  async oldestUnfinished(): Promise<string | null> {
+    const [row] = await this.db.all<{ created_at: string }>(OLDEST_UNFINISHED, this.roomId);
+    return row?.created_at ?? null;
+  }
+
+  /** Up to `limit` of the files marked deleted. */
+  async deleted(limit: number): Promise<DeletedBlob[]> {
+    const rows = await this.db.all<{ id: string; multipart_upload_id: string | null; completed_at: string | null }>(DELETED_FILES, this.roomId, limit);
+    return rows.map((row) => ({ id: row.id, unfinishedUploadId: row.completed_at === null ? row.multipart_upload_id : null }));
+  }
+
+  /** Forgets the files marked deleted that `ids` names, once R2 has. */
+  async forget(ids: string[]): Promise<void> {
+    await this.db.run(FORGET_FILES, this.roomId, JSON.stringify(ids));
   }
 }

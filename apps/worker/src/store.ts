@@ -2,7 +2,7 @@ import type { Boost, Message, RoomId, TimelinePage, User, UserId } from "@ember/
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
-import type { AttachedFile } from "./files/blobs";
+import { deletingAllFiles, deletingFilesOf, type AttachedFile } from "./files/blobs";
 import { logEvent, logIndexing, logIndexingEach } from "./room-log";
 import type { IndexedMessage } from "./search-index";
 
@@ -393,14 +393,15 @@ export class MessageStore {
   /**
    * Deletes the messages `ids` names, each a change of its own, numbered in the order they're named,
    * and answers the first's number. Their boosts go in the same statement, through ON DELETE CASCADE,
-   * so a failure keeps both. Their ids stay with their deletions' numbers, and the deletions that fall
-   * out of the latest `CHANGES_KEPT` go, and they're logged for the search index. The ids go as one
-   * JSON value, which a page of them can fill.
+   * so a failure keeps both, and their files are marked deleted first, for the room to purge. Their ids
+   * stay with their deletions' numbers, and the deletions that fall out of the latest `CHANGES_KEPT` go,
+   * and they're logged for the search index. The ids go as one JSON value, which a page of them can fill.
    */
   async delete(ids: string[]): Promise<number> {
     const listed = JSON.stringify(ids);
     return this.change(
       (seq) => [
+        deletingFilesOf(this.roomId, listed, new Date().toISOString()),
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
         statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, listed),
         statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + ids.length - 1 - CHANGES_KEPT),
@@ -412,10 +413,15 @@ export class MessageStore {
 
   /**
    * Deletes every message here, and through ON DELETE CASCADE their boosts, as deleting the room does,
-   * and the deletions it kept, since no tab can connect to it again.
+   * and the deletions it kept, since no tab can connect to it again, marking every file the room has
+   * deleted, for it to purge.
    */
   async deleteAllMessages(): Promise<void> {
-    await this.db.batch([statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId), statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId)]);
+    await this.db.batch([
+      deletingAllFiles(this.roomId, new Date().toISOString()),
+      statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
+      statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
+    ]);
     this.seq = null;
   }
 
