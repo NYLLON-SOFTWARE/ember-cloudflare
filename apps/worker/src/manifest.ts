@@ -12,8 +12,9 @@ const DESCRIPTION = "A real-time chat app that runs entirely on Cloudflare.";
 
 /**
  * The manifest for a workspace named `name` whose logo is at `logo`. Its icons are the logo's variants,
- * as ember-rust's are, or Ember's stock icons while there's no logo, and it lists none of ember-rust's
- * screenshots, which show Campfire's Android app.
+ * as ember-rust's are, or Ember's stock icons while there's no logo. Its screenshots have ember-rust's
+ * sizes and labels, but they're Ember's own, which `pnpm screenshots` makes, where ember-rust's show
+ * Campfire's Android app.
  */
 export function webManifest(name: string, logo: string | null) {
   const [small, large] = logo ? [`${logo}&size=small`, logo] : ["/logos/app-icon-192.png", "/logos/app-icon.png"];
@@ -35,6 +36,11 @@ export function webManifest(name: string, logo: string | null) {
       // Relative, as in ember-rust, so it resolves against the manifest's address to /rooms/opens/new.
       { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/add.svg", sizes: "any" }] },
       { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/person.svg", sizes: "any" }] },
+    ],
+    screenshots: [
+      { src: "/screenshots/chat.png", sizes: "1080x2400", form_factor: "narrow", label: "Ember is an installable, self-hosted group chat system." },
+      { src: "/screenshots/sidebar.png", sizes: "1080x2400", form_factor: "narrow", label: "Easily invite people. Make rooms. @mentions, DMs, and mobile support." },
+      { src: "/screenshots/dark-mode.png", sizes: "1080x2400", form_factor: "narrow", label: "Full support for dark mode, customizable to your brand." },
     ],
   };
 }

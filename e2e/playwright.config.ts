@@ -4,6 +4,7 @@ import { featureProjects, RECOVERY_TOKEN } from "./projects/features";
 import { FIRST_RUN, firstRunProjects } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
 import { PROTECTED_SETUP_PORT, PROTECTED_SETUP_TOKEN, protectedSetupProjects } from "./projects/protected-setup";
+import { screenshotProjects } from "./projects/screenshots";
 import { workspaceSettingsProjects } from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
@@ -34,7 +35,7 @@ export default defineConfig<MobileOptions>({
     ...firstRunProjects,
     ...protectedSetupProjects,
     ...workspaceSettingsProjects,
-    ...[...featureProjects, ...mobileProjects].map((project) => ({ ...project, dependencies: [FIRST_RUN] })),
+    ...[...featureProjects, ...mobileProjects, ...screenshotProjects].map((project) => ({ ...project, dependencies: [FIRST_RUN] })),
   ],
   // The production build and the API on one origin, served by `wrangler dev` the way the deployed
   // Worker serves them. State lives in e2e/.wrangler so tests never touch your local dev data, and

@@ -16,6 +16,7 @@ const ICONS: Record<string, string> = {
 interface Manifest {
   icons: Array<{ src: string }>;
   shortcuts: Array<{ icons: Array<{ src: string }> }>;
+  screenshots: Array<{ src: string; sizes: string }>;
 }
 
 test.describe(feature("platform.manifest"), () => {
@@ -48,6 +49,20 @@ test.describe(feature("platform.manifest"), () => {
       const response = await request.get(source);
       expect(response.status(), source).toBe(200);
       expect(createHash("sha256").update(await response.body()).digest("hex"), source).toBe(ICONS[source]);
+    }
+  });
+
+  test("lists Ember's own screenshots, each a PNG of the size it says", async ({ request }) => {
+    const manifest = (await (await request.get("/webmanifest.json")).json()) as Manifest;
+    expect(manifest.screenshots.map((screenshot) => screenshot.src)).toEqual(["/screenshots/chat.png", "/screenshots/sidebar.png", "/screenshots/dark-mode.png"]);
+    for (const { src, sizes } of manifest.screenshots) {
+      const response = await request.get(src);
+      expect(response.status(), src).toBe(200);
+      expect(response.headers()["content-type"], src).toBe("image/png");
+      const png = await response.body();
+      // A PNG starts with its signature and then its IHDR chunk, which holds its width and height.
+      expect(png.subarray(1, 4).toString("latin1"), src).toBe("PNG");
+      expect(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`, src).toBe(sizes);
     }
   });
 });

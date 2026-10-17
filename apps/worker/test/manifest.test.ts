@@ -25,7 +25,7 @@ describe(feature("platform.manifest"), () => {
     expect(await manifest()).toMatchObject({ name: "Analytical Engines" });
   });
 
-  it("lists Ember's icons and ember-rust's shortcuts, colors and categories, with this project's description", async () => {
+  it("lists Ember's icons and screenshots and ember-rust's shortcuts, colors and categories, with this project's description", async () => {
     expect(await manifest()).toEqual({
       name: "Ember",
       icons: [
@@ -43,6 +43,11 @@ describe(feature("platform.manifest"), () => {
       shortcuts: [
         { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/add.svg", sizes: "any" }] },
         { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/person.svg", sizes: "any" }] },
+      ],
+      screenshots: [
+        { src: "/screenshots/chat.png", sizes: "1080x2400", form_factor: "narrow", label: "Ember is an installable, self-hosted group chat system." },
+        { src: "/screenshots/sidebar.png", sizes: "1080x2400", form_factor: "narrow", label: "Easily invite people. Make rooms. @mentions, DMs, and mobile support." },
+        { src: "/screenshots/dark-mode.png", sizes: "1080x2400", form_factor: "narrow", label: "Full support for dark mode, customizable to your brand." },
       ],
     });
   });
