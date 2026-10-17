@@ -58,7 +58,7 @@ function resultsLabel(count: number, shown: number): string {
 
 /** Campfire's `.btn` as ember-rust's zz-ember.css sets it, which no hover changes. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground";
-/** `.mb-icon-dialog-footer .btn`, 44px tall on touch screens, where ember-rust's are below 600px. */
+/** `.mb-icon-dialog-footer .btn`, 44px tall on touch screens, where ember-rust's are at 600px wide and below. */
 const FOOTER_BUTTON = "min-h-10 px-3.5 py-2 touch:min-h-11";
 
 interface Props {
@@ -224,13 +224,13 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
           // Centered in the safe area, clear of the notch and the home indicator, which ember-rust's isn't.
           "inset-[env(safe-area-inset-top)_env(safe-area-inset-right)_env(safe-area-inset-bottom)_env(safe-area-inset-left)]",
           "max-h-[min(720px,calc(100dvh-40px-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
-          "max-[600px]:max-h-[calc(100dvh-24px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-[600px]:max-w-[calc(100dvw-24px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
+          "upto-600px:max-h-[calc(100dvh-24px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] upto-600px:max-w-[calc(100dvw-24px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
           "short:max-h-[calc(100dvh-16px-env(safe-area-inset-top)-env(safe-area-inset-bottom))]",
         )}
       >
-        <header className="flex flex-none items-start justify-between gap-4 px-6 pt-[23px] pb-[18px] max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-4 short:pt-3 short:pb-2">
+        <header className="flex flex-none items-start justify-between gap-4 px-6 pt-[23px] pb-[18px] upto-600px:px-4 upto-600px:pt-[18px] upto-600px:pb-4 short:pt-3 short:pb-2">
           <div>
-            <h2 id={titleId} className="mb-[5px] text-start text-[19px] font-semibold max-[600px]:text-[17px]">
+            <h2 id={titleId} className="mb-[5px] text-start text-[19px] font-semibold upto-600px:text-[17px]">
               Choose a room icon
             </h2>
             <p className="text-[13px] text-muted-foreground">A little personality for your room.</p>
@@ -241,7 +241,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
         </header>
 
         {/* A label, where ember-rust's is a box, so a tap anywhere on it reaches the field. */}
-        <label className="mx-6 mb-4 flex flex-none cursor-text items-center gap-2.5 rounded-[9px] border px-3 py-2.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground max-[600px]:mx-4 short:mb-2">
+        <label className="mx-6 mb-4 flex flex-none cursor-text items-center gap-2.5 rounded-[9px] border px-3 py-2.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground upto-600px:mx-4 short:mb-2">
           <IconPickerSearch className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
           <input
             ref={searchBox}
@@ -262,7 +262,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
         </label>
 
         {/* ember-rust keeps 150px of icons, which pushes the footer off a phone in landscape. */}
-        <div ref={browse} className="min-h-[150px] flex-auto overflow-y-auto overscroll-contain px-6 pb-5 max-[600px]:px-4 short:min-h-0">
+        <div ref={browse} className="min-h-[150px] flex-auto overflow-y-auto overscroll-contain px-6 pb-5 upto-600px:px-4 short:min-h-0">
           <button
             type="button"
             aria-pressed={staged === null}
@@ -286,7 +286,7 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
             aria-label="Room icons"
             aria-busy={status === "loading" || undefined}
             onKeyDown={navigate}
-            className="grid grid-cols-8 gap-1.5 max-[600px]:grid-cols-5 max-[600px]:gap-[5px]"
+            className="grid grid-cols-8 gap-1.5 upto-600px:grid-cols-5 upto-600px:gap-[5px]"
           >
             {shown.map((option) => (
               <button
@@ -318,12 +318,12 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl = CATA
           )}
         </div>
 
-        <footer className="flex flex-none items-center justify-between gap-4 border-t px-6 py-4 max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-[13px] max-[600px]:px-4 max-[600px]:py-3.5 short:py-2">
+        <footer className="flex flex-none items-center justify-between gap-4 border-t px-6 py-4 upto-600px:flex-col upto-600px:items-stretch upto-600px:gap-[13px] upto-600px:px-4 upto-600px:py-3.5 short:py-2">
           <span className="flex min-w-0 items-center gap-2.5 text-xs">
             <RoomIcon icon={staged} size={21} className="flex flex-[0_0_22px] items-center justify-center text-2xl" />
             <span className="truncate">{roomIconLabel(staged)}</span>
           </span>
-          <div className="flex flex-none gap-2 max-[600px]:justify-end">
+          <div className="flex flex-none gap-2 upto-600px:justify-end">
             <button type="button" onClick={cancel} className={cn(BUTTON, FOOTER_BUTTON)}>
               Cancel
             </button>

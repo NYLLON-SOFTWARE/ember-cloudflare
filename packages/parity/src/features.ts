@@ -97,7 +97,7 @@ export const features = [
     id: "auth.require-sign-in",
     title: "Pages need a signed-in person",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Signed-out requests for app pages redirect to `/session/new`, which remembers the full URL asked for, and signing in returns there once.",
       "Sign-in, first run, join links, sign-in links, QR codes, the workspace logo, the web app manifest, the service worker and `/up` are public; avatars are not.",
@@ -112,7 +112,7 @@ export const features = [
     id: "auth.sessions",
     title: "Stay signed in, per device",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Every sign-in creates its own session, recording the browser and IP, so a person can be signed in on several devices at once.",
       "The session cookie lasts 20 years, so the session survives browser restarts. At most once an hour, a request refreshes the session's last activity, browser and IP and extends the cookie.",
@@ -184,7 +184,7 @@ export const features = [
     id: "auth.csrf",
     title: "Forgery protection without tokens",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Writes (requests other than GET and HEAD) with `Sec-Fetch-Site: same-origin` or `same-site` are accepted; `cross-site`, `none` or any other value answers 422, changing nothing and setting no cookies.",
       "Without `Sec-Fetch-Site`, a write answers 422 over HTTPS or when the app requires HTTPS; on plain HTTP it's accepted, with the `SameSite=Lax` session cookie as the protection.",
@@ -194,7 +194,7 @@ export const features = [
     ],
     sources: ["crates/kit/src/ctx.rs", "crates/ember/src/concerns.rs", "crates/views/src/helpers/forms.rs", "README.md", "reference/app/controllers/concerns/authentication.rb"],
     upstreamTests: ["crates/kit/tests/http.rs", "crates/ember/src/app/tests.rs", "crates/ember/src/controllers/rooms/tests.rs"],
-    notes: "API writes are checked this way, but `Sec-Fetch-Site: same-site` is refused too: every Worker on an account's workers.dev subdomain is the same site as ours. There are no bot keys yet.",
+    notes: "API writes are checked this way, but `Sec-Fetch-Site: same-site` is refused too: every Worker on an account's workers.dev subdomain is the same site as ours. A bot's key goes to the bot API's addresses, outside `/api/`, which never read a session, so they skip the check (`bots.api-auth`).",
   },
 
   // Workspace administration
@@ -279,7 +279,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/views/src/helpers/translations.rs", "crates/views/src/helpers/translations_table.rs", "crates/db/src/models/account.rs", "reference/app/javascript/controllers/popup_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/first-run.test.mjs", "crates/db/src/tests/account_test.rs"],
-    notes: "The switch saves `settings.hideTranslationButtons` with `PATCH /api/account` (422 for any other setting), stored as ember-rust stores `hide_translation_buttons`. Every open tab follows at once as the workspace socket says (`account.updated`), where ember-rust reloads the administrator's page and other tabs wait for their next one. The globe is Campfire's globe.svg on a `<details>` whose summary Tab skips, listing ember-rust's table verbatim; Escape or a click elsewhere closes it, and on a narrow screen its list keeps to the room on its right, as popup_controller.js measures it. That controller also marks it to open upward near the bottom of the screen, but nothing styles the language list for that (Campfire's messages.css styles only message menus), so it opens below there in ember-rust too, as it does here. Globes sit by the workspace name, the custom CSS, sign-in's email and password, join's name, email and password, room names and the welcome card's invite text. The profile's come with the profile (`users.profile`), the bots' with the bots, and there's no unsupported-browser message yet.",
+    notes: "The switch saves `settings.hideTranslationButtons` with `PATCH /api/account` (422 for any other setting), stored as ember-rust stores `hide_translation_buttons`. Every open tab follows at once as the workspace socket says (`account.updated`), where ember-rust reloads the administrator's page and other tabs wait for their next one. The globe is Campfire's globe.svg on a `<details>` whose summary Tab skips, listing ember-rust's table verbatim; Escape or a click elsewhere closes it, and on a narrow screen its list keeps to the room on its right, as popup_controller.js measures it. That controller also marks it to open upward near the bottom of the screen, but nothing styles the language list for that (Campfire's messages.css styles only message menus), so it opens below there in ember-rust too, as it does here. Globes sit by the workspace name, the custom CSS, sign-in's email and password, join's name, email and password, room names and the welcome card's invite text. So do the profile's (`users.profile`) and the bots' (`bots.list`, `bots.create-edit`). The unsupported-browser message (`platform.browser-support`) has none yet.",
   },
   {
     id: "accounts.join-link",
@@ -496,7 +496,7 @@ export const features = [
     id: "users.avatar-links",
     title: "Avatars open people's pages",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Avatars on messages, boosts, mentions, mention suggestions, the people and bot lists, room member lists and the DM editor link to the person's page, `/users/<id>`, outside any frame.",
       "The link's title is \"<name> – <bio>\", or just the name when the bio is blank.",
@@ -505,7 +505,7 @@ export const features = [
     ],
     sources: ["crates/views/src/helpers/users.rs", "crates/db/src/models/user.rs", "crates/views/templates/messages/_message.html", "crates/views/templates/messages/boosts/_boost.html", "reference/app/helpers/users/avatars_helper.rb"],
     upstreamTests: ["crates/db/src/tests/user_test.rs"],
-    notes: "Each opens the page in place, as Turbo follows ember-rust's links, through the unsaved-changes guard (`rooms.unsaved-changes`), and is titled from the people directory, so a new name or bio shows at once. The avatars the @ lists and those of mentions in the composer and the message editor aren't links, unlike ember-rust's: a click there picks the person or the mention rather than leaving what's being written, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational. On touch screens, where ember-rust's take taps only as far as they're drawn, an avatar beside a message or in a list takes them 44px across, centered on it, and one in someone else's reaction 24px across, WCAG 2.5.8's floor. A tap on your own reaction's avatar there shows Delete this boost, as one anywhere on the pill does, since a pill has no room for two targets a fingertip can find. The bot list's avatars come with it (`bots.list`).",
+    notes: "Each opens the page in place, as Turbo follows ember-rust's links, through the unsaved-changes guard (`rooms.unsaved-changes`), and is titled from the people directory, so a new name or bio shows at once. The avatars the @ lists and those of mentions in the composer and the message editor aren't links, unlike ember-rust's: a click there picks the person or the mention rather than leaving what's being written, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational. On touch screens, where ember-rust's take taps only as far as they're drawn, an avatar beside a message or in a list takes them 44px across, centered on it, and one in someone else's reaction 24px across, WCAG 2.5.8's floor. A tap on your own reaction's avatar there shows Delete this boost, as one anywhere on the pill does, since a pill has no room for two targets a fingertip can find. The bot list's avatars link to the bots' pages too (`bots.list`).",
   },
 
   // Rooms
@@ -529,7 +529,7 @@ export const features = [
     id: "rooms.create-open",
     title: "Create an open room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "New room in workspace settings opens a page titled \"New chat room\" that reads \"New room\" / \"Create a place for a team, topic, or project.\", with Go Back to workspace settings.",
       "The form has \"Room name\" (placeholder \"Name the room\", prefilled with \"New room\", required and focused; Enter saves), the icon picker and Save.",
@@ -541,13 +541,13 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms/opens.rs", "crates/views/templates/rooms/layouts/_new.html", "crates/views/templates/rooms/opens/_form.html", "crates/db/src/models/room.rs", "reference/app/controllers/rooms/opens_controller.rb"],
     upstreamTests: ["reference/test/controllers/rooms/opens_controller_test.rb", "crates/ember/src/controllers/rooms/tests.rs", "parity/kro/workspace.test.mjs"],
-    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place by name in your sidebar and, at once, in everyone else's (`sidebar.live-updates`). Leaving with anything filled in asks first (`rooms.unsaved-changes`). Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
+    notes: "Workspace settings' New room opens `/rooms/opens/new`, with the name prefilled, everyone active listed with check marks under Everyone, and a \"Filter…\" box past 20 people. Saving posts `{ \"kind\": \"open\", \"name\" }` to `/api/rooms` and opens the room, which sorts into place in your sidebar and, at once, in everyone else's (`sidebar.live-updates`): after the starred rooms (`sidebar.favorites`), by the shared order (`sidebar.shared-order`), then by name. Leaving with anything filled in asks first (`rooms.unsaved-changes`). Unlike ember-rust, the server refuses a blank name or one over 100 characters, and the field takes no more than 100. Enter in the filter doesn't save the form here, and a filter with spaces works, where Campfire's selector breaks on one.",
   },
   {
     id: "rooms.create-closed",
     title: "Create a private room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Turning off New room's \"Everyone\" switch shows the private room form, keeping the name and icon; turning it back on (\"Give everyone access to this room\" to screen readers) returns to the open one.",
       "The private form lists everyone active by name: you with a check mark and no switch, everyone else with a switch, off, named \"Give <name> access to this room\". Over 20 people, a \"Filter…\" box narrows the list.",
@@ -576,7 +576,7 @@ export const features = [
     id: "rooms.show",
     title: "Open a room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/rooms/<id>` shows a member the room with its newest 40 messages. The page title is the room's name, or for a DM its name as a sentence (\"A and B\").",
       "Non-members, missing rooms and malformed ids go to `/` with \"Room not found or inaccessible\".",
@@ -584,7 +584,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/rooms.rs", "crates/views/templates/rooms/show.html", "crates/views/src/rooms.rs", "reference/app/controllers/rooms_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/rooms/tests.rs", "reference/test/controllers/rooms_controller_test.rb", "parity/screens.yml"],
-    notes: "Rooms open at `/rooms/<id>`, titled with the room's name, and show the newest 40 messages, or the page around the message a permalink names (`messages.permalink`). An address naming a room you aren't in, or one that doesn't exist, goes to `/` with \"Room not found or inaccessible\", once the room list, asked for again, hasn't got it either, since the app keeps the list from when it loaded and the room may be newer. When the list can't be asked for again, the address stays and the page says Ember can't be reached, with Try again to ask again. Room ids are strings here, so there's no malformed id but a malformed escape, which goes home without the alert. Opening a room remembers it (`rooms.last-visited`). DMs' titles come with direct messages, and there are no unread marks yet.",
+    notes: "Rooms open at `/rooms/<id>`, titled with the room's name, and show the newest 40 messages, or the page around the message a permalink names (`messages.permalink`). An address naming a room you aren't in, or one that doesn't exist, goes to `/` with \"Room not found or inaccessible\", once the room list, asked for again, hasn't got it either, since the app keeps the list from when it loaded and the room may be newer. When the list can't be asked for again, the address stays and the page says Ember can't be reached, with Try again to ask again. Room ids are strings here, so there's no malformed id but a malformed escape, which goes home without the alert. Opening a room remembers it (`rooms.last-visited`). A DM is titled with its people's names as a sentence (`dms.naming`), and opening a room clears its unread mark once the tab's socket is let in, in a shown tab (`sidebar.unread`).",
   },
   {
     id: "rooms.last-visited",
@@ -621,7 +621,7 @@ export const features = [
     id: "rooms.settings-page",
     title: "Room settings page",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The room header's settings button (titled \"Conversation settings\", \"Settings for this room\" to screen readers) opens a page titled \"Edit settings for <name>\" that reads \"Room settings\" / \"Manage the room name, access, and members.\", with Go Back to the last room.",
       "People who can change the room get \"Room name\", the icon picker, the \"Everyone\" switch and Save. The switch flips between the open and private forms, keeping the draft.",
@@ -631,7 +631,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/layouts/_edit.html", "crates/views/templates/rooms/layouts/_form.html", "crates/views/templates/rooms/opens/_form.html", "crates/views/templates/rooms/closeds/_form.html", "crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). Still to come: the label's translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`).",
+    notes: "The header's settings link opens the page at `/rooms/opens/<id>/edit` or `/rooms/closeds/<id>/edit`. People who can change the room get \"Room name\", the icon picker (`rooms.icon-picker`), the Everyone switch, which moves between the two addresses in place keeping the draft, and Save, which saves the room and opens it; leaving with changes asks first (`rooms.unsaved-changes`). An open room lists everyone active with check marks under Everyone; a private room lists its members with their switches on, a line, then everyone else with theirs off. Everyone else gets the name as a heading and the list, in the form for the room's kind whichever address they open, where ember-rust shows the form the address names. People who can change the room also get Delete, in a panel of its own (`rooms.delete`). The name's label has its translation button (`accounts.translation-buttons`). Go Back returns to the last room visited (`rooms.last-visited`).",
   },
   {
     id: "rooms.edit-permissions",
@@ -650,7 +650,7 @@ export const features = [
     id: "rooms.convert-access",
     title: "Switch a room between open and private",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Making a private room open adds everyone, keeping members' notification levels.",
       "Making an open room private keeps exactly the people chosen and removes everyone else: their connections drop and reconnect without the room, which leaves their sidebar.",
@@ -665,7 +665,7 @@ export const features = [
     id: "rooms.members",
     title: "Add and remove private room members",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Saving a private room's members adds newcomers at `mentions` and removes everyone else. Editors who untick themselves are removed too, and go to `/` with \"Room not found or inaccessible\".",
       "The form lists only active people, but the id of anyone who exists is accepted.",
@@ -681,7 +681,7 @@ export const features = [
     id: "rooms.delete",
     title: "Delete a room",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Delete in room settings (the trash icon and the room's name, labelled \"Delete <name>\") asks \"Are you sure you want to delete this room and all messages in it? This can’t be undone.\", then deletes the room, its messages and its icon, and goes to `/`.",
       "Only administrators and the room's creator can delete a room; others get 403.",
@@ -696,7 +696,7 @@ export const features = [
     id: "rooms.icons",
     title: "Room icons",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A room's icon is a Lucide name from the pinned catalog (lucide-static 1.53.0, 1,869 icons), or the default `#`.",
       "Saving without an icon keeps the current one, and an empty one resets it to `#`. Anything that isn't exactly a catalog name (`\" coffee \"`, `\"Coffee\"`, `\"../coffee\"`, `\"<svg></svg>\"`, null, booleans, arrays) answers 422 before anything is saved; members who can't change the room get 403 first.",
@@ -873,7 +873,7 @@ export const features = [
     id: "sidebar.rooms",
     title: "Conversations sidebar",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The sidebar shows the workspace name, the rooms you haven't hidden (a section named Rooms with no visible heading), then a DMs heading with New direct message (a link to `/rooms/directs/new`), your DMs and suggestions. \"No conversations found.\" shows when there's nothing to list.",
       "Room rows show the room's icon and name and are at least 36px tall (44px on phones). The room you're in is marked `aria-current=\"page\"` and set in weight 600, even on a link to one of its messages.",
@@ -881,7 +881,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/users/sidebars/show.html", "crates/views/templates/users/sidebars/rooms/_shared.html", "crates/ember/src/controllers/users/sidebars.rs", "crates/views/src/helpers/users.rs", "crates/assets/overrides/ember/shell.js", "crates/db/src/models/membership.rs"],
     upstreamTests: ["reference/test/controllers/users/sidebars_controller_test.rb", "parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one, on a link to one of its messages too. Your DMs are listed under DMs, latest active first (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is, then the people suggested for DMs (`dms.suggestions`). Once the list has come with nothing in it and nobody to suggest, it says \"No conversations found.\" Missing: rooms can't be hidden here yet (`notifications.hide-room`).",
+    notes: "The sidebar lists your rooms, from `GET /api/sidebar`, with their icons, a `#` for a room without one, and marks the open one, on a link to one of its messages too. Your DMs are listed under DMs, latest active first (`sidebar.dm-order`), with the shared rows' height, and the open one is marked as a room is, then the people suggested for DMs (`dms.suggestions`). Once the list has come with nothing in it and nobody to suggest, it says \"No conversations found.\" Rooms you've hidden are left out (`notifications.hide-room`).",
   },
   {
     id: "sidebar.room-order",
@@ -915,7 +915,7 @@ export const features = [
     id: "sidebar.live-updates",
     title: "Live sidebar updates",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A new open room appears in every sidebar as it's created, and renaming an open room shows in every sidebar at once.",
       "Private rooms appear and change only for their members. A new one appears at once in its members' sidebars; when one is renamed or its members change, its remaining members see it at once, and people just given access see it on their next reload.",
@@ -926,7 +926,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/broadcasts.rs", "crates/assets/overrides/controllers/rooms_list_controller.js", "crates/assets/overrides/ember/shell.js", "crates/ember/src/channels/revocation.rs", "crates/views/src/helpers/users.rs", "reference/app/javascript/controllers/refresh_room_controller.js", "crates/assets/overrides/controllers/channel_order_controller.js"],
     upstreamTests: ["crates/ember/src/channels/tests/broadcasts_test.rs", "parity/kro/workspace.test.mjs", "parity/screens.yml", "crates/ember/src/channels/tests/revocation_test.rs"],
-    notes: "The sidebar loads again each time the tab's workspace socket (`platform.live-socket`) connects, the first time included, and when the tab is shown after more than 60 seconds hidden, on every page rather than only a room's. `GET /api/sidebar` comes with an ETag, as ember-rust's Rack::ETag gives it, and answers 304 while the tab's copy is current, but it keeps `Cache-Control: no-store`, so the join code it can carry doesn't outlast sign-out in the browser's cache. Between loads the socket brings each room as it's saved, made or changed, to everyone in it, and says a room is gone to the people it leaves, as ember-rust's broadcasts do (`broadcasts.rs`), with differences: a room deleted is told only to the people who were in it, where ember-rust tells everyone, private rooms' and DMs' ids included; people just given a private room see it at once, rather than at their next reload; someone taken out of a room sees it leave at once, rather than when their dropped connection comes back, and the room they have open stays on screen saying \"This room was deleted.\"; a room renamed keeps its unread mark, where ember-rust's new row drops it until a reload; a room opened to everyone or made private changes at once, where ember-rust's row keeps its old kind's id, so the change shows nowhere until a reload; and a change that changes nothing tells nobody. A room someone's just been put in counts as their newest, for `/rooms`, until the sidebar loads again. Hiding rooms (`notifications.hide-room`) and the shared order (`sidebar.refresh-preserves-state`) don't exist yet, so neither changes a sidebar.",
+    notes: "The sidebar loads again each time the tab's workspace socket (`platform.live-socket`) connects, the first time included, and when the tab is shown after more than 60 seconds hidden, on every page rather than only a room's. `GET /api/sidebar` comes with an ETag, as ember-rust's Rack::ETag gives it, and answers 304 while the tab's copy is current, but it keeps `Cache-Control: no-store`, so the join code it can carry doesn't outlast sign-out in the browser's cache. Between loads the socket brings each room as it's saved, made or changed, to everyone in it, and says a room is gone to the people it leaves, as ember-rust's broadcasts do (`broadcasts.rs`), with differences: a room deleted is told only to the people who were in it, where ember-rust tells everyone, private rooms' and DMs' ids included; people just given a private room see it at once, rather than at their next reload; someone taken out of a room sees it leave at once, rather than when their dropped connection comes back, and the room they have open stays on screen saying \"This room was deleted.\"; a room renamed keeps its unread mark, where ember-rust's new row drops it until a reload; a room opened to everyone or made private changes at once, where ember-rust's row keeps its old kind's id, so the change shows nowhere until a reload; and a change that changes nothing tells nobody. A room someone's just been put in counts as their newest, for `/rooms`, until the sidebar loads again. Hiding or showing a room changes only your own tabs' sidebars (`notifications.hide-room`), and saving the shared order has every sidebar load again (`sidebar.shared-order`).",
   },
   {
     id: "sidebar.unread",
@@ -1038,7 +1038,7 @@ export const features = [
     id: "messages.create",
     title: "Send a message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A member's message is saved with them as its author and appears at once for everyone in the room, along with the sender's client id (a random UUID if none was sent).",
       "Messages have no length limit; request bodies are capped at 16 MiB.",
@@ -1053,7 +1053,7 @@ export const features = [
     id: "messages.rich-text",
     title: "Rich text, safely",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Bold, italic, strikethrough, underline, highlight, code, links, headings, quotes with their attribution, nested lists, code blocks, dividers and tables survive, and `~~x~~` becomes strikethrough.",
       "Scripts, event handlers, styles, `target`, `rel`, `name`, list numbering (`start`, `value`) and data attributes other than `data-language` are stripped, and table wrappers are unwrapped.",
@@ -1101,7 +1101,7 @@ export const features = [
     id: "messages.delete",
     title: "Delete a message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The author or an administrator can delete a message, with its reactions and file; anyone else gets 403.",
       "It disappears for everyone in the room at once and leaves search.",
@@ -1235,14 +1235,14 @@ export const features = [
     id: "messages.emoji-only",
     title: "Emoji-only messages",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A message that's only emoji (\"😄🤘\", but not \"Haha! 😄🤘\" or \"🔥 💯\") shows large without a bubble, pending ones included; reactions that are all emoji are larger too.",
       "Skin tones, flags, ❤️, © and ™ count as emoji, but emoji joined with zero-width joiners, like families, and keycaps like 1️⃣ don't.",
     ],
     sources: ["reference/lib/rails_ext/string.rb", "reference/app/helpers/messages_helper.rb", "crates/assets/overrides/models/client_message.js"],
     upstreamTests: ["reference/test/models/message_test.rb", "reference/test/system/sending_messages_test.rb"],
-    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji aren't larger yet.",
+    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji are larger too, as ember-rust's are (`boosts.add`).",
   },
   {
     id: "messages.sounds",
@@ -1263,7 +1263,7 @@ export const features = [
     id: "messages.plain-text",
     title: "Plain-text version of a message",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Paragraphs, lists, quotes and top-level headings end with a blank line, and line breaks and divs with a newline. Other headings, code blocks and table cells add no breaks of their own, and trailing newlines are trimmed.",
       "Quotes are wrapped in “ ”, list items start with \"• \" or \"1. \", \"2. \" and so on, nested ones indented two spaces a level, and captions read \"[caption]\". Scripts and styles are dropped.",
@@ -1272,7 +1272,7 @@ export const features = [
     ],
     sources: ["crates/richtext/src/plain_text.rs", "crates/richtext/src/content.rs", "crates/richtext/src/attachables.rs", "crates/db/src/models/message.rs"],
     upstreamTests: ["crates/richtext/tests/corpus.rs", "crates/richtext/tests/reference_tests.rs"],
-    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and the search index read it (`search.messages`), and /play needn't, since its sounds are left out (`messages.sounds`). Pushes read it (`notifications.payload`); nothing sends it to bots yet.",
+    notes: "`packages/richtext` reads the plain text of all 658 bodies of ember-rust's corpus as Rails did, but for Trix's attachment figures, which read as their text. The room keeps each body's plain text, read from the form it stores, so it's what shows: Rails' for Lexxy's markup, but without text that sanitizing removes, and with attachments as they render (an image's caption without brackets, ☒ for a missing one). A body that can't be converted is refused rather than stored. Emoji-only detection and the search index read it (`search.messages`), and /play needn't, since its sounds are left out (`messages.sounds`). Pushes read it (`notifications.payload`), and webhooks and the bot API send it to bots (`bots.webhook-delivery`, `bots.api-list`).",
   },
   {
     id: "messages.autolink",
@@ -1293,7 +1293,7 @@ export const features = [
     id: "messages.unrenderable",
     title: "Messages that can't be shown",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A message whose author no longer exists, or whose body can't be read (markup nested too deep), shows a centered \"Failed to load message content\" with no avatar, name, time, actions or reactions.",
       "A body that can't be read is still delivered, pushed and sent to bots, but as empty text (or its file's name), so search can't find its words.",
@@ -1365,7 +1365,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/autocompletable.rs", "reference/app/controllers/autocompletable/users_controller.rb", "crates/assets/vendor/lexxy/app/assets/javascript/lexxy.js"],
     upstreamTests: ["reference/test/controllers/autocompletable/users_controller_test.rb", "reference/test/system/composer_test.rb"],
-    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only; its JSON comes with the DM picker that reads it (`dms.picker`). On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.",
+    notes: "The composer and the message editor offer @, from Lexxy's prompt. The people search, `/api/autocompletable/users`, answers Lexxy's prompt items only, where ember-rust's also answers JSON, 20 a page: the DM picker searches the people directory instead (`dms.picker`), so nothing here reads JSON. On touch screens, and at 900px and below, each person listed is 44px tall, as ember-rust's other controls are there, where its list keeps them at 33px. On touch screens, the composer's list opens above the text, clear of the keyboard and the home indicator, where ember-rust's opens below it whenever it fits the window. Unlike ember-rust's, the list follows what's typed while it loads: Lexxy (0.9.24, and still 1.0.1) hears it only once the list shows, so there a quick \"@ka\" lists everyone until the next key. Unlike ember-rust's, the avatars listed don't link to people's pages (`users.avatar-links`): a click anywhere on someone picks them, and screen readers can't reach a link inside a list's option, whose content ARIA makes presentational.",
   },
   {
     id: "mentions.highlight",
@@ -1701,7 +1701,7 @@ export const features = [
     id: "realtime.presence",
     title: "Presence",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Opening a room counts your connection to it (two tabs count twice), marks you connected, clears the room's unread mark and tells your other tabs the room was read. Closing a tab uncounts it at once.",
       "A tab counts as away 5 seconds after it's hidden and back 5 seconds after it's shown, which clears the unread mark again; while it counts, it refreshes its presence every 50 seconds. A tab opened in the background counts until it has been shown and hidden again.",
@@ -1710,7 +1710,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels/presence.rs", "crates/db/src/models/membership.rs", "crates/ember/src/app.rs", "reference/app/channels/presence_channel.rb", "reference/app/models/membership/connectable.rb", "reference/app/javascript/controllers/presence_controller.js"],
     upstreamTests: ["reference/test/channels/presence_channel_test.rb", "crates/ember/src/channels/tests/channels_test.rs", "reference/test/models/membership_test.rb"],
-    notes: "Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Opening a room in a shown tab, or showing a tab that has it open, clears its unread mark in all your tabs, and members viewing a room get no unread mark from its messages (`sidebar.unread`). There are no push notifications yet for the count to hold back. Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.",
+    notes: "Each room knows who is viewing it from its open sockets, each person once however many tabs they have. A tab counts as away once it has stayed hidden for 5 seconds and back once it has stayed shown for 5, where Campfire waits 5 seconds from each change. The socket's address says whether its tab is shown, so a tab opened in the background starts out away, where Campfire's counts until it has been shown and hidden again. A socket the room hasn't heard from in 60 seconds, by its connecting, its visibility or the pings the app sends every 25, stops counting, which only a connection that dropped without closing does. Closing a tab uncounts it at once, and a deploy, which closes every socket, clears every count. Opening a room in a shown tab, or showing a tab that has it open, clears its unread mark in all your tabs, and members viewing a room get no unread mark from its messages (`sidebar.unread`). Members viewing a room get no pushes from it (`notifications.push`). Who's here (`realtime.who-is-here`) is a separate list that counts hidden tabs too, and everyone in the room hears of its changes.",
   },
   {
     id: "realtime.who-is-here",
@@ -1757,7 +1757,7 @@ export const features = [
     id: "realtime.connection",
     title: "Connection sign-in and revocation",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Live connections are identified by the signed session cookie and need a valid session; without one, the connection is told it's unauthorized and closed, and the page doesn't retry. A request to the socket's address gets 404 \"Page not found\" unless it's a WebSocket upgrade from the app's own origin.",
       "Losing a room's membership, or signing out, disconnects all of that person's connections once the change is saved and lets them reconnect: the lost room is refused, and their other rooms and sessions carry on. A ban or removal disconnects them for good.",
@@ -1978,7 +1978,7 @@ export const features = [
     id: "notifications.web-push-keys",
     title: "Web Push configuration",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, a P-256 key pair in URL-safe Base64, turn Web Push on. Without them (a blank value counts as unset) push is off, and \"Web Push is off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY aren't set\" is logged.",
       "A pair that doesn't parse or doesn't match also turns push off, logging \"Web Push is off: \" followed by \"VAPID_PUBLIC_KEY isn't a Base64 P-256 public key\", \"VAPID_PRIVATE_KEY isn't a Base64 P-256 private key\" or \"VAPID_PUBLIC_KEY isn't the public key of VAPID_PRIVATE_KEY\".",
@@ -2007,7 +2007,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/bots/index.html", "crates/views/templates/accounts/bots/_bot.html", "crates/ember/src/controllers/accounts/bots.rs", "crates/views/src/helpers/users.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/assets/overrides/controllers/copy_to_clipboard_controller.js", "crates/views/templates/accounts/edit.html", "reference/app/views/accounts/bots/index.html.erb", "reference/app/views/accounts/bots/_bot.html.erb"],
     upstreamTests: ["reference/test/controllers/accounts/bots_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/screens.yml"],
-    notes: "Administrators open `/account/bots` from the Chat bots button at the top of workspace settings, whose label, like Custom styles', is hidden at 500px wide and below. It lists the active bots from `GET /api/account/bots`, by name ignoring case, as the people directory lists people, each with its avatar linking to its page, its name, a link to its settings and, for each room it's in but its DMs, by name ignoring case, the two curl commands for posting to the room as it, at `<origin>/rooms/<room id>/<bot key>/messages` on the host the page was loaded from, with buttons that copy them and play their success animation. A bot deleted or renamed elsewhere, as by another administrator, leaves the list or takes its new name, and its place by it, as soon as the workspace socket says so, where ember-rust's keeps it as it was until the page loads again. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. Anyone else who opens the page is sent to workspace settings with the alert \"Only administrators can manage bots\", where ember-rust answers an empty 403 page, as Custom styles does (`accounts.custom-css`). The translation globe sits beside the heading, where ember-rust's sits at the panel's corner over the heading's first letters. The message command posts through the bot API (`bots.api-post`), which refuses the attachment command's file until files can be stored.",
+    notes: "Administrators open `/account/bots` from the Chat bots button at the top of workspace settings, whose label, like Custom styles', is hidden at 500px wide and below. It lists the active bots from `GET /api/account/bots`, by name ignoring case, as the people directory lists people, each with its avatar linking to its page, its name, a link to its settings and, for each room it's in but its DMs, by name ignoring case, the two curl commands for posting to the room as it, at `<origin>/rooms/<room id>/<bot key>/messages` on the host the page was loaded from, with buttons that copy them and play their success animation. A bot deleted or renamed elsewhere, as by another administrator, leaves the list or takes its new name, and its place by it, as soon as the workspace socket says so, where ember-rust's keeps it as it was until the page loads again. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. Anyone else who opens the page is sent to workspace settings with the alert \"Only administrators can manage bots\", where ember-rust answers an empty 403 page, as Custom styles does (`accounts.custom-css`). The translation globe sits beside the heading, where ember-rust's sits at the panel's corner over the heading's first letters. Both commands post through the bot API (`bots.api-post`).",
   },
   {
     id: "bots.create-edit",
@@ -2242,7 +2242,7 @@ export const features = [
     id: "composer.send",
     title: "Send from the keyboard",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "On a computer, Enter sends, Shift+Enter starts a new line and Cmd or Ctrl+Enter sends too. With the formatting toolbar open, Enter starts a new line instead, and Enter never sends while an input method is composing.",
       "On any device with a touchscreen the keyboard never sends, Cmd or Ctrl+Enter included; only the Send button does.",
@@ -2343,7 +2343,7 @@ export const features = [
     id: "ui.room-header",
     title: "Room header",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The header shows the room's icon (`#` by default, the outlined messages icon for DMs) and its name (17px, bold, cut off with …). DM names read as \"Direct message with …\" to screen readers.",
       "Rooms have a star to favorite them (`sidebar.favorites`), and on the right Search messages, the notification bell and Conversation settings, which screen readers hear as \"Settings for this room\", or \"Settings for this Ping\" in a DM.",
@@ -2351,7 +2351,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_nav.html", "crates/views/src/rooms.rs", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The header has all of ember-rust's: the icon, the name, the star (`sidebar.favorites`), Search messages (`search.page`), the bell (`notifications.levels`) and Conversation settings (\"Settings for this room\" to screen readers). It also shows who's here (`realtime.who-is-here`), though only to screen readers up to 500px wide, and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. The star is 44px wide for fingers, where ember-rust's is 32px. No header has links with labels to hide up to 500px wide yet: ember-rust's are Chat bots and Custom styles on workspace settings.",
+    notes: "The header has all of ember-rust's: the icon, the name, the star (`sidebar.favorites`), Search messages (`search.page`), the bell (`notifications.levels`) and Conversation settings (\"Settings for this room\" to screen readers). It also shows who's here (`realtime.who-is-here`), though only to screen readers up to 500px wide, and \"Connecting…\" or \"Reconnecting…\" whenever the room's connection isn't open. The star is 44px wide for fingers, where ember-rust's is 32px. Workspace settings' Chat bots and Custom styles show only their icons up to 500px wide, as ember-rust's do, on 44px buttons that keep their names for screen readers.",
   },
   {
     id: "ui.mobile-drawer",
@@ -2428,7 +2428,7 @@ export const features = [
     id: "ui.flash",
     title: "Saved notices",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "A notice shows as a toast below the header, centered over the content (over the whole window when signed out, or at 900px wide and below): a check and the text, in white on green. An alert is red, with an alert sign.",
       "It fades in after 0.3 seconds and fades out again, leaving the page 3.3 seconds after it loaded. Screen readers hear it as an alert, and a notice of just \"✓\" shows only the check, read as \"Changes saved\".",
@@ -2437,13 +2437,13 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. Saving the workspace's name or logo says \"Changes saved.\", saving custom styles or your profile \"✓\", and a new profile photo \"It may take up to 30 minutes to change everywhere.\" The alerts so far are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room, or saving the workspace's name or your profile, failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
+    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. Saving the workspace's name or logo says \"Changes saved.\", saving custom styles or your profile \"✓\", and a new profile photo \"It may take up to 30 minutes to change everywhere.\" The alerts are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room, or saving the workspace's name or your profile, failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
   },
   {
     id: "ui.accessibility",
     title: "Landmarks and names",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Skip to main content is the first thing Tab reaches. It's hidden until focused, and moves focus to the main content.",
       "Landmarks are named: navigation \"Workspace\" (the rail) and \"Page\" (the header), \"Conversations\" (the sidebar) with Rooms and DMs, and the main content.",
@@ -2452,7 +2452,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/views/templates/rooms/show/_composer.html", "crates/views/templates/users/sidebars/show.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/nav.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has none yet (`auth.first-run`). The message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, though not as in ember-rust: the message box is \"Message #<room>\" and Send is \"Send\". Attach a file, Rich text, Activity and the star aren't built yet.",
+    notes: "The skip link and the landmarks are ember-rust's, though following the skip link leaves the address as it is, where ember-rust's adds `#main-content`, and the first-run page has them too, as ember-rust's basecoat layout does. The message log (\"Messages in general\") and the composer are named, and so are the icon-only buttons, as in ember-rust: \"Write a message\", \"Attach a file\", \"Rich text\", \"Send Message\", \"Jump to newest message\", Activity and the star, which say whether they're on.",
   },
   {
     id: "ui.icons",
@@ -2527,7 +2527,7 @@ export const features = [
     id: "platform.live-socket",
     title: "One live connection per tab outside the open room",
     origin: "cloudflare",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Each signed-in tab keeps one socket besides the room's. It carries unread and read marks, DM activity, sidebar and star changes, and requests to reload the sidebar, for every room the person is in.",
       "It reconnects with the room socket's back-off and heartbeat, and the sidebar is fetched again once it's back.",
@@ -2536,7 +2536,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/channels.rs", "crates/ember/src/channels/unread_rooms.rs", "crates/ember/src/channels/read_rooms.rs", "reference/app/channels/unread_rooms_channel.rb"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs"],
-    notes: "Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. It also tells each person when a room is marked unread or read for them (`sidebar.unread`). DM activity, sidebar and star changes and reload requests are still to come.",
+    notes: "Each signed-in tab opens `/api/socket` to the Workspace Durable Object, which lets it in with a welcome naming who the session signs in, answers its pings, and closes the session's sockets, saying to reconnect, when it signs out. It reconnects with the room socket's back-off and heartbeat, and the sidebar loads again each time it connects. It also tells each person when a room is marked unread or read for them (`sidebar.unread`). It also brings DM activity (`sidebar.dm-order`), rooms saved, made, changed or gone (`sidebar.live-updates`), stars (`sidebar.favorites`), rooms hidden or shown (`notifications.hide-room`), and the shared order, which has the sidebar load again (`sidebar.shared-order`).",
   },
   {
     id: "platform.version",

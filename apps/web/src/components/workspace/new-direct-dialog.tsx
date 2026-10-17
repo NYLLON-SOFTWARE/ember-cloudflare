@@ -18,8 +18,8 @@ import { UserAvatar } from "./user-avatar";
 
 /** Campfire's `.btn` as ember-rust's zz-ember.css sets it. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground";
-/** `.mb-dm-footer .btn`, 44px tall for fingers and below 500px. */
-const FOOTER_BUTTON = "min-h-[42px] px-4 py-2.5 touch:min-h-11 max-[500px]:min-h-11";
+/** `.mb-dm-footer .btn`, 44px tall for fingers and at 500px wide and below. */
+const FOOTER_BUTTON = "min-h-[42px] px-4 py-2.5 touch:min-h-11 upto-500px:min-h-11";
 /** `.mb-dm-more`. */
 const MORE_BUTTON = "m-2 px-3 py-2 text-[13px] touch:min-h-11";
 
@@ -236,7 +236,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
         )}
       >
         <form onSubmit={submit}>
-          <header className="flex items-start justify-between gap-4 px-6 pt-6 pb-5 max-[500px]:px-4 max-[500px]:py-5">
+          <header className="flex items-start justify-between gap-4 px-6 pt-6 pb-5 upto-500px:px-4 upto-500px:py-5">
             <div>
               <DialogTitle className="mb-1.5 text-[20px] leading-[1.3] font-bold">New direct message</DialogTitle>
               <DialogDescription className="text-[13px] leading-normal">Find people by full name. You can also type @name.</DialogDescription>
@@ -246,7 +246,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
             </button>
           </header>
           {picked.length > 0 && (
-            <div role="group" aria-label="Selected people" className="flex max-h-[110px] flex-wrap gap-1.5 overflow-y-auto px-6 pb-3.5 max-[500px]:px-4">
+            <div role="group" aria-label="Selected people" className="flex max-h-[110px] flex-wrap gap-1.5 overflow-y-auto px-6 pb-3.5 upto-500px:px-4">
               {picked.map((person) => (
                 <button
                   key={person.id}
@@ -261,7 +261,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
             </div>
           )}
           {/* A label, where ember-rust's is a box, so a tap anywhere on it reaches the field. */}
-          <label className="mx-6 flex min-h-[46px] cursor-text items-center gap-2.5 rounded-[10px] border px-3 py-2.5 focus-within:border-muted-foreground focus-within:ring-1 focus-within:ring-muted-foreground max-[500px]:mx-4">
+          <label className="mx-6 flex min-h-[46px] cursor-text items-center gap-2.5 rounded-[10px] border px-3 py-2.5 focus-within:border-muted-foreground focus-within:ring-1 focus-within:ring-muted-foreground upto-500px:mx-4">
             <Search className="size-[19px] flex-[0_0_19px] text-muted-foreground" />
             <span className="sr-only">Search people</span>
             <input
@@ -280,7 +280,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
               aria-activedescendant={highlighted && options.some((person) => person.id === highlighted) ? optionId(highlighted) : undefined}
               onChange={(event) => find(event.target.value)}
               onKeyDown={keyDown}
-              className="w-full min-w-0 bg-transparent p-0 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none max-[500px]:text-base touch:text-base"
+              className="w-full min-w-0 bg-transparent p-0 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none upto-500px:text-base touch:text-base"
             />
           </label>
           <div ref={browse} className="max-h-[min(340px,40dvh)] min-h-[170px] overflow-y-auto overscroll-contain px-4 pt-3.5 pb-5">
@@ -315,7 +315,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
               </button>
             )}
           </div>
-          <footer className="flex justify-end gap-2.5 border-t px-6 py-[18px] max-[500px]:p-4">
+          <footer className="flex justify-end gap-2.5 border-t px-6 py-[18px] upto-500px:p-4">
             <button type="button" onClick={close} className={cn(BUTTON, FOOTER_BUTTON)}>
               Cancel
             </button>

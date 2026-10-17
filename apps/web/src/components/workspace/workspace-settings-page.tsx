@@ -278,13 +278,13 @@ export function WorkspaceSettingsPage({
   // zz-ember.css leaves only their icons on screen at 500px wide and below.
   const links = settings?.canAdminister && (
     <>
-      <PageLink href={BOTS_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
+      <PageLink href={BOTS_PATH} className={cn(HEADER_TEXT_BUTTON, "upto-500px:size-11 upto-500px:p-0")}>
         <Bot width={20} height={20} className="h-5 w-[1.3em]" />
-        <span className="max-[500px]:sr-only">Chat bots</span>
+        <span className="upto-500px:sr-only">Chat bots</span>
       </PageLink>
-      <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "max-[500px]:size-11 max-[500px]:p-0")}>
+      <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "upto-500px:size-11 upto-500px:p-0")}>
         <Art width={20} height={20} className="h-5 w-[1.3em]" />
-        <span className="max-[500px]:sr-only">Custom styles</span>
+        <span className="upto-500px:sr-only">Custom styles</span>
       </PageLink>
     </>
   );

@@ -17,7 +17,7 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
   const { logo } = useAccount();
 
   return (
-    <div className="mx-6 mb-1 w-[560px] max-w-[calc(100%-48px)] rounded-[14px] border bg-background p-[22px] max-[68.75rem]:mx-[18px] max-[68.75rem]:max-w-[calc(100%-36px)] max-[68.75rem]:p-[18px] max-md:mx-3 max-md:max-w-[calc(100%-24px)] max-md:p-4">
+    <div className="mx-6 mb-1 w-[560px] max-w-[calc(100%-48px)] rounded-[14px] border bg-background p-[22px] narrow:mx-[18px] narrow:max-w-[calc(100%-36px)] narrow:p-[18px] max-md:mx-3 max-md:max-w-[calc(100%-24px)] max-md:p-4">
       <div className="mb-5 flex items-start gap-3.5 max-md:mb-3.5 max-md:gap-3">
         {/* The logo on the card's background, in an 11px rounded square, as `#system_welcome .account-logo`. */}
         {logo ? (
@@ -32,7 +32,7 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
         <TranslationButton translations="invite_message" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[9px] border px-[9px] py-[7px] max-[68.75rem]:basis-full touch:min-h-11">
+        <label className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[9px] border px-[9px] py-[7px] narrow:basis-full max-md:basis-full touch:min-h-11">
           <span id="invite_label" className="sr-only">
             Share to invite more people
           </span>
