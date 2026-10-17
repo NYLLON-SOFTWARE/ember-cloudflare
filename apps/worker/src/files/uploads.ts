@@ -41,6 +41,18 @@ export const partLength = (size: number, n: number) => Math.min(UPLOAD_PART_SIZE
  */
 export const metadataOf = (bytes: Uint8Array, contentType: string) => JSON.stringify({ identified: true, ...imageSize(bytes, contentType), analyzed: true });
 
+/**
+ * What a file named `filename`, of `declaredType` as its sender says, whose first bytes are `bytes`, is,
+ * as Active Storage identifies an upload, then analyzes it: its type and metadata.
+ */
+export function identifiedOf(bytes: Uint8Array, filename: string, declaredType: string): Identified {
+  const contentType = identify(bytes, sanitizedFilename(filename), declaredType);
+  return { contentType, metadata: metadataOf(bytes, contentType) };
+}
+
+/** How R2 keeps a file named `filename` of type `contentType`: with both, so serving it needs nothing else. */
+export const keptAs = (contentType: string, filename: string) => ({ httpMetadata: { contentType }, customMetadata: { filename } });
+
 const NOT_SIGNED_IN = "Not signed in";
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 const UPLOAD_NOT_FOUND = "Upload not found";
@@ -245,9 +257,8 @@ const isWhole = async (files: R2Bucket, upload: RoomBlob) => (await files.head(o
  */
 async function storeFirstPart(env: Env, files: R2Bucket, roomId: RoomId, uploader: Uploader, upload: RoomBlob, bytes: Uint8Array): Promise<Response> {
   const room = env.CHAT_ROOM.getByName(roomId);
-  const contentType = identify(bytes, sanitizedFilename(upload.filename), upload.contentType);
-  const identified: Identified = { contentType, metadata: metadataOf(bytes, contentType) };
-  const options = { httpMetadata: { contentType }, customMetadata: { filename: upload.filename } };
+  const identified = identifiedOf(bytes, upload.filename, upload.contentType);
+  const options = keptAs(identified.contentType, upload.filename);
   const key = objectKey(upload.id);
 
   if (uploadParts(upload.byteSize) === 1) {

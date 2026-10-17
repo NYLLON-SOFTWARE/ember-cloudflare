@@ -481,6 +481,14 @@ describe(feature("messages.edit"), () => {
     expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
   });
 
+  it("marks a file message whose file a bot replaced, after the file when it's grouped", () => {
+    const replaced = fileMessage({ updatedAt: "2026-10-12T10:05:00.000Z", editedAt: "2026-10-12T10:05:00.000Z" });
+    expect(within(show(replaced).article).getByText("(edited)").closest("h3")).not.toBeNull();
+    const grouped = show(replaced, { threaded: true }).article;
+    expect(within(grouped).getByText("(edited)").previousElementSibling).toHaveTextContent(report.name);
+    expect(within(show(fileMessage()).article).queryByText("(edited)")).not.toBeInTheDocument();
+  });
+
   it("keeps the editor and what's written when the edit can't be sent", async () => {
     const { actions, editors, user } = show(message(), { sent: false });
     await pressAction(user, "Edit");

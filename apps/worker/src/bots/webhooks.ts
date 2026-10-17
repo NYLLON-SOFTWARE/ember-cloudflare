@@ -1,4 +1,5 @@
 import { botMessagesPath, MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
+import type { ArrivingFile } from "../files/streamed";
 import type { MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";
 import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
@@ -27,6 +28,9 @@ export const DELIVERY_DEADLINE_MS = 60_000;
  * reads a post (api.ts), where ember-rust reads 100 MB of any answer.
  */
 const MAX_TEXT_REPLY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
+
+/** The most bytes of a file a bot replies with: ember-rust's `MAX_REPLY_SIZE`, where Rails reads any. */
+export const MAX_FILE_REPLY_BYTES = 100 * 1024 * 1024;
 
 /**
  * The headers Net::HTTP sends with Campfire's request, as ember-rust records them, but for those a
@@ -62,14 +66,17 @@ const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentio
 /** `without_recipient_mentions`: `text` without its @mentions of `name`, matched case for case, nor whitespace at either end. */
 const withoutMentionsOf = (name: string, text: string) => text.replaceAll(`@${name}`, "").replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
 
-/** What a bot says back: text, which it posts as its message, or a file. */
-export type Reply = { text: string } | { file: ReplyFile };
+/** What a bot says back: text, which it posts as its message, or a file, with what keeping it as it arrived came to. */
+export type Reply<K> = { text: string } | { file: ReplyFile; kept: K };
 
 /** What came of a delivery: the webhook's status, or null when it didn't answer in time, and what the bot says back, if anything. */
-export interface Delivered {
+export interface Delivered<K> {
   status: number | null;
-  reply: Reply | null;
+  reply: Reply<K> | null;
 }
+
+/** Keeps a file a bot replies with, as it arrives, answering what that came to, or null once it's more than its limit. */
+export type Keep<K> = (file: ArrivingFile) => Promise<K | null>;
 
 /** How long a delivery may take: to answer, and then to send each part of the answer, and in all. */
 export interface Timeouts {
@@ -84,19 +91,25 @@ export class WebhookError extends Error {}
 
 /**
  * `Webhook#deliver`'s request and what it reads of the answer: POSTs `payload` to `url`, as Net::HTTP
- * does, and answers what the bot says back. A webhook that doesn't answer, or send the next part of its
- * answer, within `endpointMs`, or finish within `deadlineMs`, says it failed to respond, as Campfire has
- * the bot say then. Throws a `WebhookError` when `url` isn't an http or https URL with a host, the
- * request fails, or the answer can't be read, with a message that never holds the URL. Tests can give it
- * shorter `timeouts`, and `send` to stand in for `fetch`.
+ * does, and answers what the bot says back, having `keep` keep a file as it arrives, where Campfire reads
+ * all of it first. A webhook that doesn't answer, or send the next part of its answer, within
+ * `endpointMs`, or finish within `deadlineMs`, says it failed to respond, as Campfire has the bot say
+ * then. Throws a `WebhookError` when `url` isn't an http or https URL with a host, the request fails, or
+ * the answer can't be read or kept, with a message that never holds the URL. Tests can give it shorter
+ * `timeouts`, and `send` to stand in for `fetch`.
  */
-export async function postWebhook(url: string, payload: string, { timeouts = TIMEOUTS, send = fetch }: { timeouts?: Timeouts; send?: typeof fetch } = {}): Promise<Delivered> {
+export async function postWebhook<K>(
+  url: string,
+  payload: string,
+  keep: Keep<K>,
+  { timeouts = TIMEOUTS, send = fetch }: { timeouts?: Timeouts; send?: typeof fetch } = {},
+): Promise<Delivered<K>> {
   const target = URL.parse(url);
   if (!target || (target.protocol !== "http:" && target.protocol !== "https:") || !target.hostname) throw new WebhookError("bad URI");
   const clock = new DeliveryClock(timeouts);
   try {
     const response = await clock.race(send(target, { method: "POST", headers: HEADERS, body: payload, redirect: "manual", signal: clock.signal }));
-    return { status: response.status, reply: await replyIn(response, clock) };
+    return { status: response.status, reply: await replyIn(response, clock, keep) };
   } catch (error) {
     if (clock.timedOutAfter !== null) return { status: null, reply: { text: `Failed to respond within ${clock.timedOutAfter / 1000} seconds` } };
     if (error instanceof WebhookError) throw error;
@@ -110,17 +123,40 @@ export async function postWebhook(url: string, payload: string, { timeouts = TIM
 /**
  * What the bot says back in `response`, as `extract_text_from`, then `extract_attachment_from`, read it:
  * a 200's `text/html` or `text/plain` is text, and any other answer with a type is a file, of a name and
- * type by that type. An answer without one says nothing, and one whose type isn't a media type fails.
+ * type by that type, which `keep` keeps. An answer without one says nothing, and one whose type isn't a
+ * media type fails.
  */
-async function replyIn(response: Response, clock: DeliveryClock): Promise<Reply | null> {
+async function replyIn<K>(response: Response, clock: DeliveryClock, keep: Keep<K>): Promise<Reply<K> | null> {
   const type = contentTypeOf(response.headers.get("Content-Type"));
   if (response.status === 200 && (type === "text/html" || type === "text/plain")) return { text: await textOf(response.body, clock) };
-  // Nothing keeps a file until bots can post them (plan 10.7), so none is read.
-  await response.body?.cancel();
-  if (type === null) return null;
-  const file = replyFileOf(type);
-  if (!file) throw new WebhookError(`${JSON.stringify(type)} is not a valid MIME type`);
-  return { file };
+  const file = type === null ? null : replyFileOf(type);
+  if (!file) {
+    await response.body?.cancel();
+    if (type === null) return null;
+    throw new WebhookError(`${JSON.stringify(type)} is not a valid MIME type`);
+  }
+  return { file, kept: await keptFile(response.body, clock, file, keep) };
+}
+
+/**
+ * What `keep` made of the file `body` brings, named and typed as `file` says, read a part at a time
+ * against `clock`. Throws a `WebhookError` once it's larger than a reply can be.
+ */
+async function keptFile<K>(body: ReadableStream<Uint8Array> | null, clock: DeliveryClock, { filename, contentType }: ReplyFile, keep: Keep<K>): Promise<K> {
+  const reader = body?.getReader();
+  const read = async () => {
+    if (!reader) return null;
+    const { done, value } = await clock.race(reader.read());
+    return done ? null : value;
+  };
+  try {
+    const kept = await keep({ filename, declaredType: contentType, limit: MAX_FILE_REPLY_BYTES, read });
+    if (kept === null) throw new WebhookError(`the reply is larger than ${MAX_FILE_REPLY_BYTES / 1024 / 1024} MB`);
+    return kept;
+  } catch (error) {
+    void reader?.cancel().catch(() => {});
+    throw error;
+  }
 }
 
 /**
@@ -152,32 +188,36 @@ const REPLY_TOO_LONG = "the reply is longer than a message can be";
 
 /**
  * Times a delivery as Net::HTTP's timeouts and ember-rust's deadline do: it aborts the request once the
- * webhook has gone `endpointMs` without answering or sending more, or `deadlineMs` have passed since it
- * began, and says which.
+ * webhook has gone `endpointMs` without answering or sending the next part it's asked for, or
+ * `deadlineMs` have passed since it began, and says which.
  */
 class DeliveryClock {
   private readonly controller = new AbortController();
   readonly signal = this.controller.signal;
   /** How long the webhook had, once it has run out of time. */
   timedOutAfter: number | null = null;
-  private quiet: ReturnType<typeof setTimeout>;
+  private quiet: ReturnType<typeof setTimeout> | null = null;
   private readonly deadline: ReturnType<typeof setTimeout>;
   private readonly aborted: Promise<never>;
 
   constructor(private readonly timeouts: Timeouts) {
-    this.quiet = this.after(timeouts.endpointMs);
     this.deadline = this.after(timeouts.deadlineMs);
     this.aborted = new Promise((_resolve, reject) => this.signal.addEventListener("abort", () => reject(this.signal.reason)));
     // Nothing need wait for the abort but what races it.
     this.aborted.catch(() => {});
   }
 
-  /** What `work` comes to, unless time runs out first. Whatever the webhook sends gives it as long again for the next part. */
+  /**
+   * What `work`, waiting on the webhook, comes to, unless time runs out first. Its `endpointMs` count
+   * only while it's waited on, as Net::HTTP's do, so keeping the parts it sent takes none of them.
+   */
   async race<T>(work: Promise<T>): Promise<T> {
-    const done = await Promise.race([work, this.aborted]);
-    clearTimeout(this.quiet);
     this.quiet = this.after(this.timeouts.endpointMs);
-    return done;
+    try {
+      return await Promise.race([work, this.aborted]);
+    } finally {
+      clearTimeout(this.quiet);
+    }
   }
 
   stop(): void {

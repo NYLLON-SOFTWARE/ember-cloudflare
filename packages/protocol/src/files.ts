@@ -16,7 +16,7 @@ export const FILE_TOO_LARGE = "Files must be 250 MB or smaller.";
 export const MAX_FILE_NAME_LENGTH = 255;
 
 /** The longest type a browser can give a file: RFC 6838's 127 characters a side and the slash between. */
-const MAX_TYPE_LENGTH = 255;
+export const MAX_FILE_TYPE_LENGTH = 255;
 
 /** Where a file for `roomId` starts uploading. */
 export const uploadsPath = (roomId: RoomId) => `/api/rooms/${encodeURIComponent(roomId)}/uploads`;
@@ -106,13 +106,19 @@ export interface StoredFile {
 /** A UTF-16 surrogate without its pair, which no file name can hold. */
 const LONE_SURROGATE = /\p{Surrogate}/u;
 
+/** Why Ember keeps no file of a name: one longer than common file systems allow, or holding half a character. */
+export const FILE_NAME_NOT_KEPT = "That file's name can't be kept";
+
+/** Whether Ember can keep a file named `name`, once it has a name. */
+export const isKeepableFileName = (name: string) => name.length <= MAX_FILE_NAME_LENGTH && !LONE_SURROGATE.test(name);
+
 /** Parses an untrusted `NewUpload`, or returns why it's refused: `FILE_TOO_LARGE` for a file too large. */
 export function parseNewUpload(data: unknown): NewUpload | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
   const { name, type, size, clientMessageId } = data as Record<string, unknown>;
   if (typeof name !== "string" || !name.trim()) return "A file needs a name";
-  if (name.length > MAX_FILE_NAME_LENGTH || LONE_SURROGATE.test(name)) return "That file's name can't be kept";
-  if (typeof type !== "string" || type.length > MAX_TYPE_LENGTH) return "A file's type must be text";
+  if (!isKeepableFileName(name)) return FILE_NAME_NOT_KEPT;
+  if (typeof type !== "string" || type.length > MAX_FILE_TYPE_LENGTH) return "A file's type must be text";
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return "A file's size must be a number of bytes";
   if (size > MAX_FILE_SIZE) return FILE_TOO_LARGE;
   if (typeof clientMessageId !== "string" || clientMessageId.length === 0 || clientMessageId.length > MAX_ID_LENGTH) return "A file needs an id for its message";

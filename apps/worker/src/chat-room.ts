@@ -26,7 +26,8 @@ import { openDb, type Db } from "./db";
 import type { Env } from "./env";
 import { attachedFile, Blobs, objectKey, previewKey, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
 import type { ImageSize } from "./files/images";
-import type { Uploader } from "./files/uploads";
+import { storeArriving, type ArrivingFile, type StreamedFile } from "./files/streamed";
+import { NO_STORAGE, type Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
@@ -82,6 +83,12 @@ const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment
 /** A page of a room's messages as the bot API reads it, with how many messages the room has. */
 export interface BotPage extends Omit<TimelinePage, "around"> {
   total: number;
+}
+
+/** A file R2 has all of for the room, which it's to post: its key, and what it came to as it arrived. */
+export interface KeptFile {
+  key: string;
+  file: StreamedFile;
 }
 
 /** What the room answers a bot that names a message it doesn't have. */
@@ -513,13 +520,69 @@ export class ChatRoom extends DurableObject<Env> {
         const message = blob.messageId === null ? null : await store.find(blob.messageId);
         return message && { message, posted: false };
       }
-      const file = attachedFile(blob, identified);
-      const posted: PostedFile = { file, finished: (messageId) => blobs.finished(key, messageId, now, identified) };
-      // A file message's text is empty, and its plain text, which search, pushes and webhooks read, is its
-      // file's name, as ember-rust's `plain_text_body` falls back to (message.rs).
-      const body = { html: "", plainText: file.name, mentions: [] };
-      // An upload started before files were messages has no id for its message, so it gets one, as a bot's does.
-      return { message: await this.create(store, uploader.user, blob.clientMessageId ?? crypto.randomUUID(), body, now, "message", posted), posted: true };
+      const posted: PostedFile = { file: attachedFile(blob, identified), finished: (messageId) => blobs.finished(key, messageId, now, identified) };
+      return { message: await this.postFile(store, uploader.user, blob, posted, now), posted: true };
+    });
+  }
+
+  /**
+   * Starts the bot's upload of a file named `filename`, of `declaredType` as it says, to the room, for a
+   * form that brings it to R2 as it arrives, as `startUpload` starts someone's, or, with `messageId`, one
+   * to give the bot's message in place of its file. Answers the file's key, or `NOT_FOUND` when the room
+   * turns the bot away, as `createBotMessage` does, or has no such message, and `FORBIDDEN` when it's
+   * someone else's.
+   */
+  async startBotUpload(
+    roomId: RoomId,
+    { bot, authorizedAt }: BotAccess,
+    file: Pick<ArrivingFile, "filename" | "declaredType">,
+    messageId?: string,
+  ): Promise<{ key: string } | typeof NOT_FOUND | typeof FORBIDDEN> {
+    const startedAt = Date.now();
+    const started = await this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const message = messageId === undefined ? null : await this.botsOwn(this.storeFor(roomId), bot, messageId);
+      if (message === NOT_FOUND || message === FORBIDDEN) return message;
+      return { key: await this.startArriving(roomId, bot.id, file, startedAt) };
+    });
+    if (typeof started === "object") await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
+    return started;
+  }
+
+  /**
+   * Posts the bot's file `key`, which R2 has all of, as it came to in `file`, as the bot's message, as
+   * ember-rust's bot API does (messages/by_bots.rs `create`), recording that its upload has finished and
+   * the message in one transaction, as `finishUpload` does. With `messageId`, gives it to the bot's
+   * message in place of the file that had, as `update` does. Answers the message, or `NOT_FOUND` when
+   * the room turns the bot away, as `createBotMessage` does, or has no such upload or message, and
+   * `FORBIDDEN` when the message is someone else's.
+   */
+  async finishBotUpload(roomId: RoomId, { bot, authorizedAt }: BotAccess, { key, file }: KeptFile, messageId?: string): Promise<Message | string> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const blob = await this.blobsFor(roomId).find(key);
+      if (blob?.uploaderId !== bot.id) return NOT_FOUND;
+      const store = this.storeFor(roomId);
+      if (messageId === undefined) return this.postFile(store, bot, blob, this.streamed(roomId, blob, file, now), now);
+      const message = await this.botsOwn(store, bot, messageId);
+      return typeof message === "string" ? message : this.attach(store, message, this.streamed(roomId, blob, file, now), now);
+    });
+  }
+
+  /**
+   * Takes the file away from the bot's message `messageId`, as ember-rust's bot API does when an edit's
+   * form gives `attachment` nothing (messages/by_bots.rs `update`), answering the message as it is now, or
+   * `NOT_FOUND` or `FORBIDDEN` as `editBotMessage` does. A message without a file stays as it was.
+   */
+  async removeBotFile(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string): Promise<Message | string> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
+      const store = this.storeFor(roomId);
+      const message = await this.botsOwn(store, bot, messageId);
+      if (typeof message === "string" || !message.attachment) return message;
+      return this.attach(store, message, null, now);
     });
   }
 
@@ -658,6 +721,49 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * Posts `posted`'s file, `blob`, as `user`'s message, as `create` posts one. A file message's text is
+   * empty, and its plain text, which search, pushes and webhooks read, is its file's name, as ember-rust's
+   * `plain_text_body` falls back to (message.rs). An upload started without an id for its message, as one
+   * from before files were messages or a bot's is, gets one, as a bot's text does.
+   */
+  private postFile(store: MessageStore, user: User, blob: RoomBlob, posted: PostedFile, now: string, kind?: "message" | "reply"): Promise<Message> {
+    const body = { html: "", plainText: posted.file.name, mentions: [] };
+    return this.create(store, user, blob.clientMessageId ?? crypto.randomUUID(), body, now, kind, posted);
+  }
+
+  /**
+   * Records that `uploaderId` has started a file named `filename`, of `declaredType` as they say, at
+   * `startedAt`, which is to come to R2 as it arrives, so its size is only known once it has, and answers
+   * its key. The alarm deletes it if it's still unfinished a day later, as it does an upload's.
+   */
+  private async startArriving(roomId: RoomId, uploaderId: UserId, { filename, declaredType }: Pick<ArrivingFile, "filename" | "declaredType">, startedAt: number): Promise<string> {
+    const key = base36(KEY_LENGTH);
+    const blob = { id: key, uploaderId, filename, contentType: declaredType, byteSize: 0, clientMessageId: null };
+    await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
+    return key;
+  }
+
+  /** `blob`, which R2 has all of now, as it came to in `file`, as the message it's posted as keeps it, at `now`. */
+  private streamed(roomId: RoomId, blob: RoomBlob, file: StreamedFile, now: string): PostedFile {
+    const blobs = this.blobsFor(roomId);
+    return { file: attachedFile({ ...blob, byteSize: file.byteSize }, file.identified), finished: (messageId) => blobs.streamed(blob.id, messageId, now, file) };
+  }
+
+  /**
+   * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
+   * telling everyone in the room, sending the search index its log and having R2 delete the file it had,
+   * and answers the message as it is now.
+   */
+  private async attach(store: MessageStore, message: Message, posted: PostedFile | null, now: string): Promise<Message> {
+    const { message: attached, seq } = await store.updateAttachment(message, posted, now);
+    this.broadcast({ type: "message.updated", message: attached, seq });
+    const couriers = this.couriersFor(store.roomId);
+    couriers.index.deliver();
+    if (message.attachment) couriers.files.deliver();
+    return attached;
+  }
+
+  /**
    * Replaces `message`'s text with `body`, telling everyone in the room and sending the search index its
    * log, and answers the message as it is now. Saved as it was, it stays as it was, its update time
    * included, as Rails saves nothing then.
@@ -789,8 +895,8 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Delivers a new message to a bot's webhook in its turn, as ember-rust's `Bot::WebhookJob` does
    * (integrations/jobs.rs): the message as it is by then, and nothing once it's gone, to the bot and
-   * webhook the Workspace found for it, and posts what the bot says back. Each delivery is logged,
-   * without its URL or the bot's key, and one the queue has no room for is dropped.
+   * webhook the Workspace found for it, and posts what the bot says back, text or a file. Each delivery
+   * is logged, without its URL or the bot's key, and one the queue has no room for is dropped.
    */
   private async deliver(roomId: RoomId, webhook: MessageWebhook): Promise<void> {
     const job = `Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.bot.id}`;
@@ -798,9 +904,9 @@ export class ChatRoom extends DurableObject<Env> {
       try {
         const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(webhook.messageId);
         if (!message) throw new WebhookError("the message is gone");
-        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message));
-        if (reply && "file" in reply) throw new WebhookError(`its reply, ${reply.file.filename} (${reply.file.contentType}), is a file, which bots can't post yet`);
-        const refused = reply && (await this.reply(roomId, webhook.bot, reply.text));
+        const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
+        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message), keep);
+        const refused = reply && ("text" in reply ? await this.reply(roomId, webhook.bot, reply.text) : await this.replyWithFile(roomId, webhook.bot, reply.kept));
         if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
         console.log(`${job} performed: ${status ?? "no answer in time"}`);
       } catch (error) {
@@ -823,6 +929,41 @@ export class ChatRoom extends DurableObject<Env> {
       await this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, new Date().toISOString(), "reply");
       return null;
     });
+  }
+
+  /**
+   * Has R2 keep the file a bot replies with, as it arrives, as an upload of the bot's the room starts for
+   * it, for `replyWithFile` to post, and answers what it came to, or null once it's more than its limit.
+   */
+  private async keepReplyFile(roomId: RoomId, bot: User, file: ArrivingFile): Promise<KeptFile | null> {
+    const files = this.env.FILES;
+    if (!files) throw new WebhookError(`its reply, ${file.filename} (${file.declaredType}), is a file, and ${NO_STORAGE}`);
+    const startedAt = Date.now();
+    const key = await this.serially(async () => {
+      if (await this.isDeleted()) throw new WebhookError("the room is gone");
+      return this.startArriving(roomId, bot.id, file, startedAt);
+    });
+    await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
+    const stored = await storeArriving(files, objectKey(key), file);
+    return stored && { key, file: stored };
+  }
+
+  /**
+   * Posts the file `kept` as the bot `bot`'s reply to a delivery, as Campfire's `receive_attachment_reply_to`
+   * does, as `reply` posts text. Answers why the room keeps nothing of it, if it doesn't, having R2 delete
+   * it, since the room deleted it while it arrived, and nothing else would.
+   */
+  private async replyWithFile(roomId: RoomId, bot: User, { key, file }: KeptFile): Promise<string | null> {
+    const posted = await this.serially(async () => {
+      const now = new Date().toISOString();
+      const blob = (await this.isDeleted()) ? null : await this.blobsFor(roomId).find(key);
+      if (!blob) return false;
+      await this.postFile(this.storeFor(roomId), bot, blob, this.streamed(roomId, blob, file, now), now, "reply");
+      return true;
+    });
+    if (posted) return null;
+    await this.env.FILES?.delete(objectKey(key));
+    return "the room is gone";
   }
 
   /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */

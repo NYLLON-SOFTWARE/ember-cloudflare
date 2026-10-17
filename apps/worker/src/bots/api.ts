@@ -1,18 +1,32 @@
-import { MAX_MESSAGE_HTML_LENGTH, type Boost, type Message, type RoomId, type UserId } from "@ember/protocol";
+import {
+  FILE_NAME_NOT_KEPT,
+  isKeepableFileName,
+  MAX_FILE_SIZE,
+  MAX_FILE_TYPE_LENGTH,
+  MAX_MESSAGE_HTML_LENGTH,
+  type Boost,
+  type Message,
+  type RoomId,
+  type UserId,
+} from "@ember/protocol";
 import { directoryOf } from "../avatar-tokens";
 import { BLANK, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
+import { objectKey } from "../files/blobs";
+import { FormError, formBoundaryOf, FormReader } from "../files/form-parts";
+import { storeArriving } from "../files/streamed";
+import { NO_STORAGE } from "../files/uploads";
 import type { PageCursor } from "../store";
 import { workspace, type BotAccess } from "../workspace";
 import { botKeyParts } from "./keys";
 import { railsJson } from "./rails-json";
 
 // The bot API, as ember-rust's `Messages::ByBotsController` and `Messages::Boosts::ByBotsController`
-// answer it (crates/ember/src/controllers/messages/by_bots.rs and boosts/by_bots.rs): a bot posts to a
-// room it's in, and reads it, at /rooms/<room id>/<bot key>/messages, and edits, deletes and boosts its
-// messages under that. The key is all a bot has, so these routes never read a session cookie, which
-// leaves another site's page nothing to forge.
+// answer it (crates/ember/src/controllers/messages/by_bots.rs and boosts/by_bots.rs): a bot posts text or
+// a file to a room it's in, and reads it, at /rooms/<room id>/<bot key>/messages, and edits, deletes and
+// boosts its messages under that. The key is all a bot has, so these routes never read a session cookie,
+// which leaves another site's page nothing to forge.
 
 /** A room's address for bots, `room_bot_messages`, and those of its messages, their boosts and a boost, each with or without `.json`. */
 const BOT_MESSAGES = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages(?:\.json)?$/;
@@ -30,10 +44,14 @@ const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/messages\b)/g;
 const MAX_BODY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
 
 const UNKNOWN_BOT_KEY = "Unknown bot key";
-const FILES_NOT_YET = "Bots can't post files yet";
+/** Why a form's `attachment` that's text posts nothing, where ember-rust fails to assign it (messages.rs `invalid_attachment`). */
+const NOT_A_FILE = "An attachment has to be a file";
+
+/** The field of a form that brings a bot's file, as `curl -F "attachment=@<path>"` sends it. */
+const ATTACHMENT = "attachment";
 
 /** `Rack::Utils::HTTP_STATUS_CODES`, for the exceptions ember-rust answers here. */
-const REASONS = { 404: "Not Found", 413: "Content Too Large", 500: "Internal Server Error" } as const;
+const REASONS = { 400: "Bad Request", 404: "Not Found", 413: "Content Too Large", 500: "Internal Server Error" } as const;
 
 const JSON_TYPE = "application/json; charset=utf-8";
 /** How a bot may keep JSON it's answered, as Rack::ETag allows JSON with an ETag: only once it's checked it's current. */
@@ -74,6 +92,9 @@ const unknownKey = () => Response.json({ error: UNKNOWN_BOT_KEY }, { status: 401
 /** What a request the room can't take answers: 422 with why. */
 const unprocessable = (reason: string) => Response.json({ error: reason }, { status: 422 });
 
+/** What a form answers without an R2 bucket bound as FILES, as a browser's upload does. */
+const noStorage = () => Response.json({ error: NO_STORAGE }, { status: 503 });
+
 /**
  * The bot the key segment `key` names, as ember-rust's `allow_bot_access` finds it, if it's in room
  * `roomId`, as `set_room` finds the room, with when the Workspace checked, or what the request answers
@@ -97,47 +118,87 @@ function segmentText(segment: string): string {
 
 /**
  * `POST /rooms/<room id>/<bot key>/messages`: posts the request's body, whatever its type, as the bot's
- * message, as `create` posts `raw_request_body`, answering 201 with where the message is.
+ * message, as `create` posts `raw_request_body`, or the file a form sends as `attachment`, answering 201
+ * with where the message is.
  */
 async function createMessage(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
-  let access = await botIn(env, roomId, key);
+  const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  if (isForm(request)) return filesNotYet();
+  const boundary = formBoundaryOf(request.headers.get("Content-Type"));
+  if (boundary !== null) return withForm(request, boundary, (form) => createFileMessage(request, env, roomId, key, access, form));
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
   // ember-rust checks the key once it has the whole body, which here arrives as slowly as its sender
   // likes: long enough for the bot to be deleted, given a new key or taken out of the room since the check
   // above, which only spares reading the body of a request that can't post.
-  access = await botIn(env, roomId, key);
-  if (access instanceof Response) return access;
+  const arrived = await botIn(env, roomId, key);
+  if (arrived instanceof Response) return arrived;
   // `raw_request_body.blank?`: empty or only spaces.
   if (markup.trim() === "") return head(422);
-  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, access, markup);
+  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, markup);
   if (!created) return head(404);
   if (typeof created === "string") return unprocessable(created);
-  const location = permalink(new URL(request.url).origin, created);
-  return new Response(null, { status: 201, headers: { Location: location, "Content-Type": JSON_TYPE } });
+  return createdAt(request, created);
+}
+
+/** What posting `message` answers: 201 with where it is. */
+const createdAt = (request: Request, message: Message) =>
+  new Response(null, { status: 201, headers: { Location: permalink(new URL(request.url).origin, message), "Content-Type": JSON_TYPE } });
+
+/**
+ * Posts the file `form` sends as `attachment` as the bot's message, as ember-rust's `create` does when it's
+ * given one, answering as a post of text does. A form with no file posts nothing, an empty 422, as
+ * ember-rust's `ensure_body_or_attachment_present` answers a request with nothing to post.
+ */
+async function createFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotAccess, form: FormReader): Promise<Response> {
+  const attachment = await attachmentIn(form);
+  if (attachment?.kind !== "file") return attachment?.kind === "text" ? unprocessable(NOT_A_FILE) : head(422);
+  const created = await postFile(env, roomId, key, access, form, attachment);
+  if (created instanceof Response) return created;
+  return typeof created === "string" ? head(404) : createdAt(request, created);
 }
 
 /**
  * `PUT` or `PATCH /rooms/<room id>/<bot key>/messages/<id>`: replaces the text of the bot's own message
- * with the request's body, as `update` does, answering the message as the list has it.
+ * with the request's body, as `update` does, or its file with the one a form sends as `attachment`,
+ * answering the message as the list has it.
  */
 async function updateMessage(request: Request, env: Env, roomId: RoomId, key: string, messageId: string): Promise<Response> {
-  let access = await botIn(env, roomId, key);
+  const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  if (isForm(request)) return filesNotYet();
+  const boundary = formBoundaryOf(request.headers.get("Content-Type"));
+  if (boundary !== null) return withForm(request, boundary, (form) => updateFileMessage(request, env, roomId, key, access, form, messageId));
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
   // Again now the body has arrived, as `createMessage` checks it.
-  access = await botIn(env, roomId, key);
-  if (access instanceof Response) return access;
-  const edited = await env.CHAT_ROOM.getByName(roomId).editBotMessage(roomId, access, messageId, markup);
+  const arrived = await botIn(env, roomId, key);
+  if (arrived instanceof Response) return arrived;
+  const edited = await env.CHAT_ROOM.getByName(roomId).editBotMessage(roomId, arrived, messageId, markup);
   if (edited === NOT_FOUND) return exception(404);
   if (edited === FORBIDDEN) return head(403);
   if (typeof edited === "string") return unprocessable(edited);
-  const [message] = await messagesJson(env, new URL(request.url).origin, [edited]);
-  return rendered(message, 200);
+  return renderedMessage(request, env, edited);
+}
+
+/**
+ * Gives the bot's message `messageId` the file `form` sends as `attachment`, in place of the one it had,
+ * or takes its file away when `attachment` is text with nothing in it, as ember-rust's `update` does,
+ * answering as an edit of its text does. A form with no `attachment` changes nothing, an empty 422.
+ */
+async function updateFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotAccess, form: FormReader, messageId: string): Promise<Response> {
+  const attachment = await attachmentIn(form);
+  if (!attachment) return head(422);
+  if (attachment.kind === "text") return unprocessable(NOT_A_FILE);
+  const updated = attachment.kind === "file" ? await postFile(env, roomId, key, access, form, attachment, messageId) : await removeFile(env, roomId, key, messageId);
+  if (updated instanceof Response) return updated;
+  if (typeof updated === "string") return updated === FORBIDDEN ? head(403) : exception(404);
+  return renderedMessage(request, env, updated);
+}
+
+/** `message` as the list writes it, answered as `render :show` does. */
+async function renderedMessage(request: Request, env: Env, message: Message): Promise<Response> {
+  const [json] = await messagesJson(env, new URL(request.url).origin, [message]);
+  return rendered(json, 200);
 }
 
 /** `DELETE /rooms/<room id>/<bot key>/messages/<id>`: deletes the bot's own message, as `destroy` does. */
@@ -181,11 +242,82 @@ async function deleteBoost(env: Env, roomId: RoomId, key: string, messageId: str
   return removed ? new Response(null, { status: 204 }) : head(404);
 }
 
-/** Whether the request sends a form, as `curl -F` sends a file, which bots can't post until files can be stored. */
-const isForm = (request: Request) => /^multipart\/form-data\s*(;|$)/i.test(request.headers.get("Content-Type")?.trim() ?? "");
+/** A form's `attachment` field, as Rack reads it: a file, which the form reads next, text with nothing in it, or other text. */
+type Attachment = { kind: "file"; filename: string; contentType: string | null } | { kind: "nothing" } | { kind: "text" };
 
-/** What a form answers until files can be stored. */
-const filesNotYet = () => Response.json({ error: FILES_NOT_YET }, { status: 415 });
+/**
+ * The form's `attachment`, as Rack reads a form `curl -F` sends, which is its first such field here, or
+ * null when it has none. A file input left empty sends a file without a name, which Rack leaves out.
+ */
+async function attachmentIn(form: FormReader): Promise<Attachment | null> {
+  for (let part = await form.next(); part; part = await form.next()) {
+    if (part.name !== ATTACHMENT || part.filename === "") continue;
+    if (part.filename !== null) return { kind: "file", filename: part.filename, contentType: part.contentType };
+    return (await form.read()) === null ? { kind: "nothing" } : { kind: "text" };
+  }
+  return null;
+}
+
+/**
+ * What `answer` makes of the form the request sends, which it reads as it arrives, or 400 when it can't
+ * be read, as Rack answers a malformed form. What it doesn't read of it is never read.
+ */
+async function withForm(request: Request, boundary: string, answer: (form: FormReader) => Promise<Response>): Promise<Response> {
+  const form = new FormReader(request.body, boundary);
+  try {
+    return await answer(form);
+  } catch (error) {
+    if (error instanceof FormError) return exception(400);
+    throw error;
+  } finally {
+    form.cancel();
+  }
+}
+
+/**
+ * Has the room post the file `form` is reading, `attachment`, as the bot's message, or with `messageId`
+ * give it to the bot's message in place of its file, R2 keeping it as it arrives, a part at a time, as a
+ * browser's upload is, since a form can bring more than a Worker can hold. Answers the message, why the
+ * room took nothing, as `finishBotUpload` says, or what the request answers otherwise: 413 for a file
+ * larger than a browser can upload, and 422 for a name too long to keep. Without an R2 bucket bound as
+ * FILES, it answers 503, as a browser's upload does.
+ */
+async function postFile(
+  env: Env,
+  roomId: RoomId,
+  key: string,
+  access: BotAccess,
+  form: FormReader,
+  { filename, contentType }: { filename: string; contentType: string | null },
+  messageId?: string,
+): Promise<Message | string | Response> {
+  const files = env.FILES;
+  if (!files) return noStorage();
+  if (!isKeepableFileName(filename)) return unprocessable(FILE_NAME_NOT_KEPT);
+  // A type no browser could give a file only says what it is as much as an empty one does.
+  const declaredType = contentType !== null && contentType.length <= MAX_FILE_TYPE_LENGTH ? contentType : "";
+  const file = { filename, declaredType, limit: MAX_FILE_SIZE, read: () => form.read() };
+  const room = env.CHAT_ROOM.getByName(roomId);
+  const started = await room.startBotUpload(roomId, access, file, messageId);
+  if (typeof started === "string") return started;
+  const stored = await storeArriving(files, objectKey(started.key), file);
+  if (!stored) return exception(413);
+  // Again now the file has arrived, as `createMessage` checks text.
+  const arrived = await botIn(env, roomId, key);
+  const finished = arrived instanceof Response ? arrived : await room.finishBotUpload(roomId, arrived, { key: started.key, file: stored }, messageId);
+  // A file that isn't posted goes from R2 at once, since a room deleted meanwhile had R2 delete its files
+  // before this one was there. The room's alarm forgets the upload, as it does a browser's never finished.
+  if (finished instanceof Response || typeof finished === "string") await files.delete(objectKey(started.key));
+  return finished;
+}
+
+/** Takes the file away from the bot's message `messageId`, once the form has arrived, as `removeBotFile` does. */
+async function removeFile(env: Env, roomId: RoomId, key: string, messageId: string): Promise<Message | string | Response> {
+  // Again now the form has arrived, as `createMessage` checks text.
+  const access = await botIn(env, roomId, key);
+  if (access instanceof Response) return access;
+  return env.CHAT_ROOM.getByName(roomId).removeBotFile(roomId, access, messageId);
+}
 
 /**
  * The request's body as UTF-8, with invalid bytes replaced as `raw_request_body` replaces them, or null
