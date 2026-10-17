@@ -284,6 +284,16 @@
 }
 
 /*
+ * ember-rust's narrow-screen rules, `@media (max-width: …)` in zz-ember.css, which apply at the width they
+ * name, where Tailwind's `max-[…]` stops short of it: a 7-inch tablet 600px wide gets the 600px rules.
+ * They come before `touch:` and `short:`, which win over them where both set something.
+ */
+@custom-variant upto-600px (@media (width <= 37.5rem));
+@custom-variant upto-500px (@media (width <= 31.25rem));
+@custom-variant upto-480px (@media (width <= 30rem));
+@custom-variant upto-380px (@media (width <= 23.75rem));
+
+/*
  * `touch:` sizes controls for fingers: 44px targets and 16px text fields, so iOS doesn't zoom in
  * on focus. ember-rust does this at 900px and below; any coarse pointer gets it too, so a tablet or a
  * phone in landscape (wider than 900px) isn't left with mouse-sized controls.

@@ -218,3 +218,13 @@ describe(feature("auth.first-run"), () => {
     expect(JSON.parse(String(sent()))).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" });
   });
 });
+
+describe(feature("ui.accessibility"), () => {
+  it("starts with Skip to main content, which focuses the main content, as ember-rust's first run does", async () => {
+    render(<SetupPage onSetUp={() => {}} />);
+    const skip = screen.getByRole("link", { name: "Skip to main content" });
+    expect(document.body.querySelector("a[href], button, input")).toBe(skip);
+    await userEvent.click(skip);
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
+});

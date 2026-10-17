@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Locator, Page } from "@playwright/test";
+import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
 const box = async (locator: Locator) => {
@@ -286,6 +287,24 @@ test.describe(feature("ui.accessibility"), () => {
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await ada.page.keyboard.press("Tab");
     expect(await ada.page.evaluate(() => document.activeElement?.closest("main") != null)).toBe(true);
+  });
+});
+
+test.describe(feature("ui.room-header"), () => {
+  test("Workspace settings' Chat bots and Custom styles show only their icons up to 500px wide, as ember-rust's do", async ({ page }) => {
+    await page.setViewportSize({ width: 500, height: 800 });
+    await useOwnAddress(page);
+    await page.goto("/account/edit");
+    await signInAsAdministrator(page);
+    const links = ["Chat bots", "Custom styles"].map((name) => page.getByRole("navigation", { name: "Page" }).getByRole("link", { name }));
+    for (const link of links) {
+      await expect(link).toBeVisible();
+      expect(await box(link)).toMatchObject({ width: 44, height: 44 });
+    }
+
+    // Wider, their labels show beside their icons.
+    await page.setViewportSize({ width: 501, height: 800 });
+    for (const link of links) expect((await box(link)).width).toBeGreaterThan(80);
   });
 });
 

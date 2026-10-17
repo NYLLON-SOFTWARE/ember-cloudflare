@@ -16,6 +16,12 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page).toHaveTitle("Set up Ember");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Set up Ember");
     await expect(page.getByLabel("Name")).toBeFocused();
+    // With no header to show it under, Skip to main content shows at the page's top left, as basecoat's does.
+    const skip = page.getByRole("link", { name: "Skip to main content" });
+    await skip.focus();
+    expect(await skip.boundingBox()).toMatchObject({ x: 8, y: 8 });
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("main")).toBeFocused();
 
     const password = page.getByLabel("Password", { exact: true });
     const preview = page.getByRole("img", { name: "Avatar preview" });
