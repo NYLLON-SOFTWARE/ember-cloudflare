@@ -11,6 +11,7 @@ import {
   type Message,
   type RoomId,
   type ServerFrame,
+  type TimelinePage,
   type User,
   type UserId,
 } from "@ember/protocol";
@@ -24,9 +25,9 @@ import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, typ
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
-import { MessageStore } from "./store";
+import { MessageStore, type PageCursor } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
-import { workspace } from "./workspace";
+import { workspace, type BotAccess } from "./workspace";
 import type { MessagePush } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
@@ -69,6 +70,11 @@ const BANNED = "Request failed (429)";
 const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
+
+/** A page of a room's messages as the bot API reads it, with how many messages the room has. */
+export interface BotPage extends Omit<TimelinePage, "around"> {
+  total: number;
+}
 
 /** What sends each of a room's logs (see `couriersFor`). */
 interface Couriers {
@@ -259,6 +265,35 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(() => this.storeFor(roomId).authors());
   }
 
+  /**
+   * Posts `markup` as a message from the bot the Workspace let in, as ember-rust's bot API does
+   * (messages/by_bots.rs `create`): as a socket's message.create does, with a client message id of its
+   * own, as Campfire gives one (`Random.uuid`, message.rb). Answers the message, why the room keeps
+   * nothing of it, or null once the room has heard that the bot's access ended, or the room was deleted,
+   * after the Workspace checked, as it turns away a socket then.
+   */
+  async createBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, markup: string): Promise<Message | string | null> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return null;
+      const body = await this.prepare(markup);
+      if (typeof body === "string") return body;
+      return this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, now);
+    });
+  }
+
+  /**
+   * A page of the room's messages for the bot API, as ember-rust's `index` reads one (messages/by_bots.rs):
+   * the page `cursor` names, with how many messages the room has, or null when the cursor isn't one of them.
+   */
+  async botPage(roomId: RoomId, cursor: PageCursor): Promise<BotPage | null> {
+    return this.serially(async () => {
+      const store = this.storeFor(roomId);
+      const [page, total] = await Promise.all([store.pageAt(cursor, HISTORY_PAGE_SIZE), store.count()]);
+      return page && { ...page, total };
+    });
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const frame = typeof raw === "string" ? parseClientFrame(raw) : null;
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });
@@ -311,11 +346,8 @@ export class ChatRoom extends DurableObject<Env> {
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId: frame.clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
-        const { message, seq } = await store.create(sortableId(), frame.clientMessageId, user, body, now);
-        this.broadcast({ type: "message.created", message, seq });
-        const couriers = this.couriersFor(store.roomId);
-        couriers.workspace.deliver();
-        return couriers.index.deliver();
+        await this.create(store, user, frame.clientMessageId, body, now);
+        return;
       }
       case "message.update": {
         const message = await store.find(frame.messageId);
@@ -378,6 +410,19 @@ export class ChatRoom extends DurableObject<Env> {
       case "ping":
         return this.send(ws, { type: "pong" });
     }
+  }
+
+  /**
+   * Stores a message from `user`, tells everyone in the room, and sends the Workspace and the search
+   * index their logs, which the message is in, answering it.
+   */
+  private async create(store: MessageStore, user: User, clientMessageId: string, body: PreparedBody, now: string): Promise<Message> {
+    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now);
+    this.broadcast({ type: "message.created", message, seq });
+    const couriers = this.couriersFor(store.roomId);
+    couriers.workspace.deliver();
+    couriers.index.deliver();
+    return message;
   }
 
   /**

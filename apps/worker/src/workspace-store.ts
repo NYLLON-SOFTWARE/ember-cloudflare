@@ -774,6 +774,14 @@ const ACTIVE_BOTS_ROOMS = `SELECT memberships.user_id, rooms.id, rooms.name
 const ACTIVE_BOT = `SELECT users.id, users.name, users.bio, users.role, users.status, users.updated_at, users.bot_token, webhooks.url AS webhook_url
   FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT}`;
 
+/**
+ * An active bot's token, with whether it's in room ?1, as ember-rust finds the bot a key names
+ * (`User.authenticate_bot`, user.rs) and then the room it posts to or reads
+ * (`Current.user.rooms.find_by`, messages/by_bots.rs).
+ */
+const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM memberships WHERE room_id = ?1 AND user_id = users.id) AS member
+  FROM users WHERE id = ?2 AND status = ${ACTIVE} AND role = ${BOT}`;
+
 /** The rooms a bot is in but its DMs, by name. */
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
@@ -869,6 +877,9 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
 
 /** The people with the ids in a JSON array, whatever their status. */
 export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** The same, as the people directory lists them. */
+const DIRECTORY_WITH_IDS = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
 /** How many people the mentions prompt offers: ember-rust's first page of them, the only one Lexxy asks for. */
 export const MENTIONABLE_PAGE = 20;
@@ -1572,6 +1583,11 @@ export class WorkspaceStore {
     return this.db.all<User>(PEOPLE_WITH_IDS, JSON.stringify(ids));
   }
 
+  /** The people with `ids`, whatever their status, as the people directory lists them. */
+  async directoryEntries(ids: UserId[]): Promise<DirectoryEntry[]> {
+    return (await this.db.all<DirectoryRow>(DIRECTORY_WITH_IDS, JSON.stringify(ids))).map(directoryEntry);
+  }
+
   /**
    * The first page of the active people whose names contain `query`, by name: room `roomId`'s members,
    * or anyone's when it's null.
@@ -1608,6 +1624,12 @@ export class WorkspaceStore {
     const [bots, rooms] = (await this.db.batch([statement(ACTIVE_BOTS), statement(ACTIVE_BOTS_ROOMS)])) as [BotRow[], Array<BotRoom & { user_id: UserId }>];
     const roomsOf = Map.groupBy(rooms, (room) => room.user_id);
     return bots.map((row) => storedBot(row, (roomsOf.get(row.id) ?? []).map(({ id, name }) => ({ id, name }))));
+  }
+
+  /** The active bot `botId`, with its token and whether it's in room `roomId`, or null unless it's one. */
+  async activeBotKey(botId: UserId, roomId: RoomId): Promise<{ bot: User; token: string | null; member: boolean } | null> {
+    const [row] = await this.db.all<User & { bot_token: string | null; member: number }>(ACTIVE_BOT_KEY, roomId, botId);
+    return row ? { bot: { id: row.id, name: row.name }, token: row.bot_token, member: row.member === 1 } : null;
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
