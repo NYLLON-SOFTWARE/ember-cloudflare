@@ -159,7 +159,12 @@ export interface AppliedEvents {
   active: { at: string; userIds: UserId[] } | null;
   /** The new messages' pushes, oldest message first, when they were asked for. */
   pushes: MessagePush[];
+  /** The new messages' deliveries to bots' webhooks, oldest message first. */
+  webhooks: MessageWebhook[];
 }
+
+/** What a room sends for the events the Workspace has applied: its new messages' pushes and deliveries to bots' webhooks. */
+export type RoomEventDeliveries = Pick<AppliedEvents, "pushes" | "webhooks">;
 
 /** A new message's pushes: what they say, and the subscriptions they go to. */
 export interface MessagePush {
@@ -181,6 +186,21 @@ export interface PushDelivery {
   p256dhKey: string;
   authKey: string;
   badge: number;
+}
+
+/**
+ * A bot's webhook a new message is delivered to, with the bot's token, which the address it can answer
+ * at is made from, and who wrote the message and where, as the delivery names them.
+ */
+export interface MessageWebhook {
+  messageId: string;
+  author: User;
+  /** The room's name, or null for a DM. */
+  roomName: string | null;
+  bot: User;
+  /** Null for a bot from before bots had tokens, which no key works for. */
+  token: string | null;
+  url: string;
 }
 
 /** A revocation the Workspace has yet to deliver to its room. */
@@ -595,6 +615,44 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
   authKey: row.auth_key,
   badge: row.badge,
 });
+
+/**
+ * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to, as ember-rust's
+ * `deliver_webhooks_to_bots` finds them (messages.rs): in a DM, those of the active bots in it, and in
+ * any other room, those of the active bots in it whom the message mentions, a JSON list ?3; never its
+ * author's. Each comes with the room's name, but a DM's, and the author's. Nothing once the Workspace
+ * has applied the message's event. Webhooks are few, so they're read first, and each one's bot and
+ * membership found by their keys.
+ */
+export const MESSAGE_WEBHOOKS = `SELECT users.id, users.name, users.bot_token, webhooks.url,
+    (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
+  FROM webhooks CROSS JOIN users ON users.id = webhooks.user_id
+  WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
+    AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct'))
+    AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
+  ORDER BY lower(users.name), users.id`;
+
+/** A bot's webhook a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
+interface WebhookRow {
+  id: UserId;
+  name: string;
+  bot_token: string | null;
+  url: string;
+  room_name: string | null;
+  author_name: string;
+}
+
+/** A new message's deliveries to bots' webhooks, from the rows `MESSAGE_WEBHOOKS` found for it. */
+const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): MessageWebhook[] =>
+  rows.map((row) => ({
+    messageId: message!.id,
+    author: { id: userId, name: row.author_name },
+    roomName: row.room_name,
+    bot: { id: row.id, name: row.name },
+    token: row.bot_token,
+    url: row.url,
+  }));
 
 /** Records that the Workspace has applied room ?2's events up to ?1. */
 const APPLIED = `UPDATE rooms SET applied_seq = ?1 WHERE id = ?2 AND applied_seq < ?1`;
@@ -1530,7 +1588,7 @@ export class WorkspaceStore {
    * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
    * when a message has come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`,
    * it answers each new message's pushes too, found just after its marks, so that a push's badge counts
-   * them and none of the events after it.
+   * them and none of the events after it. It answers the bots' webhooks each new message is delivered to.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
@@ -1542,9 +1600,10 @@ export class WorkspaceStore {
     const applied = events.map((event) => {
       const { seq, kind, userId, at } = event;
       const marks = statements.push(kind === "message" ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
-      const mentions = pushing && event.message ? JSON.stringify(event.message.mentionIds) : null;
-      const pushes = mentions === null ? null : statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1;
-      return { event, marks, pushes };
+      const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1 : null;
+      const webhooks = mentions === null ? null : statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1;
+      return { event, marks, pushes, webhooks };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
@@ -1554,8 +1613,9 @@ export class WorkspaceStore {
       for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, event.kind === "message");
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
+    const webhooks = applied.flatMap(({ event, webhooks: at }) => (at === null ? [] : messageWebhooks(event, results[at] as WebhookRow[])));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
-    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes };
+    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks };
   }
 
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */

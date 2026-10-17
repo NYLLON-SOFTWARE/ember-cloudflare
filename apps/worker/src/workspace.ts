@@ -56,10 +56,10 @@ import {
   type Client,
   type DirectoryEntry,
   type JoinableAccount,
-  type MessagePush,
   type NewPerson,
   type ProfileEntry,
   type PushDelivery,
+  type RoomEventDeliveries,
   type SavedRoomChange,
   type StoredBot,
   type StoredBotSettings,
@@ -1312,16 +1312,17 @@ export class Workspace extends DurableObject<Env> {
    * someone opening it clears their mark. Each event is applied once, however often it's sent. Whoever's
    * mark changes hears of it on their workspace sockets, and nobody else does. A new message in a DM
    * moves it to the top of everyone's DMs there, its author's too, as in ember-rust every member's
-   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once. While Web
-   * Push is on, it answers each new message's pushes, for the room to send.
+   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once. It answers
+   * the bots' webhooks each new message is delivered to and, while Web Push is on, its pushes, for the
+   * room to send.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<MessagePush[]> {
-    if (events.length === 0) return [];
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
+    if (events.length === 0) return { pushes: [], webhooks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing);
+    const { marks, active, pushes, webhooks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing);
     for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
-    return pushes;
+    return { pushes, webhooks };
   }
 
   /**

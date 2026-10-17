@@ -86,12 +86,8 @@ const message = (author: Session, text: string, ...mentioned: Session[]): RoomEv
 const read = (reader: Session): RoomEvent => ({ seq: ++seq, kind: "read", userId: reader.user.id, at: new Date().toISOString() });
 
 /** What the Workspace answers room `room` sending it `events`, with `viewers` viewing the room: the pushes to send. */
-const pushesFor = (room: RoomId, events: RoomEvent[], viewers: Session[] = []): Promise<MessagePush[]> =>
-  workspaceStub().applyRoomEvents(
-    room,
-    events,
-    viewers.map(({ user }) => user.id),
-  );
+const pushesFor = async (room: RoomId, events: RoomEvent[], viewers: Session[] = []): Promise<MessagePush[]> =>
+  (await workspaceStub().applyRoomEvents(room, events, viewers.map(({ user }) => user.id))).pushes;
 
 /** Where a message's pushes go, by the labels `subscribe` gave them. */
 const labelsOf = (pushes: MessagePush[]) => pushes.flatMap(({ deliveries }) => deliveries.map(({ endpoint }) => endpoint.split("/").at(-1)));
