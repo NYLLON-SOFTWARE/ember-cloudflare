@@ -4,7 +4,35 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { metadataOf } from "../src/files/uploads";
-import { alpha, av1C, avcC, box, clap, essential, exifOrientation, type HeifFile, heifFile, hvcC, imir, irot, ispe, j2kH, type Property, uncC, unknownBox, uuidBox, vvcC } from "./heif-files";
+import {
+  alpha,
+  av1C,
+  avcC,
+  box,
+  clap,
+  cmin,
+  depth,
+  essential,
+  exifOrientation,
+  fullBox,
+  gridData,
+  type HeifFile,
+  heifFile,
+  hvcC,
+  imir,
+  irot,
+  ispe,
+  type Item,
+  j2kH,
+  overlayData,
+  type Property,
+  type Reference,
+  regionData,
+  uncC,
+  unknownBox,
+  uuidBox,
+  vvcC,
+} from "./heif-files";
 
 /** The width and height recorded for `file`, or null where none is. */
 function recordedSize(file: HeifFile | Uint8Array, contentType = "image/avif") {
@@ -17,6 +45,18 @@ const image = (width: number, height: number, ...more: Property[]) => [av1C, isp
 
 /** An AVIF of one image, `width` by `height`, with `more` properties. */
 const avif = (width: number, height: number, ...more: Property[]): HeifFile => ({ items: [{ id: 1, properties: image(width, height, ...more) }] });
+
+/** A hidden AV1 image, `id`, of 1200x800, such as a grid's tile. */
+const tile = (id: number): Item => ({ id, hidden: true, properties: image(1200, 800) });
+
+/** An image, `id`, of `type` and 1200x800, derived from those its references say (`dimg`), with `data` saying how. */
+const derived = (id: number, type: string, data?: Uint8Array): Item => ({ id, type, properties: [ispe(1200, 800)], data });
+
+/** An Exif item, `id`, of the default orientation. */
+const exif = (id: number): Item => ({ id, type: "Exif", data: exifOrientation(1) });
+
+/** The size of most images here. */
+const size = { width: 1200, height: 800 };
 
 describe(feature("attachments.types"), () => {
   it("records an AVIF's or a HEIC's size from its image's extents, without reading its picture", () => {
@@ -67,7 +107,7 @@ describe(feature("attachments.types"), () => {
     expect(recordedSize(avif(1200, 800, ispe(640, 480)))).toEqual({ width: 640, height: 480 });
   });
 
-  it("needs an image's extents for its size, and for any rotation by a quarter or mirroring", () => {
+  it("needs an image's extents for its size, and for any rotation by a quarter, mirroring or camera intrinsics", () => {
     expect(recordedSize({ items: [{ id: 1, properties: [av1C] }] })).toBeNull();
     expect(recordedSize({ items: [{ id: 1, properties: [av1C, clap([1000, 1], [700, 1])] }] })).toEqual({ width: 1000, height: 700 });
     expect(recordedSize({ items: [{ id: 1, properties: [av1C, irot(2), clap([1000, 1], [700, 1])] }] })).toEqual({ width: 1000, height: 700 });
@@ -75,6 +115,14 @@ describe(feature("attachments.types"), () => {
     expect(recordedSize({ items: [{ id: 1, properties: [av1C, imir(), clap([1000, 1], [700, 1])] }] })).toBeNull();
     // A rotation with no angle.
     expect(recordedSize({ items: [{ id: 1, properties: [av1C, ispe(1200, 800), Uint8Array.of(0, 0, 0, 8, ...new TextEncoder().encode("irot"))] }] })).toBeNull();
+    // Camera intrinsics, in a `cmin` box or a draft's `uuid` one.
+    expect(recordedSize({ items: [{ id: 1, properties: [av1C, ispe(1200, 800), cmin] }] })).toEqual(size);
+    expect(recordedSize({ items: [{ id: 1, properties: [av1C, cmin, clap([1000, 1], [700, 1])] }] })).toBeNull();
+    expect(recordedSize({ items: [{ id: 1, properties: [av1C, uuidBox("22cc04c7d6d94e079d904eb6ecbaf3a3"), clap([1000, 1], [700, 1])] }] })).toBeNull();
+    // libheif skips camera intrinsics it can't read: of another version, or without the skew their flags say they have.
+    for (const intrinsics of [fullBox("cmin", 1, 0, new Uint8Array(12)), fullBox("cmin", 0, 1, new Uint8Array(12))]) {
+      expect(recordedSize({ items: [{ id: 1, properties: [av1C, intrinsics, clap([1000, 1], [700, 1])] }] })).toEqual({ width: 1000, height: 700 });
+    }
   });
 
   it("never swaps the width and height for an EXIF orientation, which libvips drops from a HEIF", () => {
@@ -136,6 +184,140 @@ describe(feature("attachments.types"), () => {
     expect(recordedSize(avif(1200, 800, essential(uuidBox("22cc04c7d6d94e079d904eb6ecbaf3a4"))))).toBeNull();
   });
 
+  it("records nothing for a file with a reference to an item twice", () => {
+    // Later versions of libheif take these: an overlay of one image twice, and Exif describing one twice.
+    const overlayOf = (...to: number[]): HeifFile => ({ primary: 2, items: [tile(1), derived(2, "iovl", overlayData(to.length, 1200, 800))], references: [{ type: "dimg", from: 2, to }] });
+    expect(recordedSize(overlayOf(1))).toEqual(size);
+    expect(recordedSize(overlayOf(1, 1))).toBeNull();
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, exif(2)], references: [{ type: "cdsc", from: 2, to: [1, 1] }] })).toBeNull();
+  });
+
+  it("needs a thumbnail to be of other images, none of them a thumbnail by the time libheif comes to it", () => {
+    /** The size recorded for a file of an image, two smaller ones and Exif, with `references`. */
+    const withThumbnails = (...references: Reference[]) =>
+      recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, properties: image(240, 160) }, { id: 3, properties: image(120, 80) }, exif(4)], references });
+    expect(withThumbnails({ type: "thmb", from: 2, to: [1] }, { type: "thmb", from: 3, to: [1] })).toEqual(size);
+    expect(withThumbnails({ type: "thmb", from: 2, to: [1, 3] })).toEqual(size);
+    // Of nothing, of itself, or of an item that isn't an image.
+    for (const to of [9, 2, 4]) expect(withThumbnails({ type: "thmb", from: 2, to: [to] }), `of ${to}`).toBeNull();
+    // libheif goes through the images in the order of their ids, so it takes a thumbnail of a later one's thumbnail.
+    expect(withThumbnails({ type: "thmb", from: 2, to: [3] }, { type: "thmb", from: 3, to: [1] })).toEqual(size);
+    expect(withThumbnails({ type: "thmb", from: 3, to: [2] }, { type: "thmb", from: 2, to: [1] })).toBeNull();
+    // It doesn't look at the references of items that aren't images.
+    expect(withThumbnails({ type: "thmb", from: 4, to: [9] })).toEqual(size);
+  });
+
+  it("needs an auxiliary image to say what it is, and to be of other items", () => {
+    /** The size recorded for a file of an image, an auxiliary one of `to` with `properties` too, and Exif. */
+    const withAuxiliary = (to: number[], ...properties: Property[]) =>
+      recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, hidden: true, properties: image(600, 400, ...properties) }, exif(3)], references: [{ type: "auxl", from: 2, to }] });
+    expect(withAuxiliary([1], alpha)).toEqual(size);
+    expect(withAuxiliary([1, 3], depth)).toEqual(size);
+    expect(withAuxiliary([1])).toBeNull();
+    // Of nothing, or of itself.
+    expect(withAuxiliary([9], alpha)).toBeNull();
+    expect(withAuxiliary([2], alpha)).toBeNull();
+    // One only of an item that isn't an image stays a top-level image, which can be shown.
+    const ofExif = { primary: 2, items: [{ id: 1, properties: image(640, 480) }, { id: 2, properties: image(1200, 800, alpha) }, exif(3)], references: [{ type: "auxl", from: 2, to: [3] }] };
+    expect(recordedSize(ofExif)).toEqual(size);
+  });
+
+  it("records a grid's, an overlay's or an identity's own size, where the first image it's derived from is one libheif reads", () => {
+    /** A file whose primary image is a grid of `to` in a row, of two AV1 images, a layered HEVC one and Exif. */
+    const gridOf = (...to: number[]): HeifFile => ({
+      items: [
+        derived(1, "grid", gridData(1, to.length, 1200, 800)),
+        { id: 2, hidden: true, properties: image(600, 800) },
+        { id: 3, hidden: true, properties: image(600, 800) },
+        { id: 4, type: "lhv1", hidden: true, properties: [ispe(600, 800)] },
+        exif(5),
+      ],
+      references: [{ type: "dimg", from: 1, to }],
+    });
+    expect(recordedSize(gridOf(2, 3))).toEqual(size);
+    // libvips asks its bit depth, which libheif takes from the first image it's derived from, reading the others
+    // only to decode the picture. The first can't be nothing, a layered HEVC image, whose bit depth libheif can't
+    // read, or an item that isn't an image.
+    expect(recordedSize(gridOf(2, 9))).toEqual(size);
+    for (const first of [9, 4, 5]) expect(recordedSize(gridOf(first, 2)), `of ${first}`).toBeNull();
+    const identities = [derived(1, "iden"), { ...derived(2, "iden"), hidden: true }, tile(3)];
+    expect(recordedSize({ items: identities, references: [{ type: "dimg", from: 1, to: [2] }, { type: "dimg", from: 2, to: [3] }] })).toEqual(size);
+    expect(recordedSize({ items: identities, references: [{ type: "dimg", from: 2, to: [3] }] })).toBeNull();
+    expect(recordedSize({ items: [derived(1, "iovl", overlayData(0, 1200, 800)), exif(2)], references: [{ type: "cdsc", from: 2, to: [1] }] })).toBeNull();
+  });
+
+  it("needs a grid to be derived from others, and an overlay an iref box, though neither is shown", () => {
+    /** The size recorded for a file of an image, a hidden `item`, a tile and Exif, with `references`. */
+    const withHidden = (item: Item, ...references: Reference[]) => recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { ...item, hidden: true }, tile(3), exif(4)], references });
+    const grid = derived(2, "grid", gridData(1, 1, 1200, 800));
+    const overlay = derived(2, "iovl", overlayData(0, 1200, 800));
+    expect(withHidden(grid, { type: "dimg", from: 2, to: [3] })).toEqual(size);
+    // libvips never reads a hidden one's images.
+    expect(withHidden(grid, { type: "dimg", from: 2, to: [9] })).toEqual(size);
+    expect(withHidden(overlay, { type: "cdsc", from: 4, to: [1] })).toEqual(size);
+    // Later versions of libheif take these.
+    expect(withHidden(grid, { type: "cdsc", from: 4, to: [1] })).toBeNull();
+    expect(withHidden(overlay)).toBeNull();
+  });
+
+  it("records nothing for a file whose primary image is derived from itself, along the first reference from each", () => {
+    // Later versions of libheif take an AV1 image derived from itself, and a grid of a tile derived from it.
+    expect(recordedSize({ items: [derived(1, "iden")], references: [{ type: "dimg", from: 1, to: [1] }] })).toBeNull();
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }], references: [{ type: "dimg", from: 1, to: [1] }] })).toBeNull();
+    const grid = derived(1, "grid", gridData(1, 2, 1200, 800));
+    const identity = (id: number) => ({ ...derived(id, "iden"), hidden: true });
+    expect(recordedSize({ items: [grid, tile(2), identity(3)], references: [{ type: "dimg", from: 1, to: [2, 3] }, { type: "dimg", from: 3, to: [1] }] })).toBeNull();
+    // Two ways to one image, a cycle the primary image doesn't come to, and a second reference from one are fine.
+    const diamond = [{ type: "dimg", from: 1, to: [2, 3] }, { type: "dimg", from: 2, to: [4] }, { type: "dimg", from: 3, to: [4] }];
+    expect(recordedSize({ items: [grid, identity(2), identity(3), tile(4)], references: diamond })).toEqual(size);
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, identity(2), identity(3)], references: [{ type: "dimg", from: 2, to: [3] }, { type: "dimg", from: 3, to: [2] }] })).toEqual(size);
+    expect(recordedSize({ items: [derived(1, "iden"), tile(2)], references: [{ type: "dimg", from: 1, to: [2] }, { type: "dimg", from: 1, to: [1] }] })).toEqual(size);
+  });
+
+  it("needs Exif and XMP to describe items, a region images, and premultiplied alpha to be an image's", () => {
+    /** The size recorded for a file of an image, its alpha channel, Exif, XMP and a region, with `references` from them. */
+    const withMetadata = (...references: Reference[]) =>
+      recordedSize({
+        items: [
+          { id: 1, properties: image(1200, 800) },
+          { id: 2, hidden: true, properties: image(1200, 800, alpha) },
+          exif(3),
+          { id: 4, type: "mime", contentType: "application/rdf+xml", data: new TextEncoder().encode("<x:xmpmeta/>") },
+          { id: 5, type: "rgan", data: regionData(1200, 800) },
+        ],
+        references: [{ type: "auxl", from: 2, to: [1] }, ...references],
+      });
+    // Exif and XMP can describe any item, though libheif 1.19 checks only the first reference from each.
+    expect(withMetadata({ type: "cdsc", from: 3, to: [1, 4] }, { type: "cdsc", from: 4, to: [5] })).toEqual(size);
+    expect(withMetadata({ type: "cdsc", from: 3, to: [9] })).toBeNull();
+    expect(withMetadata({ type: "cdsc", from: 4, to: [9] })).toBeNull();
+    expect(withMetadata({ type: "cdsc", from: 3, to: [1] }, { type: "cdsc", from: 3, to: [9] })).toEqual(size);
+    // A region must describe only images, through every reference from it.
+    expect(withMetadata({ type: "cdsc", from: 5, to: [1, 2] })).toEqual(size);
+    expect(withMetadata({ type: "cdsc", from: 5, to: [3] })).toBeNull();
+    expect(withMetadata({ type: "cdsc", from: 5, to: [1] }, { type: "cdsc", from: 5, to: [9] })).toBeNull();
+    // An image's alpha can be premultiplied, but nothing else's, though libheif skips a reference from nothing.
+    expect(withMetadata({ type: "prem", from: 1, to: [2] })).toEqual(size);
+    expect(withMetadata({ type: "prem", from: 3, to: [1] })).toBeNull();
+    expect(withMetadata({ type: "prem", from: 9, to: [1] })).toEqual(size);
+  });
+
+  it("lists layered HEVC images, which libheif neither reads nor shows, and JPEG mime items as images", () => {
+    const layered = (id: number, ...properties: Property[]): Item => ({ id, type: "lhv1", properties: [ispe(1200, 800), ...properties] });
+    // It reads none of a layered HEVC image's properties, but they must be listed. Later versions of libheif take one without.
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { ...layered(2, ispe(20000, 20000), essential(unknownBox())), hidden: true }] })).toEqual(size);
+    expect(recordedSize({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, type: "lhv1", hidden: true }] })).toBeNull();
+    // It can't show one, though it shows another where that's the primary one's thumbnail.
+    expect(recordedSize({ items: [layered(1)] })).toBeNull();
+    expect(recordedSize({ items: [layered(1), { id: 2, properties: image(1200, 800) }], references: [{ type: "thmb", from: 1, to: [2] }] })).toEqual(size);
+    const firstShown = { primary: 3, items: [layered(1), { id: 2, properties: image(640, 480) }, { id: 3, properties: image(240, 160) }], references: [{ type: "thmb", from: 3, to: [2] }] };
+    expect(recordedSize(firstShown)).toBeNull();
+    // A JPEG's properties must be listed too. Later versions of libheif look for its picture.
+    const jpeg = (properties?: Property[]) => ({ items: [{ id: 1, properties: image(1200, 800) }, { id: 2, type: "mime", contentType: "image/jpeg", hidden: true, properties }] });
+    expect(recordedSize(jpeg([ispe(640, 480)]))).toEqual(size);
+    expect(recordedSize(jpeg())).toBeNull();
+  });
+
   it("reads the major brands libvips 8.16 takes, of files compatible with a brand libheif takes", () => {
     expect(recordedSize({ ...avif(1200, 800), brand: "mif1", compatible: ["mif1"] })).toEqual({ width: 1200, height: 800 });
     // An image sequence's brand, of a file later versions of libheif refuse.
@@ -146,10 +328,11 @@ describe(feature("attachments.types"), () => {
     expect(recordedSize({ ...avif(1200, 800), compatible: ["miaf", "MA1B"] })).toBeNull();
   });
 
-  it("reads an ftyp box of whole words, of up to 1,024 bytes", () => {
+  it("reads an ftyp box of whole words, of up to 2,048 bytes", () => {
     expect(recordedSize({ ...avif(1200, 800), compatible: ["avif", "mif1", "mi"] })).toBeNull();
-    expect(recordedSize({ ...avif(1200, 800), compatible: ["avif", ...Array<string>(251).fill("abcd")] })).toEqual({ width: 1200, height: 800 });
-    expect(recordedSize({ ...avif(1200, 800), compatible: ["avif", ...Array<string>(252).fill("abcd")] })).toBeNull();
+    // Later versions of libheif refuse one of more than 1,024 bytes.
+    expect(recordedSize({ ...avif(1200, 800), compatible: ["avif", ...Array<string>(507).fill("abcd")] })).toEqual({ width: 1200, height: 800 });
+    expect(recordedSize({ ...avif(1200, 800), compatible: ["avif", ...Array<string>(508).fill("abcd")] })).toBeNull();
   });
 
   it("needs the boxes listing a file's items, their places and properties, and which is primary", () => {

@@ -63,23 +63,43 @@ export const unknownBox = () => box("zzzz", Uint8Array.of(1));
 /** A `uuid` box of `uuid`, written in hex, holding what camera intrinsics would: a full box of a focal length and principal point of 0. */
 export const uuidBox = (uuid: string) => box("uuid", Uint8Array.from(uuid.match(/../g)!, (pair) => parseInt(pair, 16)), new Uint8Array(16));
 
+/** Camera intrinsics: a focal length and principal point, each 0. */
+export const cmin = fullBox("cmin", 0, 0, numbers(4, 0, 0, 0));
+
 /** A property marked essential to its item: a reader that doesn't know its type can't read the item. */
 export const essential = (property: Uint8Array) => ({ essential: property });
 
 /** A property of an item's, which may be marked essential to it. */
 export type Property = Uint8Array | ReturnType<typeof essential>;
 
+/** What makes an auxiliary image what it is: its type, a URN. */
+export const auxC = (type: string) => fullBox("auxC", 0, 0, encoder.encode(`${type}\0`));
+
 /** What makes an auxiliary image an alpha channel. */
-export const alpha = fullBox("auxC", 0, 0, encoder.encode("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0"));
+export const alpha = auxC("urn:mpeg:mpegB:cicp:systems:auxiliary:alpha");
+
+/** What makes an auxiliary image a depth map. */
+export const depth = auxC("urn:mpeg:mpegB:cicp:systems:auxiliary:depth");
 
 /** EXIF holding only an orientation, as an `Exif` item keeps it: after the offset of its TIFF header, 0. */
 export const exifOrientation = (orientation: number) =>
   concat(numbers(4, 0), encoder.encode("MM\0\x2a"), numbers(4, 8), numbers(2, 1), numbers(2, 0x0112, 3), numbers(4, 1), numbers(2, orientation, 0), numbers(4, 0));
 
+/** A grid's data, which libheif reads though libvips needs none of it for a size: `rows` by `columns` images, making `width` by `height`. */
+export const gridData = (rows: number, columns: number, width: number, height: number) => concat(numbers(1, 0, 0, rows - 1, columns - 1), numbers(2, width, height));
+
+/** An overlay's data, which libheif reads too: `count` images at its top left corner, making `width` by `height` over no fill. */
+export const overlayData = (count: number, width: number, height: number) => concat(numbers(1, 0, 0), numbers(2, 0, 0, 0, 0, width, height, ...Array<number>(2 * count).fill(0)));
+
+/** A region item's data, which libheif reads too: no regions, over an image of `width` by `height`. */
+export const regionData = (width: number, height: number) => concat(numbers(1, 0, 0), numbers(2, width, height), numbers(1, 0));
+
 export interface Item {
   id: number;
   /** Its type, `av01` unless it says otherwise. */
   type?: string;
+  /** A `mime` item's content type. */
+  contentType?: string;
   hidden?: boolean;
   /** Its properties, in the order its entry in the `ipma` box lists them; none for an item that isn't an image. */
   properties?: Property[];
@@ -139,7 +159,15 @@ export function heifFile({ brand = "avif", compatible = ["avif", "mif1", "miaf"]
         numbers(wide ? 4 : 2, located.length),
         ...located.map(({ id: item, data }, n) => concat(id(item), wide ? numbers(2, 0) : new Uint8Array(), numbers(2, 0, 1), numbers(4, offsets[n]!, data!.length))),
       ),
-      iinf: fullBox("iinf", version, 0, numbers(wide ? 4 : 2, items.length), ...items.map(({ id: item, type = "av01", hidden = false }) => fullBox("infe", wide ? 3 : 2, hidden ? 1 : 0, id(item), numbers(2, 0), encoder.encode(`${type}\0`)))),
+      iinf: fullBox(
+        "iinf",
+        version,
+        0,
+        numbers(wide ? 4 : 2, items.length),
+        ...items.map(({ id: item, type = "av01", contentType, hidden = false }) =>
+          fullBox("infe", wide ? 3 : 2, hidden ? 1 : 0, id(item), numbers(2, 0), encoder.encode(contentType === undefined ? `${type}\0` : `${type}\0${contentType}\0`)),
+        ),
+      ),
       iref: references.length ? fullBox("iref", version, 0, ...references.map(({ type, from, to }) => box(type, id(from), numbers(2, to.length), id(...to)))) : null,
       iprp: box("iprp", box("ipco", ...properties), fullBox("ipma", version, wide ? 1 : 0, numbers(4, entries.length), ...entries)),
     };

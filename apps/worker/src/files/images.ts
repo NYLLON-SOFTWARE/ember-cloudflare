@@ -195,8 +195,14 @@ const HEIF_BRANDS = new Set(["heic", "heix", "hevc", "heim", "heis", "hevm", "he
 /** The brands libheif 1.19, which libvips reads HEIFs with, opens a file that's compatible with one of. */
 const LIBHEIF_BRANDS = ["heic", "heix", "mif1", "avif", "1pic", "jpeg"];
 
-/** The item types libheif reads as images, besides a `mime` item that's a JPEG. */
-const HEIF_IMAGES = new Set(["jpeg", "hvc1", "av01", "vvc1", "avc1", "unci", "j2k1", "mski", "grid", "iovl", "iden", "tili"]);
+/** The item types libheif lists as images, besides a `mime` item that's a JPEG. */
+const HEIF_IMAGES = new Set(["jpeg", "hvc1", "av01", "vvc1", "avc1", "unci", "j2k1", "mski", "grid", "iovl", "iden", "tili", "lhv1"]);
+
+/** The images libheif lists without reading any of their properties, as it can't read them: libvips shows none. */
+const UNREAD_IMAGES = new Set(["lhv1"]);
+
+/** The images libheif derives from others (`dimg`), which take their bit depth from the first. */
+const DERIVED_IMAGES = new Set(["grid", "iden", "iovl"]);
 
 /**
  * The configuration libheif needs among an image's properties, by the image's type. It reads a tiled image's
@@ -216,8 +222,11 @@ const LIBHEIF_BOXES = new Set([
   "j2kL", "mskC", "avcC", "mdat",
 ]);
 
+/** The UUID of a `uuid` box of camera intrinsics, as a draft wrote them, which libheif reads as it does a `cmin` box. */
+const INTRINSICS_UUID = "22cc04c7d6d94e079d904eb6ecbaf3a3";
+
 /** The `uuid` boxes libheif reads, by their UUIDs: camera intrinsics and extrinsics, as a draft wrote them. */
-const LIBHEIF_UUIDS = new Set(["22cc04c7d6d94e079d904eb6ecbaf3a3", "4363e9145b7d4aab97aebea69803b434"]);
+const LIBHEIF_UUIDS = new Set([INTRINSICS_UUID, "4363e9145b7d4aab97aebea69803b434"]);
 
 /** The most pixels libvips lets libheif open an image of: 16,384 squared, as heifsave writes at most. */
 const MAX_HEIF_PIXELS = 0x4000 ** 2;
@@ -230,13 +239,14 @@ const MAX_INT = 2 ** 31 - 1;
  * of its top-level images, and otherwise the first of them, in the order of their ids. Those are the images
  * that aren't hidden, nor another image's thumbnail (`thmb`) or auxiliary image (`auxl`), such as its alpha
  * channel. A file libheif refuses, without the boxes it needs or with any image it can't read, is unreadable:
- * one without its codec's configuration, with an essential property libheif doesn't know, or too large.
+ * one without its codec's configuration, with an essential property libheif doesn't know, too large, or with
+ * references between its items that libheif refuses.
  */
 function heif(view: DataView, bytes: Uint8Array): Header | null {
-  // libvips takes an `ftyp` box of whole words with one of its major brands, and libheif one in its first
-  // 1,024 bytes that's compatible with one of its own.
+  // libvips takes an `ftyp` box of whole words, of up to 2,048 bytes, with one of its major brands, and
+  // libheif one that's compatible with one of its own.
   const ftypSize = view.getUint32(0);
-  if (ascii(bytes, 4, 4) !== "ftyp" || !HEIF_BRANDS.has(ascii(bytes, 8, 4)) || ftypSize % 4 || ftypSize < 16 || ftypSize > 1024) return null;
+  if (ascii(bytes, 4, 4) !== "ftyp" || !HEIF_BRANDS.has(ascii(bytes, 8, 4)) || ftypSize % 4 || ftypSize < 16 || ftypSize > 2048) return null;
   const compatible = Array.from({ length: (ftypSize - 16) / 4 }, (_, n) => ascii(bytes, 16 + 4 * n, 4));
   if (!LIBHEIF_BRANDS.some((brand) => compatible.includes(brand))) return null;
 
@@ -248,8 +258,8 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
   if (!pitm || !iloc || !iinf || !iprp || pitm.view.getUint8(0) > 1) return null;
   const primary = pitm.view.getUint8(0) === 0 ? pitm.view.getUint16(4) : pitm.view.getUint32(4);
   const items = itemsOf(iinf);
-  const images = [...items.keys()].filter((id) => isHeifImage(items.get(id)!)).sort((a, b) => a - b);
-  if (!images.includes(primary) || items.get(primary)!.hidden) return null;
+  const images = new Set([...items.keys()].filter((id) => isHeifImage(items.get(id)!)).sort((a, b) => a - b));
+  if (!images.has(primary) || items.get(primary)!.hidden) return null;
 
   const iprpChildren = [...boxesIn(iprp.bytes)];
   const ipco = iprpChildren.find((box) => box.type === "ipco");
@@ -257,21 +267,31 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
   const properties = [...boxesIn(ipco.bytes)];
   const associations = associationsOf(iprpChildren.filter((box) => box.type === "ipma"));
   const sizes = new Map<number, Header>();
+  const auxiliary = new Set<number>();
   for (const id of images) {
     const associated = associations.get(id);
     if (!associated || associated.some(({ place }) => place > properties.length)) return null;
     const own = associated.filter(({ place }) => place > 0).map(({ place, essential }) => ({ property: properties[place - 1]!, essential }));
-    if (!isReadable(items.get(id)!.type, own)) return null;
+    if (own.some(({ property }) => property.type === "auxC")) auxiliary.add(id);
+    const { type } = items.get(id)!;
+    if (UNREAD_IMAGES.has(type)) continue;
+    if (!isReadable(type, own)) return null;
     const size = sizeOf(own.map(({ property }) => property));
     if (!size) return null;
     sizes.set(id, size);
   }
 
   const references = iref ? referencesOf(iref) : [];
-  const beneath = new Set(references.filter(({ type, to }) => type === "thmb" || (type === "auxl" && to.some((other) => sizes.has(other)))).map(({ from }) => from));
-  const topLevel = images.filter((id) => !items.get(id)!.hidden && !beneath.has(id));
+  const derived = new Map<number, number[]>();
+  for (const { type, from, to } of references) if (type === "dimg" && !derived.has(from)) derived.set(from, to);
+  if (isDerivedFromItself(primary, derived) || !areReferencesSound(references, items, images, auxiliary, derived, iref !== undefined)) return null;
+  const beneath = new Set(references.filter(({ type, to }) => type === "thmb" || (type === "auxl" && to.some((other) => images.has(other)))).map(({ from }) => from));
+  const topLevel = [...images].filter((id) => !items.get(id)!.hidden && !beneath.has(id));
   const shown = topLevel.includes(primary) ? primary : topLevel[0];
-  return shown === undefined ? null : sizes.get(shown)!;
+  if (shown === undefined) return null;
+  // libvips needs the bit depth of the image it shows, which a derived image takes from another.
+  const source = sourceOf(shown, items, derived);
+  return source !== null && sizes.has(source) ? sizes.get(shown)! : null;
 }
 
 /** An ISO base media file's box: its type and its contents, whose view throws at reading past their end. */
@@ -359,11 +379,24 @@ function cString(bytes: Uint8Array, at: number): [string, number] {
   return [ascii(bytes, at, length), at + length + 1];
 }
 
-/** Whether libheif reads `item` as an image. */
+/** Whether libheif lists `item` as an image. */
 const isHeifImage = ({ type, contentType }: Item) => HEIF_IMAGES.has(type) || (type === "mime" && contentType === "image/jpeg");
 
-/** An `iref` box's references, each from one item to others, which libheif reads one after another, past each one's header. */
-function referencesOf({ bytes, view }: Box): Array<{ type: string; from: number; to: number[] }> {
+/** Whether `item` is Exif or XMP, whose data libheif reads to keep with the items it describes (`cdsc`). */
+const isMetadata = (item: Item) => (item.type === "Exif" || item.type === "mime") && !isHeifImage(item);
+
+/** A reference from an item to others, of a type such as a thumbnail's (`thmb`). */
+interface Reference {
+  type: string;
+  from: number;
+  to: number[];
+}
+
+/**
+ * An `iref` box's references, which libheif reads one after another, past each one's header. It refuses one
+ * to no item, or to an item twice.
+ */
+function referencesOf({ bytes, view }: Box): Reference[] {
   const version = view.getUint8(0);
   if (version > 1) throw new RangeError(`An iref box of version ${version}`);
   const [idOf, idSize] = version === 0 ? [(at: number) => view.getUint16(at), 2] : [(at: number) => view.getUint32(at), 4];
@@ -375,10 +408,98 @@ function referencesOf({ bytes, view }: Box): Array<{ type: string; from: number;
     const count = view.getUint16(at + idSize);
     if (count === 0) throw new RangeError("A reference to nothing");
     at += idSize + 2;
-    references.push({ type, from, to: Array.from({ length: count }, (_, n) => idOf(at + n * idSize)) });
+    const to = Array.from({ length: count }, (_, n) => idOf(at + n * idSize));
+    if (new Set(to).size < count) throw new RangeError("A reference to an item twice");
+    references.push({ type, from, to });
     at += count * idSize;
   }
   return references;
+}
+
+/**
+ * Whether libheif 1.19 takes the references between `items`, of which it lists `images`, and of those,
+ * `auxiliary` say what auxiliary image they are (`auxC`), and `derived` maps each item to the first images
+ * it's derived from (`dimg`), with an `iref` box where `hasIref`.
+ */
+function areReferencesSound(
+  references: Reference[],
+  items: Map<number, Item>,
+  images: Set<number>,
+  auxiliary: Set<number>,
+  derived: Map<number, number[]>,
+  hasIref: boolean,
+): boolean {
+  // Through the images' references in the order of their ids, a thumbnail (`thmb`) must be of images that
+  // aren't thumbnails, as far as it's gone, and an auxiliary image (`auxl`) must say what it is and be of
+  // other items.
+  const thumbnails = new Set<number>();
+  for (const { type, from, to } of references.filter(({ from }) => images.has(from)).sort((a, b) => a.from - b.from)) {
+    if (type === "thmb") {
+      thumbnails.add(from);
+      if (to.some((image) => !images.has(image) || thumbnails.has(image))) return false;
+    } else if (type === "auxl" && (!auxiliary.has(from) || to.some((item) => item === from || !items.has(item)))) {
+      return false;
+    }
+  }
+  // A grid must be derived from others, and an overlay needs an `iref` box, even to be derived from none.
+  for (const id of images) {
+    const { type } = items.get(id)!;
+    if ((type === "grid" && !derived.has(id)) || (type === "iovl" && !hasIref)) return false;
+  }
+  // Only an image can have premultiplied alpha (`prem`). The items Exif or XMP first describes must be
+  // there, and the ones a region (`rgan`) describes must be images.
+  const describing = new Set<number>();
+  for (const { type, from, to } of references) {
+    const item = items.get(from);
+    if (!item) continue;
+    if (type === "prem" && !images.has(from)) return false;
+    if (type !== "cdsc") continue;
+    if (item.type === "rgan" && !to.every((id) => images.has(id))) return false;
+    if (isMetadata(item) && !describing.has(from) && !to.every((id) => items.has(id))) return false;
+    describing.add(from);
+  }
+  return true;
+}
+
+/**
+ * Whether `primary`, followed through the images each is derived from, comes back round to one on the way,
+ * which libheif checks along every way from it. This goes along each step once, though a way can share it.
+ */
+function isDerivedFromItself(primary: number, derived: Map<number, number[]>): boolean {
+  const done = new Set<number>();
+  const way = [{ id: primary, next: 0 }];
+  const onWay = new Set([primary]);
+  while (way.length > 0) {
+    const step = way.at(-1)!;
+    const source = derived.get(step.id)?.[step.next++];
+    if (source === undefined) {
+      way.pop();
+      onWay.delete(step.id);
+      done.add(step.id);
+    } else if (onWay.has(source)) {
+      return true;
+    } else if (!done.has(source)) {
+      way.push({ id: source, next: 0 });
+      onWay.add(source);
+    }
+  }
+  return false;
+}
+
+/**
+ * The image `id` takes its bit depth from: itself, or for a derived image, the first it's derived from, and
+ * where that's derived too, the first that is, and so on. libheif finds none past a derived image that isn't
+ * derived from another.
+ */
+function sourceOf(id: number, items: Map<number, Item>, derived: Map<number, number[]>): number | null {
+  const passed = new Set<number>();
+  while (DERIVED_IMAGES.has(items.get(id)?.type ?? "")) {
+    passed.add(id);
+    const next = derived.get(id)?.[0];
+    if (next === undefined || passed.has(next)) return null;
+    id = next;
+  }
+  return id;
 }
 
 /** An item's association with a property: the property's place in `ipco`, counting from 1, and whether it's essential to the item. */
@@ -422,15 +543,28 @@ function isReadable(type: string, properties: Array<{ property: Box; essential: 
 
 /** Whether libheif reads `box`, rather than keeping it as one it doesn't know. */
 function isRead({ type, bytes }: Box): boolean {
-  if (type !== "uuid") return LIBHEIF_BOXES.has(type);
-  return LIBHEIF_UUIDS.has(Array.from(bytes.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join(""));
+  return type === "uuid" ? LIBHEIF_UUIDS.has(uuidOf(bytes)) : LIBHEIF_BOXES.has(type);
+}
+
+/** A `uuid` box's UUID, in hex, from the start of its contents. */
+const uuidOf = (bytes: Uint8Array) => Array.from(bytes.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+/**
+ * Whether `box` is camera intrinsics libheif reads: a `cmin` box, or a `uuid` box of them, of version 0, with a
+ * focal length and principal point, and where its flags say so, a second focal length and a skew.
+ */
+function isCameraIntrinsics({ type, bytes, view }: Box): boolean {
+  const at = type === "cmin" ? 0 : type === "uuid" && uuidOf(bytes) === INTRINSICS_UUID ? 16 : null;
+  if (at === null || view.byteLength < at + 4) return false;
+  const anisotropic = (view.getUint32(at) & 1) === 1;
+  return view.getUint8(at) === 0 && view.byteLength >= at + 16 + (anisotropic ? 8 : 0);
 }
 
 /**
  * The size of an image with `properties`: its extents (`ispe`), set to the clean aperture (`clap`) it's
  * cropped to, and swapped for a rotation (`irot`) of 90° or 270°, as its properties come, in their order.
- * libheif turns or mirrors (`imir`) only an image with extents. libvips drops a HEIF's EXIF orientation,
- * so it's never swapped.
+ * libheif turns or mirrors (`imir`) an image, or reads its camera intrinsics, only where it has extents.
+ * libvips drops a HEIF's EXIF orientation, so it's never swapped.
  */
 function sizeOf(properties: Box[]): Header | null {
   let size = { width: 0, height: 0 };
@@ -442,7 +576,8 @@ function sizeOf(properties: Box[]): Header | null {
     if (!width || !height || width > MAX_INT || height > MAX_INT || width * height > MAX_HEIF_PIXELS) return null;
     [size, extents] = [{ width, height }, true];
   }
-  for (const { type, view } of properties) {
+  for (const property of properties) {
+    const { type, view } = property;
     if (type === "clap") {
       const aperture = cleanAperture(view);
       if (!aperture) return null;
@@ -452,6 +587,8 @@ function sizeOf(properties: Box[]): Header | null {
       const turned = type === "irot" && (view.getUint8(0) & 1) === 1;
       if ((turned || type === "imir") && !extents) return null;
       if (turned) size = { width: size.height, height: size.width };
+    } else if (isCameraIntrinsics(property) && !extents) {
+      return null;
     }
   }
   return { ...size, orientation: null };
