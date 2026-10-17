@@ -180,5 +180,14 @@ describe(feature("attachments.previews"), () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(await slow).toBeNull();
     expect(canvases).toEqual([]);
+
+    // And so does one still being encoded.
+    decodes(2400, 1600);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => {});
+    const encoding = previewOf(file("mural.png", "image/png"));
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(canvases).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await encoding).toBeNull();
   });
 });

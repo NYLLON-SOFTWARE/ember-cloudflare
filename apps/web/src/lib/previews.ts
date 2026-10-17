@@ -38,7 +38,9 @@ export async function previewOf(file: File): Promise<Blob | null> {
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), PREVIEW_TIMEOUT);
   try {
-    return await (file.type.startsWith("video") ? posterOf(url, timeout.signal) : thumbnailOf(url, file.type !== "image/jpeg", timeout.signal));
+    const making = file.type.startsWith("video") ? posterOf(url, timeout.signal) : thumbnailOf(url, file.type !== "image/jpeg", timeout.signal);
+    // Encoding can't be stopped, so the preview is given up on while it's under way too.
+    return await Promise.race([making, abortOf(timeout.signal)]);
   } catch {
     return null;
   } finally {
