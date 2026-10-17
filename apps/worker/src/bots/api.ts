@@ -267,8 +267,9 @@ async function messagesJson(env: Env, origin: string, messages: Message[]) {
   return messages.map((message) => ({
     id: message.id,
     created_at: message.createdAt,
-    // `message.body.to_s`, in Ember's layout for rich text, with mentions and link previews as they're stored.
-    body: { plain_text: message.plainText, html: `<div class="lexxy-content">\n  ${message.body}\n</div>\n` },
+    // `message.body.to_s`, in Ember's layout for rich text, with mentions and link previews as they're stored, or
+    // nothing for a file message, which has no rich text, as ember-rust's `body_html` gives none (presenters.rs).
+    body: { plain_text: message.plainText, html: message.body === "" ? "" : `<div class="lexxy-content">\n  ${message.body}\n</div>\n` },
     // Nobody is ever deleted, so everyone who wrote a message is there.
     creator: writers.get(message.creator.id)!,
     room: { id: message.roomId },

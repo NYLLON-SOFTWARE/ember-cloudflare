@@ -78,7 +78,7 @@ async function messagesOf(env: Env, hits: SearchHit[]): Promise<Message[]> {
 /** The messages `hits` names that are still there: from D1 at once, where every room keeps them, or else from each room once. */
 async function read(env: Env, hits: SearchHit[]): Promise<Message[]> {
   const db = sharedDb(env);
-  if (db) return messagesAnywhereWithIds(db, hits.map(({ messageId }) => messageId));
+  if (db) return messagesAnywhereWithIds(db, hits.map(({ messageId }) => messageId), env.SESSION_SECRET);
   const messages: Message[] = [];
   await eachAtMost([...Map.groupBy(hits, ({ roomId }) => roomId)], ROOMS_AT_ONCE, async ([roomId, inRoom]) => {
     messages.push(...(await env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, inRoom.map(({ messageId }) => messageId))));

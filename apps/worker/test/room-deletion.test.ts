@@ -123,7 +123,8 @@ describe(feature("rooms.delete"), () => {
     expect(await countIn(room.id, "boosts")).toBe(0);
     expect(await countIn(room.id, "message_deletions")).toBe(0);
     expect(await countIn(room.id, "blobs")).toBe(0);
-    expect(await countIn(annex.id, "messages")).toBe(1);
+    // Its file's message, and "Staying".
+    expect(await countIn(annex.id, "messages")).toBe(2);
     expect(await countIn(annex.id, "message_deletions")).toBe(1);
     expect(await countIn(annex.id, "blobs")).toBe(1);
     await settle(inAnnex);

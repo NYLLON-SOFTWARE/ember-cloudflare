@@ -407,6 +407,14 @@ search index. On top of that schema it adds indexes and query changes for speed.
   R2's ETags stand in for the checksum. A file goes up in parts (`apps/worker/src/files/uploads.ts`),
   so the row also keeps R2's multipart upload and the parts it has, as JSON, until `completed_at` says
   R2 has put them together. Deleting a room deletes its rows; its files in R2 go with plan 7.6.
+- **A message's file is part of its row.** ember-rust attaches a file to its message through Active
+  Storage's `active_storage_attachments`, and its presenter looks up each message's file on a page
+  with a query of its own (`Blob::attached` in `crates/ember/src/controllers/presenters.rs`), which on
+  D1 would cost a round trip for each message. A message has at most one file, so ours keeps it as the
+  message shows it, as JSON in `messages.attachment` (room migration 0029): its key, name, type, size,
+  and an image's width and height. A page of messages reads no other table for it, and its addresses
+  are signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
+  and, once the room posts it, the message's, so a part sent again answers with the same message.
 
 ## Writing SQL here
 

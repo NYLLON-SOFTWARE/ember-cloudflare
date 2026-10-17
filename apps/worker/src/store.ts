@@ -1,12 +1,15 @@
 import type { Boost, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
+import { fileSigner, type FileUrls } from "./files/addresses";
+import type { AttachedFile } from "./files/blobs";
 import { logEvent, logIndexing, logIndexingEach } from "./room-log";
 import type { IndexedMessage } from "./search-index";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
 // with the number of its latest change, and the deletions a tab that connects again may yet need to
-// hear of (migrations/0015_numbered_changes.sql).
+// hear of (migrations/0015_numbered_changes.sql). A file message keeps its file (migrations/0029_file_messages.sql),
+// whose addresses are signed as it's read, so they're always signed under the secret Ember has now.
 
 interface MessageRow {
   id: string;
@@ -24,6 +27,8 @@ interface MessageRow {
   created_at: string;
   updated_at: string;
   edited_at: string | null;
+  /** A file message's file, as JSON (`AttachedFile`), or null. */
+  attachment: string | null;
   /** The message's boosts, a JSON array of `BoostRow`s. */
   boosts: string;
 }
@@ -71,6 +76,31 @@ const toMessage = (row: MessageRow): Message => ({
   // json_group_array doesn't promise an order, so sort here rather than in the subquery.
   boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
 });
+
+/** Signs a file's addresses (files/addresses.ts). */
+type Signer = (key: string, name: string) => Promise<FileUrls>;
+
+/** `file` as its message shows it, with its addresses signed by `sign`. */
+const shownFile = async (file: AttachedFile, sign: Signer) => ({ ...file, ...(await sign(file.id, file.name)) });
+
+/** Rows as messages, each file message with its file, whose addresses `signer` signs, only once a row has one. */
+async function toMessages(rows: MessageRow[], signer: () => Promise<Signer>): Promise<Message[]> {
+  const messages = rows.map(toMessage);
+  if (rows.every((row) => row.attachment === null)) return messages;
+  const sign = await signer();
+  return Promise.all(
+    messages.map(async (message, index) => {
+      const { attachment } = rows[index]!;
+      return attachment === null ? message : { ...message, attachment: await shownFile(JSON.parse(attachment) as AttachedFile, sign) };
+    }),
+  );
+}
+
+/** A file message's file, as the batch that stores the message posts it, with what records that its upload has finished as that message. */
+export interface PostedFile {
+  file: AttachedFile;
+  finished: (messageId: string) => Statement;
+}
 
 /**
  * Messages with their boosts gathered by a subquery, so a page is one statement: one round trip to
@@ -141,11 +171,21 @@ export class MessageStore {
    * its messages; null until read, and again after a batch fails, which D1 may have saved all the same.
    */
   private seq: number | null = null;
+  /** What signs files' addresses, under `secret`, once the store has read a file message. */
+  private signer: Promise<Signer> | null = null;
 
   constructor(
     private readonly db: Db,
     readonly roomId: RoomId,
+    private readonly secret: string,
   ) {}
+
+  private readonly sign = () => (this.signer ??= fileSigner(this.secret));
+
+  /** Rows as messages, with their files' addresses signed. */
+  private messagesOf(rows: MessageRow[]): Promise<Message[]> {
+    return toMessages(rows, this.sign);
+  }
 
   /** The newest `limit` messages older than `before` (or the newest overall), oldest first. */
   async page(limit: number, before?: string): Promise<{ messages: Message[]; hasMore: boolean }> {
@@ -159,7 +199,7 @@ export class MessageStore {
   /** The oldest `limit` messages newer than `after`, oldest first, and whether there are newer ones still. */
   async after(limit: number, after: string): Promise<{ messages: Message[]; hasNewer: boolean }> {
     const rows = await this.db.all<MessageRow>(MESSAGES_AFTER, this.roomId, after, limit + 1);
-    return { messages: rows.slice(0, limit).map(toMessage), hasNewer: rows.length > limit };
+    return { messages: await this.messagesOf(rows.slice(0, limit)), hasNewer: rows.length > limit };
   }
 
   /**
@@ -224,13 +264,12 @@ export class MessageStore {
       this.db.all<MessageRow>(MESSAGES_CHANGED_SINCE, this.roomId, since),
       this.db.all<{ message_id: string }>(MESSAGES_DELETED_SINCE, this.roomId, since),
     ]);
-    return { messages: rows.map(toMessage).sort(byId), deletedIds: deleted.map((row) => row.message_id), seq };
+    return { messages: (await this.messagesOf(rows)).sort(byId), deletedIds: deleted.map((row) => row.message_id), seq };
   }
 
   /** The messages `ids` names that the room has, in no particular order, for search results. */
   async withIds(ids: string[]): Promise<Message[]> {
-    const rows = await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids));
-    return rows.map(toMessage);
+    return this.messagesOf(await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids)));
   }
 
   /** What the search index keeps of the messages `ids` names that the room has. */
@@ -240,19 +279,28 @@ export class MessageStore {
 
   async find(id: string): Promise<Message | null> {
     const [row] = await this.db.all<MessageRow>(`${SELECT_MESSAGES} WHERE room_id = ? AND id = ?`, this.roomId, id);
-    return row ? toMessage(row) : null;
+    return row ? (await this.messagesOf([row]))[0]! : null;
   }
 
   /**
    * Stores a new message, logging it in the same transaction for the Workspace to mark the room unread
    * by, as a reply to a webhook delivery when it's one, and for the search index, and answers it with the
-   * change's number.
+   * change's number. A file message posts `posted`'s file, recording that its upload has finished in
+   * the same transaction.
    */
-  async create(id: string, clientMessageId: string, creator: User, body: PreparedBody, now: string, kind: "message" | "reply" = "message"): Promise<{ message: Message; seq: number }> {
+  async create(
+    id: string,
+    clientMessageId: string,
+    creator: User,
+    body: Pick<PreparedBody, "html" | "plainText" | "mentions">,
+    now: string,
+    kind: "message" | "reply" = "message",
+    posted?: PostedFile,
+  ): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         this.roomId,
         clientMessageId,
@@ -264,9 +312,11 @@ export class MessageStore {
         now,
         now,
         seq,
+        posted ? JSON.stringify(posted.file) : null,
       ),
       logEvent(this.roomId, kind, creator.id, now, id),
       logIndexing(this.roomId, id),
+      ...(posted ? [posted.finished(id)] : []),
     ]);
     return {
       message: {
@@ -281,6 +331,7 @@ export class MessageStore {
         updatedAt: now,
         editedAt: null,
         boosts: [],
+        ...(posted && { attachment: await shownFile(posted.file, await this.sign()) }),
       },
       seq,
     };
@@ -421,16 +472,15 @@ export class MessageStore {
   }
 
   /** Rows read newest first, one more than `limit` if there are more, as a page oldest first. */
-  private toPage(rows: MessageRow[], limit: number): { messages: Message[]; hasMore: boolean } {
-    return { messages: rows.slice(0, limit).reverse().map(toMessage), hasMore: rows.length > limit };
+  private async toPage(rows: MessageRow[], limit: number): Promise<{ messages: Message[]; hasMore: boolean }> {
+    return { messages: await this.messagesOf(rows.slice(0, limit).reverse()), hasMore: rows.length > limit };
   }
-
 }
 
 /**
  * The messages `ids` names in any room, in no particular order, for search results: one query, where
- * every room keeps its messages in D1.
+ * every room keeps its messages in D1. Their files' addresses are signed under `secret`.
  */
-export async function messagesAnywhereWithIds(db: Db, ids: string[]): Promise<Message[]> {
-  return (await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids))).map(toMessage);
+export async function messagesAnywhereWithIds(db: Db, ids: string[], secret: string): Promise<Message[]> {
+  return toMessages(await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids)), () => fileSigner(secret));
 }

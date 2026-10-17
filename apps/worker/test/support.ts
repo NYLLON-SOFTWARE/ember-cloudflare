@@ -7,6 +7,7 @@ import {
   type ClientFrame,
   type DirectRoom,
   type Me,
+  type Message,
   type Room,
   type RoomIconChoice,
   type RoomId,
@@ -219,15 +220,21 @@ export const startUpload = (session: Session, room: RoomId, file: unknown) =>
 export const sendPart = (session: Session, room: RoomId, id: string, n: number, bytes: Uint8Array, headers: Record<string, string> = {}) =>
   api(uploadPartPath(room, id, n), { method: "PUT", headers: { Cookie: session.cookie, "Content-Length": String(bytes.length), ...headers }, body: bytes });
 
-/** Uploads `bytes` to `room` as `session`, part by part, named `name` and of the type a browser declares, answering the file. */
-export async function upload(session: Session, room: RoomId, name: string, bytes: Uint8Array, type = ""): Promise<StoredFile> {
-  const started = await startUpload(session, room, { name, type, size: bytes.length });
+/** A file message, as the room posts an upload once R2 has all of it. */
+export type FileMessage = Message & { attachment: StoredFile };
+
+/**
+ * Uploads `bytes` to `room` as `session`, part by part, named `name` and of the type a browser declares,
+ * answering the message the room posts it as, whose id for the app is `clientMessageId`.
+ */
+export async function upload(session: Session, room: RoomId, name: string, bytes: Uint8Array, type = "", clientMessageId = crypto.randomUUID()): Promise<FileMessage> {
+  const started = await startUpload(session, room, { name, type, size: bytes.length, clientMessageId });
   expect(started.status, await started.clone().text()).toBe(201);
   const { id, partSize, parts } = (await started.json()) as Upload;
   for (let n = 1; n < parts; n++) expect((await sendPart(session, room, id, n, bytes.subarray((n - 1) * partSize, n * partSize))).status).toBe(204);
   const last = await sendPart(session, room, id, parts, bytes.subarray((parts - 1) * partSize));
   expect(last.status, await last.clone().text()).toBe(201);
-  return (await last.json()) as StoredFile;
+  return (await last.json()) as FileMessage;
 }
 
 /** Starts a DM through the API as `as`, with the people `userIds` names, answering how the Worker answered. */

@@ -1,8 +1,10 @@
-import type { RoomId, UserId } from "@ember/protocol";
-import type { Db } from "../db";
+import type { RoomId, StoredFile, UserId } from "@ember/protocol";
+import { statement, type Db, type Statement } from "../db";
+import { sanitizedFilename } from "./filename";
 
 // A room's files as its storage keeps them (migrations/0028_blobs.sql), in its Durable Object SQLite
-// storage or in D1 (see db.ts), from when someone starts uploading one until R2 has all of it.
+// storage or in D1 (see db.ts), from when someone starts uploading one until R2 has all of it and the
+// room has posted it as their message (migrations/0029_file_messages.sql).
 
 /** Where R2 keeps the file whose key is `key`. */
 export const objectKey = (key: string) => `files/${key}`;
@@ -29,7 +31,11 @@ export interface RoomBlob {
   multipartUploadId: string | null;
   /** The parts R2 has of a file in more than one part, in order. */
   parts: UploadedPart[];
+  /** The id the app gave the file's message, or null for an upload started before files were messages. */
+  clientMessageId: string | null;
   completedAt: string | null;
+  /** The message the room posted the file as, once R2 has all of it. */
+  messageId: string | null;
 }
 
 interface BlobRow {
@@ -41,7 +47,9 @@ interface BlobRow {
   metadata: string | null;
   multipart_upload_id: string | null;
   parts: string;
+  client_message_id: string | null;
   completed_at: string | null;
+  message_id: string | null;
 }
 
 const toBlob = (row: BlobRow): RoomBlob => ({
@@ -53,13 +61,31 @@ const toBlob = (row: BlobRow): RoomBlob => ({
   metadata: row.metadata,
   multipartUploadId: row.multipart_upload_id,
   parts: JSON.parse(row.parts) as UploadedPart[],
+  clientMessageId: row.client_message_id,
   completedAt: row.completed_at,
+  messageId: row.message_id,
 });
 
 /** What the first part of a file says of it: its type and Active Storage's metadata. */
 export interface Identified {
   contentType: string;
   metadata: string;
+}
+
+/** A file as its message keeps it (`messages.attachment`): as it shows, but for its addresses, which are signed as it's read. */
+export type AttachedFile = Omit<StoredFile, "url" | "downloadUrl">;
+
+/** What the message `blob` is posted as keeps of it, once its first part has identified it, as `identified` says if it isn't recorded yet. */
+export function attachedFile(blob: RoomBlob, identified?: Identified): AttachedFile {
+  const { contentType, metadata } = identified ?? { contentType: blob.contentType, metadata: blob.metadata! };
+  const { width, height } = JSON.parse(metadata) as { width?: number; height?: number };
+  return {
+    id: blob.id,
+    name: sanitizedFilename(blob.filename),
+    contentType,
+    byteSize: blob.byteSize,
+    ...(width !== undefined && height !== undefined && { width, height }),
+  };
 }
 
 export class Blobs {
@@ -69,15 +95,16 @@ export class Blobs {
   ) {}
 
   /** Records that `blob`'s upload has started, at `createdAt`. */
-  async create(blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize">, createdAt: string): Promise<void> {
+  async create(blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize" | "clientMessageId">, createdAt: string): Promise<void> {
     await this.db.run(
-      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, client_message_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       blob.id,
       this.roomId,
       blob.uploaderId,
       blob.filename,
       blob.contentType,
       blob.byteSize,
+      blob.clientMessageId,
       createdAt,
     );
   }
@@ -88,19 +115,18 @@ export class Blobs {
   }
 
   /**
-   * Records what the first part of file `id` identified it as, unless that's recorded already, with the
-   * multipart upload and first part R2 has of it, or for a file in one part, that it has all of it, at
-   * `completedAt`. Answers the file as it is then, or null if it was identified already.
+   * Records what the first part of file `id`, in more than one part, identified it as, unless that's
+   * recorded already, with the multipart upload and first part R2 has of it. Answers the file as it is
+   * then, or null if it was identified already.
    */
-  async identify(id: string, { contentType, metadata }: Identified, upload: { multipartUploadId: string; part: UploadedPart } | { completedAt: string }): Promise<RoomBlob | null> {
+  async identify(id: string, { contentType, metadata }: Identified, multipartUploadId: string, part: UploadedPart): Promise<RoomBlob | null> {
     const [row] = await this.db.all<BlobRow>(
-      `UPDATE blobs SET content_type = ?, metadata = ?, multipart_upload_id = ?, parts = ?, completed_at = ?
+      `UPDATE blobs SET content_type = ?, metadata = ?, multipart_upload_id = ?, parts = ?
         WHERE room_id = ? AND id = ? AND metadata IS NULL RETURNING *`,
       contentType,
       metadata,
-      "multipartUploadId" in upload ? upload.multipartUploadId : null,
-      JSON.stringify("part" in upload ? [upload.part] : []),
-      "completedAt" in upload ? upload.completedAt : null,
+      multipartUploadId,
+      JSON.stringify([part]),
       this.roomId,
       id,
     );
@@ -114,15 +140,23 @@ export class Blobs {
     return { ...blob, parts };
   }
 
-  /** Records that R2 has put file `id` together, at `completedAt`, unless it had already, and answers the file. */
-  async complete(id: string, completedAt: string): Promise<RoomBlob | null> {
-    const [row] = await this.db.all<BlobRow>(
-      `UPDATE blobs SET completed_at = coalesce(completed_at, ?) WHERE room_id = ? AND id = ? RETURNING *`,
-      completedAt,
-      this.roomId,
-      id,
-    );
-    return row ? toBlob(row) : null;
+  /**
+   * What records that R2 has all of file `id`, at `completedAt`, and that it's posted as message
+   * `messageId`, for the batch that stores the message, with what its one part identified it as, for a
+   * file in one part.
+   */
+  finished(id: string, messageId: string, completedAt: string, identified?: Identified): Statement {
+    return identified
+      ? statement(
+          `UPDATE blobs SET content_type = ?, metadata = ?, completed_at = ?, message_id = ? WHERE room_id = ? AND id = ?`,
+          identified.contentType,
+          identified.metadata,
+          completedAt,
+          messageId,
+          this.roomId,
+          id,
+        )
+      : statement(`UPDATE blobs SET completed_at = ?, message_id = ? WHERE room_id = ? AND id = ?`, completedAt, messageId, this.roomId, id);
   }
 
   /** Forgets every file the room has, once it's deleted. */

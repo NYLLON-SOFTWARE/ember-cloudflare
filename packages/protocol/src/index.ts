@@ -2,6 +2,7 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import type { StoredFile } from "./files.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
@@ -520,6 +521,11 @@ export interface Message {
   /** When its text last changed, or null if it never has. */
   editedAt: string | null;
   boosts: Boost[];
+  /**
+   * A file message's file, which it shows in place of its text, as ember-rust's message shows its one
+   * attachment. Its text is empty, and its plain text the file's name.
+   */
+  attachment?: StoredFile;
 }
 
 /**

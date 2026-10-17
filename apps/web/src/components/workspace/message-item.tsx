@@ -7,10 +7,11 @@ import { messagePath } from "@/hooks/use-route";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
+import { FileCard } from "./file-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { FileMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { AvatarLink, userTitle } from "./user-avatar";
 
 export interface MessageActions {
@@ -157,7 +158,14 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
       {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 
-      {editing ? (
+      {editing && message.attachment ? (
+        <FileMessageEditor
+          ref={attachEditor}
+          file={message.attachment}
+          onDelete={() => actions.remove(message.id) && editors.returnFocus()}
+          onClose={() => editors.close(message.id)}
+        />
+      ) : editing ? (
         <MessageEditor
           ref={attachEditor}
           message={message}
@@ -200,14 +208,21 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           )}
 
           {/* A grouped message has no header, so its mark follows the text. Where Message options is 44px, the
-              text stops 32px short of the row's end, clear of it. */}
-          <MessageBody
-            nodes={shown}
-            mentions={message.mentions}
-            emoji={allEmoji}
-            trailing={(threaded && edited) || undefined}
-            className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
-          />
+              text stops 32px short of the row's end, clear of it. A file message shows its file in place of its
+              text, as ember-rust's `message_presentation` does. */}
+          {message.attachment ? (
+            <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
+              <FileCard file={message.attachment} />
+            </div>
+          ) : (
+            <MessageBody
+              nodes={shown}
+              mentions={message.mentions}
+              emoji={allEmoji}
+              trailing={(threaded && edited) || undefined}
+              className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
+            />
+          )}
 
           {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
 
