@@ -91,8 +91,9 @@ export const gridData = (rows: number, columns: number, width: number, height: n
 /** An overlay's data, which libheif reads too: `count` images at its top left corner, making `width` by `height` over no fill. */
 export const overlayData = (count: number, width: number, height: number) => concat(numbers(1, 0, 0), numbers(2, 0, 0, 0, 0, width, height, ...Array<number>(2 * count).fill(0)));
 
-/** A region item's data, which libheif reads too: no regions, over an image of `width` by `height`. */
-export const regionData = (width: number, height: number) => concat(numbers(1, 0, 0), numbers(2, width, height), numbers(1, 0));
+/** A region item's data, which libheif reads too: over an image of `width` by `height`, `masks` regions, each shaped by an image the item refers to (`mask`). */
+export const regionData = (width: number, height: number, masks = 0) =>
+  concat(numbers(1, 0, 0), numbers(2, width, height), numbers(1, masks), ...Array.from({ length: masks }, () => concat(numbers(1, 4), numbers(2, 0, 0, width, height))));
 
 export interface Item {
   id: number;

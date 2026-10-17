@@ -238,9 +238,9 @@ const MAX_INT = 2 ** 31 - 1;
  * A HEIF's size as libvips reads it with libheif: its primary image's, from its properties, where that's one
  * of its top-level images, and otherwise the first of them, in the order of their ids. Those are the images
  * that aren't hidden, nor another image's thumbnail (`thmb`) or auxiliary image (`auxl`), such as its alpha
- * channel. A file libheif refuses, without the boxes it needs or with any image it can't read, is unreadable:
- * one without its codec's configuration, with an essential property libheif doesn't know, too large, or with
- * references between its items that libheif refuses.
+ * channel, nor a region's mask (`mask`). A file libheif refuses, without the boxes it needs or with any image
+ * it can't read, is unreadable: one without its codec's configuration, with an essential property libheif
+ * doesn't know, too large, or with references between its items that libheif refuses.
  */
 function heif(view: DataView, bytes: Uint8Array): Header | null {
   // libvips takes an `ftyp` box of whole words, of up to 2,048 bytes, with one of its major brands, and
@@ -285,7 +285,11 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
   const derived = new Map<number, number[]>();
   for (const { type, from, to } of references) if (type === "dimg" && !derived.has(from)) derived.set(from, to);
   if (isDerivedFromItself(primary, derived) || !areReferencesSound(references, items, images, auxiliary, derived, iref !== undefined)) return null;
-  const beneath = new Set(references.filter(({ type, to }) => type === "thmb" || (type === "auxl" && to.some((other) => images.has(other)))).map(({ from }) => from));
+  const beneath = new Set<number>();
+  for (const { type, from, to } of references) {
+    if (type === "thmb" || (type === "auxl" && to.some((other) => images.has(other)))) beneath.add(from);
+    if (type === "mask" && items.get(from)?.type === "rgan") to.forEach((mask) => beneath.add(mask));
+  }
   const topLevel = [...images].filter((id) => !items.get(id)!.hidden && !beneath.has(id));
   const shown = topLevel.includes(primary) ? primary : topLevel[0];
   if (shown === undefined) return null;
@@ -447,12 +451,14 @@ function areReferencesSound(
     if ((type === "grid" && !derived.has(id)) || (type === "iovl" && !hasIref)) return false;
   }
   // Only an image can have premultiplied alpha (`prem`). The items Exif or XMP first describes must be
-  // there, and the ones a region (`rgan`) describes must be images.
+  // there, the ones a region (`rgan`) describes must be images, and its masks (`mask`) images libheif
+  // reads. libheif checks only the masks the region's data has regions for, as a file must for each.
   const describing = new Set<number>();
   for (const { type, from, to } of references) {
     const item = items.get(from);
     if (!item) continue;
     if (type === "prem" && !images.has(from)) return false;
+    if (type === "mask" && item.type === "rgan" && !to.every((mask) => images.has(mask) && !UNREAD_IMAGES.has(items.get(mask)!.type))) return false;
     if (type !== "cdsc") continue;
     if (item.type === "rgan" && !to.every((id) => images.has(id))) return false;
     if (isMetadata(item) && !describing.has(from) && !to.every((id) => items.has(id))) return false;

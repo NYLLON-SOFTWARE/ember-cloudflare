@@ -302,6 +302,27 @@ describe(feature("attachments.types"), () => {
     expect(withMetadata({ type: "prem", from: 9, to: [1] })).toEqual(size);
   });
 
+  it("takes a region's masks out of the top-level images, and needs them to be images libheif reads", () => {
+    /** The size recorded for a file of two images, a layered HEVC one, Exif, and a region of one mask, with `references`. */
+    const withRegion = (...references: Reference[]) =>
+      recordedSize({
+        items: [
+          { id: 1, properties: image(1200, 800) },
+          { id: 2, properties: image(640, 480) },
+          { id: 3, type: "lhv1", hidden: true, properties: [ispe(640, 480)] },
+          exif(4),
+          { id: 5, type: "rgan", data: regionData(1200, 800, 1) },
+        ],
+        references,
+      });
+    expect(withRegion({ type: "mask", from: 5, to: [2] })).toEqual(size);
+    expect(withRegion({ type: "mask", from: 5, to: [1] })).toEqual({ width: 640, height: 480 });
+    // Only a region's.
+    expect(withRegion({ type: "mask", from: 4, to: [1] })).toEqual(size);
+    // Of nothing, of an item that isn't an image, or of a layered HEVC image.
+    for (const to of [9, 4, 3]) expect(withRegion({ type: "mask", from: 5, to: [to] }), `of ${to}`).toBeNull();
+  });
+
   it("lists layered HEVC images, which libheif neither reads nor shows, and JPEG mime items as images", () => {
     const layered = (id: number, ...properties: Property[]): Item => ({ id, type: "lhv1", properties: [ispe(1200, 800), ...properties] });
     // It reads none of a layered HEVC image's properties, but they must be listed. Later versions of libheif take one without.
