@@ -1,5 +1,5 @@
-import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import type { Message } from "@ember/protocol";
+import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
+import type { Message, StoredFile } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { Check, Remove, Trash } from "@/components/icons/campfire";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
@@ -7,6 +7,7 @@ import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
+import { FileCard } from "./file-card";
 import { avatarUrlOf } from "./user-avatar";
 
 /**
@@ -26,8 +27,16 @@ interface Props {
 }
 
 export interface MessageEditorHandle {
-  /** Focuses the text, keeping what's written in it. */
+  /** Focuses the text, keeping what's written in it, or a file message's Delete message. */
   focus(): void;
+}
+
+/** ember-rust's scroll-into-view controller: once it's shown, the editor scrolls to the middle of the timeline. */
+function useScrollIntoView(container: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => container.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    return () => cancelAnimationFrame(frame);
+  }, [container]);
 }
 
 /**
@@ -60,12 +69,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   if (editable === null && knowsMentions) setEditable(editableNow());
 
   useImperativeHandle(ref, () => ({ focus: () => editor.current?.focus() }), []);
-
-  // ember-rust's scroll-into-view controller: once it's shown, the editor scrolls to the middle of the timeline.
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => container.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  useScrollIntoView(container);
 
   const loading = <div className="min-h-6" />;
 
@@ -125,28 +129,81 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
               <Check tone="reversed" className="size-[1.3em]" />
               <span className="sr-only">Save changes</span>
             </button>
-            <button
-              type="button"
-              className={cn(ROUND_BUTTON, "bg-negative-button")}
-              onClick={() => confirm("Are you sure you want to delete this message?") && onDelete()}
-            >
-              <Trash tone="white" className="size-[1.3em]" />
-              <span className="sr-only">Delete message</span>
-            </button>
+            <DeleteButton onDelete={onDelete} />
           </div>
         </form>
       </div>
-      {/* `.message__actions`, which centers its button against the card. */}
-      <div className="flex shrink-0 items-center">
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid size-9 cursor-pointer place-items-center rounded-full text-[0.8rem] touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:not-active:bg-border"
-        >
-          <Remove className="size-[1.3em]" />
-          <span className="sr-only">Close editor and discard changes</span>
-        </button>
+      <CloseButton onClose={onClose} />
+    </div>
+  );
+}
+
+interface FileMessageEditorProps {
+  file: StoredFile;
+  onDelete: () => void;
+  onClose: () => void;
+  ref?: Ref<MessageEditorHandle>;
+}
+
+/**
+ * ember-rust's edit form for a file message (messages/edit.html), whose text can't be edited: its file as
+ * the message shows it, with Delete message centered under it, beside the button that closes it. It
+ * focuses Delete message as it opens, as the text editor focuses the text, where ember-rust's form leaves
+ * focus behind, and Escape closes it, as the text editor's form does. Delete message asks first.
+ */
+export function FileMessageEditor({ file, onDelete, onClose, ref }: FileMessageEditorProps) {
+  const container = useRef<HTMLDivElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  useImperativeHandle(ref, () => ({ focus: () => deleteButton.current?.focus() }), []);
+  useScrollIntoView(container);
+
+  return (
+    <div
+      ref={container}
+      className="col-start-2 flex min-w-0 gap-x-[0.5ch] py-1 pr-[0.5ch] text-sm"
+      onKeyDown={(event) => {
+        if (pressedAlone(event.nativeEvent, "Escape")) onClose();
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <FileCard file={file} />
+        <div className="flex justify-center pt-2">
+          <DeleteButton ref={deleteButton} onDelete={onDelete} className="mb-4" autoFocus />
+        </div>
       </div>
+      <CloseButton onClose={onClose} />
+    </div>
+  );
+}
+
+/** Delete message, a round red button that asks before it deletes, as `data-turbo-confirm` does. */
+function DeleteButton({ onDelete, className, autoFocus, ref }: { onDelete: () => void; className?: string; autoFocus?: boolean; ref?: Ref<HTMLButtonElement> }) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      autoFocus={autoFocus}
+      className={cn(ROUND_BUTTON, "bg-negative-button", className)}
+      onClick={() => confirm("Are you sure you want to delete this message?") && onDelete()}
+    >
+      <Trash tone="white" className="size-[1.3em]" />
+      <span className="sr-only">Delete message</span>
+    </button>
+  );
+}
+
+/** `.message__actions`, which centers its button, Close editor and discard changes, against the editor. */
+function CloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center">
+      <button
+        type="button"
+        onClick={onClose}
+        className="grid size-9 cursor-pointer place-items-center rounded-full text-[0.8rem] touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:not-active:bg-border"
+      >
+        <Remove className="size-[1.3em]" />
+        <span className="sr-only">Close editor and discard changes</span>
+      </button>
     </div>
   );
 }

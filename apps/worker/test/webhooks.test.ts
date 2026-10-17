@@ -6,7 +6,24 @@ import { JobQueue } from "../src/at-once";
 import { postWebhook, WebhookError, webhookPayload } from "../src/bots/webhooks";
 import type { RoomEvent } from "../src/room-log";
 import { MESSAGE_WEBHOOKS, type MessageWebhook } from "../src/workspace-store";
-import { api, connect, cookieOf, createRoom, direct, freshDeploy, post, pushBrowser, settle, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
+import {
+  api,
+  connect,
+  cookieOf,
+  createRoom,
+  direct,
+  freshDeploy,
+  post,
+  pushBrowser,
+  recordedImage,
+  settle,
+  shown,
+  signIn,
+  upload,
+  workspaceSql,
+  workspaceStub,
+  type Session,
+} from "./support";
 
 // Which bots' webhooks a new message is delivered to, and how, as Campfire's `Webhook#deliver` does
 // (reference/app/models/webhook.rb, test/models/webhook_test.rb) and ember-rust's integrations/webhook.rs
@@ -74,7 +91,8 @@ function bots(answer: (delivery: Delivery) => Promise<Response> = async () => ne
 }
 
 /** What the request `delivery` sent, read as JSON. */
-const payloadOf = (delivery: Delivery) => JSON.parse(delivery.init.body as string) as { user: User; room: { id: RoomId; name: string | null; path: string }; message: { id: string; body: { html: string; plain: string }; path: string } };
+const payloadOf = (delivery: Delivery) =>
+  JSON.parse(delivery.init.body as string) as { user: User; room: { id: RoomId; name: string | null; path: string }; message: { id: string; body: { html: string | null; plain: string }; path: string } };
 
 /** `text` as ActiveSupport::JSON escapes it: `<`, `>` and `&` as JSON's escapes for them. */
 const escaped = (text: string) => text.replace(/[<>&]/g, (c) => `${"\\"}u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
@@ -148,6 +166,17 @@ describe(feature("bots.webhook-delivery"), () => {
     const [webhook] = await webhooksFor(room.id, [message(ada.user)]);
     expect(webhook).toMatchObject({ author: { id: ada.user.id, name: "Ada Lovelace" }, roomName: null, bot: { id: builder.id, name: "Build Bot" }, url: "https://bots.example.com/build" });
     expect(`${webhook!.bot.id}-${webhook!.token}`).toBe(builder.key);
+  });
+
+  it("delivers a file message with no HTML and its file's name as its plain text, as Campfire delivers a message without rich text", async () => {
+    const { ada } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    const room = await direct(ada, asSession(bot));
+    const delivered = bots();
+
+    const message = await upload(ada, room.id, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    await vi.waitFor(() => expect(delivered).toHaveLength(1));
+    expect(payloadOf(delivered[0]!).message).toEqual({ id: message.id, body: { html: null, plain: "moon.jpg" }, path: `/rooms/${room.id}/@${message.id}` });
   });
 
   it("delivers to none but the active bots with webhooks that a message mentions in its room: never a person, a bot without one, a deleted bot or one outside the room", async () => {

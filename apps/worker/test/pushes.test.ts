@@ -18,10 +18,12 @@ import {
   freshRoom,
   post,
   pushBrowser,
+  recordedImage,
   roomSql,
   roomStub,
   shown,
   signIn,
+  upload,
   workspaceSql,
   workspaceStub,
   type PushBrowser,
@@ -297,6 +299,20 @@ describe(feature("notifications.push"), () => {
       const shownAs = { title: "Designers", options: { body: "Ada: Hi @Lin", icon: "/account/logo", data: { path: `/rooms/${room}`, badge: 1 } } };
       expect(await opened("grace", gracesBrowser)).toEqual(shownAs);
       expect(await opened("lin", linsBrowser)).toEqual(shownAs);
+    });
+
+    it("pushes a file message as its sender and its file's name, and marks its room unread, as any new message", async () => {
+      const pushed = pushServices();
+      const room = await freshRoom("Designers");
+      const [ada, grace] = await people("Ada", "Grace");
+      const browser = await pushBrowser();
+      await subscribe(grace, "grace", browser);
+      await involve(grace, room, "everything");
+
+      await upload(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+      await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ title: "Designers", options: { body: "Ada: moon.jpg" } });
+      expect(await workspaceSql("SELECT unread_at IS NOT NULL AS unread FROM memberships WHERE room_id = ? AND user_id = ?", room, grace.user.id)).toEqual([{ unread: 1 }]);
     });
 
     it("pushes a message as it is when the room tells the Workspace of it, and nothing for one deleted by then, nor for edits and deletions", async () => {

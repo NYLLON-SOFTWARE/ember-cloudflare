@@ -1,3 +1,4 @@
+import type { StoredFile } from "@ember/protocol";
 import { toBase64url } from "../encoding";
 import { escapePath } from "./filename";
 
@@ -11,19 +12,24 @@ const encoder = new TextEncoder();
 /** How much of its HMAC a signature keeps, as avatar tokens keep. */
 const SIGNATURE_BYTES = 16;
 
+/** The addresses that show a file and download it. */
+export type FileUrls = Pick<StoredFile, "url" | "downloadUrl">;
+
+/** SESSION_SECRET as the key file signatures are HMACs under. */
+const keyOf = (secret: string) => crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+
 /**
- * The signature of file `key` under SESSION_SECRET: the first 16 bytes of its HMAC, as base64url.
- * Changing the secret changes them all, as changing ember-rust's `SECRET_KEY_BASE` does.
+ * The signature of file `key` under `hmac`: the first 16 bytes of its HMAC, as base64url. Changing the
+ * secret changes them all, as changing ember-rust's `SECRET_KEY_BASE` does.
  */
-async function signature(secret: string, key: string): Promise<string> {
-  const hmac = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+async function signature(hmac: CryptoKey, key: string): Promise<string> {
   const signed = await crypto.subtle.sign("HMAC", hmac, encoder.encode(`file:${key}`));
   return toBase64url(new Uint8Array(signed, 0, SIGNATURE_BYTES));
 }
 
 /** Whether `given` is file `key`'s signature under `secret`. */
 export async function isFileSignature(secret: string, key: string, given: string): Promise<boolean> {
-  const [a, b] = [encoder.encode(given), encoder.encode(await signature(secret, key))];
+  const [a, b] = [encoder.encode(given), encoder.encode(await signature(await keyOf(secret), key))];
   return a.length === b.length && crypto.subtle.timingSafeEqual(a, b);
 }
 
@@ -34,8 +40,15 @@ export async function isFileSignature(secret: string, key: string, given: string
  */
 const addressName = (name: string) => (name === "" || name === "." || name === ".." ? "-" : escapePath(name));
 
-/** The address that shows file `key`, named `name`, and the one that downloads it, which asks for it as an attachment. */
-export async function fileUrls(secret: string, key: string, name: string): Promise<{ url: string; downloadUrl: string }> {
-  const url = `/files/${key}/${await signature(secret, key)}/${addressName(name)}`;
-  return { url, downloadUrl: `${url}?disposition=attachment` };
+/**
+ * Signs files' addresses under `secret`, which it takes as a key once, however many files it signs: the
+ * address that shows file `key`, named `name`, and the one that downloads it, which asks for it as an
+ * attachment.
+ */
+export async function fileSigner(secret: string): Promise<(key: string, name: string) => Promise<FileUrls>> {
+  const hmac = await keyOf(secret);
+  return async (key, name) => {
+    const url = `/files/${key}/${await signature(hmac, key)}/${addressName(name)}`;
+    return { url, downloadUrl: `${url}?disposition=attachment` };
+  };
 }

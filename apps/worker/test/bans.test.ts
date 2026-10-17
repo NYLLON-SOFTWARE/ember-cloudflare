@@ -862,8 +862,8 @@ describe(feature("accounts.ban-enforcement"), () => {
       expect((await api(path, fromAddress(banned, administrator))).status, path).toBe(200);
     }
     expect((await api("/api/health", fromAddress(banned, null))).status).toBe(200);
-    const file = await upload(administrator, lobby, "moon.jpg", recordedImage("moon-thumb.jpg"));
-    expect((await api(file.url, fromAddress(banned, null))).status).toBe(200);
+    const { attachment } = await upload(administrator, lobby, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    expect((await api(attachment.url, fromAddress(banned, null))).status).toBe(200);
     expect((await connect(lobby, { ...administrator, ip: banned })).welcome.type).toBe("welcome");
     expect((await openWorkspaceSocket({ ...administrator, ip: banned })).welcome.type).toBe("welcome");
     for (const method of ["POST", "PUT", "DELETE"]) expect((await api("/api/nothing", fromAddress(banned, administrator, { method }))).status, method).toBe(404);

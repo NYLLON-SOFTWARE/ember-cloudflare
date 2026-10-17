@@ -1,7 +1,7 @@
 import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply } from "@/components/icons/lucide";
+import { Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply } from "@/components/icons/lucide";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath } from "@/hooks/use-route";
@@ -60,8 +60,8 @@ export interface MessageActionsHandle {
 
 /**
  * ember-rust's message actions (messages/_actions.html, message_actions_controller.js, zz-ember.css):
- * Message options, which opens a bar of three quick reactions, Reply, Copy link, Edit and More reactions,
- * whose tray holds the other reactions and New boost. With a mouse, hovering the message opens the bar
+ * Message options, which opens a bar of three quick reactions, Reply, or a file message's Download, Copy
+ * link, Edit and More reactions, whose tray holds the other reactions and New boost. With a mouse, hovering the message opens the bar
  * too, laid over the message's top edge at the timeline's right, with Message options pinned as its last
  * button. On touch screens it opens beside Message options. Once opened, the bar stays in the page while
  * it's shut, as ember-rust's does, so Copy link keeps its color.
@@ -310,7 +310,15 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
                 <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
               ))}
             </div>
-            <ReplyButton message={message} nodes={nodes} onClick={reply} />
+            {message.attachment ? (
+              // Hidden in Ember added to an iPhone's or iPad's home screen, as the file's card hides it. Share
+              // comes with plan 7.4.
+              <a href={message.attachment.downloadUrl} title="Download" aria-label="Download" className={cn(ACTION, "ios-pwa:hidden")}>
+                <Download />
+              </a>
+            ) : (
+              <ReplyButton message={message} nodes={nodes} onClick={reply} />
+            )}
             <button type="button" title="Copy link" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
               <Link />
             </button>

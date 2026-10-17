@@ -1,12 +1,31 @@
 import { feature } from "@ember/parity";
-import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, type RoomId, type StoredFile, type Upload } from "@ember/protocol";
+import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, type RoomId, type Upload } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
-import { fileUrls } from "../src/files/addresses";
+import { fileSigner } from "../src/files/addresses";
 import { objectKey, type UploadedPart } from "../src/files/blobs";
 import { UPLOAD_PART_SIZE } from "../src/files/uploads";
-import { api, apiWith, createRoom, freshDeploy, freshRoom, recordedImage, roomSql, roomStub, sendPart, signIn, startUpload, upload, type Session } from "./support";
+import {
+  api,
+  apiWith,
+  connect,
+  createRoom,
+  freshDeploy,
+  freshRoom,
+  post,
+  reconnect,
+  recordedImage,
+  roomSql,
+  roomStub,
+  sendPart,
+  shown,
+  signIn,
+  startUpload,
+  upload,
+  type FileMessage,
+  type Session,
+} from "./support";
 
 // Uploading files to a room in parts, which R2 keeps, and serving them from the addresses Ember signs, as
 // ember-rust's Active Storage routes serve them (crates/ember/src/active_storage.rs, crates/storage/src/file_server.rs).
@@ -28,9 +47,15 @@ function fileOf(length: number, head: Uint8Array = new Uint8Array()): Uint8Array
 /** `bytes`' SHA-256, as hex, to compare a large file by, since a failing comparison of its bytes would print them all. */
 const digestOf = async (bytes: ArrayBuffer | Uint8Array) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
+/** What the app sends to start uploading a file named `name` of `size` bytes, of the type a browser declares. */
+const newUpload = (name: string, size: number, type = "") => ({ name, type, size, clientMessageId: crypto.randomUUID() });
+
+/** Uploads a file as `upload` does, answering the file its message posts. */
+const uploadFile = async (...args: Parameters<typeof upload>) => (await upload(...args)).attachment;
+
 /** Starts uploading `bytes` to `room` as `session`, named `name`, answering where its parts go. */
 async function started(session: Session, room: RoomId, name: string, bytes: Uint8Array): Promise<Upload> {
-  const response = await startUpload(session, room, { name, type: "", size: bytes.length });
+  const response = await startUpload(session, room, newUpload(name, bytes.length));
   expect(response.status, await response.clone().text()).toBe(201);
   return (await response.json()) as Upload;
 }
@@ -47,13 +72,100 @@ const fetchFile = (path: string, headers: Record<string, string> = {}, method = 
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
+describe(feature("attachments.upload"), () => {
+  it("posts a file as its uploader's message once R2 has all of it, under the app's id for it, which everyone in the room sees at once", async () => {
+    const room = await freshRoom("lobby");
+    const [ada, grace] = [await connect(room, "Ada"), await connect(room, "Grace")];
+    const moon = recordedImage("moon-thumb.jpg");
+
+    const message = await upload(ada.session, room, "moon.jpg", moon, "", "5s1fw6nd9fk");
+    // Its text is empty, and its plain text its file's name, as ember-rust's `plain_text_body` falls back to.
+    expect(message).toEqual({
+      id: expect.any(String),
+      clientMessageId: "5s1fw6nd9fk",
+      roomId: room,
+      creator: shown(ada.session.user),
+      body: "",
+      plainText: "moon.jpg",
+      mentions: [],
+      createdAt: expect.any(String),
+      updatedAt: message.createdAt,
+      editedAt: null,
+      boosts: [],
+      attachment: {
+        id: expect.stringMatching(KEY),
+        name: "moon.jpg",
+        contentType: "image/jpeg",
+        byteSize: moon.length,
+        width: 640,
+        height: 640,
+        url: expect.stringMatching(new RegExp(`^/files/${message.attachment.id}/[\\w-]{22}/moon\\.jpg$`)),
+        downloadUrl: `${message.attachment.url}?disposition=attachment`,
+      },
+    });
+    for (const client of [ada, grace]) expect((await client.next("message.created")).message).toEqual(message);
+    expect(await blobOf(room, message.attachment.id)).toMatchObject({ client_message_id: "5s1fw6nd9fk", completed_at: message.createdAt, message_id: message.id });
+  });
+
+  it("posts a file in parts once its last part arrives, and answers a part sent again with that message, until it's deleted", async () => {
+    const room = await freshRoom("lobby");
+    const ada = await connect(room, "Ada");
+    const earth = fileOf(UPLOAD_PART_SIZE + 1_000, recordedImage("earth-thumb.png"));
+    const upload = await started(ada.session, room, "earth.png", earth);
+
+    expect((await sendPart(ada.session, room, upload.id, 1, partOf(earth, upload, 1))).status).toBe(204);
+    expect(ada.pending("message.created")).toEqual([]);
+    const last = await sendPart(ada.session, room, upload.id, 2, partOf(earth, upload, 2));
+    expect(last.status).toBe(201);
+    const message = (await last.json()) as FileMessage;
+    expect(message).toMatchObject({ body: "", plainText: "earth.png", attachment: { id: upload.id, name: "earth.png", contentType: "image/png", width: 640, height: 800 } });
+    expect((await ada.next("message.created")).message).toEqual(message);
+
+    const again = await sendPart(ada.session, room, upload.id, 2, partOf(earth, upload, 2));
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual(message);
+    expect(await roomSql(room, "SELECT id FROM messages WHERE room_id = ?", room)).toEqual([{ id: message.id }]);
+
+    ada.send({ type: "message.delete", messageId: message.id });
+    await ada.next("message.deleted");
+    const afterDeletion = await sendPart(ada.session, room, upload.id, 1, partOf(earth, upload, 1));
+    expect(afterDeletion.status).toBe(404);
+    expect(await errorOf(afterDeletion)).toBe("Upload not found");
+  });
+
+  it("gives the message an id of its own when its upload started before files were messages", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const upload = await started(ada, room, "notes.txt", new Uint8Array(5));
+    await roomSql(room, "UPDATE blobs SET client_message_id = NULL WHERE id = ?", upload.id);
+
+    const last = await sendPart(ada, room, upload.id, 1, new TextEncoder().encode("hello"));
+    expect(last.status).toBe(201);
+    expect(await last.json()).toMatchObject({ clientMessageId: expect.stringMatching(/^[0-9a-f-]{36}$/), plainText: "notes.txt" });
+  });
+
+  it("shows a file message with its file wherever the room's messages are read", async () => {
+    const room = await freshRoom("lobby");
+    const ada = await connect(room, "Ada");
+    const message = await upload(ada.session, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const { seq } = await ada.next("message.created");
+    const later = await post(ada, "Later");
+
+    // A tab that opens the room, one that pages back to it, and one that connects again since it.
+    expect((await connect(room, ada.session)).welcome.messages).toEqual([message, later]);
+    ada.send({ type: "history.before", before: later.id });
+    expect((await ada.next("history")).messages).toEqual([message]);
+    expect((await reconnect(room, ada.session, seq - 1)).opening).toMatchObject({ type: "resumed", messages: [message, later] });
+  });
+});
+
 describe(feature("attachments.types"), () => {
   it("uploads a file in one part, naming its type from its bytes and recording an image's size", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const moon = recordedImage("moon-thumb.jpg");
 
-    const file = await upload(ada, room, "moon.jpg", moon);
+    const file = await uploadFile(ada, room, "moon.jpg", moon);
     expect(file).toEqual({
       id: expect.stringMatching(KEY),
       name: "moon.jpg",
@@ -91,17 +203,18 @@ describe(feature("attachments.types"), () => {
     expect((await sendPart(ada, room, upload.id, 3, partOf(earth, upload, 3))).status).toBe(204);
     const last = await sendPart(ada, room, upload.id, 2, partOf(earth, upload, 2));
     expect(last.status).toBe(201);
-    const file = (await last.json()) as StoredFile;
+    const message = (await last.json()) as FileMessage;
+    const file = message.attachment;
     expect(file).toMatchObject({ id: upload.id, name: "earth.png", contentType: "image/png", byteSize: earth.length, width: 640, height: 800 });
     expect(await digestOf(await (await fetchFile(file.url)).arrayBuffer())).toBe(await digestOf(earth));
 
     const blob = await blobOf(room, upload.id);
     expect(blob).toMatchObject({ multipart_upload_id: expect.any(String), completed_at: expect.any(String) });
     expect(JSON.parse(blob!.parts as string)).toEqual([1, 2, 3].map((partNumber) => ({ partNumber, etag: expect.any(String) })));
-    // Once it's whole, a part sent again changes nothing, and answers the file.
+    // Once it's whole, a part sent again changes nothing, and answers its message.
     const again = await sendPart(ada, room, upload.id, 1, partOf(earth, upload, 1));
     expect(again.status).toBe(200);
-    expect(await again.json()).toEqual(file);
+    expect(await again.json()).toEqual(message);
   });
 
   it("finishes an upload whose parts R2 put together for a request that didn't live to tell the room", async () => {
@@ -118,7 +231,7 @@ describe(feature("attachments.types"), () => {
     // Sent again, the last part finds no upload to join, and the file whole.
     const again = await sendPart(ada, room, upload.id, 2, partOf(earth, upload, 2));
     expect(again.status, await again.clone().text()).toBe(201);
-    const file = (await again.json()) as StoredFile;
+    const file = ((await again.json()) as FileMessage).attachment;
     expect(file).toMatchObject({ id: upload.id, name: "earth.png", contentType: "image/png", byteSize: earth.length });
     expect(await digestOf(await (await fetchFile(file.url)).arrayBuffer())).toBe(await digestOf(earth));
     expect(await blobOf(room, upload.id)).toMatchObject({ completed_at: expect.any(String) });
@@ -128,27 +241,27 @@ describe(feature("attachments.types"), () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const page = new TextEncoder().encode("<!DOCTYPE html><html></html>");
-    expect(await upload(ada, room, "page.txt", page, "text/plain")).toMatchObject({ contentType: "text/html" });
+    expect(await uploadFile(ada, room, "page.txt", page, "text/plain")).toMatchObject({ contentType: "text/html" });
     // Bytes that say nothing leave it to the declared type, then the name.
     const notes = new TextEncoder().encode("hello world");
-    expect(await upload(ada, room, "notes.txt", notes, "text/plain")).toMatchObject({ contentType: "text/plain" });
-    expect(await upload(ada, room, "notes.csv", notes)).toMatchObject({ contentType: "text/csv" });
-    expect(await upload(ada, room, "notes", notes)).toMatchObject({ contentType: "application/octet-stream" });
+    expect(await uploadFile(ada, room, "notes.txt", notes, "text/plain")).toMatchObject({ contentType: "text/plain" });
+    expect(await uploadFile(ada, room, "notes.csv", notes)).toMatchObject({ contentType: "text/csv" });
+    expect(await uploadFile(ada, room, "notes", notes)).toMatchObject({ contentType: "application/octet-stream" });
     // An empty file, in one part.
-    const empty = await startUpload(ada, room, { name: ".keep", type: "", size: 0 });
+    const empty = await startUpload(ada, room, newUpload(".keep", 0));
     expect(await empty.json()).toMatchObject({ parts: 1 });
-    expect(await upload(ada, room, ".keep", new Uint8Array())).toMatchObject({ name: ".keep", contentType: "application/octet-stream", byteSize: 0 });
+    expect(await uploadFile(ada, room, ".keep", new Uint8Array())).toMatchObject({ name: ".keep", contentType: "application/octet-stream", byteSize: 0 });
   });
 
   it("keeps the first part that arrives when two do, and lets the other's upload go", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const key = (await started(ada, room, "earth.png", fileOf(UPLOAD_PART_SIZE + 1))).id;
-    const uploader = { userId: ada.user.id, tags: [ada.user.id], authorizedAt: Date.now() };
+    const uploader = { user: shown(ada.user), tags: [ada.user.id], authorizedAt: Date.now() };
     const identified = { contentType: "image/png", metadata: '{"identified":true,"analyzed":true}' };
-    const first = await roomStub(room).identifyUpload(room, uploader, key, identified, { multipartUploadId: "first", part: { partNumber: 1, etag: "a" } });
+    const first = await roomStub(room).identifyUpload(room, uploader, key, identified, "first", { partNumber: 1, etag: "a" });
     expect(first).toMatchObject({ multipartUploadId: "first", parts: [{ partNumber: 1, etag: "a" }] });
-    const second = await roomStub(room).identifyUpload(room, uploader, key, { ...identified, contentType: "text/plain" }, { multipartUploadId: "second", part: { partNumber: 1, etag: "b" } });
+    const second = await roomStub(room).identifyUpload(room, uploader, key, { ...identified, contentType: "text/plain" }, "second", { partNumber: 1, etag: "b" });
     expect(second).toEqual(first);
   });
 });
@@ -158,7 +271,7 @@ describe(feature("attachments.serving"), () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const moon = recordedImage("moon-thumb.jpg");
-    const file = await upload(ada, room, "moon.jpg", moon);
+    const file = await uploadFile(ada, room, "moon.jpg", moon);
 
     const shown = await fetchFile(file.url);
     expect(shown.status).toBe(200);
@@ -189,7 +302,7 @@ describe(feature("attachments.serving"), () => {
   it("names a file as Active Storage sanitizes its name, whatever its address says", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const report = await upload(ada, room, " report: Q3/Q4‮.pdf ", new TextEncoder().encode("%PDF-1.7\n"));
+    const report = await uploadFile(ada, room, " report: Q3/Q4‮.pdf ", new TextEncoder().encode("%PDF-1.7\n"));
     expect(report).toMatchObject({ name: "report- Q3-Q4-.pdf", contentType: "application/pdf" });
     expect(report.url).toMatch(/\/report-%20Q3-Q4-\.pdf$/);
     const served = await fetchFile(report.url.replace(/[^/]+$/, "anything-else.exe"));
@@ -198,7 +311,7 @@ describe(feature("attachments.serving"), () => {
 
     // A name a browser would take out of the address goes in it as "-".
     for (const name of [" . ", "..", "\0"]) {
-      const file = await upload(ada, room, name, new TextEncoder().encode("hi"));
+      const file = await uploadFile(ada, room, name, new TextEncoder().encode("hi"));
       expect(file.url).toMatch(/\/-$/);
       const shown = await fetchFile(file.url);
       expect(shown.status, name).toBe(200);
@@ -209,9 +322,9 @@ describe(feature("attachments.serving"), () => {
   it("serves only images and PDFs inline, and types a page could run as binary data", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const svg = await upload(ada, room, "drawing.svg", new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), "image/svg+xml");
-    const page = await upload(ada, room, "page.html", new TextEncoder().encode("<!DOCTYPE html><html></html>"));
-    const notes = await upload(ada, room, "notes.txt", new TextEncoder().encode("hello world"), "text/plain");
+    const svg = await uploadFile(ada, room, "drawing.svg", new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), "image/svg+xml");
+    const page = await uploadFile(ada, room, "page.html", new TextEncoder().encode("<!DOCTYPE html><html></html>"));
+    const notes = await uploadFile(ada, room, "notes.txt", new TextEncoder().encode("hello world"), "text/plain");
     expect([svg.contentType, page.contentType, notes.contentType]).toEqual(["image/svg+xml", "text/html", "text/plain"]);
     for (const [file, type] of [[svg, "application/octet-stream"], [page, "application/octet-stream"], [notes, "text/plain"]] as const) {
       const served = await fetchFile(file.url);
@@ -224,7 +337,7 @@ describe(feature("attachments.serving"), () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const moon = recordedImage("moon-thumb.jpg");
-    const file = await upload(ada, room, "moon.jpg", moon);
+    const file = await uploadFile(ada, room, "moon.jpg", moon);
 
     const first = await fetchFile(file.url, { Range: "bytes=0-9" });
     expect(first.status).toBe(206);
@@ -256,7 +369,7 @@ describe(feature("attachments.serving"), () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
     const moon = recordedImage("moon-thumb.jpg");
-    const file = await upload(ada, room, "moon.jpg", moon);
+    const file = await uploadFile(ada, room, "moon.jpg", moon);
 
     const unsatisfiable = await fetchFile(file.url, { Range: `bytes=${moon.length}-` });
     expect(unsatisfiable.status).toBe(416);
@@ -277,7 +390,7 @@ describe(feature("attachments.serving"), () => {
   it("answers 304 to a browser whose copy is as new, and the file to one whose copy is older", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const file = await upload(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const file = await uploadFile(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
     const lastModified = (await fetchFile(file.url)).headers.get("Last-Modified")!;
 
     // The very time, as Rack::Files checks it.
@@ -299,10 +412,10 @@ describe(feature("attachments.serving"), () => {
   it("answers an empty 404 for an address Ember didn't make or a file it doesn't have, and Campfire's 404 page to anything but a read", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const file = await upload(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const file = await uploadFile(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
     const [, , key, signature] = file.url.split("/") as [string, string, string, string];
     const tampered = `${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`;
-    const other = await fileUrls("test-secret", "0".repeat(28), "moon.jpg");
+    const other = await (await fileSigner("test-secret"))("0".repeat(28), "moon.jpg");
     for (const path of [
       `/files/${key}/${tampered}/moon.jpg`,
       `/files/${key}/${signature}x/moon.jpg`,
@@ -329,10 +442,10 @@ describe(feature("attachments.size-limit"), () => {
   it("refuses a file over 250 MB before any of it arrives, and takes one of exactly 250 MB in 24 parts", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const tooLarge = await startUpload(ada, room, { name: "earth.png", type: "image/png", size: MAX_FILE_SIZE + 1 });
+    const tooLarge = await startUpload(ada, room, newUpload("earth.png", MAX_FILE_SIZE + 1, "image/png"));
     expect(tooLarge.status).toBe(413);
     expect(await errorOf(tooLarge)).toBe(FILE_TOO_LARGE);
-    const largest = await startUpload(ada, room, { name: "earth.png", type: "image/png", size: MAX_FILE_SIZE });
+    const largest = await startUpload(ada, room, newUpload("earth.png", MAX_FILE_SIZE, "image/png"));
     expect(largest.status).toBe(201);
     const { id, ...parts } = (await largest.json()) as Upload;
     expect(parts).toEqual({ partSize: UPLOAD_PART_SIZE, parts: 24 });
@@ -376,7 +489,7 @@ describe(feature("rooms.member-only-access"), () => {
   it("lets only the room's members upload to it, each to their own uploads, once signed in", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const design = await createRoom("design", { closedTo: [ada.user.id, grace.user.id], as: ada });
-    const file = { name: "moon.jpg", type: "", size: 1 };
+    const file = newUpload("moon.jpg", 1);
 
     const outsider = await startUpload(linus, design.id, file);
     expect(outsider.status).toBe(404);
@@ -409,24 +522,26 @@ describe(feature("rooms.member-only-access"), () => {
     expect(await blobOf(design.id, upload.id)).toMatchObject({ completed_at: null });
 
     expect((await api(`/api/rooms/${design.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
-    expect((await startUpload(ada, design.id, { name: "moon.jpg", type: "", size: 1 })).status).toBe(404);
+    expect((await startUpload(ada, design.id, newUpload("moon.jpg", 1))).status).toBe(404);
   });
 
   it("refuses an upload once the room hears the uploader's access ended after the Workspace let them in", async () => {
     const grace = await signIn("Grace");
     const room = await freshRoom("lobby");
-    const file = { name: "moon.jpg", type: "", size: 1 };
+    const file = newUpload("moon.jpg", 1);
     const authorizedAt = Date.now();
-    const uploader = (at: number) => ({ userId: grace.user.id, tags: [grace.user.id], authorizedAt: at });
+    const uploader = (at: number) => ({ user: shown(grace.user), tags: [grace.user.id], authorizedAt: at });
     await roomStub(room).revoke(room, [{ tag: grace.user.id, code: CloseCode.NotFound }], authorizedAt);
 
     expect(await roomStub(room).startUpload(room, uploader(authorizedAt), file)).toBeNull();
     const key = (await roomStub(room).startUpload(room, uploader(authorizedAt + 1), file))!;
     expect(key).toMatch(KEY);
     const identified = { contentType: "image/jpeg", metadata: '{"identified":true,"analyzed":true}' };
-    expect(await roomStub(room).identifyUpload(room, uploader(authorizedAt), key, identified, { completedAt: new Date().toISOString() })).toBeNull();
+    expect(await roomStub(room).identifyUpload(room, uploader(authorizedAt), key, identified, "multipart", { partNumber: 1, etag: "a" })).toBeNull();
     expect(await roomStub(room).recordUploadPart(room, uploader(authorizedAt), key, { partNumber: 2, etag: "a" })).toBeNull();
-    expect(await blobOf(room, key)).toMatchObject({ metadata: null, completed_at: null });
+    expect(await roomStub(room).finishUpload(room, uploader(authorizedAt), key, identified)).toBeNull();
+    expect(await blobOf(room, key)).toMatchObject({ metadata: null, completed_at: null, message_id: null });
+    expect(await roomSql(room, "SELECT id FROM messages WHERE room_id = ?", room)).toEqual([]);
   });
 });
 
@@ -434,10 +549,10 @@ describe(feature("platform.health"), () => {
   it("answers 503 to an upload, and 404 at a file's address, when no bucket is bound", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
-    const file = await upload(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const file = await uploadFile(ada, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
     const unbound = { FILES: undefined } satisfies Partial<Env>;
 
-    const response = await apiWith(unbound, `/api/rooms/${room}/uploads`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "moon.jpg", type: "", size: 1 }) });
+    const response = await apiWith(unbound, `/api/rooms/${room}/uploads`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(newUpload("moon.jpg", 1)) });
     expect(response.status).toBe(503);
     expect(await errorOf(response)).toBe("Ember isn't set up to store files");
     expect((await apiWith(unbound, file.url)).status).toBe(404);

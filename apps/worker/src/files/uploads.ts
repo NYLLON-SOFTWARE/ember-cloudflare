@@ -1,9 +1,8 @@
-import { FILE_TOO_LARGE, parseNewUpload, type RoomId, type StoredFile, type Upload, type UserId } from "@ember/protocol";
+import { FILE_TOO_LARGE, parseNewUpload, type Message, type RoomId, type Upload, type User } from "@ember/protocol";
 import { credentialsOf } from "../auth";
 import type { Env } from "../env";
 import { addressTag, MAX_ADDRESS_LENGTH, sessionTag } from "../revocations";
 import { workspace, type Credentials } from "../workspace";
-import { fileUrls } from "./addresses";
 import { objectKey, type Identified, type RoomBlob } from "./blobs";
 import { sanitizedFilename } from "./filename";
 import { imageSize } from "./images";
@@ -12,7 +11,8 @@ import { identify } from "./marcel";
 // Uploading files to a room into R2, in parts, since a Worker takes at most 100 MB a request where
 // ember-rust takes a file of up to 250 MB in one. The room keeps each upload (blobs.ts), and the first
 // part says what the file is, as Active Storage identifies a blob, then analyzes it, once it has it all.
-// R2 keeps the file with its type and name, so serving it (serving.ts) needs nothing else.
+// Once R2 has all of it, the room posts it as its uploader's message. R2 keeps the file with its type
+// and name, so serving it (serving.ts) needs nothing else.
 
 /** How much of a file each part but the last carries: more than R2's least, 5 MiB, and few enough parts for the largest file. */
 export const UPLOAD_PART_SIZE = 10 * 1024 * 1024;
@@ -39,9 +39,12 @@ const problem = (status: number, message: string) => Response.json({ error: mess
 /** What a banned IP address's requests to change something answer, as the Worker's own check does. */
 const tooManyRequests = () => new Response(null, { status: 429, headers: { "Content-Type": "text/html" } });
 
-/** Someone uploading to a room, as the room checks them: the tags a revocation would name them by, and when the Workspace let them in. */
+/**
+ * Someone uploading to a room, as the room checks them: who they are, as their message names them, the
+ * tags a revocation would name them by, and when the Workspace let them in.
+ */
 export interface Uploader {
-  userId: UserId;
+  user: User;
   tags: string[];
   authorizedAt: number;
 }
@@ -58,7 +61,7 @@ async function uploaderIn(env: Env, credentials: Credentials, roomId: RoomId): P
   if (access.banned) return tooManyRequests();
   const { ip } = credentials.client;
   const tags = [access.user.id, sessionTag(access.sessionId), ...(ip !== null && ip.length <= MAX_ADDRESS_LENGTH ? [addressTag(ip)] : [])];
-  return { userId: access.user.id, tags, authorizedAt: access.authorizedAt };
+  return { user: access.user, tags, authorizedAt: access.authorizedAt };
 }
 
 /**
@@ -80,10 +83,18 @@ export async function startUpload(request: Request, env: Env, roomId: RoomId): P
 }
 
 /**
+ * What a part that finishes an upload answers: 201 with the message the room posted the file as, or 200
+ * with the one an earlier part did, or 404 when the room turned the uploader away or the message is gone.
+ */
+const posted = (finished: { message: Message; posted: boolean } | null) =>
+  finished ? Response.json(finished.message, { status: finished.posted ? 201 : 200 }) : problem(404, UPLOAD_NOT_FOUND);
+
+/**
  * `PUT /api/rooms/<room>/uploads/<key>/parts/<n>`, the part's bytes, which have to be as many as the
  * part carries: stores part `n` of one of the uploader's own uploads, answering 204 while there are
- * parts to come, then 201 with the file once R2 has all of it, or 200 with it for a part sent after
- * that. The first part comes first, since it says what the file is.
+ * parts to come, then 201 with the message the room posts the file as once R2 has all of it, or 200
+ * with that message for a part sent after that. The first part comes first, since it says what the
+ * file is.
  */
 export async function uploadPart(request: Request, env: Env, roomId: RoomId, key: string, n: number): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -93,9 +104,9 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   let uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
   const room = env.CHAT_ROOM.getByName(roomId);
-  const upload = await room.uploadOf(roomId, uploader.userId, key);
+  const upload = await room.uploadOf(roomId, uploader.user.id, key);
   if (!upload || n > uploadParts(upload.byteSize)) return problem(404, UPLOAD_NOT_FOUND);
-  if (upload.completedAt) return Response.json(await storedFile(env, upload));
+  if (upload.completedAt) return posted(await room.finishUpload(roomId, uploader, key));
 
   const length = Number(request.headers.get("Content-Length") ?? NaN);
   if (!Number.isSafeInteger(length)) return problem(411, "A part needs its Content-Length");
@@ -117,18 +128,18 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   if (upload.multipartUploadId === null) return problem(409, "The first part goes first");
   const multipart = files.resumeMultipartUpload(objectKey(key), upload.multipartUploadId);
   const part = await multipart.uploadPart(n, request.body!).catch(async (error: unknown) => {
-    // A request that put the parts together but didn't live to record it left the file whole, and no
-    // upload to add a part to, so this records that it's whole in its place.
+    // A request that put the parts together but didn't live to post the file left it whole, and no
+    // upload to add a part to, so this posts it in its place.
     if (!(await isWhole(files, upload))) throw error;
     return null;
   });
   // Again, as for the first part.
   uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
-  if (!part) return completed(env, roomId, key);
+  if (!part) return posted(await room.finishUpload(roomId, uploader, key));
   const recorded = await room.recordUploadPart(roomId, uploader, key, part);
   if (!recorded) return problem(404, UPLOAD_NOT_FOUND);
-  if (recorded.completedAt) return Response.json(await storedFile(env, recorded), { status: 201 });
+  if (recorded.completedAt) return posted(await room.finishUpload(roomId, uploader, key));
   if (recorded.parts.length < uploadParts(recorded.byteSize)) return new Response(null, { status: 204 });
 
   try {
@@ -137,22 +148,17 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
     // Another request put the parts together first.
     if (!(await isWhole(files, recorded))) throw error;
   }
-  return completed(env, roomId, key);
+  return posted(await room.finishUpload(roomId, uploader, key));
 }
 
 /** Whether R2 has all of `upload`'s file, as once its parts are put together. */
 const isWhole = async (files: R2Bucket, upload: RoomBlob) => (await files.head(objectKey(upload.id)))?.size === upload.byteSize;
 
-/** What a part that finishes upload `key` answers once the room records that R2 has all of it: 201 with the file. */
-async function completed(env: Env, roomId: RoomId, key: string): Promise<Response> {
-  const blob = await env.CHAT_ROOM.getByName(roomId).completeUpload(roomId, key);
-  return blob ? Response.json(await storedFile(env, blob), { status: 201 }) : problem(404, UPLOAD_NOT_FOUND);
-}
-
 /**
  * Stores the first part of `upload`, which says what the file is, as Active Storage identifies a blob
  * on upload and analyzes it after: its type, from its first bytes, the type the browser declared and its
- * name, and an image's size. A file in one part is then whole; a larger one starts its multipart upload.
+ * name, and an image's size. A file in one part is then whole, and posted; a larger one starts its
+ * multipart upload.
  */
 async function storeFirstPart(env: Env, files: R2Bucket, roomId: RoomId, uploader: Uploader, upload: RoomBlob, bytes: Uint8Array): Promise<Response> {
   const room = env.CHAT_ROOM.getByName(roomId);
@@ -163,31 +169,13 @@ async function storeFirstPart(env: Env, files: R2Bucket, roomId: RoomId, uploade
 
   if (uploadParts(upload.byteSize) === 1) {
     await files.put(key, bytes, options);
-    const stored = await room.identifyUpload(roomId, uploader, upload.id, identified, { completedAt: new Date().toISOString() });
-    return stored ? Response.json(await storedFile(env, stored), { status: 201 }) : problem(404, UPLOAD_NOT_FOUND);
+    return posted(await room.finishUpload(roomId, uploader, upload.id, identified));
   }
   const multipart = await files.createMultipartUpload(key, options);
   const { partNumber, etag } = await multipart.uploadPart(1, bytes);
-  const started = await room.identifyUpload(roomId, uploader, upload.id, identified, { multipartUploadId: multipart.uploadId, part: { partNumber, etag } });
+  const started = await room.identifyUpload(roomId, uploader, upload.id, identified, multipart.uploadId, { partNumber, etag });
   if (started?.multipartUploadId === multipart.uploadId) return new Response(null, { status: 204 });
   // The room turned the uploader away, or another request sent the first part first.
   await multipart.abort();
   return started ? problem(409, "The first part is already uploading") : problem(404, UPLOAD_NOT_FOUND);
-}
-
-/**
- * The file `blob` is once R2 has all of it: its name as Active Storage keeps it, its type, size, and an
- * image's width and height, with the addresses that show it and download it.
- */
-async function storedFile(env: Env, blob: RoomBlob): Promise<StoredFile> {
-  const name = sanitizedFilename(blob.filename);
-  const { width, height } = JSON.parse(blob.metadata!) as { width?: number; height?: number };
-  return {
-    id: blob.id,
-    name,
-    contentType: blob.contentType,
-    byteSize: blob.byteSize,
-    ...(width !== undefined && height !== undefined && { width, height }),
-    ...(await fileUrls(env.SESSION_SECRET, blob.id, name)),
-  };
 }

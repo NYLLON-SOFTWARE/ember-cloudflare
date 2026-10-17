@@ -15,12 +15,14 @@ import {
   freshDeploy,
   freshRoom,
   post,
+  recordedImage,
   roomSql,
   roomStub,
   searchIndexStub,
   searchSql,
   shown,
   signIn,
+  upload,
   workspaceSql,
   workspaceStub,
   type Session,
@@ -160,6 +162,14 @@ describe(feature("search.messages"), () => {
     expect(await found(ada.session, "span")).toEqual([]);
     expect(await found(ada.session, "strong")).toEqual([]);
     expect(await found(ada.session, "hovercraft full eels")).toEqual([message.id]);
+  });
+
+  it("finds a file message by its file's name, its plain text, and answers it with its file", async () => {
+    const room = await freshRoom("files");
+    const ada = await connect(room, "Ada");
+    const message = await upload(ada.session, room, "Moon landing.jpg", recordedImage("moon-thumb.jpg"));
+    await indexed(room);
+    expect((await resultsFor(ada.session, "landing")).messages).toEqual([message]);
   });
 
   it("lists its matches oldest first, as they were written", async () => {

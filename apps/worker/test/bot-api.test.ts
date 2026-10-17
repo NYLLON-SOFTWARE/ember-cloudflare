@@ -32,11 +32,13 @@ import {
   objectSql,
   origin,
   post,
+  recordedImage,
   roomSql,
   roomStub,
   settle,
   shown,
   startDirect,
+  upload,
   workspaceSql,
   type Session,
 } from "./support";
@@ -586,6 +588,12 @@ describe(feature("bots.api-list"), () => {
     expect(text).toContain("\\u003cdiv class=\\\"lexxy-content\\\"\\u003e");
     expect(text).toContain("Ship it \\u0026 tell me");
     expect(text).toContain("Shipped 🚀");
+  });
+
+  it("writes a file message with its file's name as its plain text and no HTML, as Campfire writes a message without rich text", async () => {
+    const { administrator, bot, general } = await withBot();
+    const message = await upload(administrator, general, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    expect(await listedBy(bot.key, general)).toMatchObject([{ id: message.id, body: { plain_text: "moon.jpg", html: "" } }]);
   });
 
   it("gives addresses on the host each request came to", async () => {

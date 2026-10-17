@@ -24,7 +24,7 @@ import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
-import { Blobs, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
+import { attachedFile, Blobs, type Identified, type RoomBlob, type UploadedPart } from "./files/blobs";
 import type { Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
@@ -32,7 +32,7 @@ import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, typ
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
-import { MessageStore, type PageCursor } from "./store";
+import { MessageStore, type PageCursor, type PostedFile } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace, type BotAccess } from "./workspace";
 import type { MessagePush, MessageWebhook } from "./workspace-store";
@@ -404,7 +404,7 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
       const key = base36(KEY_LENGTH);
-      const blob = { id: key, uploaderId: uploader.userId, filename: file.name, contentType: file.type, byteSize: file.size };
+      const blob = { id: key, uploaderId: uploader.user.id, filename: file.name, contentType: file.type, byteSize: file.size, clientMessageId: file.clientMessageId };
       await this.blobsFor(roomId).create(blob, new Date().toISOString());
       return key;
     });
@@ -419,23 +419,18 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Records what the first part of `uploader`'s upload `key` says the file is, with what R2 then has of
-   * it, unless another request has recorded its own first part, answering the upload as it is then. Answers
-   * null when the room turns the uploader away, as `startUpload` does, or they have no such upload.
+   * Records what the first part of `uploader`'s upload `key`, in more than one part, says the file is,
+   * with the multipart upload R2 has started and the part it has, unless another request has recorded
+   * its own first part, answering the upload as it is then. Answers null when the room turns the uploader
+   * away, as `startUpload` does, or they have no such upload.
    */
-  async identifyUpload(
-    roomId: RoomId,
-    uploader: Uploader,
-    key: string,
-    identified: Identified,
-    stored: { multipartUploadId: string; part: UploadedPart } | { completedAt: string },
-  ): Promise<RoomBlob | null> {
+  async identifyUpload(roomId: RoomId, uploader: Uploader, key: string, identified: Identified, multipartUploadId: string, part: UploadedPart): Promise<RoomBlob | null> {
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
       const blobs = this.blobsFor(roomId);
       const blob = await blobs.find(key);
-      if (blob?.uploaderId !== uploader.userId) return null;
-      return (await blobs.identify(key, identified, stored)) ?? blob;
+      if (blob?.uploaderId !== uploader.user.id) return null;
+      return (await blobs.identify(key, identified, multipartUploadId, part)) ?? blob;
     });
   }
 
@@ -448,14 +443,40 @@ export class ChatRoom extends DurableObject<Env> {
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
       const blobs = this.blobsFor(roomId);
       const blob = await blobs.find(key);
-      if (blob?.uploaderId !== uploader.userId || blob.multipartUploadId === null) return null;
+      if (blob?.uploaderId !== uploader.user.id || blob.multipartUploadId === null) return null;
       return blob.completedAt ? blob : blobs.recordPart(blob, part);
     });
   }
 
-  /** Records that R2 has put upload `key` together, answering it, or null once the room no longer has it. */
-  async completeUpload(roomId: RoomId, key: string): Promise<RoomBlob | null> {
-    return this.serially(() => this.blobsFor(roomId).complete(key, new Date().toISOString()));
+  /**
+   * Posts `uploader`'s upload `key`, which R2 has all of, as their message, as ember-rust stores a file and
+   * its message in one write (messages.rs `create_message`): records that the upload has finished, what
+   * its one part said the file is when `identified` says, and the message, in one transaction, then tells
+   * everyone in the room and sends the Workspace and the search index their logs, as for any new message.
+   * Answers the message, with whether this posted it, or the message an earlier request posted it as,
+   * which was, unless it's been deleted since. Answers null when the room turns the uploader away, as
+   * `startUpload` does, or they have no such upload.
+   */
+  async finishUpload(roomId: RoomId, uploader: Uploader, key: string, identified?: Identified): Promise<{ message: Message; posted: boolean } | null> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      const blobs = this.blobsFor(roomId);
+      const blob = await blobs.find(key);
+      if (blob?.uploaderId !== uploader.user.id) return null;
+      const store = this.storeFor(roomId);
+      if (blob.completedAt) {
+        const message = blob.messageId === null ? null : await store.find(blob.messageId);
+        return message && { message, posted: false };
+      }
+      const file = attachedFile(blob, identified);
+      const posted: PostedFile = { file, finished: (messageId) => blobs.finished(key, messageId, now, identified) };
+      // A file message's text is empty, and its plain text, which search, pushes and webhooks read, is its
+      // file's name, as ember-rust's `plain_text_body` falls back to (message.rs).
+      const body = { html: "", plainText: file.name, mentions: [] };
+      // An upload started before files were messages has no id for its message, so it gets one, as a bot's does.
+      return { message: await this.create(store, uploader.user, blob.clientMessageId ?? crypto.randomUUID(), body, now, "message", posted), posted: true };
+    });
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -571,12 +592,20 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Stores a message from `user`, a bot's reply to a webhook delivery when `kind` says so, tells everyone
-   * in the room, and sends the Workspace and the search index their logs, which the message is in,
-   * answering it.
+   * Stores a message from `user`, a bot's reply to a webhook delivery when `kind` says so, or the file
+   * `posted` says, tells everyone in the room, and sends the Workspace and the search index their logs,
+   * which the message is in, answering it.
    */
-  private async create(store: MessageStore, user: User, clientMessageId: string, body: PreparedBody, now: string, kind?: "reply"): Promise<Message> {
-    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind);
+  private async create(
+    store: MessageStore,
+    user: User,
+    clientMessageId: string,
+    body: Pick<PreparedBody, "html" | "plainText" | "mentions">,
+    now: string,
+    kind?: "message" | "reply",
+    posted?: PostedFile,
+  ): Promise<Message> {
+    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted);
     this.broadcast({ type: "message.created", message, seq });
     const couriers = this.couriersFor(store.roomId);
     couriers.workspace.deliver();
@@ -655,7 +684,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   private storeFor(roomId: RoomId): MessageStore {
-    return (this.store ??= new MessageStore(this.dbFor(), roomId));
+    return (this.store ??= new MessageStore(this.dbFor(), roomId, this.env.SESSION_SECRET));
   }
 
   private revocationsFor(roomId: RoomId): Revocations {

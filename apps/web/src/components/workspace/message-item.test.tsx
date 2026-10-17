@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Boost, Message, User } from "@ember/protocol";
+import type { Boost, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
@@ -33,6 +33,18 @@ const message = (overrides: Partial<Message> = {}): Message => {
 };
 
 const boost = (id: string, booster: User, content: string): Boost => ({ id, messageId: "m1", booster, content, createdAt: "" });
+
+const report: StoredFile = {
+  id: "k1",
+  name: "Q3 report.pdf",
+  contentType: "application/pdf",
+  byteSize: 1234,
+  url: "/files/k1/s1/Q3%20report.pdf",
+  downloadUrl: "/files/k1/s1/Q3%20report.pdf?disposition=attachment",
+};
+
+/** A file message, whose text is empty and whose plain text is its file's name, as the room posts it. */
+const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", plainText: report.name, attachment: report, ...overrides });
 
 /**
  * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
@@ -110,6 +122,78 @@ describe(feature("messages.create"), () => {
     expect(within(article).getByText("Ada")).toBeInTheDocument();
     expect(article.querySelector(".message-content")).toContainHTML("<p>Line one<br>Line two</p>");
     expect(article.querySelector("time")).toHaveAttribute("datetime", "2026-10-12T10:00:00.000Z");
+  });
+});
+
+describe(feature("attachments.previews"), () => {
+  it("shows a file message's file in place of its text: its icon, its name and Download", () => {
+    for (const threaded of [false, true]) {
+      const { article } = show(fileMessage(), { threaded });
+      expect(article.querySelector(".message-content")).not.toBeInTheDocument();
+      expect(within(article).getByText("Q3 report.pdf")).toBeInTheDocument();
+      // Hidden in Ember added to an iPhone's or iPad's home screen, which can't download.
+      const download = within(article).getByRole("link", { name: "Download Q3 report.pdf" });
+      expect(download).toHaveAttribute("href", report.downloadUrl);
+      expect(download).toHaveClass("ios-pwa:hidden");
+      cleanup();
+    }
+  });
+});
+
+describe(feature("attachments.download-share"), () => {
+  it("offers Download in place of Reply among a file message's actions", async () => {
+    const { user } = show(fileMessage(), { me: grace });
+    await user.click(optionsOn("Q3 report.pdf"));
+    const bar = actionBar().firstElementChild!;
+    expect([...bar.querySelectorAll("button, a")].map((control) => control.getAttribute("title"))).toEqual([
+      "Thumbs up",
+      "Clapping",
+      "Waving hand",
+      "Download",
+      "Copy link",
+      "More reactions",
+    ]);
+    const download = within(actionBar()).getByRole("link", { name: "Download" });
+    expect(download).toHaveAttribute("href", report.downloadUrl);
+    expect(download).toHaveClass("ios-pwa:hidden");
+  });
+});
+
+describe(feature("messages.edit"), () => {
+  it("edits a file message as its file and Delete message alone, which it focuses as it opens, and the room as it would the text", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { actions, editors, user, article } = show(fileMessage());
+    await pressAction(user, "Edit", "Q3 report.pdf");
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    expect(within(article).getByText("Q3 report.pdf")).toBeInTheDocument();
+    expect(within(article).getByRole("link", { name: "Download Q3 report.pdf" })).toBeInTheDocument();
+
+    const remove = screen.getByRole("button", { name: "Delete message" });
+    expect(remove).toHaveFocus();
+    act(() => remove.blur());
+    expect(editors.attach).toHaveBeenLastCalledWith("m1", expect.anything());
+    act(() => editors.attach.mock.lastCall![1].focus());
+    expect(remove).toHaveFocus();
+    await user.click(remove);
+    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
+    expect(actions.remove).not.toHaveBeenCalled();
+    await user.click(remove);
+    expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(editors.returnFocus).toHaveBeenCalled();
+  });
+
+  it("closes a file message's editor on Escape or Close editor and discard changes", async () => {
+    const { editors, user } = show(fileMessage());
+    await pressAction(user, "Edit", "Q3 report.pdf");
+    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    expect(editors.close).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Delete message" })).not.toBeInTheDocument();
+
+    await pressAction(user, "Edit", "Q3 report.pdf");
+    await user.keyboard("{Escape}");
+    expect(editors.close).toHaveBeenCalledTimes(2);
+    expect(editors.attach).toHaveBeenLastCalledWith("m1", null);
   });
 });
 

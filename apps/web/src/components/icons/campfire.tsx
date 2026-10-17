@@ -12,6 +12,7 @@ import bot from "./campfire/bot.svg";
 import broom from "./campfire/broom.svg";
 import cancel from "./campfire/cancel.svg";
 import check from "./campfire/check.svg";
+import commonFileText from "./campfire/common-file-text.svg";
 import copyPaste from "./campfire/copy-paste.svg";
 import crown from "./campfire/crown.svg";
 import disclosure from "./campfire/disclosure.svg";
@@ -124,6 +125,10 @@ export function Cancel(props: CampfireIconProps) {
 
 export function Check(props: CampfireIconProps) {
   return <CampfireIcon src={check} {...props} />;
+}
+
+export function CommonFileText(props: CampfireIconProps) {
+  return <CampfireIcon src={commonFileText} {...props} />;
 }
 
 export function CopyPaste(props: CampfireIconProps) {

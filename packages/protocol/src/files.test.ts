@@ -1,21 +1,41 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, parseNewUpload, uploadPartPath, uploadsPath, type RoomId } from "./index";
+import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, MAX_ID_LENGTH, parseNewUpload, uploadPartPath, uploadsPath, type RoomId } from "./index";
+
+const clientMessageId = "5s1fw6nd9fk";
 
 describe(feature("attachments.size-limit"), () => {
   it("takes a file of up to 250,000,000 bytes, and an empty one", () => {
-    expect(parseNewUpload({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE })).toEqual({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE });
-    expect(parseNewUpload({ name: ".keep", type: "", size: 0 })).toEqual({ name: ".keep", type: "", size: 0 });
-    expect(parseNewUpload({ name: "earth.png", type: "image/png", size: MAX_FILE_SIZE + 1 })).toBe(FILE_TOO_LARGE);
+    const largest = { name: "earth.png", type: "image/png", size: MAX_FILE_SIZE, clientMessageId };
+    expect(parseNewUpload(largest)).toEqual(largest);
+    expect(parseNewUpload({ name: ".keep", type: "", size: 0, clientMessageId })).toEqual({ name: ".keep", type: "", size: 0, clientMessageId });
+    expect(parseNewUpload({ ...largest, size: MAX_FILE_SIZE + 1 })).toBe(FILE_TOO_LARGE);
     expect(FILE_TOO_LARGE).toBe("Files must be 250 MB or smaller.");
+  });
+});
+
+describe(feature("attachments.upload"), () => {
+  it("takes the id the app gives the file's message", () => {
+    const upload = { name: "notes.txt", type: "text/plain", size: 5, clientMessageId: "m".repeat(MAX_ID_LENGTH) };
+    expect(parseNewUpload(upload)).toEqual(upload);
+    expect(parseNewUpload({ ...upload, unexpected: true })).toEqual(upload);
+  });
+
+  it.each([
+    ["no id", undefined],
+    ["an id that isn't text", 7],
+    ["an empty id", ""],
+    ["an id longer than any", "m".repeat(MAX_ID_LENGTH + 1)],
+  ])("refuses %s for the file's message", (_, id) => {
+    expect(parseNewUpload({ name: "notes.txt", type: "text/plain", size: 5, clientMessageId: id })).toBe("A file needs an id for its message");
   });
 });
 
 describe(feature("attachments.types"), () => {
   it("keeps the name and type as the browser gives them, whatever they are", () => {
-    const upload = { name: "  weird & -name- ünï.png ", type: "application/x-anything; charset=utf-8", size: 42 };
+    const upload = { name: "  weird & -name- ünï.png ", type: "application/x-anything; charset=utf-8", size: 42, clientMessageId };
     expect(parseNewUpload(upload)).toEqual(upload);
-    const longest = { name: `${"n".repeat(MAX_FILE_NAME_LENGTH - 4)}.png`, type: "t".repeat(255), size: 1 };
+    const longest = { name: `${"n".repeat(MAX_FILE_NAME_LENGTH - 4)}.png`, type: "t".repeat(255), size: 1, clientMessageId };
     expect(parseNewUpload(longest)).toEqual(longest);
     expect(parseNewUpload({ ...upload, name: "🌍.png" })).toEqual({ ...upload, name: "🌍.png" });
   });
