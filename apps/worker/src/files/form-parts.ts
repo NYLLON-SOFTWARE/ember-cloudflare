@@ -36,6 +36,9 @@ export function formBoundaryOf(contentType: string | null): string | null {
   return match ? (match[1] ?? match[2]!) : null;
 }
 
+/** Whether a request's `Content-Type` says its body is multipart/form-data, whether or not it names a boundary. */
+export const isFormType = (contentType: string | null): boolean => /^\s*multipart\/form-data\s*(?:;|$)/i.test(contentType ?? "");
+
 /**
  * A form's parts, read from `body` as they arrive: `next` reads the next part's headers, skipping what
  * was left of the one before, and `read` its bytes, a chunk at a time.

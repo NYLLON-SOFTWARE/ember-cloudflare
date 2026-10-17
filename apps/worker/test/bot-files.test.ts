@@ -69,6 +69,9 @@ async function postedText(key: string, room: RoomId, text: string): Promise<stri
   return response.headers.get("Location")!.split("/@")[1]!;
 }
 
+/** The bytes `form` sends, as a browser writes them. */
+const formBody = (form: FormData) => new Request("https://ember.test/", { method: "POST", body: form }).arrayBuffer();
+
 const moon = () => new File([recordedImage("moon-thumb.jpg")], "moon.jpg", { type: "image/jpeg" });
 
 /** What R2 keeps of file `key`, as bytes, or null. */
@@ -230,6 +233,17 @@ describe(feature("bots.api-post"), () => {
     expect(await storedFiles()).toEqual([]);
   });
 
+  it("answers 400 to a body typed as a form that names no boundary to read it by, which ember-rust posts as text, posting nothing", async () => {
+    const { bot, general } = await withBot();
+    const form = await formBody(formWith(new File(["Build passed"], "build.log")));
+
+    for (const type of ["multipart/form-data", `multipart/form-data; boundary=${"x".repeat(71)}`]) {
+      const response = await sendAs(bot.key, general, form, { headers: { "Content-Type": type } });
+      expect([response.status, await response.json()], type).toEqual([400, { status: 400, error: "Bad Request" }]);
+    }
+    expect(await storedIn(general)).toEqual([]);
+  });
+
   it("answers 503 without an R2 bucket, as a browser's upload is answered, posting nothing", async () => {
     const { bot, general } = await withBot();
     const response = await apiWith({ FILES: undefined }, botPath(general, bot.key), { method: "POST", body: formWith(moon()) });
@@ -323,6 +337,15 @@ describe(feature("bots.api-edit-delete"), () => {
     expect(removing.status).toBe(403);
     expect(await storedIn(general)).toMatchObject([{ id: theirs.id, file: theirs.attachment.id }]);
     expect(await storedFiles()).toEqual([objectKey(theirs.attachment.id)]);
+  });
+
+  it("answers 400 to a body typed as a form that names no boundary, which ember-rust saves as the message's text, changing nothing", async () => {
+    const { bot, general } = await withBot();
+    const id = await postedText(bot.key, general, "Deploying...");
+
+    const response = await sendAs(bot.key, general, await formBody(formWith(new File(["Deployed"], "deploy.log"))), { id, headers: { "Content-Type": "multipart/form-data" } });
+    expect([response.status, await response.json()]).toEqual([400, { status: 400, error: "Bad Request" }]);
+    expect(await storedIn(general)).toMatchObject([{ id, plain_text: "Deploying...", file: null }]);
   });
 
   it("answers an empty 422 to a form without `attachment`, and 422 with why to text, changing nothing", async () => {

@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { FormError, formBoundaryOf, FormReader, type FormPart } from "../src/files/form-parts";
+import { FormError, formBoundaryOf, FormReader, isFormType, type FormPart } from "../src/files/form-parts";
 
 // Reading a bot's form a part at a time, as it arrives, as Rack's multipart parser reads the form
 // `curl -F` sends (rack/lib/rack/multipart/parser.rb).
@@ -162,5 +162,10 @@ describe(feature("bots.api-post"), () => {
     expect(formBoundaryOf("multipart/mixed; boundary=x")).toBeNull();
     expect(formBoundaryOf("application/x-www-form-urlencoded")).toBeNull();
     expect(formBoundaryOf(null)).toBeNull();
+  });
+
+  it("tells a form's type from any other, whether it names a boundary or not", () => {
+    expect(["multipart/form-data", " Multipart/Form-Data ; boundary=x", `multipart/form-data; boundary=${"x".repeat(71)}`].map(isFormType)).toEqual([true, true, true]);
+    expect(["multipart/form-datas", "multipart/mixed; boundary=x", "text/plain", null].map(isFormType)).toEqual([false, false, false, false]);
   });
 });

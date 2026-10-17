@@ -14,7 +14,7 @@ import { BLANK, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
 import { objectKey } from "../files/blobs";
-import { FormError, formBoundaryOf, FormReader } from "../files/form-parts";
+import { FormError, formBoundaryOf, FormReader, isFormType } from "../files/form-parts";
 import { storeArriving } from "../files/streamed";
 import { NO_STORAGE } from "../files/uploads";
 import type { PageCursor } from "../store";
@@ -124,8 +124,8 @@ function segmentText(segment: string): string {
 async function createMessage(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
   const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  const boundary = formBoundaryOf(request.headers.get("Content-Type"));
-  if (boundary !== null) return withForm(request, boundary, (form) => createFileMessage(request, env, roomId, key, access, form));
+  const formAnswer = await withForm(request, (form) => createFileMessage(request, env, roomId, key, access, form));
+  if (formAnswer) return formAnswer;
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
   // ember-rust checks the key once it has the whole body, which here arrives as slowly as its sender
@@ -166,8 +166,8 @@ async function createFileMessage(request: Request, env: Env, roomId: RoomId, key
 async function updateMessage(request: Request, env: Env, roomId: RoomId, key: string, messageId: string): Promise<Response> {
   const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  const boundary = formBoundaryOf(request.headers.get("Content-Type"));
-  if (boundary !== null) return withForm(request, boundary, (form) => updateFileMessage(request, env, roomId, key, access, form, messageId));
+  const formAnswer = await withForm(request, (form) => updateFileMessage(request, env, roomId, key, access, form, messageId));
+  if (formAnswer) return formAnswer;
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
   // Again now the body has arrived, as `createMessage` checks it.
@@ -259,10 +259,15 @@ async function attachmentIn(form: FormReader): Promise<Attachment | null> {
 }
 
 /**
- * What `answer` makes of the form the request sends, which it reads as it arrives, or 400 when it can't
- * be read, as Rack answers a malformed form. What it doesn't read of it is never read.
+ * What `answer` makes of the form the request sends, which it reads as it arrives, or null when it sends
+ * none. A form that can't be read is 400, as Rack answers a malformed form, and so is one whose type names
+ * no boundary to read it by, as when its sender set the type itself, which ember-rust posts as text, its
+ * parts' headers and bytes and all. What isn't read of a form is never read.
  */
-async function withForm(request: Request, boundary: string, answer: (form: FormReader) => Promise<Response>): Promise<Response> {
+async function withForm(request: Request, answer: (form: FormReader) => Promise<Response>): Promise<Response | null> {
+  const type = request.headers.get("Content-Type");
+  const boundary = formBoundaryOf(type);
+  if (boundary === null) return isFormType(type) ? exception(400) : null;
   const form = new FormReader(request.body, boundary);
   try {
     return await answer(form);
