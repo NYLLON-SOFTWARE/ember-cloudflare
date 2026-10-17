@@ -3,8 +3,12 @@ import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_L
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
+import { isPending } from "@/lib/room-state";
+import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
 import { useRoom } from "./use-room";
+
+vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -661,6 +665,116 @@ describe(feature("messages.optimistic"), () => {
   });
 });
 
+describe(feature("attachments.upload"), () => {
+  /** An upload useRoom started, which the test answers. */
+  interface Started {
+    file: File;
+    clientMessageId: string;
+    progress: (percent: number) => void;
+    finish: (message: Message) => Promise<void>;
+    fail: (error: unknown) => Promise<void>;
+  }
+
+  /** The uploads useRoom starts, in order. */
+  function uploads(): Started[] {
+    const started: Started[] = [];
+    vi.mocked(uploadFile).mockImplementation(
+      (_roomId, file, clientMessageId, onProgress) =>
+        new Promise((resolve, reject) => {
+          started.push({
+            file,
+            clientMessageId,
+            progress: (percent) => act(() => onProgress(percent)),
+            finish: (message) => act(async () => resolve(message)),
+            fail: (error) => act(async () => reject(error)),
+          });
+        }),
+    );
+    return started;
+  }
+
+  const files = () => [new File(["a"], "a.txt"), new File(["bb"], "b.txt")];
+  const posted = (id: string, upload: Started) => message(id, { clientMessageId: upload.clientMessageId, body: "", plainText: upload.file.name });
+
+  it("uploads each file as a message of its own, one after another, its card showing how it goes", async () => {
+    const started = uploads();
+    const { result } = joinGeneral();
+    const [a, b] = files();
+    act(() => void result.current.postFiles([a!, b!]));
+    expect(started.map((upload) => upload.file)).toEqual([a]);
+    expect(uploadFile).toHaveBeenCalledWith("general", a, started[0]!.clientMessageId, expect.any(Function));
+    expect(result.current.state.messages).toEqual([
+      expect.objectContaining({ id: started[0]!.clientMessageId, creator: ada, body: "", plainText: "a.txt", pending: true, upload: { name: "a.txt", size: 1, percent: 0 } }),
+    ]);
+
+    started[0]!.progress(50);
+    expect(result.current.state.messages[0]).toMatchObject({ upload: { percent: 50 } });
+
+    await started[0]!.finish(posted("m1", started[0]!));
+    expect(started.map((upload) => upload.file)).toEqual([a, b]);
+    expect(result.current.state.messages.map((m) => m.id)).toEqual(["m1", started[1]!.clientMessageId]);
+    await started[1]!.finish(posted("m2", started[1]!));
+    expect(result.current.state.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("goes on to the next file when one fails, its card saying why", async () => {
+    const started = uploads();
+    const { result } = joinGeneral();
+    act(() => void result.current.postFiles([...files(), new File(["ccc"], "c.txt")]));
+    await started[0]!.fail(new UploadError(CONNECTION_LOST));
+    await started[1]!.fail(new TypeError("Something unexpected"));
+    expect(result.current.state.messages.map((m) => isPending(m) && m.upload)).toEqual([
+      { name: "a.txt", size: 1, percent: 0, error: CONNECTION_LOST },
+      { name: "b.txt", size: 2, percent: 0, error: UPLOAD_FAILED },
+      { name: "c.txt", size: 3, percent: 0 },
+    ]);
+    expect(started).toHaveLength(3);
+  });
+
+  it("drops the files whose upload hasn't started once the room is left", async () => {
+    const started = uploads();
+    const { result, unmount } = joinGeneral();
+    act(() => void result.current.postFiles(files()));
+    unmount();
+    await started[0]!.finish(posted("m1", started[0]!));
+    expect(started).toHaveLength(1);
+  });
+
+  it("doesn't ask the room about a file after a reconnect, as its upload answers for it", () => {
+    const started = uploads();
+    const { result } = joinGeneral();
+    act(() => void result.current.postFiles(files().slice(0, 1)));
+    act(() => result.current.postMessage("Here it is"));
+    const sentId = socket().sentOfType("message.create")[0]!.clientMessageId;
+
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [sentId] }]);
+    expect(result.current.state.messages[0]).toMatchObject({ id: started[0]!.clientMessageId, pending: true });
+  });
+
+  it("asks the room about a file whose upload failed, at once and after a reconnect, since it may have been posted before the answer was lost", async () => {
+    const started = uploads();
+    const { result } = joinGeneral();
+    act(() => void result.current.postFiles(files()));
+    await started[0]!.fail(new UploadError(CONNECTION_LOST));
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [started[0]!.clientMessageId] }]);
+
+    // One that fails while the socket's down is asked about once it's back.
+    socket().drop();
+    await started[1]!.fail(new UploadError(CONNECTION_LOST));
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: started.map((upload) => upload.clientMessageId) }]);
+    socket().receive({ type: "message.checked", stored: [started[1]!.clientMessageId], missing: [started[0]!.clientMessageId] });
+    expect(result.current.state.messages).toEqual([expect.objectContaining({ id: started[0]!.clientMessageId, upload: expect.objectContaining({ error: CONNECTION_LOST }) })]);
+    expect(result.current.state.messages[0]).not.toHaveProperty("failed");
+  });
+});
+
 describe(feature("realtime.typing"), () => {
   it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();
@@ -823,6 +937,14 @@ describe(feature("ui.scroll"), () => {
     socket().open();
     socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 0 });
     expect(sentInOrder()).toEqual(["history.around", "message.create"]);
+  });
+
+  it("asks for the newest page before showing a file being sent from older history", () => {
+    vi.mocked(uploadFile).mockReturnValue(new Promise(() => {}));
+    const { result } = joinGeneral({ messages: [message("m1")], hasNewer: true });
+    act(() => void result.current.postFiles([new File(["a"], "a.txt")]));
+    expect(socket().sentOfType("history.around")).toEqual([{ type: "history.around" }]);
+    expect(result.current.state.loadingPage).toBe(true);
   });
 
   it("asks for the newest page first for what was written while a permalink's older page was on its way", () => {

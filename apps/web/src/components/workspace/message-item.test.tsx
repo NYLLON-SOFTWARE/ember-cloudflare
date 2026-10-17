@@ -7,7 +7,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
-import type { PendingMessage } from "@/lib/room-state";
+import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { MessageItem } from "./message-item";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -137,6 +137,40 @@ describe(feature("attachments.previews"), () => {
       expect(download).toHaveClass("ios-pwa:hidden");
       cleanup();
     }
+  });
+});
+
+describe(feature("attachments.progress"), () => {
+  /** A file on its way to becoming a message, as its upload's card shows it. */
+  const uploading = (upload: Partial<PendingUpload> = {}): PendingMessage => ({
+    ...message({ id: "c1", body: "", plainText: "moon.jpg" }),
+    pending: true,
+    upload: { name: "moon.jpg", size: 2_500_000, percent: 42, ...upload },
+  });
+
+  it("shows a file's upload card in place of its text, unfaded and without actions, until the room has posted it", () => {
+    for (const threaded of [false, true]) {
+      const { article, update } = show(uploading(), { threaded });
+      expect(within(article).getByRole("group", { name: "Upload moon.jpg" })).toBeInTheDocument();
+      expect(article.querySelector(".message-content")).not.toBeInTheDocument();
+      expect(article).not.toHaveClass("opacity-60");
+      // Busy, so screen readers don't read out every step it takes.
+      expect(article).toHaveAttribute("aria-busy", "true");
+      expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+
+      update(fileMessage({ id: "m1" }));
+      expect(within(article).queryByRole("group", { name: "Upload moon.jpg" })).not.toBeInTheDocument();
+      expect(within(article).getByText("Q3 report.pdf")).toBeInTheDocument();
+      expect(article).not.toHaveAttribute("aria-busy");
+      cleanup();
+    }
+  });
+
+  it("stops being busy once its upload fails, so screen readers say why", () => {
+    const { article } = show(uploading({ error: "Upload failed. Please attach the file and try again." }));
+    expect(article).not.toHaveAttribute("aria-busy");
+    expect(within(article).getByRole("alert")).toHaveTextContent("Upload failed. Please attach the file and try again.");
+    expect(screen.queryByText("Not sent")).not.toBeInTheDocument();
   });
 });
 

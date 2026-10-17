@@ -1,9 +1,10 @@
 import { feature } from "@ember/parity";
-import type { LinkPreview, User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import commonFileText from "@/components/icons/campfire/common-file-text.svg";
 import { PeopleContext } from "@/hooks/use-directory";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
@@ -15,11 +16,25 @@ vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof
 
 async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1" } = {}) {
   const onSend = vi.fn((_body: string) => true);
+  const onSendFiles = vi.fn((_files: File[]) => {});
   const onTyping = vi.fn();
-  const view = render(<Composer roomId={roomId} roomName="general" userId="u1" typing={typing} disabled={disabled} onSend={onSend} onTyping={onTyping} />);
+  const composer = createRef<ComposerHandle>();
+  const view = render(
+    <Composer
+      ref={composer}
+      roomId={roomId}
+      roomName="general"
+      userId="u1"
+      typing={typing}
+      disabled={disabled}
+      onSend={onSend}
+      onSendFiles={onSendFiles}
+      onTyping={onTyping}
+    />,
+  );
   // The editor loads as the first composer shows.
   const input = await screen.findByRole("textbox", { name: "Write a message" });
-  return { onSend, onTyping, view, user: userEvent.setup(), input };
+  return { onSend, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
 function touchScreen() {
@@ -28,6 +43,7 @@ function touchScreen() {
 
 const sendButton = () => screen.getByRole("button", { name: "Send Message" });
 const formattingOptions = () => screen.getByRole("button", { name: "Rich text" });
+const attachFiles = () => screen.getByLabelText("Attach a file");
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,9 +51,10 @@ afterEach(() => {
 });
 
 describe(feature("composer.layout"), () => {
-  it("has the text box on top, with Formatting options and Send below", async () => {
+  it("has the text box on top, with Attach files, Formatting options and Send below", async () => {
     const { input } = await showComposer();
     expect(input).toHaveAttribute("placeholder", "Message #general");
+    expect(attachFiles().closest("label")).toHaveAttribute("title", "Attach files");
     expect(formattingOptions()).toHaveAttribute("title", "Formatting options");
     expect(sendButton()).toHaveAttribute("title", "Send message");
   });
@@ -53,7 +70,7 @@ describe(feature("composer.layout"), () => {
     expect(input).not.toHaveFocus();
   });
 
-  const room = { roomId: "r1", roomName: "general", userId: "u1", typing: [], disabled: false, onSend: () => true, onTyping: () => {} };
+  const room = { roomId: "r1", roomName: "general", userId: "u1", typing: [], disabled: false, onSend: () => true, onSendFiles: () => {}, onTyping: () => {} };
 
   it("holds the editor back while the room's first messages are on their way, which loading it would delay", async () => {
     // React has the editor's code from an earlier composer, so it would show at once if it weren't held back.
@@ -97,7 +114,7 @@ describe(feature("composer.layout"), () => {
 
 describe(feature("dms.naming"), () => {
   it("asks for a message to the others in a DM by name, as ember-rust's composer does, without the #", async () => {
-    render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => true} onTyping={() => {}} />);
+    render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />);
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace and Linus");
   });
 });
@@ -186,6 +203,191 @@ describe(feature("composer.send"), () => {
   });
 });
 
+/** A file named `name` of `size` bytes, as the browser gives it, which says it's that size without holding them. */
+function fileOf(name: string, { type = "text/plain", size = 3 } = {}) {
+  const file = new File(["abc"], name, { type });
+  Object.defineProperty(file, "size", { value: size });
+  return file;
+}
+
+/** What's pasted: `files`, and no text. */
+const clipboard = (...files: File[]) => ({ files, getData: () => "" });
+
+/** The files waiting to be sent, by their chips' names. */
+const chips = () => screen.queryAllByRole("button", { name: /^Remove / }).map((chip) => chip.getAttribute("aria-label"));
+
+/** Makes the thumbnails' addresses `blob:<name>`, answering those made and those let go. */
+function thumbnails() {
+  const made: string[] = [];
+  const revoked: string[] = [];
+  vi.spyOn(URL, "createObjectURL").mockImplementation((file) => {
+    made.push(`blob:${(file as File).name}`);
+    return made.at(-1)!;
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => revoked.push(url));
+  return { made, revoked };
+}
+
+describe(feature("attachments.upload"), () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("waits to send the files picked with Attach files, in order of their names, however often they're picked", async () => {
+    const { user } = await showComposer();
+    expect(attachFiles()).toHaveAttribute("type", "file");
+    expect(attachFiles()).toHaveAttribute("multiple");
+    await user.upload(attachFiles(), [fileOf("b.txt"), fileOf("A.pdf"), fileOf("a.txt")]);
+    expect(chips()).toEqual(["Remove A.pdf", "Remove a.txt", "Remove b.txt"]);
+
+    await user.upload(attachFiles(), fileOf("a.txt"));
+    expect(chips()).toEqual(["Remove A.pdf", "Remove a.txt", "Remove a.txt", "Remove b.txt"]);
+    expect(attachFiles()).toHaveValue("");
+  });
+
+  it("shows a picture's thumbnail, and Campfire's file icon for anything else, over its name up to its last dot and its extension", async () => {
+    const { made } = thumbnails();
+    const { user } = await showComposer();
+    await user.upload(attachFiles(), [fileOf("moon.jpg", { type: "image/jpeg" }), fileOf("archive.tar.gz", { type: "application/gzip" }), fileOf("README")]);
+
+    const moon = screen.getByRole("button", { name: "Remove moon.jpg" });
+    expect(made).toEqual(["blob:moon.jpg"]);
+    expect(moon.querySelector("img")).toHaveAttribute("src", "blob:moon.jpg");
+    const archive = screen.getByRole("button", { name: "Remove archive.tar.gz" });
+    expect(archive.querySelector("img")).toHaveAttribute("src", commonFileText);
+    // The name runs to an ellipsis, and the extension doesn't.
+    expect(within(archive).getByText("archive.tar.")).toHaveClass("truncate");
+    expect(within(archive).getByText("gz")).toHaveClass("shrink-0");
+    // A name with no dot shows whole, where ember-rust's begins with one.
+    expect(within(screen.getByRole("button", { name: "Remove README" })).getByText("README")).toHaveClass("truncate");
+  });
+
+  it("takes a file back out when its chip is pressed, letting go of its thumbnail", async () => {
+    const { revoked } = thumbnails();
+    const { user, onSendFiles } = await showComposer();
+    await user.upload(attachFiles(), [fileOf("moon.jpg", { type: "image/jpeg" }), fileOf("notes.txt")]);
+    await user.click(screen.getByRole("button", { name: "Remove moon.jpg" }));
+    expect(chips()).toEqual(["Remove notes.txt"]);
+    expect(revoked).toEqual(["blob:moon.jpg"]);
+
+    await user.click(sendButton());
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "notes.txt" })]);
+  });
+
+  it("sends the files, each as a message of its own, before what's written, and empties the list", async () => {
+    const { onSend, onSendFiles, input, user } = await showComposer();
+    const [b, a] = [fileOf("b.txt"), fileOf("a.txt")];
+    await user.upload(attachFiles(), [b, a]);
+    await user.type(input, "Here they are{Enter}");
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([a, b]);
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Here they are</p>");
+    expect(onSendFiles.mock.invocationCallOrder[0]).toBeLessThan(onSend.mock.invocationCallOrder[0]!);
+    expect(chips()).toEqual([]);
+    expect(input).toHaveFocus();
+  });
+
+  it("sends the files picked before the editor shows, as its code loads, which what's written waits for", async () => {
+    (await showComposer()).view.unmount();
+    const onSendFiles = vi.fn();
+    const user = userEvent.setup();
+    render(<Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor onSend={() => true} onSendFiles={onSendFiles} onTyping={() => {}} />);
+    await user.upload(attachFiles(), fileOf("a.txt"));
+    await user.click(sendButton());
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "a.txt" })]);
+    expect(chips()).toEqual([]);
+  });
+
+  it("sends files with nothing written", async () => {
+    const { onSend, onSendFiles, user } = await showComposer();
+    await user.upload(attachFiles(), fileOf("a.txt"));
+    await user.click(sendButton());
+    expect(onSendFiles).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+
+    // Nor anything at all with nothing picked.
+    await user.click(sendButton());
+    expect(onSendFiles).toHaveBeenCalledOnce();
+  });
+
+  it("holds on to the files while the room is disconnected, when files can't be picked", async () => {
+    const { onSendFiles, composer, input, user } = await showComposer({ disabled: true });
+    expect(attachFiles()).toBeDisabled();
+    act(() => composer.current!.addFiles([fileOf("a.txt")]));
+    await user.type(input, "{Enter}");
+    expect(onSendFiles).not.toHaveBeenCalled();
+    expect(chips()).toEqual(["Remove a.txt"]);
+  });
+
+  it("waits to send the files dropped on the composer, the text box included, as a copy", async () => {
+    const { input, view } = await showComposer();
+    const form = view.container.querySelector("form")!;
+    const dataTransfer = { files: [fileOf("dropped.txt")], dropEffect: "none" };
+    // Each is cancelled, so the browser doesn't open the file in place of the page.
+    expect(fireEvent.dragEnter(form, { dataTransfer })).toBe(false);
+    expect(fireEvent.dragOver(form, { dataTransfer })).toBe(false);
+    expect(dataTransfer.dropEffect).toBe("copy");
+    expect(fireEvent.drop(form, { dataTransfer })).toBe(false);
+    expect(chips()).toEqual(["Remove dropped.txt"]);
+
+    expect(fireEvent.drop(input, { dataTransfer: { files: [fileOf("on the text.txt")] } })).toBe(false);
+    expect(chips()).toEqual(["Remove dropped.txt", "Remove on the text.txt"]);
+    expect(input).toHaveValue("");
+  });
+
+  it("waits to send the files dropped on the room's messages, which the room hands over", async () => {
+    const { composer } = await showComposer();
+    act(() => composer.current!.addFiles([fileOf("b.txt"), fileOf("a.txt")]));
+    expect(chips()).toEqual(["Remove a.txt", "Remove b.txt"]);
+  });
+});
+
+describe(feature("composer.paste"), () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("waits to send pasted files rather than writing them, and leaves pasted text to the editor", async () => {
+    thumbnails();
+    const { input } = await showComposer();
+    expect(fireEvent.paste(input, { clipboardData: clipboard(fileOf("pasted.png", { type: "image/png" })) })).toBe(false);
+    expect(chips()).toEqual(["Remove pasted.png"]);
+    expect(input).toHaveValue("");
+
+    expect(fireEvent.paste(input, { clipboardData: clipboard() })).toBe(true);
+    expect(chips()).toEqual(["Remove pasted.png"]);
+  });
+});
+
+describe(feature("attachments.size-limit"), () => {
+  const tooLarge = (name: string) => `${name} is too large. Choose a file that’s 250 MB or smaller.`;
+
+  it("leaves out files over 250 MB, saying so under the others until more are picked, dropped or pasted", async () => {
+    const { input, user, view, onSendFiles } = await showComposer();
+    await user.upload(attachFiles(), [
+      fileOf("huge.mov", { size: MAX_FILE_SIZE + 1 }),
+      fileOf("fits.mov", { size: MAX_FILE_SIZE }),
+      fileOf("vast.iso", { size: MAX_FILE_SIZE + 1 }),
+    ]);
+    expect(chips()).toEqual(["Remove fits.mov"]);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(`${tooLarge("huge.mov")} ${tooLarge("vast.iso")}`, { normalizeWhitespace: false });
+    expect(alert).toHaveClass("w-full", "text-negative");
+
+    // It stays through sending and removing files.
+    await user.click(sendButton());
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "fits.mov" })]);
+    expect(screen.getByRole("alert")).toBe(alert);
+
+    // Picking more says only what's wrong with them.
+    await user.upload(attachFiles(), fileOf("enormous.zip", { size: MAX_FILE_SIZE + 1 }));
+    expect(screen.getByRole("alert")).toHaveTextContent(tooLarge("enormous.zip"), { normalizeWhitespace: false });
+    fireEvent.drop(view.container.querySelector("form")!, { dataTransfer: { files: [fileOf("small.txt")] } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Pasting anything clears it, even text.
+    await user.upload(attachFiles(), fileOf("enormous.zip", { size: MAX_FILE_SIZE + 1 }));
+    fireEvent.paste(input, { clipboardData: clipboard() });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("composer.draft"), () => {
   const draft = (roomId = "r1") => localStorage.getItem(`composer-draft-u1-${roomId}`);
 
@@ -230,7 +432,9 @@ describe(feature("messages.reply"), () => {
   it("writes a reply in place of what's written, with the cursor at its end, keeping it as the draft", async () => {
     const composer = createRef<ComposerHandle>();
     const onTyping = vi.fn();
-    render(<Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} onSend={() => true} onTyping={onTyping} />);
+    render(
+      <Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} onSend={() => true} onSendFiles={() => {}} onTyping={onTyping} />,
+    );
     const input = await screen.findByRole("textbox", { name: "Write a message" });
     await userEvent.setup().type(input, "Unsent");
     act(() => (input as HTMLTextAreaElement).blur());
@@ -251,7 +455,18 @@ describe(feature("messages.reply"), () => {
     const composer = createRef<ComposerHandle>();
     const onTyping = vi.fn();
     const page = (deferEditor: boolean) => (
-      <Composer ref={composer} roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} deferEditor={deferEditor} onSend={() => true} onTyping={onTyping} />
+      <Composer
+        ref={composer}
+        roomId="r1"
+        roomName="general"
+        userId="u1"
+        typing={[]}
+        disabled={false}
+        deferEditor={deferEditor}
+        onSend={() => true}
+        onSendFiles={() => {}}
+        onTyping={onTyping}
+      />
     );
     const view = render(page(true));
     const quote = "<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada</cite><p><br></p>";
@@ -371,7 +586,16 @@ describe(feature("realtime.typing"), () => {
     const grace = { id: "u2", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" } as const;
     const { container } = render(
       <PeopleContext value={new Map([[grace.id, grace]])}>
-        <Composer roomId="r1" roomName="general" userId="u1" typing={[typist("Linus", 1), typist("Grace", 2)]} disabled={false} onSend={vi.fn(() => true)} onTyping={vi.fn()} />
+        <Composer
+          roomId="r1"
+          roomName="general"
+          userId="u1"
+          typing={[typist("Linus", 1), typist("Grace", 2)]}
+          disabled={false}
+          onSend={vi.fn(() => true)}
+          onSendFiles={vi.fn()}
+          onTyping={vi.fn()}
+        />
       </PeopleContext>,
     );
     await screen.findByRole("textbox", { name: "Write a message" });

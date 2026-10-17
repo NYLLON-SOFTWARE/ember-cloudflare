@@ -12,6 +12,7 @@ import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { FileMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { UploadCard } from "./upload-card";
 import { AvatarLink, userTitle } from "./user-avatar";
 
 export interface MessageActions {
@@ -105,6 +106,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   const menu = useRef<MessageActionsHandle>(null);
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
+  const upload = isPending(message) ? message.upload : undefined;
   // The editor shows only while the message can still be changed.
   const editing = editorOpen && actions !== null && !pending;
   const [customizing, setCustomizing] = useState(false);
@@ -146,13 +148,14 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   return (
     <article
       ref={article}
-      aria-busy={pending || undefined}
+      // An upload stays busy until it's failed, so screen readers say why it failed but not every step it takes.
+      aria-busy={(pending && !upload?.error) || undefined}
       className={cn(
         "group/message relative grid grid-cols-[36px_minmax(0,1fr)] gap-x-2 px-5 hover:bg-message-hover max-md:grid-cols-[30px_minmax(0,1fr)] max-md:gap-x-2.5 max-md:px-3",
         // Where Message options is 44px, each message is at least as tall as it, as in ember-rust, so
         // the buttons of short messages in a row don't overlap.
         "touch:min-h-11",
-        pending && "opacity-60",
+        pending && !upload && "opacity-60",
       )}
     >
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
@@ -209,8 +212,12 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
 
           {/* A grouped message has no header, so its mark follows the text. Where Message options is 44px, the
               text stops 32px short of the row's end, clear of it. A file message shows its file in place of its
-              text, as ember-rust's `message_presentation` does. */}
-          {message.attachment ? (
+              text, as ember-rust's `message_presentation` does, and its upload's card until the room has it. */}
+          {upload ? (
+            <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
+              <UploadCard upload={upload} />
+            </div>
+          ) : message.attachment ? (
             <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
               <FileCard file={message.attachment} />
             </div>

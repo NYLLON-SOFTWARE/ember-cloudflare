@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "re
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
 import { InvitationCard } from "./invitation-card";
@@ -93,6 +94,8 @@ interface Props {
   onLoadNewer: () => void;
   /** Goes to the newest messages, answering whether it could, which it can't while the room is away and they aren't loaded. */
   onJumpToNewest: () => boolean;
+  /** Files dropped on the messages, which go to the composer, as ember-rust's message area sends them. */
+  onDropFiles?: (files: FileList) => void;
 }
 
 /**
@@ -100,7 +103,7 @@ interface Props {
  * messages, it stays there as new ones come. Anywhere else, it keeps the reader's place, loads the pages
  * before and after as they near either end, and offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest }: Props) {
+export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {} }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -208,7 +211,7 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
   const waiting = state.status === "connecting" || state.status === "reconnecting";
 
   return (
-    <div className="min-h-0 flex-1">
+    <div className="min-h-0 flex-1" {...dropTarget(onDropFiles)}>
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so Jump to newest message
           below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
       <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || undefined}>
