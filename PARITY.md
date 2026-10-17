@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 112 ported and 51 partial of 172 features; 3 not started, 6 not applicable.
+**Overall:** 113 ported and 50 partial of 172 features; 3 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 9 | 9 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 3 | 5 | 2 | 1 | 11 |
+| [Attachments](#attachments) | 4 | 4 | 2 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **112** | **51** | **3** | **6** | **172** |
+| **Total** | **113** | **50** | **3** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1385,7 +1385,7 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
 | Download and share files | `attachments.download-share` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| File links | `attachments.serving` | Campfire | 🟡 Partial | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
+| File links | `attachments.serving` | Campfire | ✅ Ported | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Files leave with their messages | `attachments.purge` | Campfire | ⬜ Not started |  |
 | How files are recognized | `attachments.types` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Direct uploads | `attachments.direct-uploads` | Campfire | ➖ Not applicable |  |
@@ -1483,14 +1483,14 @@ Sources: [`crates/assets/overrides/controllers/web_share_controller.js`](https:/
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**File links** (`attachments.serving`) 🟡
+**File links** (`attachments.serving`) ✅
 
 - Links to files, thumbnails and posters are signed, never expire and work without a session; a tampered link is 404 with an empty body.
 - Only images (PNG, JPEG, GIF, WebP, AVIF, TIFF, BMP, PSD, ICO) and PDFs are ever served inline. Every other type, and every download link, comes as an attachment, and HTML, SVG, XML and similar types are always served as `application/octet-stream`.
 - Files are named after their sanitized name, in ASCII and as UTF-8 `filename*`: the right-to-left override, `% $ | : ; / < > ? * "`, tabs, carriage returns, newlines and backslashes become "-".
 - Byte ranges are honored (206 for one, `multipart/byteranges` for several, 416 with `Content-Range: bytes */<size>` when unsatisfiable), so videos can seek. An `If-Modified-Since` that matches gets 304, and a missing file is 404.
 
-Note: Files, not yet thumbnails or posters, which come with previews. A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.
+Note: A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, and its preview's are `/previews/<key>/<signature>/<name>` under the same signature (`attachments.previews`), all served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.
 
 Sources: [`crates/ember/src/active_storage.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/active_storage.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/storage/src/paths.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/paths.rs) · [`crates/storage/src/filename.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/filename.rs) · [`crates/storage/src/file_server.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/file_server.rs) · [`crates/ruby/src/rack.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ruby/src/rack.rs) · [`reference/config/initializers/active_storage.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/config/initializers/active_storage.rb)
 

@@ -1509,7 +1509,7 @@ export const features = [
     id: "attachments.serving",
     title: "File links",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Links to files, thumbnails and posters are signed, never expire and work without a session; a tampered link is 404 with an empty body.",
       "Only images (PNG, JPEG, GIF, WebP, AVIF, TIFF, BMP, PSD, ICO) and PDFs are ever served inline. Every other type, and every download link, comes as an attachment, and HTML, SVG, XML and similar types are always served as `application/octet-stream`.",
@@ -1519,7 +1519,7 @@ export const features = [
     sources: ["crates/ember/src/active_storage.rs", "crates/storage/src/content_types.rs", "crates/storage/src/paths.rs", "crates/storage/src/filename.rs", "crates/storage/src/file_server.rs", "crates/ruby/src/rack.rs", "reference/config/initializers/active_storage.rb"],
     upstreamTests: ["crates/ember/src/app/tests.rs", "crates/storage/tests/vectors.rs", "crates/ruby/src/rack.rs", "crates/storage/src/filename.rs"],
     notes:
-      "Files, not yet thumbnails or posters, which come with previews. A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.",
+      "A file's links are `/files/<key>/<signature>/<name>`, and `?disposition=attachment` to download it, and its preview's are `/previews/<key>/<signature>/<name>` under the same signature (`attachments.previews`), all served straight from R2, where ember-rust's links redirect to a disk link that expires in 5 minutes. The signature is the first 16 bytes of an HMAC of the key under `SESSION_SECRET`, so changing the secret breaks every link, as changing ember-rust's `SECRET_KEY_BASE` does. R2 keeps each file's type and name, so serving one reads nothing else, and the name in the link is only for whoever saves it: what it's saved as is the name Ember keeps. As on ember-rust's disk route, answers carry `Cache-Control: max-age=3600, public`, and no version headers, since Active Storage's controllers aren't Campfire's, and neither old browsers nor banned addresses are turned away. Several ranges come as ember-rust's proxy route sends them, each part with the file's type, where its disk route gives every part the type of the whole, and a request for more than 49 gets the whole file, as each range is a call to R2, of the 50 the Free plan allows a request.",
   },
   {
     id: "attachments.purge",
