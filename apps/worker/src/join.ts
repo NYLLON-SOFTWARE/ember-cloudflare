@@ -1,6 +1,6 @@
 import { isPasswordTooLong, parseSignUp, PASSWORD_TOO_LONG, type Me } from "@ember/protocol";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
-import { signUpOf, signUpPhoto } from "./avatars";
+import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
 import { appPage, empty, formAnswer, home } from "./pages";
 import { passwordHasher } from "./passwords";
@@ -41,7 +41,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   if (session) return formAnswer({ error: "You're signed in already", redirect: "/" }, 409);
   if (!known) return formAnswer({ error: "Not found" }, 404);
 
-  const sent = await signUpOf(request);
+  const sent = await userFormOf(request);
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
   if (typeof form === "string") return formAnswer({ error: form }, 400);
@@ -49,7 +49,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   // long one is refused for the reason first run's is.
   if (form.password === "") return formAnswer({ error: PASSWORD_BLANK, field: "password" }, 422);
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
-  const avatar = await signUpPhoto(env, sent.photo);
+  const avatar = await userFormPhoto(env, sent.photo);
   if (avatar && "error" in avatar) return formAnswer({ error: avatar.error, field: "avatar" }, avatar.status);
 
   const passwordDigest = await passwordHasher(env).hash(form.password);

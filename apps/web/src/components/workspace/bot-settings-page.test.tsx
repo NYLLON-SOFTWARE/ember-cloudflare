@@ -2,11 +2,14 @@ import { feature } from "@ember/parity";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, BotAnswer, BotSettings, Me } from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, type Account, type BotAnswer, type BotSettings, type Me } from "@ember/protocol";
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { BotSettingsPage, CONFIRM_DELETE_BOT, CONFIRM_NEW_KEY, NewBotPage } from "./bot-settings-page";
+
+vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
@@ -74,11 +77,20 @@ const showSettings = () =>
 const nameField = () => screen.getByRole("textbox", { name: "Bot name" });
 const urlField = () => screen.getByRole("textbox", { name: "Webhook URL" });
 const saveButton = () => screen.getByRole("button", { name: "Save changes" });
+const avatar = () => screen.getByRole("img", { name: "Bot avatar" });
+const avatarField = () => screen.getByLabelText("Upload bot avatar");
+const robot = () => new File(["robot"], "robot.png", { type: "image/png" });
 /** The name field, once the bot has loaded into it. */
 const loaded = async () => {
   await waitFor(() => expect(nameField()).toHaveValue(BOT.name));
   return nameField();
 };
+
+/** The form the page sent last, with its fields as JSON in `user`, and the avatar and its variant. */
+function sentForm() {
+  const form = vi.mocked(fetch).mock.lastCall![1]!.body as FormData;
+  return { user: JSON.parse(String(form.get("user"))) as unknown, avatar: form.get("avatar"), variant: form.get("variant") };
+}
 
 /** The requests the page has sent, but for loading the bot, with what they sent. */
 const sent = () =>
@@ -89,6 +101,8 @@ const sent = () =>
 
 beforeEach(() => {
   serve();
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:robot");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -141,6 +155,35 @@ describe(feature("bots.create-edit"), () => {
     expect(location.pathname).toBe("/account/bots/new");
   });
 
+  it("offers Upload bot avatar, showing Campfire's bot picture until a picture is chosen, then that, as ember-rust's form does", async () => {
+    const { user } = showNewBot();
+    expect(avatar()).toHaveAttribute("src", defaultBotAvatar);
+    expect(avatarField()).toMatchObject({ type: "file", accept: "image/*" });
+    expect(avatarField().compareDocumentPosition(nameField())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await user.upload(avatarField(), robot());
+    expect(avatar()).toHaveAttribute("src", "blob:robot");
+  });
+
+  it("sends the avatar chosen, and its variant, with the new bot's fields", async () => {
+    const { user } = showNewBot();
+    await user.upload(avatarField(), robot());
+    await user.type(nameField(), "Build Bot");
+    await user.click(saveButton());
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/account/bots", expect.objectContaining({ method: "POST" }));
+    expect(sentForm()).toEqual({ user: { name: "Build Bot", webhookUrl: "" }, avatar: expect.objectContaining({ name: "robot.png", type: "image/png" }), variant: expect.objectContaining({ type: "image/webp" }) });
+  });
+
+  it("refuses a picture over 16 MB at once, saying so, where ember-rust takes any", async () => {
+    const { user } = showNewBot();
+    const huge = robot();
+    Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
+    await user.upload(avatarField(), huge);
+    expect(screen.getByRole("alert")).toHaveTextContent(AVATAR_TOO_LARGE);
+    expect(avatar()).toHaveAttribute("src", defaultBotAvatar);
+  });
+
   it("sends anyone but an administrator to workspace settings at once, saying why, where ember-rust answers an empty 403", async () => {
     const { onFailed } = showNewBot({ ...ada, administrator: false });
     expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
@@ -154,6 +197,23 @@ describe(feature("bots.create-edit"), () => {
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/bots");
     expect(await loaded()).toHaveFocus();
     expect(urlField()).toHaveValue(BOT.webhookUrl);
+  });
+
+  it("shows the bot's avatar, and gives it the one chosen with what else has changed, keeping the picture from changing while it's sent", async () => {
+    let answered = (_: Response) => {};
+    serve({ sent: () => new Promise((resolve) => (answered = resolve)) });
+    const { user } = showSettings();
+    await loaded();
+    expect(avatar()).toHaveAttribute("src", BOT.avatarUrl);
+
+    await user.upload(avatarField(), robot());
+    await user.click(saveButton());
+    await waitFor(() => expect(avatarField()).toBeDisabled());
+    expect(vi.mocked(fetch)).toHaveBeenLastCalledWith(`/api/account/bots/${BOT.id}`, expect.objectContaining({ method: "PATCH" }));
+    expect(sentForm()).toMatchObject({ user: {}, avatar: expect.objectContaining({ name: "robot.png" }) });
+
+    answered(answer(BOT));
+    await waitFor(() => expect(location.pathname).toBe("/account/bots"));
   });
 
   it("shows no webhook URL for a bot without a webhook", async () => {

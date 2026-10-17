@@ -3,7 +3,7 @@ import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE } from "@ember/protocol";
 import type { ChosenPhoto } from "@/lib/api";
 import { avatarVariantOf } from "@/lib/previews";
 
-/** A photo picked in a sign-up form, and what the form shows of it. */
+/** A photo picked in a form that sends it with the rest of the form, and what the form shows of it. */
 export interface PhotoChoice {
   /** The form's file field. */
   input: RefObject<HTMLInputElement | null>;
@@ -20,7 +20,7 @@ export interface PhotoChoice {
 }
 
 /**
- * The photo someone picks in the setup or join form, which shows at once, as Campfire's
+ * The photo someone picks in the setup, join or bot form, which shows at once, as Campfire's
  * upload_preview_controller.js shows it, while its variant is made (`avatarVariantOf`). A photo over
  * 16 MB is refused at once, where ember-rust takes any, and the form shows nothing for a field that
  * has nothing picked, where Campfire's keeps showing a photo it won't send.

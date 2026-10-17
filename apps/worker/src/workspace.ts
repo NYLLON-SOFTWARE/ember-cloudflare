@@ -1001,37 +1001,42 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Adds a bot as the person `credentials` signs in, as ember-rust's `accounts/bots#create` does
    * (`User.create_bot!`, user.rs): with a new token, a webhook if `bot` gives it somewhere to deliver,
-   * and in every open room, as someone who joins is. Answers it as its edit page shows it, "forbidden"
-   * unless that's an administrator, or null without a valid session.
+   * `avatar`, which R2 has stored under a key `reservePicture` reserved, if it's given one, and in every
+   * open room, as someone who joins is. Answers it as its edit page shows it, "forbidden" unless that's
+   * an administrator, or null without a valid session.
    */
-  async createBot(credentials: Credentials, { name, webhookUrl }: NewBot): Promise<BotSettings | "forbidden" | null> {
+  async createBot(credentials: Credentials, { name, webhookUrl }: NewBot, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const id = sortableId();
-      await this.store.createBot({ id, name, token: newBotToken(), webhookUrl: webhookUrl || null }, new Date().toISOString());
+      await this.store.createBot({ id, name, token: newBotToken(), webhookUrl: webhookUrl || null, avatar }, new Date().toISOString());
       return (await this.botSettings(id))!;
     });
   }
 
   /**
    * Changes the active bot `botId` as the person `credentials` signs in, as ember-rust's
-   * `accounts/bots#update` does (`update_bot!`, user.rs), answering it as its edit page then shows it:
-   * "forbidden" unless that's an administrator, "not found" unless `botId` is an active bot, or null
-   * without a valid session. Null `changes` change nothing, once that's checked. Everyone's workspace
-   * sockets hear of a new name.
+   * `accounts/bots#update` does (`update_bot!`, user.rs), giving it `avatar`, which R2 has stored under a
+   * key `reservePicture` reserved, in place of the one it had, if it's given one, as `changeAvatar` gives
+   * someone theirs. Answers it as its edit page then shows it: "forbidden" unless that's an administrator,
+   * "not found" unless `botId` is an active bot, or null without a valid session. Everyone's workspace
+   * sockets hear of a new name or avatar.
    */
-  async changeBot(credentials: Credentials, botId: UserId, changes: BotChanges | null): Promise<BotSettings | "forbidden" | "not found" | null> {
+  async changeBot(credentials: Credentials, botId: UserId, changes: BotChanges, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const bot = await this.store.activeBot(botId);
       if (!bot) return "not found";
-      if (changes) await this.store.changeBot(botId, changes, new Date().toISOString());
+      const now = Date.now();
+      const previous = avatar && ((await this.store.avatarOwner(botId))?.avatar?.key ?? null);
+      await this.store.changeBot(botId, changes, new Date(now).toISOString(), avatar && { avatar, previous, dueAt: now });
+      if (previous) await this.wakeAt(now);
       const changed = (await this.store.activeBot(botId))!;
-      if (changed.name !== bot.name) {
+      if (changed.name !== bot.name || avatar) {
         const { id, name, bio, role, status, updatedAt } = changed;
         this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, role, status, updatedAt }) });
       }

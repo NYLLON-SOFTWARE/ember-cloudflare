@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 132 ported and 34 partial of 172 features; 0 not started, 6 not applicable.
+**Overall:** 133 ported and 33 partial of 172 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 12 | 1 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 14 | 1 | 0 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 15 | 0 | 0 | 0 | 15 |
 | [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 8 | 3 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **132** | **34** | **0** | **6** | **172** |
+| **Total** | **133** | **33** | **0** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1960,7 +1960,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
 | Chat bots page | `bots.list` | Campfire | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bots-page](apps/web/src/components/workspace/bots-page.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
-| Add and edit a bot | `bots.create-edit` | Campfire | 🟡 Partial | Protocol: [bots](packages/protocol/src/bots.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
+| Add and edit a bot | `bots.create-edit` | Campfire | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [bot-avatars](apps/worker/test/bot-avatars.test.ts), [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Delete a bot | `bots.delete` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Generate a new bot key | `bots.reset-key` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts), [webhooks](apps/worker/test/webhooks.test.ts)<br>Web: [bot-settings-page](apps/web/src/components/workspace/bot-settings-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bot keys | `bots.api-auth` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
@@ -1993,7 +1993,7 @@ Sources: [`crates/views/templates/accounts/bots/index.html`](https://github.com/
 
 ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/test/controllers/accounts/bots_controller_test.rb) · [`crates/ember/src/controllers/presenters/accounts/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts/tests.rs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
 
-**Add and edit a bot** (`bots.create-edit`) 🟡
+**Add and edit a bot** (`bots.create-edit`) ✅
 
 - `/account/bots/new` ("New chat bot") and `/account/bots/<id>/edit` ("Edit bot") show "Chat bot setup" and "Connect a bot to your workspace and choose where updates are delivered." above the bot form, and link back to the bots page.
 - The form has an avatar picker ("Upload bot avatar", images only), Bot name (placeholder "Name the bot", required, autofocused) and Webhook URL (placeholder "Webhook URL", a URL field), each label with a translation globe, and Save changes.
@@ -2003,7 +2003,7 @@ ember-rust tests: [`reference/test/controllers/accounts/bots_controller_test.rb`
 - Creating a bot with Webhook URL left empty still saves an empty webhook, whose deliveries fail without a reply. When editing, a blank URL removes the webhook, and a filled one adds or changes it.
 - Unknown or deleted bots are 404, and members get 403.
 
-Note: Add a chat bot (`/account/bots/new`) and a bot's settings (`/account/bots/<id>/edit`) show ember-rust's form, and Save changes goes back to the bots page with no notice. The form posts JSON `{name, webhookUrl}` to `POST /api/account/bots`, which answers 201 with the bot, and a bot's settings load with `GET /api/account/bots/<id>` and save with `PATCH`, which is sent only the fields changed, where ember-rust's form always sends both, so a save doesn't put back what another administrator saved since. A new bot gets a token of 12 random letters and digits and joins every open room. Unlike ember-rust, a name must have more than spaces (422 "Name can't be blank"), and a webhook URL is trimmed and must be an http or https URL with a host, at most 2,048 characters (422 "Webhook URL must be an http or https URL"), each said in the workspace's alert with what was typed kept; a bot has a webhook only while it has somewhere to deliver, so adding one without a URL saves none, and a blank URL removes it. A new name reaches every open page at once (`user.updated`), never with the key. Signed in as an administrator, the settings of anyone but an active bot answer Campfire's 404 page, as ember-rust's do. Anyone else is sent to workspace settings with an alert (`bots.list`), from Add a chat bot before it shows. There's no avatar picker until profile photos (`users.avatar-upload`), as the profile has none, so every bot shows Campfire's default bot picture.
+Note: Add a chat bot (`/account/bots/new`) and a bot's settings (`/account/bots/<id>/edit`) show ember-rust's form, and Save changes goes back to the bots page with no notice. The form posts JSON `{name, webhookUrl}` to `POST /api/account/bots`, which answers 201 with the bot, and a bot's settings load with `GET /api/account/bots/<id>` and save with `PATCH`, which is sent only the fields changed, where ember-rust's form always sends both, so a save doesn't put back what another administrator saved since. With a picture chosen in Upload bot avatar, which previews at once in place of the bot's avatar, or of Campfire's default bot picture for a new bot, the form goes as a multipart form instead, its `user` part the JSON and its `avatar` and `variant` parts the picture and the variant the browser makes of it, as the profile's photo does (`users.avatar-upload`), with its 16 MB limit; a save without one keeps the avatar, which, as in ember-rust, can be replaced but not removed. A new bot gets a token of 12 random letters and digits and joins every open room. Unlike ember-rust, a name must have more than spaces (422 "Name can't be blank"), and a webhook URL is trimmed and must be an http or https URL with a host, at most 2,048 characters (422 "Webhook URL must be an http or https URL"), each said in the workspace's alert with what was typed kept; a bot has a webhook only while it has somewhere to deliver, so adding one without a URL saves none, and a blank URL removes it. A new name or avatar reaches every page signed in at once (`user.updated`), never with the key, and R2 deletes the avatar replaced. Signed in as an administrator, the settings of anyone but an active bot answer Campfire's 404 page, as ember-rust's do. Anyone else is sent to workspace settings with an alert (`bots.list`), from Add a chat bot before it shows.
 
 Sources: [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/templates/accounts/bots/_form.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_form.html) · [`reference/app/models/user/bot.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/models/user/bot.rb) · [`crates/views/templates/accounts/bots/new.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/new.html) · [`crates/views/templates/accounts/bots/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/edit.html) · [`crates/views/src/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/accounts.rs) · [`crates/db/src/models/user.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/user.rs) · [`crates/db/src/models/webhook.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/webhook.rs) · [`reference/app/controllers/accounts/bots_controller.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/controllers/accounts/bots_controller.rb)
 

@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { feature } from "@ember/parity";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
-import { ADMINISTRATOR, drawnPicture, editorField, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** A command that posts to a room as a bot: its room's address on this server, then the bot's key. */
@@ -114,6 +114,35 @@ test.describe(feature("bots.create-edit"), () => {
     await expect(page).toHaveURL(/\/account\/bots$/);
     await expect(botNamed(page, renamed)).toBeVisible();
     await expect(botNamed(page, name)).toHaveCount(0);
+  });
+
+  test("the administrator gives a bot an avatar from its form, shown on the bots page as the variant the browser made, and a new one", async ({ page }) => {
+    await openBots(page);
+    const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await page.getByRole("link", { name: "Add a chat bot" }).click();
+    const preview = page.getByRole("img", { name: "Bot avatar" });
+    // Campfire's default bot picture, until one is chosen.
+    await expect(preview).toHaveAttribute("src", /svg/);
+    await page.getByRole("textbox", { name: "Bot name" }).fill(name);
+    await page.getByLabel("Upload bot avatar").setInputFiles(await drawnPicture(page, "robot.png", 1200, 800));
+    await expect(preview).toHaveAttribute("src", /^blob:/);
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page).toHaveURL(/\/account\/bots$/);
+
+    const avatar = botNamed(page, name).getByRole("link", { name, exact: true }).locator("img");
+    await expect(avatar).toHaveAttribute("src", /^\/users\/[^/]+\/avatar\?v=\d{14}$/);
+    expect(await shownPicture(avatar)).toEqual({ type: "image/webp", width: 512, height: 341 });
+    const first = (await avatar.getAttribute("src"))!;
+
+    await botNamed(page, name).getByRole("link", { name: `Edit ${name}` }).click();
+    await expect(preview).toHaveAttribute("src", first);
+    // An avatar's address changes with the second it was given, as ember-rust's does.
+    await nextSecond();
+    await page.getByLabel("Upload bot avatar").setInputFiles(await drawnPicture(page, "robot.png", 300, 600));
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page).toHaveURL(/\/account\/bots$/);
+    await expect(avatar).not.toHaveAttribute("src", first);
+    expect(await shownPicture(avatar)).toEqual({ type: "image/webp", width: 256, height: 512 });
   });
 });
 

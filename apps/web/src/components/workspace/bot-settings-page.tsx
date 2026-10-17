@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useState, type FormEvent } from "react";
 import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotSettings, type Me, type UserId } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
+import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Refresh } from "@/components/icons/campfire";
+import { Camera, Refresh } from "@/components/icons/campfire";
 import { Input } from "@/components/ui/input";
+import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useMounted } from "@/hooks/use-mounted";
 import { BOTS_PATH, navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
@@ -68,6 +70,7 @@ function useSending(failed: (error: unknown) => void): [boolean, (request: () =>
 /** Add a chat bot, which only administrators may open: anyone else is sent to workspace settings at once. */
 export function NewBotPage({ me, onFailed }: { me: Me; onFailed: (error: unknown) => void }) {
   const [fields, setFields] = useState(NO_FIELDS);
+  const photo = useChosenPhoto();
   const { sendAway, failed } = useAdministratorsOnly(onFailed);
   const [saving, send] = useSending(failed);
   useTitle("New chat bot");
@@ -80,7 +83,14 @@ export function NewBotPage({ me, onFailed }: { me: Me; onFailed: (error: unknown
   return (
     <SettingsPage back={BOTS_PATH}>
       <Panel>
-        <BotForm fields={fields} onChange={setFields} saving={saving} onSave={() => send(() => createBot(fields))} />
+        <BotForm
+          avatar={defaultBotAvatar}
+          photo={photo}
+          fields={fields}
+          onChange={setFields}
+          saving={saving}
+          onSave={() => send(async () => createBot(fields, await photo.photo()))}
+        />
       </Panel>
     </SettingsPage>
   );
@@ -102,6 +112,7 @@ interface SettingsProps {
 export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
   const [bot, setBot] = useState<BotSettings | null>(null);
   const [fields, setFields] = useState(NO_FIELDS);
+  const photo = useChosenPhoto();
   const administratorsOnly = useAdministratorsOnly(onFailed);
   const failed = (error: unknown) => (isMissing(error) ? onMissing() : administratorsOnly.failed(error));
   const [busy, send] = useSending(failed);
@@ -136,7 +147,14 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
       <Panel aria-busy={bot === null}>
         {bot && (
           <>
-            <BotForm fields={fields} onChange={setFields} saving={busy} onSave={() => send(() => changeBot(botId, changesOf(bot, fields)))} />
+            <BotForm
+              avatar={bot.avatarUrl}
+              photo={photo}
+              fields={fields}
+              onChange={setFields}
+              saving={busy}
+              onSave={() => send(async () => changeBot(botId, changesOf(bot, fields), await photo.photo()))}
+            />
             <hr className="my-8 w-full" />
             <div className="flex flex-wrap items-center justify-between gap-x-[1ch] gap-y-4">
               <DeleteButton label="Delete this chat bot" text="Delete bot" disabled={busy} onClick={remove} />
@@ -153,6 +171,10 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
 }
 
 interface FormProps {
+  /** The bot's avatar as it is: its own, or Campfire's default bot picture, which the Worker serves for a bot without one. */
+  avatar: string;
+  /** The picture chosen to be its avatar, which saves with the form. */
+  photo: PhotoChoice;
   fields: Fields;
   onChange: (fields: Fields) => void;
   /** Whether the form or one of the page's buttons is on its way to the server, which Save changes waits for. */
@@ -161,10 +183,10 @@ interface FormProps {
 }
 
 /**
- * ember-rust's bot form: Chat bot setup, the bot's name and its webhook URL, each with a translation
- * button, and Save changes. There's no avatar picker until photos are stored, as the profile has none.
+ * ember-rust's bot form: Chat bot setup, the bot's avatar, its name and its webhook URL, each with a
+ * translation button, and Save changes, which saves a picture chosen for its avatar too.
  */
-function BotForm({ fields, onChange, saving, onSave }: FormProps) {
+function BotForm({ avatar, photo, fields, onChange, saving, onSave }: FormProps) {
   const save = (event: FormEvent) => {
     event.preventDefault();
     if (!saving) onSave();
@@ -173,6 +195,7 @@ function BotForm({ fields, onChange, saving, onSave }: FormProps) {
   return (
     <form onSubmit={save} className={AUTH_FORM}>
       <PageHeading title="Chat bot setup">Connect a bot to your workspace and choose where updates are delivered.</PageHeading>
+      <AvatarField src={avatar} photo={photo} disabled={saving} />
       <Field id="user_name" label="Bot name" translation="bot_name">
         <Input
           id="user_name"
@@ -199,5 +222,42 @@ function BotForm({ fields, onChange, saving, onSave }: FormProps) {
       </Field>
       <SubmitButton disabled={saving}>Save changes</SubmitButton>
     </form>
+  );
+}
+
+/**
+ * ember-rust's `.avatar__form` (accounts/bots/_form.html, Campfire's avatars.css and inputs.css): Upload
+ * bot avatar, a circle `.btn` the file field fills, unseen, beside the bot's avatar, which shows a picture
+ * as it's chosen, as Campfire's upload_preview_controller.js shows it. They're the middle columns of three,
+ * the last empty and as wide as the first, so the avatar is centered over the form, and both are 36px, or
+ * 44px for fingers. Pressing any of it picks a picture, as it's all one label, but not while the form is
+ * sent with it. Ember says why a picture over 16 MB isn't kept, where ember-rust takes any.
+ */
+function AvatarField({ src, photo, disabled }: { src: string; photo: PhotoChoice; disabled: boolean }) {
+  return (
+    <div className="mb-3 grid justify-items-center gap-2">
+      <label className="grid cursor-pointer grid-cols-[1fr_auto_1fr] items-center gap-x-[1ch] has-[input:disabled]:cursor-default">
+        <span className="relative grid size-9 place-items-center rounded-full border bg-background touch:size-11 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-foreground">
+          <Camera width={20} height={20} className="h-5 w-[1.6em]" />
+          <input
+            ref={photo.input}
+            id="user_avatar"
+            type="file"
+            accept="image/*"
+            aria-invalid={photo.refusal ? true : undefined}
+            disabled={disabled}
+            onChange={photo.choose}
+            className="absolute inset-0 size-full cursor-pointer rounded-full opacity-0 disabled:cursor-default"
+          />
+          <span className="sr-only">Upload bot avatar</span>
+        </span>
+        <img src={photo.preview ?? src} alt="Bot avatar" width={48} height={48} className="aspect-square size-9 rounded-full object-cover touch:size-11" />
+      </label>
+      {photo.refusal && (
+        <p role="alert" className="text-[0.8rem] text-destructive">
+          {photo.refusal}
+        </p>
+      )}
+    </div>
   );
 }
