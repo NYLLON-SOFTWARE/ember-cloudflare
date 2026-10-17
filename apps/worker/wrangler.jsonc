@@ -20,7 +20,7 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/logos/*", "!/lucide/*", "!/shortcuts/*", "!/ember-icon.png", "!/robots.txt"]
+    "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/globe.svg", "!/logos/*", "!/lucide/*", "!/shortcuts/*", "!/ember-icon.png", "!/robots.txt"]
   },
 
   // One ChatRoom object per room, which owns its sockets, presence and (by default) its messages,

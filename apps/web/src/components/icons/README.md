@@ -26,8 +26,9 @@ one (`hooks/use-account-logo.ts`).
 `ember-icon.png` is ember-rust's `crates/assets/overrides/ember-icon.png` (the flame on the rail and the
 sign-in card) scaled from 1254px down to 192px, so the page doesn't load 595 KB for a 44px mark.
 `browsers/` holds Campfire's browser logos, byte for byte, for the Worker's "Upgrade to a supported web
-browser" page. They're static files rather than icons here because that page is plain HTML from the
-Worker, which old browsers can read without the app. Whatever goes in `public` is also left out of
+browser" page, and `globe.svg` is Campfire's globe for that page's translation button, as `campfire/` has
+it. They're static files rather than icons here because that page is plain HTML from the Worker, which
+old browsers can read without the app. Whatever goes in `public` is also left out of
 `run_worker_first` in `apps/worker/wrangler.jsonc`, as these are, so it's served without the Worker.
 
 ## Adding an icon

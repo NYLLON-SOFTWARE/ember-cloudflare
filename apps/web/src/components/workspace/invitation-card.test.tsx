@@ -1,9 +1,9 @@
 import { feature } from "@ember/parity";
+import { TRANSLATIONS } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
-import { TRANSLATIONS } from "@/lib/translations";
 import { InvitationCard } from "./invitation-card";
 
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";

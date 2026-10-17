@@ -1,7 +1,7 @@
+import { TRANSLATIONS, type TranslationKey } from "@ember/protocol";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Globe } from "@/components/icons/campfire";
 import { useAccount } from "@/hooks/use-account";
-import { TRANSLATIONS, type TranslationKey } from "@/lib/translations";
 
 // ember-rust's translation button (crates/views/src/helpers/translations.rs, drawn by Campfire's
 // buttons.css and base.css at zz-ember.css's sizes): a globe beside a field that opens what the field

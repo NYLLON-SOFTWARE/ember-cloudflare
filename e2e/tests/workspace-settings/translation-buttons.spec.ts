@@ -2,6 +2,9 @@ import { feature } from "@ember/parity";
 import { expect, test } from "@playwright/test";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
+/** Chrome 119, a version short of what ember-rust allows. */
+const OLD_CHROME = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36";
+
 test.describe(feature("accounts.translation-buttons"), () => {
   test("the administrator shows translation buttons, which every page then has, and hides them again", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
@@ -42,6 +45,22 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await expect(signIn.getByRole("textbox", { name: "Email address" })).toBeVisible();
     await expect(signIn.getByText("Translate", { exact: true })).toHaveCount(2);
 
+    // So does the page for browsers too old for the app, whose globe lists its message.
+    const oldBrowser = await browser.newContext({ baseURL, ignoreHTTPSErrors: true, userAgent: OLD_CHROME });
+    const upgrade = await oldBrowser.newPage();
+    await upgrade.goto("/");
+    const upgradeGlobe = upgrade.locator("summary", { hasText: "Translate" });
+    await expect.poll(() => upgradeGlobe.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    await upgradeGlobe.click();
+    const upgradeLanguages = upgrade.locator("details[open] dl");
+    await expect(upgradeLanguages.locator("dt")).toHaveText(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
+    await expect(upgradeLanguages.locator("dd").nth(2)).toContainText("Veuillez utiliser l'un des navigateurs");
+    await upgrade.keyboard.press("Escape");
+    await expect(upgradeLanguages).toHaveCount(0);
+    await upgradeGlobe.click();
+    await upgrade.getByRole("heading", { level: 1 }).click();
+    await expect(upgradeLanguages).toHaveCount(0);
+
     await hide.click();
     await expect(hide).toBeChecked();
     await expect(page.getByText("Translate", { exact: true })).toHaveCount(0);
@@ -49,6 +68,10 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await signIn.reload();
     await expect(signIn.getByRole("textbox", { name: "Email address" })).toBeVisible();
     await expect(signIn.getByText("Translate", { exact: true })).toHaveCount(0);
+    await upgrade.reload();
+    await expect(upgrade.getByRole("heading", { level: 1, name: "Upgrade to a supported web browser" })).toBeVisible();
+    await expect(upgrade.getByText("Translate", { exact: true })).toHaveCount(0);
     await signedOut.close();
+    await oldBrowser.close();
   });
 });

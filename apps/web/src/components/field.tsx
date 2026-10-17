@@ -1,7 +1,7 @@
+import type { TranslationKey } from "@ember/protocol";
 import type { ReactNode } from "react";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
-import type { TranslationKey } from "@/lib/translations";
 
 // ember-rust's form pieces (styled in zz-ember.css), which its sign-in and join cards and its settings
 // panels share.

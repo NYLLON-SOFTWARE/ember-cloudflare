@@ -33,7 +33,7 @@ const LOOPBACK_HOST = /^(?:(?:.+\.)?localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
  */
 export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.trim() && !LOOPBACK_HOST.test(new URL(request.url).hostname);
 
-const escapeHtml = (text: string) =>
+export const escapeHtml = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&#34;").replace(/'/g, "&#39;");
 
 /**

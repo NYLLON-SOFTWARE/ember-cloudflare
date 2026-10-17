@@ -800,7 +800,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
   // Then, where ember-rust checks after sign-in and the forgery check: a browser too old for the app
   // has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
-  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(unsupportedBrowserPage(request), env, pathname);
+  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(await unsupportedBrowserPage(request, env), env, pathname);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");

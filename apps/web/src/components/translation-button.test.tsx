@@ -1,10 +1,9 @@
 import { feature } from "@ember/parity";
+import { TRANSLATIONS, type Account } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Account } from "@ember/protocol";
 import { AccountContext } from "@/hooks/use-account";
-import { TRANSLATIONS } from "@/lib/translations";
 import { TranslationButton } from "./translation-button";
 
 /** A workspace whose administrator has shown translation buttons. */

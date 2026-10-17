@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { api, apiWith, builtPages, freshRoom, signIn, upgrade } from "./support";
+import { api, apiWith, builtPages, cookieOf, freshRoom, signIn, upgrade } from "./support";
 
 // User agents from ember-rust's vectors/campfire_user_agents.json, with whether it blocks them.
 /** Chrome 119, one version too old. */
@@ -261,5 +261,31 @@ describe(feature("platform.browser-support"), () => {
     expect(socket.status).toBe(101);
     socket.webSocket!.accept();
     socket.webSocket!.close();
+  });
+});
+
+describe(feature("accounts.translation-buttons"), () => {
+  const upgradePage = async () => (await page("/", as(OLD_CHROME))).text();
+  /** The flags and translations the upgrade page's globe lists. */
+  const listedIn = (html: string) => [...html.matchAll(/<dt>(.+?)<\/dt><dd>(.+?)<\/dd>/g)].map((match) => match.slice(1));
+
+  it("puts a globe by the upgrade page's message once an administrator shows them, as ember-rust's does", async () => {
+    expect(await upgradePage()).not.toContain("Translate");
+    const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    const show = (shown: boolean) =>
+      api("/api/account", { method: "PATCH", headers: { Cookie: cookieOf(setUp) }, body: JSON.stringify({ settings: { hideTranslationButtons: !shown } }) });
+    expect(await upgradePage()).not.toContain("Translate");
+
+    expect((await show(true)).status).toBe(200);
+    const html = await upgradePage();
+    expect(html).toContain('<summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>');
+    const listed = listedIn(html);
+    expect(listed.map(([flag]) => flag)).toEqual(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
+    expect(listed[0]![1]).toBe("Upgrade to a supported web browser. Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.");
+    // Escaped, as ember-rust escapes them.
+    expect(listed[2]![1]).toContain("Veuillez utiliser l&#39;un des navigateurs");
+
+    await show(false);
+    expect(await upgradePage()).not.toContain("Translate");
   });
 });

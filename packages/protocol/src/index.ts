@@ -84,6 +84,7 @@ export {
   type SavedPushSubscription,
   type SignOut,
 } from "./push.ts";
+export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
 export {
   isSearchable,
   MAX_SEARCH_LENGTH,
