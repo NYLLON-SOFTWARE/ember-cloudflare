@@ -58,8 +58,8 @@ const togglesGlobe = `<script>
  * does. Its styles are the palette (zz-ember.css's canvas, surface, border and ink, as index.css has
  * them), the signed-out panel from zz-ember.css, Campfire's `.browser-list` from signup.css, and the
  * globe as the app draws it (translation-button.tsx), with margins for the gaps, which older browsers
- * lay out, and the list kept to a narrow screen by its own width, and 40ch wide in Internet Explorer,
- * which has no `max-content`.
+ * lay out, and the list kept to a narrow screen by its own width. Internet Explorer has no
+ * `max-content`, so there the menu takes the width a narrow screen leaves it, up to 40ch.
  */
 const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 <html lang="en">
@@ -131,7 +131,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
         position: absolute;
         z-index: 3;
         margin: 0 1ch;
-        width: 40ch;
+        width: calc(100vw - 72px);
         width: max-content;
         max-width: 40ch;
         overflow: hidden;
