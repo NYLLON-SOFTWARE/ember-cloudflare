@@ -4,7 +4,7 @@ import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
@@ -111,6 +111,28 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 afterEach(() => vi.unstubAllGlobals());
 
+/**
+ * Gives the browser `navigator.canShare` and a share sheet that closes without sharing, as closing it does,
+ * and `fetch` answering a PDF, until the test ends, answering the share sheet.
+ */
+function sharing() {
+  const share = vi.fn().mockRejectedValue(new DOMException("Closed", "AbortError"));
+  Object.defineProperties(navigator, { canShare: { value: () => true, configurable: true }, share: { value: share, configurable: true } });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ blob: async () => new Blob(["%PDF-"], { type: "application/pdf" }) }));
+  onTestFinished(() => {
+    delete (navigator as Partial<Navigator>).canShare;
+    delete (navigator as Partial<Navigator>).share;
+  });
+  return share;
+}
+
+/** What the share sheet `share` last got: its title and text, and its one file's name and type. */
+function sharedFile(share: ReturnType<typeof vi.fn>) {
+  const [{ files, title, text }] = share.mock.lastCall as [{ files: File[]; title: string; text: string }];
+  expect(files).toHaveLength(1);
+  return { title, text, name: files[0]!.name, type: files[0]!.type };
+}
+
 /** Answers media queries as a page does where a mouse can hover. */
 const withMouse = () => {
   vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: hover) and (pointer: fine)", media, addEventListener() {}, removeEventListener() {} }));
@@ -208,6 +230,29 @@ describe(feature("attachments.download-share"), () => {
     const download = within(actionBar()).getByRole("link", { name: "Download" });
     expect(download).toHaveAttribute("href", report.downloadUrl);
     expect(download).toHaveClass("ios-pwa:hidden");
+  });
+
+  it("shares a file message's file from its actions, titled with its name, and from its card untitled, where the browser can share", async () => {
+    const share = sharing();
+    const { user, article } = show(fileMessage(), { me: grace });
+    await user.click(optionsOn("Q3 report.pdf"));
+    expect([...actionBar().firstElementChild!.querySelectorAll("button, a")].map((control) => control.getAttribute("title"))).toContain("Share");
+    await user.click(within(actionBar()).getByRole("button", { name: "Share" }));
+    await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
+    expect(fetch).toHaveBeenLastCalledWith(report.url);
+    expect(sharedFile(share)).toMatchObject({ title: "Q3 report.pdf", text: "", name: expect.stringMatching(/^Ember_[a-z0-9]+\.pdf$/), type: "application/pdf" });
+
+    await user.click(within(article).getByRole("button", { name: "Share Q3 report.pdf" }));
+    await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(2));
+    expect(fetch).toHaveBeenLastCalledWith(report.downloadUrl);
+    expect(sharedFile(share)).toMatchObject({ title: "", text: "" });
+  });
+
+  it("offers no Share where the browser can't share", async () => {
+    const { user, article } = show(fileMessage(), { me: grace });
+    expect(within(article).queryByRole("button", { name: "Share Q3 report.pdf" })).not.toBeInTheDocument();
+    await user.click(optionsOn("Q3 report.pdf"));
+    expect(within(actionBar()).queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
   });
 });
 

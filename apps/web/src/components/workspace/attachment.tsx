@@ -1,5 +1,6 @@
 import { isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
+import { Lightbox } from "@/components/lightbox";
 import type { Size } from "@/lib/previews";
 import { cn } from "@/lib/utils";
 import { FileCard } from "./file-card";
@@ -23,26 +24,44 @@ function shownSize({ width, height }: StoredFile): Size | null {
 }
 
 /**
- * A picture, lazily loaded, which links to its file. ember-rust's box is half the picture's size, as its
+ * A picture, lazily loaded, which links to its file and opens it in the image viewer, as ember-rust's
+ * `lightboxed_image_preview` does, with Download and Share taking the file's download address. A picture
+ * not every browser shows, such as a HEIC or TIFF, opens as its thumbnail, where ember-rust's viewer shows
+ * the original, which Chrome can't. ember-rust's box is half the picture's size, as its
  * `inline_media_dimension_constraints` sets it, but the picture is at most 480px wide and 640px or 70% of
  * the screen tall (zz-ember.css), so a picture shown more than 480px wide leaves the rest of its box blank
  * below it. Ember's box keeps to those limits instead, so it's always the picture's shape. The picture's
- * alt text is the file's name, where ember-rust's has none.
+ * alt text is the file's name, where ember-rust's has none. The viewer is only there while it's open, so
+ * a timeline of pictures holds no viewer for each.
  */
 function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
+  const [viewing, setViewing] = useState(false);
   const size = shownSize(file);
   const box: CSSProperties | undefined = size
     ? { width: `min(${size.width / 2}px, 480px, ${size.width / size.height} * 70dvh)`, aspectRatio: `${size.width} / ${size.height}` }
     : undefined;
   return (
-    <a href={file.url} className={cn("block max-w-full", !size && "w-fit max-w-[min(480px,100%)]")} style={box}>
-      <img
-        src={src}
-        alt={file.name}
-        loading="lazy"
-        className={cn("block cursor-zoom-in rounded-[10px] border object-contain object-left-top", size ? "size-full" : "max-h-[min(640px,70dvh)] max-w-full")}
-      />
-    </a>
+    <>
+      <a
+        href={file.url}
+        onClick={(event) => {
+          event.preventDefault();
+          setViewing(true);
+        }}
+        className={cn("block max-w-full", !size && "w-fit max-w-[min(480px,100%)]")}
+        style={box}
+      >
+        <img
+          src={src}
+          alt={file.name}
+          loading="lazy"
+          className={cn("block cursor-zoom-in rounded-[10px] border object-contain object-left-top", size ? "size-full" : "max-h-[min(640px,70dvh)] max-w-full")}
+        />
+      </a>
+      {viewing && (
+        <Lightbox src={isWebImage(file.contentType) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
+      )}
+    </>
   );
 }
 

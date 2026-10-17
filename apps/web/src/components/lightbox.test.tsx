@@ -74,4 +74,24 @@ describe(feature("attachments.lightbox"), () => {
     expect(files[0]!.name).toMatch(/^Ember_[a-z0-9]+\.svg$/);
     expect(files[0]!.type).toBe("image/svg+xml; charset=utf-8");
   });
+
+  it("takes Download and Share from the file's download address where it's given, as a message's picture gives it, and names the image", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    const fetch = vi.fn().mockResolvedValue({ blob: async () => new Blob(["moon"], { type: "image/jpeg" }) });
+    stubNavigator("canShare", () => true);
+    stubNavigator("share", share);
+    vi.stubGlobal("fetch", fetch);
+    const moon = "/files/k1/s1/moon.jpg";
+    render(<Lightbox src={moon} alt="moon.jpg" downloadUrl={`${moon}?disposition=attachment`} onClose={() => {}} />);
+
+    expect(screen.getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", moon);
+    const download = screen.getByRole("link", { name: "Download file" });
+    expect(download).toHaveAttribute("href", `${moon}?disposition=attachment`);
+    // The server names the file it downloads.
+    expect(download).not.toHaveAttribute("download");
+    await userEvent.click(screen.getByRole("button", { name: "Share file" }));
+    await vi.waitFor(() => expect(share).toHaveBeenCalledOnce());
+    expect(fetch).toHaveBeenCalledWith(`${moon}?disposition=attachment`);
+    expect((share.mock.calls[0] as [{ files: File[] }])[0].files[0]!.name).toMatch(/^Ember_[a-z0-9]+\.jpeg$/);
+  });
 });

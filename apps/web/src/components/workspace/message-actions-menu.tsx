@@ -1,11 +1,12 @@
 import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message } from "@ember/protocol";
+import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply } from "@/components/icons/lucide";
+import { Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply, Share } from "@/components/icons/lucide";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath } from "@/hooks/use-route";
 import { replyQuote } from "@/lib/messages";
+import { canShare, shareFile } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { UNKNOWN_PERSON } from "./message-body";
 
@@ -311,11 +312,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               ))}
             </div>
             {message.attachment ? (
-              // Hidden in Ember added to an iPhone's or iPad's home screen, as the file's card hides it. Share
-              // comes with plan 7.4.
-              <a href={message.attachment.downloadUrl} title="Download" aria-label="Download" className={cn(ACTION, "ios-pwa:hidden")}>
-                <Download />
-              </a>
+              <FileActions file={message.attachment} />
             ) : (
               <ReplyButton message={message} nodes={nodes} onClick={reply} />
             )}
@@ -375,6 +372,26 @@ function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onC
       </span>
       <span className="sr-only">{title}</span>
     </button>
+  );
+}
+
+/**
+ * A file message's Download and Share, in Reply's place, as ember-rust's bar has them (messages/_actions.html).
+ * Download is hidden in Ember added to an iPhone's or iPad's home screen, as the file's card hides it, and
+ * Share shows where the browser can share, sharing the file titled with its name.
+ */
+function FileActions({ file }: { file: StoredFile }) {
+  return (
+    <>
+      <a href={file.downloadUrl} title="Download" aria-label="Download" className={cn(ACTION, "ios-pwa:hidden")}>
+        <Download />
+      </a>
+      {canShare() && (
+        <button type="button" title="Share" aria-label="Share" className={ACTION} onClick={() => void shareFile(file.url, file.name)}>
+          <Share />
+        </button>
+      )}
+    </>
   );
 }
 

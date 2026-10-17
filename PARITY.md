@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 113 ported and 50 partial of 172 features; 3 not started, 6 not applicable.
+**Overall:** 116 ported and 47 partial of 172 features; 3 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -26,7 +26,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Messages](#messages) | 9 | 9 | 0 | 1 | 19 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 2 | 1 | 0 | 0 | 3 |
-| [Attachments](#attachments) | 4 | 4 | 2 | 1 | 11 |
+| [Attachments](#attachments) | 7 | 1 | 2 | 1 | 11 |
 | [Link previews](#link-previews) | 4 | 0 | 0 | 0 | 4 |
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 4 | 2 | 0 | 0 | 6 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 4 | 1 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 6 | 5 | 0 | 0 | 11 |
 | [Platform](#platform) | 9 | 2 | 0 | 4 | 15 |
-| **Total** | **113** | **50** | **3** | **6** | **172** |
+| **Total** | **116** | **47** | **3** | **6** | **172** |
 
 ## Sign-in and sessions
 
@@ -1381,10 +1381,10 @@ ember-rust tests: [`crates/richtext/tests/corpus.rs`](https://github.com/NYLLON-
 | Attach files | `attachments.upload` | Campfire | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | 250 MB file limit | `attachments.size-limit` | Ember | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx) |
 | Upload progress | `attachments.progress` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx), [upload-card](apps/web/src/components/workspace/upload-card.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| Image, video and file previews | `attachments.previews` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [attachment](apps/web/src/components/workspace/attachment.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [previews](apps/web/src/lib/previews.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
-| Image viewer | `attachments.lightbox` | Campfire | 🟡 Partial | Web: [lightbox](apps/web/src/components/lightbox.test.tsx) |
+| Image, video and file previews | `attachments.previews` | Campfire | ✅ Ported | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [uploads](apps/worker/test/uploads.test.ts)<br>Web: [attachment](apps/web/src/components/workspace/attachment.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [previews](apps/web/src/lib/previews.test.ts), [uploads](apps/web/src/lib/uploads.test.ts)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
+| Image viewer | `attachments.lightbox` | Campfire | ✅ Ported | Web: [lightbox](apps/web/src/components/lightbox.test.tsx), [attachment](apps/web/src/components/workspace/attachment.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | Safe SVG previews | `attachments.svg-preview` | Ember | ⬜ Not started |  |
-| Download and share files | `attachments.download-share` | Ember | 🟡 Partial | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
+| Download and share files | `attachments.download-share` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [attachments](e2e/tests/features/attachments.spec.ts) |
 | File links | `attachments.serving` | Campfire | ✅ Ported | Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
 | Files leave with their messages | `attachments.purge` | Campfire | ⬜ Not started |  |
 | How files are recognized | `attachments.types` | Campfire | 🟡 Partial | Protocol: [files](packages/protocol/src/files.test.ts)<br>Worker: [files](apps/worker/test/files.test.ts), [uploads](apps/worker/test/uploads.test.ts) |
@@ -1435,7 +1435,7 @@ Sources: [`crates/assets/overrides/models/file_uploader.js`](https://github.com/
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/kro/file-uploader.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/file-uploader.test.mjs)
 
-**Image, video and file previews** (`attachments.previews`) 🟡
+**Image, video and file previews** (`attachments.previews`) ✅
 
 - Images (PNG, JPEG, GIF, WebP, TIFF, AVIF, HEIC, HEIF) show their thumbnail, loaded lazily, at half its size scaled into 1200×800, at most 480px wide, and at most 640px or 70% of the screen tall, whichever is smaller. The thumbnail is still, so an animated image shows its first frame until opened.
 - Videos play in place behind a WebP poster and load nothing until played (`preload="none"`).
@@ -1443,19 +1443,19 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - A file card's name isn't a link, so a PDF can be downloaded but not opened in place.
 - Downloads return the original file.
 
-Note: Previews are made in the uploader's browser as it uploads a file (apps/web/src/lib/previews.ts), where ember-rust's server makes them, and sent before its last part, unless the browser takes more than five seconds; the Worker takes a WebP, JPEG or PNG of up to 5 MiB within 1200×800, keeps it in R2 beside the file and serves it under the file's signature at `/previews/…`. A thumbnail is WebP, or where the browser can't encode WebP, as Safari can't, a JPEG, or a PNG for a picture that can be see-through, and a video's poster is its frame a tenth of a second in, where ember-rust's ffmpeg takes the first. A video's size is its poster's, since the Worker can't read a video's own. A picture the uploader's browser can't decode, as Chrome can't decode HEIC or TIFF, or sent without a thumbnail, as a bot's will be, shows itself if it's a PNG, JPEG, GIF or WebP of up to 5 MiB, so a small animated GIF moves, and its card otherwise, and a video without a poster loads enough to show its first frame (`preload="metadata"`), where ember-rust's server makes both regardless. ember-rust's box for a picture is half its size, but the picture in it at most 480px wide, which leaves the box blank below a picture shown more than 480px wide; Ember's box keeps to the picture's limits, so it's always the picture's shape. A picture's alt text and a video's name are the file's name, where ember-rust's have none. File cards: the file's icon on a tile, its name and Download, as ember-rust draws them. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`). Still to come: the image viewer, until which a picture links to its file (`attachments.lightbox`), and Share (`attachments.download-share`).
+Note: Previews are made in the uploader's browser as it uploads a file (apps/web/src/lib/previews.ts), where ember-rust's server makes them, and sent before its last part, unless the browser takes more than five seconds; the Worker takes a WebP, JPEG or PNG of up to 5 MiB within 1200×800, keeps it in R2 beside the file and serves it under the file's signature at `/previews/…`. A thumbnail is WebP, or where the browser can't encode WebP, as Safari can't, a JPEG, or a PNG for a picture that can be see-through, and a video's poster is its frame a tenth of a second in, where ember-rust's ffmpeg takes the first. A video's size is its poster's, since the Worker can't read a video's own. A picture the uploader's browser can't decode, as Chrome can't decode HEIC or TIFF, or sent without a thumbnail, as a bot's will be, shows itself if it's a PNG, JPEG, GIF or WebP of up to 5 MiB, so a small animated GIF moves, and its card otherwise, and a video without a poster loads enough to show its first frame (`preload="metadata"`), where ember-rust's server makes both regardless. ember-rust's box for a picture is half its size, but the picture in it at most 480px wide, which leaves the box blank below a picture shown more than 480px wide; Ember's box keeps to the picture's limits, so it's always the picture's shape. A picture's alt text and a video's name are the file's name, where ember-rust's have none. A picture opens in the image viewer (`attachments.lightbox`). File cards: the file's icon on a tile, its name, Download and Share, as ember-rust draws them. Download is hidden in Ember added to an iPhone's or iPad's home screen (`attachments.download-share`).
 
 Sources: [`reference/app/helpers/messages/attachment_presentation.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/helpers/messages/attachment_presentation.rb) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/ember/src/controllers/presenters.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters.rs) · [`crates/storage/src/content_types.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/storage/src/content_types.rs) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`crates/ember/src/controllers/messages/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages/tests.rs)
 
-**Image viewer** (`attachments.lightbox`) 🟡
+**Image viewer** (`attachments.lightbox`) ✅
 
 - Clicking an image opens the original file, not its thumbnail, in a dialog ("Image Viewer (Press escape to close)") over the blurred page, behind the page's own background color at 66% opacity.
 - Close ("Close image viewer") sits at the top right, Download ("Download file", hidden in the iOS home-screen app) at the bottom right and Share ("Share file", only where the browser can share) at the top left; Download and Share use the file's download link.
 - Escape or Close shuts it and clears it; clicking outside does nothing, and there's no zoom or paging.
 
-Note: Only QR codes open it until messages show images (`attachments.previews`). Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's "/", ending the name `.svg+xml; charset=utf-8`.
+Note: A message's picture opens it, as ember-rust's `lightboxed_image_preview` does, and so does a QR code (`accounts.qr-codes`). A picture shows its original, unless not every browser shows its type, such as a HEIC or TIFF, which shows its thumbnail, where ember-rust's shows the original, which Chrome can't. A message's picture puts its viewer in the page only while it's open, so a timeline of pictures holds no viewer for each, where ember-rust's layout keeps one in every page, and the image's alt text is the file's name, where ember-rust's has none. Its buttons keep clear of a phone's notch, rounded corners and home indicator, which ember-rust's can sit under. Download saves a QR code as `QR code.svg`, where ember-rust's link leaves the app to show it. Share names a QR code `Ember_<random>.svg`, where ember-rust takes everything after the type's "/", ending the name `.svg+xml; charset=utf-8`.
 
 Sources: [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/_lightbox.html) · [`reference/app/javascript/controllers/lightbox_controller.js`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/javascript/controllers/lightbox_controller.js) · [`reference/app/assets/stylesheets/lightbox.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/lightbox.css)
 
@@ -1471,13 +1471,13 @@ Sources: [`crates/assets/overrides/controllers/svg_preview_controller.js`](https
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
 
-**Download and share files** (`attachments.download-share`) 🟡
+**Download and share files** (`attachments.download-share`) ✅
 
 - A file message's action bar offers Download and Share in place of Reply. Wherever Download appears (the bar, the file card, the image viewer), it's hidden in the iOS home-screen app.
 - Share shows wherever the browser has `navigator.canShare`, without checking the file first. It fetches the whole file and shares it as `Ember_<random>.<MIME subtype>`, such as `.jpeg`, or `.octet-stream` for an SVG.
 - The action bar's Share is titled with the file name; the file card's and the image viewer's share the file untitled.
 
-Note: Download: in a file message's bar in place of Reply, and on its file card, each hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it. Still to come: Share.
+Note: Download: in a file message's bar in place of Reply, on its file card and in the image viewer, each hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it. Share: after Download in the bar, titled with the file's name and sharing its address for showing, and on the card and in the image viewer, untitled and sharing its download address, as ember-rust's do, wherever `navigator.canShare` exists (src/lib/share.ts). The shared file is named `Ember_<random>` with its type's extension up to any `+` or `;`, so an SVG, which is served as `application/octet-stream`, ends `.octet-stream`, as in ember-rust, but a QR code ends `.svg` where ember-rust's ends `.svg+xml; charset=utf-8`. Closing the share sheet is caught, where ember-rust leaves its rejection unhandled.
 
 Sources: [`crates/assets/overrides/controllers/web_share_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/web_share_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/views/src/messages/presentation.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/messages/presentation.rs) · [`crates/views/templates/layouts/_lightbox.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/_lightbox.html) · [`reference/app/assets/stylesheets/utilities.css`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/assets/stylesheets/utilities.css)
 
