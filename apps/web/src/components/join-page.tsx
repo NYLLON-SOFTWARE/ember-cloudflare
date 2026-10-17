@@ -62,7 +62,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
     <AuthPage workspace={workspace}>
       {problem && <Problem>{problem}</Problem>}
       <AuthCard>
-        <AuthHeading title={`Join ${workspace.account.name}`}>Create your account and join the conversation.</AuthHeading>
+        <AuthHeading title={`Join ${workspace.account.name}`} logo={workspace.account.logo}>Create your account and join the conversation.</AuthHeading>
         <form
           className={AUTH_FORM}
           onSubmit={(event) => {

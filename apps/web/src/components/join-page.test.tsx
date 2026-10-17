@@ -17,7 +17,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
   guestSignIn: false,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
@@ -210,5 +210,14 @@ describe(feature("accounts.translation-buttons"), () => {
     );
     expect(screen.getAllByText("Translate")).toHaveLength(3);
     for (const text of ["Enter your name", "Enter your email address", "Enter your password"]) expect(screen.getByText(text)).toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.logo"), () => {
+  it("shows the workspace's logo in place of Ember's flame, as ember-rust's join page does", () => {
+    const logo = "/account/logo?v=20261017120000";
+    render(<JoinPage workspace={{ ...workspace, account: { ...workspace.account, logo } }} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
+    expect(screen.queryByRole("img", { name: "Ember" })).toBeNull();
   });
 });

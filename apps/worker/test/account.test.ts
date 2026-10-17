@@ -12,7 +12,7 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
 /** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
-const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false });
+const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -202,7 +202,7 @@ describe(feature("accounts.name"), () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null);
       expect(await workspace.changeAccount(credentials, { name: "Ember Studio" })).toEqual(named("Ember Studio"));
-      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k" });
+      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null });
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
@@ -404,7 +404,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null);
       const regenerated = await workspace.regenerateJoinCode(credentials);
-      finishReading({ ...named("Ember"), joinCode: old });
+      finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null });
       await reading;
       return regenerated;
     });

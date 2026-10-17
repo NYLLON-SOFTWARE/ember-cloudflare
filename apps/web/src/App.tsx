@@ -7,6 +7,7 @@ import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
 import { Workspace } from "@/components/workspace/workspace";
 import { AccountContext } from "@/hooks/use-account";
+import { useAccountLogo } from "@/hooks/use-account-logo";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
 import { PushProvider } from "@/hooks/use-push";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute, useTransferRoute } from "@/hooks/use-route";
@@ -25,7 +26,11 @@ const SETUP_PATH = "/first_run";
 const SIGN_IN_PATH = "/session/new";
 
 const isSameAccount = (a: Account, b: Account) =>
-  a.name === b.name && a.hideTranslationButtons === b.hideTranslationButtons && a.customStyles === b.customStyles && a.restrictRoomCreation === b.restrictRoomCreation;
+  a.name === b.name &&
+  a.hideTranslationButtons === b.hideTranslationButtons &&
+  a.customStyles === b.customStyles &&
+  a.restrictRoomCreation === b.restrictRoomCreation &&
+  a.logo === b.logo;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.
@@ -41,8 +46,9 @@ export function App() {
 
   // Every page keeps up with the device and other tabs, as each of ember-rust's does, rail or not.
   useEffect(() => followAppearance(), []);
-  // And has the workspace's custom CSS, once it's known, which is before any page shows.
+  // And has the workspace's custom CSS and logo, once they're known, which is before any page shows.
   useCustomStyles(workspace?.account.customStyles ?? "", me?.administrator === true);
+  useAccountLogo(workspace?.account.logo ?? null);
 
   useEffect(() => {
     forgetStoredSession();

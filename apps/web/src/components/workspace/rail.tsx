@@ -2,6 +2,7 @@ import type { ComponentType, MouseEvent } from "react";
 import type { Me } from "@ember/protocol";
 import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
 import { PageLink } from "@/components/page-link";
+import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
@@ -88,6 +89,7 @@ interface Props {
 
 /** The persistent navigation rail from ember-rust's layouts/application.html. */
 export function Rail({ me, workspaceName, current, activity, onNewDirect }: Props) {
+  const { logo } = useAccount();
   const marked = activity.on ? null : current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
@@ -100,9 +102,14 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
         aria-label="Ember home"
         title={workspaceName}
         aria-current={marked === "home" ? "page" : undefined}
-        className="mb-1 flex size-11 shrink-0 items-center justify-center"
+        className={cn("mb-1 flex size-11 shrink-0 items-center justify-center", logo && "rounded-[15px] bg-background")}
       >
-        <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
+        {/* The workspace's logo sits on the page's background, as ember-rust's `.mb-rail__brand:has(img)`. */}
+        {logo ? (
+          <img src={logo} alt="" width={44} height={44} className="size-11 rounded-[inherit] object-cover" />
+        ) : (
+          <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
+        )}
       </PageLink>
       <RailLink icon={Home} label="Home" href="/" current={marked === "home" || marked === "room"} />
       {/* Never marked, since its address opens New direct message over the last room visited. */}

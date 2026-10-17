@@ -19,7 +19,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
+const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
 const general = { id: "general", name: "general", kind: "open", icon: null };
 /** The rooms first run makes, general first. */
 const firstRooms = [
@@ -420,6 +420,36 @@ describe(feature("accounts.custom-css"), () => {
     await waitFor(() => expect(document.body).toHaveClass("admin"));
     unmount();
     expect(document.body).not.toHaveClass("admin");
+  });
+});
+
+describe(feature("accounts.logo"), () => {
+  const LOGO = "/account/logo?v=20261017120000";
+  const brand = () => screen.getByRole("link", { name: "Ember home" }).querySelector("img");
+
+  it("shows the workspace's logo before anyone signs in", async () => {
+    serve({ signedIn: false, account: { ...EMBER, logo: LOGO } });
+    render(<App />);
+    await signInPage();
+    expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", LOGO);
+    expect(document.body).toHaveClass("account-has-logo");
+  });
+
+  it("shows a logo saved in another tab at once, as the workspace socket says, where ember-rust's tabs show it on their next load", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    const { unmount } = render(<App />);
+    await roomHeading();
+    expect(brand()).toHaveAttribute("src", "/ember-icon.png");
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, logo: LOGO } }));
+    expect(brand()).toHaveAttribute("src", LOGO);
+    expect(document.body).toHaveClass("account-has-logo");
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: EMBER }));
+    expect(brand()).toHaveAttribute("src", "/ember-icon.png");
+    expect(document.body).not.toHaveClass("account-has-logo");
+    unmount();
   });
 });
 

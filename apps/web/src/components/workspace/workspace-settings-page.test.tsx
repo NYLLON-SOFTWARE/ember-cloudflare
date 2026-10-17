@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Account, AccountChanges, DirectoryUser, Me, RoleChange, RoomId, SidebarRoom, WorkspaceSettings } from "@ember/protocol";
+import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, type Account, type AccountChanges, type DirectoryUser, type Me, type RoleChange, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import cancel from "@/components/icons/campfire/cancel.svg";
 import crown from "@/components/icons/campfire/crown.svg";
@@ -15,10 +15,14 @@ import { ApiError } from "@/lib/api";
 import { CONFIRM_REMOVE } from "./people-list";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
+vi.mock("@/lib/previews", () => ({
+  logoVariantsOf: vi.fn(async () => ({ large: new Blob(["large"], { type: "image/png" }), small: new Blob(["small"], { type: "image/png" }) })),
+}));
+
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
   joinCode: JOIN_CODE,
   canAdminister: true,
 };
@@ -65,10 +69,15 @@ interface Answers {
   removed?: () => Response | Promise<Response>;
   /** What saving the shared order answers, rather than the rooms sent. */
   ordered?: () => Response | Promise<Response>;
+  /** What saving a logo answers, rather than the workspace with `LOGO`. */
+  logoSaved?: () => Response | Promise<Response>;
 }
 
+/** The workspace's logo once one is uploaded. */
+const LOGO = "/account/logo?v=20261017120000";
+
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
-function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered }: Answers = {}) {
+function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
   let { account } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -93,6 +102,13 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         };
         return Response.json({ account });
       }
+      case `PUT ${LOGO_PATH}`:
+        if (logoSaved) return logoSaved();
+        account = { ...account, logo: LOGO };
+        return Response.json({ account });
+      case `DELETE ${LOGO_PATH}`:
+        account = { ...account, logo: null };
+        return Response.json({ account });
       case "POST /api/account/join_code":
         return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
       case "PUT /api/account/room_order":
@@ -295,6 +311,123 @@ describe(feature("accounts.name"), () => {
     await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
     act(() => workspaceSays({ ...asMember.account, name: "Difference Engines" }));
     expect(screen.getByRole("heading", { level: 2, name: "Difference Engines" })).toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.logo"), () => {
+  const logo = () => screen.getByRole("img", { name: "Workspace logo" });
+  const picker = () => screen.getByLabelText("Upload logo", { exact: false });
+  const removeButton = () => screen.queryByRole("button", { name: "Remove logo" });
+  /** What each logo saved sent, in order. */
+  const uploads = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([, init]) => init?.method === "PUT")
+      .map(([, init]) => init?.body as FormData);
+  const blackHole = () => new File(["black hole"], "black_hole.png", { type: "image/png" });
+  const withLogo: WorkspaceSettings = { ...asAdministrator, account: { ...asAdministrator.account, logo: LOGO } };
+
+  beforeEach(() => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:black-hole");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+
+  it("shows administrators Ember's stock icon above the workspace's name, to change with a logo, as ember-rust does", async () => {
+    showPage();
+    await nameField();
+    expect(logo()).toHaveAttribute("src", "/logos/app-icon.png");
+    expect(picker()).toBeEnabled();
+    expect(picker()).toHaveAttribute("type", "file");
+    expect(picker()).toHaveAttribute("accept", "image/*");
+    expect(picker()).toHaveAccessibleDescription("Choose a workspace logo");
+    expect(picker().compareDocumentPosition(await nameField())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // Nothing to remove while there's no logo.
+    expect(removeButton()).toBeNull();
+  });
+
+  it("saves a logo as soon as it's picked, showing it meanwhile, with its variants, saying Changes saved.", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { logoSaved: () => new Promise((resolve) => (answer = resolve)) });
+    const { onAccountChanged, onFailed, user } = showPage();
+    await nameField();
+    await user.upload(picker(), blackHole());
+
+    await waitFor(() => expect(uploads()).toHaveLength(1));
+    expect(logo()).toHaveAttribute("src", "blob:black-hole");
+    expect(picker()).toBeDisabled();
+    const [sent] = uploads();
+    expect(sent!.get("logo")).toMatchObject({ name: "black_hole.png", type: "image/png" });
+    expect(sent!.get("large")).toMatchObject({ type: "image/png" });
+    expect(sent!.get("small")).toMatchObject({ type: "image/png" });
+
+    const account = { ...asAdministrator.account, logo: LOGO };
+    await act(async () => answer(Response.json({ account })));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(account);
+    expect(logo()).toHaveAttribute("src", LOGO);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:black-hole");
+    expect(picker()).toBeEnabled();
+    expect(removeButton()).toBeInTheDocument();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("removes the logo with Remove logo, saying nothing, as ember-rust's page comes back", async () => {
+    serve(withLogo);
+    const { onAccountChanged, user } = showPage();
+    await nameField();
+    expect(logo()).toHaveAttribute("src", LOGO);
+    await user.click(removeButton()!);
+
+    await waitFor(() => expect(removeButton()).toBeNull());
+    expect(logo()).toHaveAttribute("src", "/logos/app-icon.png");
+    expect(fetch).toHaveBeenCalledWith(LOGO_PATH, expect.objectContaining({ method: "DELETE" }));
+    expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says a logo over 16 MB is too large without sending it", async () => {
+    const { user } = showPage();
+    await nameField();
+    const huge = blackHole();
+    Object.defineProperty(huge, "size", { value: MAX_LOGO_SIZE + 1 });
+    await user.upload(picker(), huge);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOGO_TOO_LARGE);
+    expect(uploads()).toEqual([]);
+    expect(logo()).toHaveAttribute("src", "/logos/app-icon.png");
+  });
+
+  it("says why a logo couldn't be saved, showing the logo as it was", async () => {
+    serve(withLogo, { logoSaved: () => Response.json({ error: "Ember isn't set up to store files" }, { status: 503 }) });
+    const { onFailed, user } = showPage();
+    await nameField();
+    await user.upload(picker(), blackHole());
+
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 503, message: "Ember isn't set up to store files" })));
+    expect(logo()).toHaveAttribute("src", LOGO);
+    expect(picker()).toBeEnabled();
+  });
+
+  it("shows a logo saved in another tab as soon as the workspace socket says it", async () => {
+    showPage();
+    await nameField();
+    act(() => workspaceSays({ ...asAdministrator.account, logo: LOGO }));
+    expect(logo()).toHaveAttribute("src", LOGO);
+    expect(removeButton()).toBeInTheDocument();
+  });
+
+  it("shows members the workspace's logo over its name, or Ember's stock icon, with no picker", async () => {
+    serve({ ...withLogo, canAdminister: false });
+    showPage(asLinus);
+    const name = await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    const shown = screen.getByRole("img", { name: "Account logo" });
+    expect(shown).toHaveAttribute("src", LOGO);
+    expect(shown.compareDocumentPosition(name)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByLabelText("Upload logo", { exact: false })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove logo" })).toBeNull();
+
+    act(() => workspaceSays(asMember.account));
+    expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", "/logos/app-icon.png");
   });
 });
 

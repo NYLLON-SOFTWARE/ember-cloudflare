@@ -12,7 +12,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
   guestSignIn: false,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
@@ -179,5 +179,23 @@ describe(feature("auth.guest-sign-in"), () => {
     await user.click(screen.getByRole("button", { name: "Join with just a name" }));
     await user.type(screen.getByLabelText("Your name"), "Ada{Enter}");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+});
+
+describe(feature("accounts.logo"), () => {
+  const logo = "/account/logo?v=20261017120000";
+  const withLogo = { ...workspace, account: { ...workspace.account, logo }, guestSignIn: true };
+
+  it("shows the workspace's logo in place of Ember's flame, as ember-rust's sign-in page does", () => {
+    render(<SignInPage workspace={withLogo} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
+    expect(screen.queryByRole("img", { name: "Ember" })).toBeNull();
+  });
+
+  it("shows it over joining with just a name too", async () => {
+    render(<SignInPage workspace={withLogo} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await userEvent.click(screen.getByRole("button", { name: "Join with just a name" }));
+    expect(screen.getByRole("heading", { name: "Welcome to Ember" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
   });
 });

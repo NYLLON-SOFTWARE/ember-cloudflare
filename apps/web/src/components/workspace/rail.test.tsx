@@ -3,6 +3,7 @@ import { avatarSvg } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
 import { Rail, type Activity, type RailPage } from "./rail";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
@@ -159,5 +160,20 @@ describe(feature("users.avatars"), () => {
     render(railAt("home"));
     const picture = screen.getByRole("link", { name: "Your profile" }).querySelector("img")!;
     expect(picture.src).toBe(`data:image/svg+xml;base64,${btoa(avatarSvg(ada.id, ada.name))}`);
+  });
+});
+
+describe(feature("accounts.logo"), () => {
+  it("shows Ember's flame, or the workspace's logo on the page's background, as ember-rust's `.mb-rail__brand`", () => {
+    const account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
+    const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
+    const brand = screen.getByRole("link", { name: "Ember home" });
+    expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");
+    expect(brand).not.toHaveClass("bg-background");
+
+    rerender(<AccountContext value={{ ...account, logo: "/account/logo?v=20261017120000" }}>{railAt("home")}</AccountContext>);
+    expect(brand.querySelector("img")).toHaveAttribute("src", "/account/logo?v=20261017120000");
+    expect(brand.querySelector("img")).toHaveAttribute("alt", "");
+    expect(brand).toHaveClass("bg-background");
   });
 });

@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import type { Bootstrap } from "@ember/protocol";
+import { AccountLogo } from "@/components/account-logo";
 import { HelpContact } from "@/components/help-contact";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { cn } from "@/lib/utils";
@@ -49,13 +50,19 @@ export function AuthCard({ className, ...props }: ComponentProps<"section">) {
   );
 }
 
-/** ember-rust's `.mb-auth-heading`: Ember's flame, until workspaces have logos, over the title and a line under it. */
-export function AuthHeading({ title, children }: { title: string; children: ReactNode }) {
+/** ember-rust's `.mb-auth-heading`: the workspace's logo, at `logo` if it has one, over the title and a line under it. */
+export function AuthHeading({ title, logo, children }: { title: string; logo: string | null; children: ReactNode }) {
   return (
     <header className="mb-7 text-center">
-      <img src="/ember-icon.png" alt="Ember" width={48} height={48} className="mx-auto mb-5 block size-12 object-contain" />
+      <AuthLogo logo={logo} />
       <h1 className="mb-2 text-2xl leading-tight font-[650]">{title}</h1>
       <p className="text-muted-foreground">{children}</p>
     </header>
   );
+}
+
+/** The workspace's logo at `logo`, 48px wide, as ember-rust's `.mb-auth-logo`, or Ember's flame while it has none. */
+export function AuthLogo({ logo }: { logo: string | null }) {
+  if (logo) return <AccountLogo src={logo} className="mx-auto mb-5 size-12" />;
+  return <img src="/ember-icon.png" alt="Ember" width={48} height={48} className="mx-auto mb-5 block size-12 object-contain" />;
 }

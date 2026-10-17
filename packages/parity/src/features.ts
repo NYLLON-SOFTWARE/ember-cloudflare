@@ -65,7 +65,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/sessions/new.html", "crates/ember/src/controllers/sessions.rs", "crates/db/src/models/user.rs", "reference/app/controllers/sessions_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/sessions_controller_test.rb"],
-    notes: "The page is the app's own: it posts JSON to `/api/session` and opens the page asked for without reloading, which the tab keeps in sessionStorage rather than the session (`auth.require-sign-in`). It shows Ember's flame until workspace logos are ported (`accounts.logo`). A refusal focuses the password, since the email address is still filled in, and a sign-in that can't reach the server says so instead of being refused. Passwords are checked against PBKDF2 digests (`auth.first-run`), and one longer than the field's 72 characters is refused before any lookup, since nobody can have it.",
+    notes: "The page is the app's own: it posts JSON to `/api/session` and opens the page asked for without reloading, which the tab keeps in sessionStorage rather than the session (`auth.require-sign-in`). It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). A refusal focuses the password, since the email address is still filled in, and a sign-in that can't reach the server says so instead of being refused. Passwords are checked against PBKDF2 digests (`auth.first-run`), and one longer than the field's 72 characters is refused before any lookup, since nobody can have it.",
   },
   {
     id: "auth.guest-sign-in",
@@ -156,7 +156,7 @@ export const features = [
     id: "auth.sign-up",
     title: "Sign up with the join link",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "`/join/<current code>` (titled \"Sign up\") shows \"Join <workspace name>\" / \"Create your account and join the conversation.\", an optional photo (\"Your profile photo\", \"Upload photo\", \"Optional\"), Name, Email address and Password (each with its label as placeholder; the password up to 72 characters), Create account, \"Already have an account? Sign in\" and the help contact.",
       "Any other code answers 404 with an empty body, and every join URL fails with 500 while there's no workspace.",
@@ -166,7 +166,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/users.rs", "crates/views/templates/users/new.html", "reference/app/controllers/users_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/users_controller_test.rb", "parity/kro/workspace.test.mjs"],
-    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). The photo is chosen and sent as at first run (`auth.first-run`). The Worker serves the page, the app's own, only for the current code; the form posts to `/api/join/<code>` and goes home without reloading, to the last room visited (`rooms.last-visited`). Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 \"Password can't be blank.\" rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.",
+    notes: "It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). The photo is chosen and sent as at first run (`auth.first-run`). The Worker serves the page, the app's own, only for the current code; the form posts to `/api/join/<code>` and goes home without reloading, to the last room visited (`rooms.last-visited`). Before setup there's no code to match, so every link is a 404 rather than a 500. A taken email address answers 409 naming the sign-in page, which the page then loads. A blank password answers 422 \"Password can't be blank.\" rather than making an account nobody can sign in to, one longer than 72 characters answers 422 as first run's does, and a missing name or email address answers 400.",
   },
   {
     id: "auth.help-contact",
@@ -203,7 +203,7 @@ export const features = [
     id: "accounts.settings-page",
     title: "Workspace settings page",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The rail's Admin link (Workspace for members) opens `/account/edit`, titled \"Account settings\": \"Workspace settings\" / \"Manage your workspace, invitations, and people.\", with \"Ember™ version <version>\" at the foot. Anyone signed in may open it.",
       "Go Back returns to the last room visited, else your oldest room, else `/`. Administrators also get Chat bots and Custom styles buttons, with their labels showing.",
@@ -214,7 +214,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get Workspace name (`accounts.name`) and members the workspace's name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Administrators also get Hide translation buttons (`accounts.translation-buttons`) under the name, and Chat bots (`bots.list`) and Custom styles (`accounts.custom-css`) at the top bar's other end, their labels hidden at 500px wide and below as zz-ember.css hides them. The logo isn't here yet. Everyone gets the Rooms section, since anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get the logo picker (`accounts.logo`) and Workspace name (`accounts.name`), and members the workspace's logo and name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Administrators also get Hide translation buttons (`accounts.translation-buttons`) under the name, and Chat bots (`bots.list`) and Custom styles (`accounts.custom-css`) at the top bar's other end, their labels hidden at 500px wide and below as zz-ember.css hides them. Members get the Rooms section only while anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -235,7 +235,7 @@ export const features = [
     id: "accounts.logo",
     title: "Workspace logo",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Administrators pick a logo from the round picker in workspace settings (\"Upload logo\", \"Choose a workspace logo\", previewed as \"Workspace logo\"), which saves as soon as a file is chosen and shows \"Changes saved.\", or with a \"Save logo\" button without JavaScript. Members get 403.",
       "Remove logo, shown only while a logo is attached, removes it with no confirmation or notice, and the rail goes back to the Ember flame.",
@@ -247,7 +247,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/logos.rs", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/presenters/attachments.rs", "crates/views/templates/accounts/edit.html", "reference/app/controllers/accounts/logos_controller.rb", "reference/app/models/account.rb"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts/logos_controller_test.rb", "crates/ember/src/controllers/presenters/accounts/tests.rs"],
-    notes: "`/account/logo` answers Ember's stock app icon, or the 192-pixel one with `size=small`, to anyone, with ember-rust's caching, and is pushes' icon (`notifications.payload`). Its ETag is the image's own, where ember-rust's names the account's version and the icon's digest. Uploading, removing and showing a logo wait on file storage (R2), so until then pages, the manifest and the rail keep Ember's flame and stock icons.",
+    notes: "The picker is ember-rust's `.mb-logo-upload` (zz-ember.css), as the profile's is (`users.avatar-upload`), and the app needs JavaScript, so there's no Save logo. `PUT /api/account/logo` takes the logo as a form's `logo` part and `DELETE` removes it, both 403 for anyone but an administrator and answering the workspace, whose logo the page then shows. The uploader's browser makes the two variants, PNGs within 512×512 and 192×192, as it makes an avatar's, where ember-rust's server makes them with libvips, and sends them as the form's `large` and `small` parts. R2 keeps the logo as it came and the variants beside it, and `/account/logo` serves them with ember-rust's caching; none are kept for a file ember-rust can't resize, by what its bytes say it is, or one the browser can't decode or doesn't within five seconds, so those are served as the stock icon. Its ETag is the variant's own, or the stock icon's, where ember-rust's names the account's version and the icon's digest. A logo over 16 MB is refused at once with \"Logos must be 16 MB or smaller.\", where ember-rust takes one as large as any file, since the Worker reads it into memory, and without an R2 bucket a logo is refused with \"Ember isn't set up to store files\" and the stock icon is served. A new or removed logo reaches every open page at once through the workspace socket (`account.updated`), where ember-rust's show it on the next page load, and members see it over the workspace's name. Pages without a logo keep Ember's own icons (`platform.head-tags`) where ember-rust's link `/account/logo`, which serves the stock icon, and show the flame where ember-rust's do; with one, the favicon is the 192-pixel variant, where ember-rust's is the 512-pixel one. As in ember-rust, the address's version counts seconds. R2 deletes a replaced or removed logo a moment later, and one stored for a request that gave it to nobody an hour later, as it deletes avatars. Pushes' icon is `/account/logo` (`notifications.payload`).",
   },
   {
     id: "accounts.custom-css",
@@ -262,7 +262,7 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/accounts/custom_styles.rs", "crates/views/templates/accounts/custom_styles/edit.html", "crates/views/src/helpers/application.rs", "crates/views/templates/layouts/application.html", "reference/app/controllers/accounts/custom_styles_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts/custom_styles_controller_test.rb"],
-    notes: "Loaded with `GET /api/account/custom_styles` and saved with `PATCH /api/account/custom_styles`, both 403 for anyone but an administrator. Anyone else who opens the page is sent to workspace settings with the alert \"Only administrators can change the workspace\", where ember-rust answers an empty 403 page. Saving keeps the page, with the check notice, and every open tab, sign-in and join included on their next load, applies the CSS at once as the workspace socket says (`account.updated`), where ember-rust reloads the page and other tabs wait for their next one. The CSS is a `<style>`'s text after the app's own styles, so `</style>` in it can't add anything else to the page as it can in ember-rust's, and nothing is added while there's none. Unlike ember-rust, it's at most 100,000 characters (422 past that, and the field stops there), and the field is 16px on phones, where ember-rust's is 13px, so iOS doesn't zoom in on it. `account-has-logo` comes with the logo (`accounts.logo`).",
+    notes: "Loaded with `GET /api/account/custom_styles` and saved with `PATCH /api/account/custom_styles`, both 403 for anyone but an administrator. Anyone else who opens the page is sent to workspace settings with the alert \"Only administrators can change the workspace\", where ember-rust answers an empty 403 page. Saving keeps the page, with the check notice, and every open tab, sign-in and join included on their next load, applies the CSS at once as the workspace socket says (`account.updated`), where ember-rust reloads the page and other tabs wait for their next one. The CSS is a `<style>`'s text after the app's own styles, so `</style>` in it can't add anything else to the page as it can in ember-rust's, and nothing is added while there's none. Unlike ember-rust, it's at most 100,000 characters (422 past that, and the field stops there), and the field is 16px on phones, where ember-rust's is 13px, so iOS doesn't zoom in on it. The body has `account-has-logo` while the workspace has a logo (`accounts.logo`).",
   },
   {
     id: "accounts.translation-buttons",
@@ -747,7 +747,7 @@ export const features = [
     id: "rooms.invitation-card",
     title: "Welcome and invite card",
     origin: "campfire",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "The workspace's oldest room, of any kind, shows \"Welcome to Ember\" / \"To invite people to chat, share the join link below.\" while it holds 40 messages or fewer; no other room shows it. The card comes with the page, so it stays until a reload.",
       "It shows the workspace logo, or Ember's mark when there's none, and the absolute join link (`https://<host>/join/<code>`) in a read-only field labelled \"Share to invite more people\" for screen readers.",
@@ -756,7 +756,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_invitation.html", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs"],
     upstreamTests: ["parity/screens.yml", "parity/kro/workspace.test.mjs"],
-    notes: "It shows Ember's flame until workspace logos are ported (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.",
+    notes: "It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.",
   },
   {
     id: "rooms.member-only-access",
@@ -2329,7 +2329,7 @@ export const features = [
     id: "ui.rail",
     title: "Rail",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "From the top: the workspace logo (going home, titled with the workspace name), Home, DMs, Activity (a toggle button, `sidebar.activity-filter`), Search, a divider, Admin (Workspace for members), Appearance, and your avatar, a link to your profile named \"Your profile\" and titled with your name.",
       "Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.",
@@ -2337,7 +2337,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. Search is a disabled button, and the logo is always Ember's until workspaces have logos.",
+    notes: "Home, Search, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Search on search, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. The logo is the workspace's, on the page's background, or Ember's flame while there's none (`accounts.logo`).",
   },
   {
     id: "ui.room-header",
@@ -2437,7 +2437,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css", "reference/app/assets/stylesheets/flash.css", "reference/app/assets/stylesheets/animation.css", "reference/app/javascript/controllers/element_removal_controller.js", "crates/ember/src/controllers/accounts.rs", "crates/ember/src/controllers/accounts/custom_styles.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/ember/src/controllers/rooms.rs", "crates/ember/src/controllers/sessions.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/screens.yml"],
-    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. Saving the workspace's name says \"Changes saved.\", and saving custom styles or your profile \"✓\"; the logo's notice and the photo's come with them (`accounts.logo`, `users.avatar-upload`). The alerts so far are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room, or saving the workspace's name or your profile, failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
+    notes: "Notices and alerts show one at a time, over any page, and a page that loads another in its place can leave one for it, as ember-rust's redirects carry theirs. Saving the workspace's name or logo says \"Changes saved.\", saving custom styles or your profile \"✓\", and a new profile photo \"It may take up to 30 minutes to change everywhere.\" The alerts so far are a refused sign-in's, \"Room not found or inaccessible\" from a room or its settings, and why creating or saving a room, or saving the workspace's name or your profile, failed (\"Couldn't reach Ember. Check your connection and try again.\" when the server can't be reached). Unlike ember-rust's, it shows under reduced motion, at once and without fading, until the fade would have ended, where Campfire's reset cuts the animation to nothing so ember-rust's never shows; it grows to fit its text, up to the window's width less 24px, where ember-rust's stops at half the window's width and wraps early on a phone; and it keeps 12px below the header, and centered over the page, where they make room for a notch.",
   },
   {
     id: "ui.accessibility",
@@ -2458,7 +2458,7 @@ export const features = [
     id: "ui.icons",
     title: "Ember's icons",
     origin: "ember",
-    status: "partial",
+    status: "ported",
     behaviors: [
       "Rail, drawer and dialog icons are ember-rust's own inline SVGs (24×24, stroke 1.7): home, messages, bell, search, settings, menu, close and a few more.",
       "Room icons and message actions come from a pinned catalog of 1,869 Lucide icons, and Campfire's SVGs remain for bell levels, boosts, attachments, copy, trash and similar.",
@@ -2466,7 +2466,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/icons.html", "crates/assets/overrides/lucide/catalog.json", "crates/assets/overrides/logos"],
     upstreamTests: ["crates/assets/overrides/basecoat/test/lucide.test.mjs", "parity/kro/workspace.test.mjs"],
-    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (only the icons in use, each checked against ember-rust's catalog), Campfire's SVGs, and the flame on the rail and sign-in page. Room icons wait for rooms.icons, and the rail can't show a workspace logo until accounts.logo is ported.",
+    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (the app's own, each checked against ember-rust's catalog, and every room icon from that catalog, `rooms.icons`), Campfire's SVGs, and the flame on the rail and sign-in page, or the workspace's logo while it has one (`accounts.logo`).",
   },
 
   // Platform
@@ -2611,7 +2611,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/pwa/manifest.json", "crates/ember/src/controllers/pwa.rs", "crates/ember/src/controllers/presenters/accounts.rs", "crates/db/src/models/account.rs", "reference/app/views/pwa/manifest.json.erb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "parity/kro/first-run.test.mjs"],
-    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Until workspaces have logos (`accounts.logo`), it lists Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile goes home, to the last room visited, until profiles are ported (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
+    notes: "The app is named after the workspace, which first run names \"Ember\", and this port never shipped as Campfire or Matchbox (`platform.rename-compat`). Its icons are the workspace's logo, the 192-pixel variant first, as ember-rust's are (`accounts.logo`), or while there's none, Ember's stock icons at fixed addresses, `/logos/app-icon-192.png` and `/logos/app-icon.png`, where ember-rust's list `/account/logo`, which serves them. The description is this project's own, \"A real-time chat app that runs entirely on Cloudflare.\", and there are no screenshots yet, since ember-rust's show Campfire's Android app. New chat room opens the New room page, and My profile your profile (`users.profile`). `/webmanifest` answers JSON whatever the request accepts.",
   },
   {
     id: "platform.head-tags",
@@ -2624,7 +2624,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "reference/app/views/layouts/application.html.erb"],
     upstreamTests: ["crates/views/tests/parity_a.rs"],
-    notes: "The favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint; the Apple touch icon is the original. Both are Ember's until workspaces have logos (`accounts.logo`). The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.",
+    notes: "While the workspace has no logo, the favicon is the stock app icon scaled to 48px, because the full-size original delayed a room's largest paint, and the Apple touch icon is the original. Once the app has loaded, both are the workspace's logo while it has one, as in ember-rust (`accounts.logo`), though the page the server sends names Ember's, and the favicon is its 192-pixel variant for the same reason, where ember-rust's is the 512-pixel one. The Set up Ember page shares the app's head, so its theme color follows the appearance, where ember-rust's Basecoat layout keeps #09090b in dark. Pages also carry `mobile-web-app-capable`, which ember-rust's don't: Chrome warns on every page that has only Apple's.",
   },
   {
     id: "platform.limits",

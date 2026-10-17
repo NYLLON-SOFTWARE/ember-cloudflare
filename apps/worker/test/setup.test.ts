@@ -24,7 +24,7 @@ describe(feature("auth.first-run"), () => {
       setup: "pending",
       setupProtected: false,
       guestSignIn: true,
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
       helpContact: null,
       version: "0.1",
       // The suite's key pair's public key, uncompressed, without padding.

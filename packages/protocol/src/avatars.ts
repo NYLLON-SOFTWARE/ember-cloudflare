@@ -110,3 +110,18 @@ export const MAX_AVATAR_SIZE = 16_000_000;
 
 /** What the Worker's 413 and the app say of a larger one. */
 export const AVATAR_TOO_LARGE = "Photos must be 16 MB or smaller.";
+
+// The workspace's logo, which administrators upload as people upload avatars, and the Worker keeps in
+// R2 with the two variants ember-rust serves of it, which the uploader's browser makes too.
+
+/** Where the workspace's logo goes: `PUT` uploads one, as a form's `logo`, `large` and `small`, and `DELETE` removes it. */
+export const LOGO_PATH = "/api/account/logo";
+
+/** The boxes a logo's variants fit within, as ember-rust's `:large` and `:small` sizes scale it (logos.rs). */
+export const LOGO_BOXES = { large: 512, small: 192 } as const;
+
+/** The largest logo Ember takes, as for an avatar, where ember-rust takes a file of any size. */
+export const MAX_LOGO_SIZE = MAX_AVATAR_SIZE;
+
+/** What the Worker's 413 and the app say of a larger one. */
+export const LOGO_TOO_LARGE = "Logos must be 16 MB or smaller.";

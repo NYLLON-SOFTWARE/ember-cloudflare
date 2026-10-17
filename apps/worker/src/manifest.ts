@@ -11,16 +11,18 @@ import { ACCOUNT_NAME, workspace } from "./workspace";
 const DESCRIPTION = "A real-time chat app that runs entirely on Cloudflare.";
 
 /**
- * The manifest for a workspace named `name`. Its icons are Ember's stock ones until workspaces have
- * logos, and it lists none of ember-rust's screenshots, which show Campfire's Android app.
+ * The manifest for a workspace named `name` whose logo is at `logo`. Its icons are the logo's variants,
+ * as ember-rust's are, or Ember's stock icons while there's no logo, and it lists none of ember-rust's
+ * screenshots, which show Campfire's Android app.
  */
-export function webManifest(name: string) {
+export function webManifest(name: string, logo: string | null) {
+  const [small, large] = logo ? [`${logo}&size=small`, logo] : ["/logos/app-icon-192.png", "/logos/app-icon.png"];
   return {
     name,
     icons: [
-      { src: "/logos/app-icon-192.png", type: "image/png", sizes: "192x192" },
-      { src: "/logos/app-icon.png", type: "image/png", sizes: "512x512" },
-      { src: "/logos/app-icon.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
+      { src: small, type: "image/png", sizes: "192x192" },
+      { src: large, type: "image/png", sizes: "512x512" },
+      { src: large, type: "image/png", sizes: "512x512", purpose: "maskable" },
     ],
     start_url: "/",
     display: "standalone",
@@ -48,7 +50,7 @@ export async function manifest(env: Env, format: string): Promise<Response> {
   // As in ember-rust, which answers only JSON.
   if (format !== "" && format !== "json") return new Response(null, { status: 406 });
   const account = await workspace(env).account();
-  return new Response(JSON.stringify(webManifest(account?.name ?? ACCOUNT_NAME)), {
+  return new Response(JSON.stringify(webManifest(account?.name ?? ACCOUNT_NAME, account?.logo ?? null)), {
     // Revalidated every time, so an installed app finds a renamed workspace or a new logo.
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-cache" },
   });

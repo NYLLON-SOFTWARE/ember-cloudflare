@@ -9,7 +9,7 @@ import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { BotsPage } from "./bots-page";
 
-const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false };
+const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
 
 const BUILD_BOT: Bot = {
   id: "0mgk3x2a9b4c5e",
