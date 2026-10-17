@@ -27,21 +27,28 @@ const browserList = SUPPORTED_BROWSERS.map(
 /**
  * ember-rust's `translation_button(ctx, "incompatible_browser_messsage")` (crates/views/src/helpers/translations.rs):
  * Campfire's globe on a `<details>` whose summary Tab skips, listing the message in seven languages.
- * Escape or a click elsewhere closes it, as Campfire's popup_controller.js does.
+ * Escape or a click elsewhere closes it, as Campfire's popup_controller.js does. The summary opens
+ * and closes it too, by its `open` attribute, as Internet Explorer has no details element, and the
+ * list hides itself while that's missing.
  */
 const globe = `<details class="translations">
               <summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>
               <div class="language-list-menu"><dl class="language-list">${TRANSLATIONS.incompatible_browser_messsage.map(([flag, text]) => `<dt>${flag}</dt><dd>${escapeHtml(text)}</dd>`).join("")}</dl></div>
             </details>`;
 
-const closesGlobe = `<script>
+const togglesGlobe = `<script>
       (function () {
         var globe = document.querySelector(".translations");
+        globe.querySelector("summary").addEventListener("click", function (event) {
+          event.preventDefault();
+          if (globe.hasAttribute("open")) globe.removeAttribute("open");
+          else globe.setAttribute("open", "");
+        });
         globe.addEventListener("keydown", function (event) {
-          if (event.key === "Escape" || event.keyCode === 27) globe.open = false;
+          if (event.key === "Escape" || event.keyCode === 27) globe.removeAttribute("open");
         });
         document.addEventListener("click", function (event) {
-          if (!globe.contains(event.target)) globe.open = false;
+          if (!globe.contains(event.target)) globe.removeAttribute("open");
         });
       })();
     </script>`;
@@ -51,7 +58,8 @@ const closesGlobe = `<script>
  * does. Its styles are the palette (zz-ember.css's canvas, surface, border and ink, as index.css has
  * them), the signed-out panel from zz-ember.css, Campfire's `.browser-list` from signup.css, and the
  * globe as the app draws it (translation-button.tsx), with margins for the gaps, which older browsers
- * lay out, and the list kept to a narrow screen by its own width.
+ * lay out, and the list kept to a narrow screen by its own width, and 40ch wide in Internet Explorer,
+ * which has no `max-content`.
  */
 const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 <html lang="en">
@@ -118,10 +126,12 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
       .translations summary::-webkit-details-marker { display: none; }
       .translations img { display: block; width: 1.3em; height: 20px; }
       .dark .translations summary { background: #171717; border-color: #343434; }
+      .translations:not([open]) .language-list-menu { display: none; }
       .language-list-menu {
         position: absolute;
         z-index: 3;
         margin: 0 1ch;
+        width: 40ch;
         width: max-content;
         max-width: 40ch;
         overflow: hidden;
@@ -169,7 +179,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
         </div>
       </div>
     </main>
-    ${translations ? closesGlobe : ""}
+    ${translations ? togglesGlobe : ""}
   </body>
 </html>
 `;

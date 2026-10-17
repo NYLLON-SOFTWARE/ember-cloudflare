@@ -51,7 +51,11 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await upgrade.goto("/");
     const upgradeGlobe = upgrade.locator("summary", { hasText: "Translate" });
     await expect.poll(() => upgradeGlobe.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    // Hidden by its own styles while it's closed too, as Internet Explorer shows a closed details element's list.
+    const upgradeList = upgrade.locator(".language-list-menu");
+    await expect.poll(() => upgradeList.evaluate((list) => getComputedStyle(list).display)).toBe("none");
     await upgradeGlobe.click();
+    await expect.poll(() => upgradeList.evaluate((list) => getComputedStyle(list).display)).toBe("block");
     const upgradeLanguages = upgrade.locator("details[open] dl");
     await expect(upgradeLanguages.locator("dt")).toHaveText(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
     await expect(upgradeLanguages.locator("dd").nth(2)).toContainText("Veuillez utiliser l'un des navigateurs");
