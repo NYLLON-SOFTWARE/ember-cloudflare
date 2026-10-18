@@ -285,6 +285,20 @@ describe(feature("messages.history"), () => {
     expect(onLoadOlder).toHaveBeenCalledTimes(2);
   });
 
+  it("loads nothing for what the browser saw of the timeline before it changed", () => {
+    // The browser looks while the room is still connecting, at the top of an empty timeline.
+    FakeIntersectionObserver.inView.top = true;
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(list({ status: "connecting", messages: [] }, onLoadOlder));
+    const [sawEmpty] = FakeIntersectionObserver.observers;
+
+    // The room's newest page comes before the browser has said what it saw, which the timeline shows at its end.
+    FakeIntersectionObserver.inView.top = false;
+    rerender(list({ messages: messages(1, 40), hasMore: true }, onLoadOlder));
+    act(() => sawEmpty!.callback([{ isIntersecting: true }]));
+    expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+
   it("says when it's loading earlier messages, and doesn't ask again meanwhile", () => {
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m2")], hasMore: true, loadingOlder: true }, onLoadOlder));

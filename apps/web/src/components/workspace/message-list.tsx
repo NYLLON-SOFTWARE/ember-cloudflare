@@ -174,16 +174,20 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
     if (!atEnd.current) setBehind(true);
   }, [state.arrivals]);
 
-  const loadOlder = useEffectEvent(() => state.hasMore && !state.loadingOlder && onLoadOlder());
-  const loadNewer = useEffectEvent(() => state.hasNewer && !state.loadingNewer && onLoadNewer());
+  // What an observer saw is about the timeline it was made for: the browser can tell it after the timeline has
+  // changed, as when a room's first messages come before it has looked, and the observer made for the new one
+  // says whether its end is near.
+  const loadOlder = useEffectEvent((shown: RoomState["messages"]) => shown === state.messages && state.hasMore && !state.loadingOlder && onLoadOlder());
+  const loadNewer = useEffectEvent((shown: RoomState["messages"]) => shown === state.messages && state.hasNewer && !state.loadingNewer && onLoadNewer());
   useEffect(() => {
     // Load the page beyond either end of the timeline whenever that end comes near the view, whether by
     // scrolling, a resize, or a window tall enough to show every loaded message. Observing afresh after
     // each change asks again while the end is still near, but a failed page changes nothing, so it waits
     // for the reader instead of retrying in a loop.
+    const shown = state.messages;
     const root = scroller.current;
-    const older = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadOlder(), { root, rootMargin: `${PAGE_AHEAD_PX}px 0px 0px 0px` });
-    const newer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadNewer(), { root, rootMargin: `0px 0px ${PAGE_AHEAD_PX}px 0px` });
+    const older = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadOlder(shown), { root, rootMargin: `${PAGE_AHEAD_PX}px 0px 0px 0px` });
+    const newer = new IntersectionObserver(([entry]) => entry?.isIntersecting && loadNewer(shown), { root, rootMargin: `0px 0px ${PAGE_AHEAD_PX}px 0px` });
     older.observe(top.current!);
     newer.observe(bottom.current!);
     return () => {
