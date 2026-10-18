@@ -229,6 +229,8 @@ export async function measureRendering(page: Page, roomUrl: string, reader: Sess
   await page.goto(roomUrl);
   await page.waitForFunction(() => window.__emberPerf.firstMessageAt !== undefined, { timeout: 30_000 });
   const roomReadyMs = Math.round(await page.evaluate(() => window.__emberPerf.firstMessageAt!));
+  // Paging starts from the room's first page drawn whole: the room draws its newest messages first.
+  await page.waitForSelector(`${TIMELINE}:not([aria-busy])`, { timeout: 30_000 });
 
   const loadOlder: number[] = [];
   const bursts: BurstResult[] = [];

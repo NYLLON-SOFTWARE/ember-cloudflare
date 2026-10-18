@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
+import { createRoot } from "react-dom/client";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -134,6 +135,90 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+/** The ids of the messages `records` put in the timeline, in the order they went in. */
+const drawnBy = (records: MutationRecord[]) =>
+  records.flatMap((record) => [...record.addedNodes].flatMap((node) => (node instanceof HTMLElement && node.dataset.messageId ? [node.dataset.messageId] : [])));
+
+/** The ids of the messages put in the timeline since `observer` last looked, in the order they went in. */
+const drawnSince = (observer: MutationObserver) => drawnBy(observer.takeRecords());
+
+const ids = (from: number, to: number) => messages(from, to).map((m) => m.id);
+
+describe(feature("rooms.show"), () => {
+  /** The timeline of a room that's opening, watched for the messages its first page puts in it. */
+  function opening() {
+    const view = render(list({ status: "connecting", messages: [] }));
+    const observer = new MutationObserver(() => {});
+    observer.observe(screen.getByRole("log"), { childList: true, subtree: true });
+    onTestFinished(() => observer.disconnect());
+    return { ...view, observer };
+  }
+
+  it("draws a room's first page newest first where those fill the view, then the rest above them", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(1_000);
+    const { rerender, observer } = opening();
+    rerender(list({ messages: messages(1, 40), focus: { messageId: null } }));
+    expect(drawnSince(observer)).toEqual([...ids(26, 40), ...ids(1, 25)]);
+    expect([...screen.getByRole("log").querySelectorAll<HTMLElement>("[data-message-id]")].map((row) => row.dataset.messageId)).toEqual(ids(1, 40));
+    expect(screen.getByRole("log")).not.toHaveAttribute("aria-busy");
+  });
+
+  it("draws a permalink's page whole, with its message in the middle", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(1_000);
+    const { rerender, observer } = opening();
+    rerender(list({ messages: messages(1, 40), focus: { messageId: "m20" } }));
+    expect(drawnSince(observer)).toEqual(ids(1, 40));
+  });
+
+  it("draws messages as they come once the timeline has shown some, however many come", () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(1_000);
+    const { rerender, observer } = opening();
+    rerender(list({ messages: messages(1, 3) }));
+    expect(drawnSince(observer)).toEqual(ids(1, 3));
+    rerender(list({ messages: messages(1, 20) }));
+    expect(drawnSince(observer)).toEqual(ids(4, 20));
+  });
+
+  /**
+   * Opens a room's first page in a view `viewHeight` px tall, where its newest messages are `height` px tall, as a
+   * browser renders it: outside act(), which renders everything before it returns, and with laying the messages out
+   * taking long enough that React's scheduler hands the main thread back after, as it does in a browser. Answers
+   * the messages put in the timeline at each turn of the event loop, where a browser can paint.
+   */
+  async function drawnOpeningInBrowser(height: number, viewHeight: number) {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => {
+      const laidOut = performance.now() + 20;
+      while (performance.now() < laidOut);
+      return height;
+    });
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    onTestFinished(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+    root.render(list({ status: "connecting", messages: [] }));
+    const log = await vi.waitFor(() => screen.getByRole("log"));
+    setViewHeight(log, viewHeight);
+    const turns: string[][] = [];
+    const observer = new MutationObserver((records) => turns.push(drawnBy(records)));
+    observer.observe(log, { childList: true, subtree: true });
+    onTestFinished(() => observer.disconnect());
+    root.render(list({ messages: messages(1, 40), focus: { messageId: null } }));
+    await vi.waitFor(() => expect(log).not.toHaveAttribute("aria-busy"), { timeout: 5_000 });
+    return turns.filter((drawn) => drawn.length > 0);
+  }
+
+  it("lets the browser paint a room's newest messages before it draws the rest", async () => {
+    expect(await drawnOpeningInBrowser(1_000, 400)).toEqual([ids(26, 40), ids(1, 25)]);
+  });
+
+  it("draws a room's whole first page before the browser paints where its newest messages don't fill the view", async () => {
+    expect(await drawnOpeningInBrowser(300, 800)).toEqual([[...ids(26, 40), ...ids(1, 25)]]);
+  });
 });
 
 describe(feature("ui.empty-room"), () => {
