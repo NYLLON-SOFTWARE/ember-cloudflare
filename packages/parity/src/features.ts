@@ -2324,6 +2324,8 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/zz-ember.css"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
+    notes:
+      "The pages few visits need, a room's forms and settings, a DM's settings, the workspace's settings and Custom CSS, the bot pages, your profile and push subscriptions, someone's page and search, load apart from the rest of the app: once the rooms have, while the browser is idle, or at once when the app opens at one of their addresses. One opened before then says Loading… until they have.",
   },
   {
     id: "ui.rail",

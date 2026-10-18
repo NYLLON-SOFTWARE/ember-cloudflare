@@ -1,4 +1,5 @@
-import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings, type UserId } from "@ember/protocol";
+import type { UserId } from "@ember/protocol";
+import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings } from "@ember/protocol/bots";
 import { credentialsOf } from "../auth";
 import { userFormOf, userFormPhoto } from "../avatars";
 import type { Env } from "../env";

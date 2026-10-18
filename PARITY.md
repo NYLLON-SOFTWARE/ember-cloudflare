@@ -2272,7 +2272,7 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 
 | Feature | ID | Origin | Status | Tests |
 |---|---|---|---|---|
-| Workspace layout | `ui.layout` | Ember | ✅ Ported | E2E: [layout](e2e/tests/features/layout.spec.ts) |
+| Workspace layout | `ui.layout` | Ember | ✅ Ported | Web: [pages](apps/web/src/components/workspace/pages.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Rail | `ui.rail` | Ember | ✅ Ported | Worker: [account](apps/worker/test/account.test.ts)<br>Web: [rail](apps/web/src/components/workspace/rail.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx) |
 | Room header | `ui.room-header` | Ember | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
 | Conversations drawer on phones | `ui.mobile-drawer` | Ember | ✅ Ported | Web: [room-header](apps/web/src/components/workspace/room-header.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx)<br>E2E: [layout](e2e/tests/features/layout.spec.ts) |
@@ -2292,6 +2292,8 @@ ember-rust tests: [`reference/test/system/composer_test.rb`](https://github.com/
 - Signed in, the page is the rail (80px), the conversations sidebar (280px, or 230px from 901 to 1100px wide) and the room, under a header at least 60px tall. Text is 14px with a 1.5 line height.
 - Light and dark palettes: canvas #fff / #171717, surface #fafafa / #1c1c1c, hover #f2f2f2 / #282828, border #e5e5e5 / #343434, muted #737373 / #a3a3a3, ink #171717 / #f5f5f5.
 - Nothing scrolls sideways from 320px to 1440px wide, and the composer stays on screen at 390×420.
+
+Note: The pages few visits need, a room's forms and settings, a DM's settings, the workspace's settings and Custom CSS, the bot pages, your profile and push subscriptions, someone's page and search, load apart from the rest of the app: once the rooms have, while the browser is idle, or at once when the app opens at one of their addresses. One opened before then says Loading… until they have.
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 

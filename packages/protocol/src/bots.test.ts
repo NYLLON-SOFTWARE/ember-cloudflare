@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { botMessagesPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./index";
+import { botMessagesPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./bots";
 
 describe(feature("bots.create-edit"), () => {
   it("takes the name as typed and the webhook URL trimmed, leaving out what isn't sent", () => {
