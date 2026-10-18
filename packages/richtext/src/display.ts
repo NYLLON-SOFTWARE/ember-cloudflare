@@ -11,7 +11,7 @@ import { removeSoloUnfurledLinkText } from "./previews";
 import { truncate } from "./ruby";
 import { AUTO_LINK, scrub, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
-import { append, createElement, createFragment, createText, getAttr, isHtmlElement, type Element, type Node } from "./tree";
+import { append, createElement, createFragment, createText, getAttr, isHtmlElement, type Element, type Fragment, type Node } from "./tree";
 
 /** A message as it shows: text, the elements it's formatted with, the people it mentions, and its link previews. */
 export type DisplayNode = DisplayText | DisplayElement | DisplayMention | DisplayPreview;
@@ -77,11 +77,18 @@ export function displayBody(parse: HtmlParser, html: string, plainText: string, 
   const stored = parse(html, BODY);
   removeSoloUnfurledLinkText(parse, stored, plainText, host);
   scrub(stored, DISPLAYED, (element) => isMention(element) || isPreview(element));
-  return linked(parse, toHtml(stored, { escapeAttributeBrackets: true }), host);
+  const shown = toHtml(stored, { escapeAttributeBrackets: true });
+  // What serializes back to the body as stored lost nothing to either step, since what they take out
+  // would be missing from it, so it's still the tree parsing the body gave, as parsing it again would.
+  return linked(parse, shown, host, shown === html ? stored : undefined);
 }
 
-/** Markup serialized as `presentMessage` serializes it, as it shows, its addresses linked. */
-function linked(parse: HtmlParser, html: string, host: string): DisplayNode[] {
+/**
+ * Markup serialized as `presentMessage` serializes it, as it shows, its addresses linked. `parsed` is
+ * the markup parsed, where that's been done, for markup with no address to link, as most messages'
+ * is, which then needn't be parsed again.
+ */
+function linked(parse: HtmlParser, html: string, host: string, parsed?: Fragment): DisplayNode[] {
   const displayed = (node: Node): DisplayNode[] => {
     if (node.kind === "text") return [{ kind: "text", value: node.value }];
     // Elements nothing allows can't come out of linking, but would go as `scrub` takes them out
@@ -96,7 +103,8 @@ function linked(parse: HtmlParser, html: string, host: string): DisplayNode[] {
     const attrs = Object.fromEntries(node.attrs.filter(({ name }) => DISPLAYED.attributes.has(name)).map(({ name, value }) => [name, value]));
     return [{ kind: "element", name: node.name, attrs, children }];
   };
-  return parse(autoLink(parse, html), BODY).children.flatMap(displayed);
+  const autoLinked = autoLink(parse, html);
+  return (parsed !== undefined && autoLinked === html ? parsed : parse(autoLinked, BODY)).children.flatMap(displayed);
 }
 
 /**

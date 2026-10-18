@@ -32,6 +32,13 @@ function markupOf(nodes: DisplayNode[]): string {
     .join("");
 }
 
+/** What shows for `html`, and the markup parsed to show it, in order. */
+function shownWithParses(html: string): { shown: DisplayNode[]; parsed: string[] } {
+  const parsed: string[] = [];
+  const shown = displayBody((markup, context) => (parsed.push(markup), parseHtml(markup, context)), html, "", "");
+  return { shown, parsed };
+}
+
 /** How a corpus body is stored, or undefined for one that's refused, or that Rails raised on. */
 function storedForm(body: string): PreparedBody | undefined {
   try {
@@ -86,6 +93,35 @@ describe(feature("messages.rich-text"), () => {
     expect(shown('<svg><a href="https://example.com">x</a></svg><math><mi>y</mi></math>')).toBe("");
     expect(shown('<pre data-language="ruby" data-turbo="true">puts 1</pre>')).toBe('<pre data-language="ruby">puts 1</pre>');
     expect(shown("<p>a<!-- hidden -->b</p>")).toBe("<p>ab</p>");
+  });
+
+  it("parses a body stored as it shows once, and again once something's taken out of it or linked", () => {
+    for (const html of ["<p>Morning! Did the deploy go out?</p>", '<p>See <a href="https://example.com">the docs</a></p>', "<ul><li>a<br>b</li></ul>"]) {
+      expect(shownWithParses(html).parsed, html).toEqual([html]);
+    }
+    expect(shownWithParses('<p class="x">Hi</p>').parsed).toEqual(['<p class="x">Hi</p>', "<p>Hi</p>"]);
+    expect(shownWithParses("<p>See https://example.com</p>").parsed.at(-1)).toBe(
+      '<p>See <a target="_blank" href="https://example.com">https://example.com</a></p>',
+    );
+  });
+
+  it("shows every corpus body it parses once just as parsing it again would, prepared or not", { timeout: 30_000 }, () => {
+    const differences: string[] = [];
+    for (const { name, body } of corpus.cases) {
+      for (const html of [body, storedForm(body)?.html ?? ""]) {
+        let once;
+        try {
+          once = shownWithParses(html);
+        } catch (error) {
+          if (error instanceof ParseLimitError || error instanceof RenderError) continue;
+          throw error;
+        }
+        if (once.parsed.length > 1) continue;
+        // A comment, which nothing shows, keeps the body from serializing back as it's stored, so it's parsed again.
+        if (JSON.stringify(once.shown) !== JSON.stringify(display(`${html}<!---->`))) differences.push(name);
+      }
+    }
+    expect(differences).toEqual([]);
   });
 
   it("shows no corpus body unsafely, prepared or not", { timeout: 30_000 }, () => {
