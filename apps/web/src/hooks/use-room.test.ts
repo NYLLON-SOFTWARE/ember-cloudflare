@@ -6,7 +6,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { useRoom } from "./use-room";
+import { openRoomSocketAhead, useRoom } from "./use-room";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
 
@@ -23,7 +23,7 @@ class FakeSocket {
   readyState = FakeSocket.CONNECTING;
   sent: Array<Record<string, unknown>> = [];
   closedWith: number | undefined;
-  onopen: (() => void) | null = null;
+  onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
 
@@ -38,25 +38,25 @@ class FakeSocket {
   close(code?: number) {
     this.closedWith = code;
     this.readyState = FakeSocket.CLOSED;
-    this.onclose?.({ code: code ?? 1005 });
+    this.onclose?.(new CloseEvent("close", { code: code ?? 1005 }));
   }
 
   open() {
     act(() => {
       this.readyState = FakeSocket.OPEN;
-      this.onopen?.();
+      this.onopen?.(new Event("open"));
     });
   }
 
   receive(frame: ServerFrame) {
-    act(() => this.onmessage?.({ data: JSON.stringify(frame) }));
+    act(() => this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(frame) })));
   }
 
   /** Closes as the network or the room does: 1006 when the connection drops. */
   drop(code = 1006) {
     act(() => {
       this.readyState = FakeSocket.CLOSED;
-      this.onclose?.({ code });
+      this.onclose?.(new CloseEvent("close", { code }));
     });
   }
 
@@ -411,6 +411,30 @@ describe(feature("realtime.reconnect"), () => {
     expect(socket().closedWith).toBe(1000);
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
+  });
+});
+
+describe(feature("rooms.show"), () => {
+  it("takes the room's socket opened ahead of it, with what the room sent by then", async () => {
+    openRoomSocketAhead("/rooms/general");
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [message("m1")], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
+    const { result } = renderHook(() => useRoom("general", ada, () => {}));
+    await act(async () => {});
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(result.current.state.status).toBe("open");
+    expect(result.current.state.messages.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("takes one opened ahead at a message's permalink as it opens there", () => {
+    openRoomSocketAhead("/rooms/general/@m1");
+    renderHook(() => useRoom("general", ada, () => {}, "m1"));
+    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m1"]);
+  });
+
+  it("opens none ahead for a page that shows no room", () => {
+    for (const path of ["/", "/rooms", "/rooms/opens/general", "/rooms/opens/general/edit", "/account/edit"]) openRoomSocketAhead(path);
+    expect(FakeSocket.all).toEqual([]);
   });
 });
 

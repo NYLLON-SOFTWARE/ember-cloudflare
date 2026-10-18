@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OFFLINE_AFTER_MS, reconnectingSocket, type ReconnectingSocket, type ReconnectingSocketOptions, type SocketStatus } from "./reconnecting-socket";
+import { OFFLINE_AFTER_MS, openAhead, reconnectingSocket, type ReconnectingSocket, type ReconnectingSocketOptions, type SocketStatus } from "./reconnecting-socket";
 
 /** Stands in for the browser's WebSocket; tests play the server and the network. */
 class FakeSocket {
@@ -12,9 +12,9 @@ class FakeSocket {
   readyState = FakeSocket.CONNECTING;
   sent: string[] = [];
   closedWith: number | undefined;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: ((event: { code: number }) => void) | null = null;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
 
   constructor(readonly url: string) {
     FakeSocket.all.push(this);
@@ -27,22 +27,22 @@ class FakeSocket {
   close(code?: number) {
     this.closedWith = code ?? 1005;
     this.readyState = FakeSocket.CLOSED;
-    this.onclose?.({ code: this.closedWith });
+    this.onclose?.(new CloseEvent("close", { code: this.closedWith }));
   }
 
   open() {
     this.readyState = FakeSocket.OPEN;
-    this.onopen?.();
+    this.onopen?.(new Event("open"));
   }
 
   receive(data: string) {
-    this.onmessage?.({ data });
+    this.onmessage?.(new MessageEvent("message", { data }));
   }
 
   /** Closes as the network or the server does: 1006 when the connection drops. */
   drop(code = 1006) {
     this.readyState = FakeSocket.CLOSED;
-    this.onclose?.({ code });
+    this.onclose?.(new CloseEvent("close", { code }));
   }
 
   pings() {
@@ -333,5 +333,84 @@ describe(feature("realtime.reconnect"), () => {
     expect(heard.offline).toEqual([]);
     wait(1);
     expect(heard.offline).toEqual([true]);
+  });
+});
+
+describe(feature("rooms.show"), () => {
+  it("takes the socket opened ahead to its address, hearing what it heard before it was taken, in order", async () => {
+    openAhead("ws://localhost/socket");
+    socket().open();
+    socket().receive("welcome");
+    socket().receive("who's here");
+    const { heard } = connect();
+    expect(FakeSocket.all).toHaveLength(1);
+    await Promise.resolve();
+    expect(heard.messages).toEqual(["welcome", "who's here"]);
+    socket().receive("a message");
+    expect(heard.messages).toEqual(["welcome", "who's here", "a message"]);
+    // It had opened, so it's checked on as any open socket is.
+    wait(25_000);
+    expect(socket().pings()).toBe(1);
+  });
+
+  it("hears that a socket opened ahead closed before it was taken, and connects again", async () => {
+    openAhead("ws://localhost/socket");
+    socket().drop(4004);
+    const closes: Array<[number, boolean]> = [];
+    connect({ onClose: (code, opened) => (closes.push([code, opened]), true) });
+    await Promise.resolve();
+    expect(closes).toEqual([[4004, false]]);
+    wait(500);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it("hears nothing more of what a socket opened ahead heard once it drops it", async () => {
+    openAhead("ws://localhost/socket");
+    socket().open();
+    socket().receive("someone else's welcome");
+    socket().receive("their message");
+    const heard: string[] = [];
+    const { live } = connect({
+      onMessage: (data) => {
+        heard.push(data);
+        live.hold();
+      },
+    });
+    await Promise.resolve();
+    expect(heard).toEqual(["someone else's welcome"]);
+    expect(socket().closedWith).toBe(1000);
+  });
+
+  it("hears none of what a socket opened ahead heard once it's closed", async () => {
+    openAhead("ws://localhost/socket");
+    socket().open();
+    socket().receive("welcome");
+    const { live, heard } = connect();
+    live.close();
+    await Promise.resolve();
+    expect(heard.messages).toEqual([]);
+  });
+
+  it("opens a socket of its own for another address, and the one opened ahead closes once nothing has taken it for 10 seconds", () => {
+    openAhead("ws://localhost/elsewhere");
+    connect();
+    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost/elsewhere", "ws://localhost/socket"]);
+    const ahead = FakeSocket.all[0]!;
+    wait(9_999);
+    expect(ahead.closedWith).toBeUndefined();
+    wait(1);
+    expect(ahead.closedWith).toBe(1000);
+  });
+
+  it("closes a socket opened ahead once another is, or when told to, unless it's been taken", () => {
+    openAhead("ws://localhost/a");
+    const closeB = openAhead("ws://localhost/b");
+    expect(FakeSocket.all[0]!.closedWith).toBe(1000);
+    closeB();
+    expect(FakeSocket.all[1]!.closedWith).toBe(1000);
+    const closeTaken = openAhead("ws://localhost/socket");
+    connect();
+    closeTaken();
+    expect(socket().closedWith).toBeUndefined();
   });
 });

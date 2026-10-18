@@ -10,6 +10,7 @@ import { AccountContext } from "@/hooks/use-account";
 import { useAccountLogo } from "@/hooks/use-account-logo";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
 import { PushProvider } from "@/hooks/use-push";
+import { openRoomSocketAhead } from "@/hooks/use-room";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
@@ -54,6 +55,7 @@ export function App() {
     forgetStoredSession();
     let stopped = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let letGoOfRoom = () => {};
     const ask = (attempt: number) =>
       fetchBootstrap().then(
         ({ user, ...workspace }) => {
@@ -71,6 +73,8 @@ export function App() {
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }
+          // The room the page shows connects now, while the workspace loads, rather than once it shows.
+          if (user && workspace.setup === "complete") letGoOfRoom = openRoomSocketAhead(location.pathname);
           setMe(user);
           setWorkspace(workspace);
         },
@@ -83,6 +87,7 @@ export function App() {
     return () => {
       stopped = true;
       clearTimeout(retry);
+      letGoOfRoom();
     };
   }, []);
 

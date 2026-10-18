@@ -7,6 +7,7 @@ import {
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
   parseServerFrame,
+  workspacePageOf,
   type ClientFrame,
   type Me,
   type Message,
@@ -15,7 +16,7 @@ import {
 } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
-import { reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
+import { openAhead, reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
@@ -42,6 +43,18 @@ export const RefusedUnboosts = createContext(0);
  * takes, or more markup than a frame carries, which only so much formatting makes.
  */
 const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body.length > MAX_MESSAGE_HTML_LENGTH;
+
+/**
+ * Opens the socket of the room the page at `pathname` shows, if it shows one, ahead of the room, which
+ * takes it once it shows: as `useRoom` opens it, for the tab shown or hidden as it is now, so that the
+ * room's newest messages are on their way while the workspace loads. Returns what closes it, unless the
+ * room has taken it.
+ */
+export function openRoomSocketAhead(pathname: string): () => void {
+  const route = workspacePageOf(pathname);
+  if (route?.page !== "room") return () => {};
+  return openAhead(roomSocketUrl(route.roomId, { visible: document.visibilityState === "visible", around: route.messageId }));
+}
 
 /**
  * One room's live state over a reconnecting WebSocket to its ChatRoom Durable Object, as `me`.
