@@ -1,4 +1,5 @@
-import { isAppPage } from "@ember/protocol";
+import { isAppPage, workspacePageOf } from "@ember/protocol";
+import { sessionToken } from "./auth";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
 
@@ -11,7 +12,22 @@ import { notFound } from "./error-pages";
  */
 export async function appPage(request: Request, env: Env, path: string): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method, headers: request.headers }));
-  return new Response(page.body, page);
+  const response = new Response(page.body, page);
+  response.headers.set("Link", preloadsFor(request));
+  response.headers.append("Vary", "Cookie");
+  return response;
+}
+
+/**
+ * What the app asks for as it starts, for the browser to fetch with the page rather than once the app
+ * has loaded, which the app's own first requests then take: on every page, whether Ember is set up and
+ * who's signed in, and on a page with the sidebar, for a browser with a session, its rooms and the
+ * people directory. Which depends on the session cookie, so the page varies with it.
+ */
+function preloadsFor(request: Request): string {
+  const paths = ["/api/bootstrap"];
+  if (workspacePageOf(new URL(request.url).pathname) && sessionToken(request)) paths.push("/api/sidebar", "/api/users");
+  return paths.map((path) => `<${path}>; rel=preload; as=fetch; crossorigin`).join(", ");
 }
 
 /** `pathname` as ember-rust's router reads it: with runs of slashes squeezed and no trailing slash. */

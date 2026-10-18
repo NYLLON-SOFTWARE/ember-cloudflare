@@ -38,6 +38,20 @@ describe(feature("platform.error-pages"), () => {
     }
   });
 
+  it("has the browser fetch what the app asks for first along with its page, its sidebar only with a session", async () => {
+    const preload = (path: string) => `<${path}>; rel=preload; as=fetch; crossorigin`;
+    const signedIn = { headers: { Cookie: `__Host-session_token=${"A".repeat(43)}` } };
+    for (const path of ["/", "/rooms/general", "/account/edit", "/users/me/profile"]) {
+      const response = await page(path, signedIn);
+      expect(response.headers.get("Link"), path).toBe([preload("/api/bootstrap"), preload("/api/sidebar"), preload("/api/users")].join(", "));
+      expect(response.headers.get("Vary"), path).toContain("Cookie");
+    }
+    // Signed out, the app goes to sign in, which has no sidebar, as setup's and the join link's pages don't.
+    expect((await page("/rooms/general")).headers.get("Link")).toBe(preload("/api/bootstrap"));
+    expect((await page("/session/new", signedIn)).headers.get("Link")).toBe(preload("/api/bootstrap"));
+    expect((await page("/rooms/general", { headers: { Cookie: "__Host-session_token=forged" } })).headers.get("Link")).toBe(preload("/api/bootstrap"));
+  });
+
   it("leaves any other path to the built app, which answers Campfire's 404 page for a file it doesn't have", async () => {
     for (const path of ["/nope", "/rooms/new", "/rooms/general/edit", "/rooms/general/extra", "/rooms/general/messages", "/rooms/%FF", "/404.html"]) {
       expect(await (await page(path)).text(), path).toBe(`page ${path}`);
