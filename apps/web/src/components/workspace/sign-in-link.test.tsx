@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
-import { render, screen } from "@testing-library/react";
+import { qrCodeSvg } from "@ember/protocol/qr-code";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import crown from "@/components/icons/campfire/crown.svg";
@@ -9,9 +10,7 @@ import transfer from "@/components/icons/campfire/transfer.svg";
 import { SignInLink } from "./sign-in-link";
 
 const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
-const LINK = `http://localhost:3000/session/transfers/${TRANSFER_ID}`;
-/** The link as padded URL-safe base64. */
-const QR_CODE = "/qr_code/aHR0cDovL2xvY2FsaG9zdDozMDAwL3Nlc3Npb24vdHJhbnNmZXJzL3UyLm1nazN4MmE5LkFiLV85eg==";
+const LINK = `http://localhost:3000/session/transfers#token=${TRANSFER_ID}`;
 const YOURS = "Use this link to login automatically on another device";
 const THEIRS = "Share to get them back into their account";
 
@@ -52,8 +51,7 @@ describe(feature("auth.sign-in-link"), () => {
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
     render(<SignInLink transferId={TRANSFER_ID} mine />);
-    const qrCode = screen.getByRole("link", { name: "Show auto-login QR code" });
-    expect(qrCode).toHaveAttribute("href", QR_CODE);
+    const qrCode = screen.getByRole("button", { name: "Show auto-login QR code" });
     const copy = screen.getByRole("button", { name: "Copy auto-login link" });
     expect([qrCode.nextElementSibling, copy.nextElementSibling]).toEqual([copy, screen.getByRole("button", { name: "Share auto-login link" })]);
 
@@ -72,5 +70,33 @@ describe(feature("auth.sign-in-link"), () => {
   it("offers sharing only where the browser can share", () => {
     render(<SignInLink transferId={TRANSFER_ID} mine />);
     expect(screen.queryByRole("button", { name: "Share auto-login link" })).toBeNull();
+  });
+});
+
+describe(feature("accounts.qr-codes"), () => {
+  it("draws the link's QR code in the page, as the Worker draws one, so the link never reaches the Worker", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const drawn: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      drawn.push(blob as Blob);
+      return "blob:qr-code";
+    });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    render(<SignInLink transferId={TRANSFER_ID} mine />);
+    await userEvent.click(screen.getByRole("button", { name: "Show auto-login QR code" }));
+    const viewer = await screen.findByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+    expect(viewer).toHaveAttribute("open");
+    expect(viewer.querySelector("img")).toHaveAttribute("src", "blob:qr-code");
+    const download = within(viewer).getByRole("link", { name: "Download file" });
+    expect(download).toHaveAttribute("href", "blob:qr-code");
+    expect(download).toHaveAttribute("download", "QR code.svg");
+    expect(drawn.map((blob) => blob.type)).toEqual(["image/svg+xml; charset=utf-8"]);
+    expect(await drawn[0]!.text()).toBe(qrCodeSvg(new TextEncoder().encode(LINK)));
+    expect(fetch).not.toHaveBeenCalled();
+
+    // Closing the viewer lets the drawing go.
+    await userEvent.click(within(viewer).getByRole("button", { name: "Close image viewer" }));
+    expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:qr-code");
+    vi.restoreAllMocks();
   });
 });

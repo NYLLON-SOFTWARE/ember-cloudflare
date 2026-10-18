@@ -289,7 +289,7 @@ describe(feature("auth.sign-in-link"), () => {
     showPage(grace, { me: administrator });
     await heading();
     const link = screen.getByRole("textbox", { name: "Share to get them back into their account" });
-    expect(link).toHaveValue(`http://localhost:3000/session/transfers/${TRANSFER_ID}`);
+    expect(link).toHaveValue(`http://localhost:3000/session/transfers#token=${TRANSFER_ID}`);
     expect(directButton("Grace Hopper")!.compareDocumentPosition(link)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 

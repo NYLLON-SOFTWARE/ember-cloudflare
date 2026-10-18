@@ -18,6 +18,7 @@ import {
   type Favorites,
   type Involvement,
   type LinkPreview,
+  type LinkSignIn,
   type Me,
   type NewDirect,
   type NewJoinCode,
@@ -142,10 +143,12 @@ export async function signInAsGuest(name: string): Promise<Me> {
 
 /**
  * Signs in with a sign-in link's id, as whoever it was made for, replacing any session this browser has.
- * Fails with a 400 ApiError for a link that's expired, tampered with, or for someone no longer active.
+ * The id goes in the body, so no request's address holds it. Fails with a 400 ApiError for a link
+ * that's expired, tampered with, or for someone no longer active.
  */
 export async function signInWithLink(transferId: string): Promise<Me> {
-  return (await request<{ user: Me }>(`/api/session/transfers/${encodeURIComponent(transferId)}`, { method: "PUT" })).user;
+  const body: LinkSignIn = { transferId };
+  return (await request<{ user: Me }>("/api/session/transfers", { method: "POST", body: JSON.stringify(body) })).user;
 }
 
 /**

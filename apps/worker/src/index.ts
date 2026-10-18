@@ -17,7 +17,7 @@ import {
   parseRoomChanges,
   SIGN_IN_REFUSED,
   signOutEndpointOf,
-  transferIdFromPath,
+  TRANSFER_PATH,
   workspacePageOf,
   type Account,
   type Bootstrap,
@@ -691,8 +691,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/first_run" && request.method === "POST") return () => firstRun(request, env);
   if (pathname === "/api/session" && request.method === "POST") return () => signIn(request, env);
   if (pathname === "/api/session" && request.method === "DELETE") return () => endSession(request, env);
-  const transfer = pathname.match(/^\/api\/session\/transfers\/([^/]+)$/);
-  if (transfer && request.method === "PUT") return () => transferSession(request, env, segmentText(transfer[1]!));
+  if (pathname === "/api/session/transfers" && request.method === "POST") return () => transferSession(request, env);
   if (pathname === "/api/me") return () => me(request, env);
   if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
@@ -807,7 +806,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
-  if (transferIdFromPath(pathname) !== null) return transferPage(request, env);
+  if (pathname === TRANSFER_PATH) return transferPage(request, env);
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
   if (pathname.startsWith("/qr_code/")) return showQrCode(request);

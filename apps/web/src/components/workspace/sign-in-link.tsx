@@ -1,4 +1,4 @@
-import { transferPath } from "@ember/protocol";
+import { transferLink } from "@ember/protocol";
 import { Crown, Laptop, MobilePhone, Transfer } from "@/components/icons/campfire";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
@@ -20,10 +20,11 @@ const INPUT = "min-h-[42px] w-full min-w-0 rounded-[9px] border bg-transparent p
 
 /**
  * The sign-in link `transferId`, to show as a QR code, copy or share. Your own is named for screen
- * readers only; someone else's says, beside a crown, that it gets them back into their account.
+ * readers only; someone else's says, beside a crown, that it gets them back into their account. Its QR
+ * code is drawn in the page, so the link never reaches the Worker.
  */
 export function SignInLink({ transferId, mine }: { transferId: string; mine: boolean }) {
-  const url = new URL(transferPath(transferId), location.origin).href;
+  const url = new URL(transferLink(transferId), location.origin).href;
 
   return (
     <fieldset className="flex w-full flex-col border-t-2 py-4">
@@ -45,7 +46,7 @@ export function SignInLink({ transferId, mine }: { transferId: string; mine: boo
         )}
         <input type="text" id="session_transfer_url" value={url} readOnly className={INPUT} />
         <div className="mx-auto flex items-center gap-[1ch]">
-          <LinkButtons url={url} sharing={SIGN_IN_LINK} className={ROUND_BUTTON} />
+          <LinkButtons url={url} sharing={SIGN_IN_LINK} qrCodeDrawn className={ROUND_BUTTON} />
         </div>
       </div>
     </fieldset>

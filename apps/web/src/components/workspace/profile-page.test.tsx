@@ -293,7 +293,7 @@ describe(feature("auth.sign-in-link"), () => {
     showPage();
     expect(signInLink()).toBeNull();
     await loaded();
-    expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers/${LOADED_LINK}`);
+    expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers#token=${LOADED_LINK}`);
     expect(saveButton().compareDocumentPosition(signInLink()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
@@ -302,7 +302,7 @@ describe(feature("auth.sign-in-link"), () => {
     await loaded();
     await user.type(field("Bio"), "!");
     await user.click(saveButton());
-    await waitFor(() => expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers/${SAVED_LINK}`));
+    await waitFor(() => expect(signInLink()).toHaveValue(`http://localhost:3000/session/transfers#token=${SAVED_LINK}`));
   });
 });
 
@@ -408,7 +408,7 @@ describe(feature("users.avatar-upload"), () => {
     expect(removeButton()).toBeInTheDocument();
     // A new sign-in link, as ember-rust's page comes back with one.
     expect(screen.getByRole("textbox", { name: "Use this link to login automatically on another device" })).toHaveValue(
-      `http://localhost:3000/session/transfers/${SAVED_LINK}`,
+      `http://localhost:3000/session/transfers#token=${SAVED_LINK}`,
     );
     expect(onFailed).not.toHaveBeenCalled();
   });

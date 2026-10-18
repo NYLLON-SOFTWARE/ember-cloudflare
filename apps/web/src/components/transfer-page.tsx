@@ -9,16 +9,36 @@ import { takeReturnPath } from "@/lib/return-path";
 
 const MAX_RETRY_MS = 15_000;
 
+/** The id in a sign-in link's fragment (`transferLink`), read as ember-rust's setup_access.js reads the setup link's token. */
+const transferIdOf = (hash: string) => new URLSearchParams(hash.slice(1)).get("token") || null;
+
 /**
- * Signs in with the sign-in link `transferId` as soon as it opens, then loads the page this tab was sent
- * to sign in from, or home, as ember-rust redirects there. A link that doesn't work leaves the page
- * blank, as ember-rust's empty 400 answer does, and a request that can't reach Ember, or that Ember
- * fails, is tried again, as the app's first one is.
+ * Signs in with the sign-in link's id in the address's fragment as soon as it opens, then loads the page
+ * this tab was sent to sign in from, or home, as ember-rust redirects there. It clears the fragment
+ * first, as ember-rust's setup_access.js clears the setup link's, so the id leaves the address bar and
+ * this tab's history. A link that doesn't work, or an address without one, leaves the page blank, as
+ * ember-rust's empty 400 answer does, and a request that can't reach Ember, or that Ember fails, is
+ * tried again, as the app's first one is.
  */
-export function TransferPage({ transferId }: { transferId: string }) {
-  const [refused, setRefused] = useState(false);
+export function TransferPage() {
+  // Opening another link over this page only changes the fragment, which loads no new page, so each
+  // starts afresh here.
+  const [opened, setOpened] = useState(0);
+  useEffect(() => {
+    const open = () => setOpened((count) => count + 1);
+    addEventListener("hashchange", open);
+    return () => removeEventListener("hashchange", open);
+  }, []);
+  return <LinkSignIn key={opened} />;
+}
+
+function LinkSignIn() {
+  const [transferId] = useState(() => transferIdOf(location.hash));
+  const [refused, setRefused] = useState(transferId === null);
 
   useEffect(() => {
+    history.replaceState(history.state, "", location.pathname + location.search);
+    if (transferId === null) return;
     let stopped = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const signIn = (attempt: number) =>

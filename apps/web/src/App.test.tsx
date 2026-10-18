@@ -129,11 +129,12 @@ function serve({
       signedIn = false;
       return new Response(null, { status: 204 });
     }
-    if (route === `PUT /api/session/transfers/${TRANSFER_ID}`) {
+    if (route === "POST /api/session/transfers") {
+      const { transferId } = JSON.parse(String(init?.body)) as Record<string, string>;
+      if (transferId !== TRANSFER_ID) return new Response(null, { status: 400 });
       [signedIn, me] = [true, grace];
       return Response.json({ user: grace }, { status: 201 });
     }
-    if (route.startsWith("PUT /api/session/transfers/")) return new Response(null, { status: 400 });
     if (route === `POST /api/join/${JOIN_CODE}`) {
       const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
@@ -568,17 +569,17 @@ describe(feature("auth.sign-up"), () => {
 
 describe(feature("auth.sign-in-link"), () => {
   it("signs in with a sign-in link rather than going to sign in, then loads home as whoever it's for", async () => {
-    history.replaceState(null, "", `/session/transfers/${TRANSFER_ID}`);
+    history.replaceState(null, "", `/session/transfers#token=${TRANSFER_ID}`);
     const fetch = serve({ signedIn: false });
     render(<App />);
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
-    expect(fetch).toHaveBeenCalledWith(`/api/session/transfers/${TRANSFER_ID}`, expect.objectContaining({ method: "PUT" }));
-    expect(location.pathname).toBe(`/session/transfers/${TRANSFER_ID}`);
+    expect(fetch).toHaveBeenCalledWith("/api/session/transfers", expect.objectContaining({ method: "POST", body: JSON.stringify({ transferId: TRANSFER_ID }) }));
+    expect(`${location.pathname}${location.hash}`).toBe("/session/transfers");
     expect(screen.queryByRole("heading", { name: "Sign in to Ember" })).not.toBeInTheDocument();
   });
 
   it("signs in with it over the session this browser has, without opening the workspace, as ember-rust does", async () => {
-    history.replaceState(null, "", `/session/transfers/${TRANSFER_ID}`);
+    history.replaceState(null, "", `/session/transfers#token=${TRANSFER_ID}`);
     serve({ signedIn: true });
     render(<App />);
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
@@ -586,12 +587,12 @@ describe(feature("auth.sign-in-link"), () => {
   });
 
   it("leaves the page blank for a link that doesn't work", async () => {
-    history.replaceState(null, "", "/session/transfers/nonsense");
+    history.replaceState(null, "", "/session/transfers#token=nonsense");
     serve({ signedIn: false });
     render(<App />);
     await waitFor(() => expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "false"));
     expect(screen.getByRole("main")).toBeEmptyDOMElement();
-    expect(location.pathname).toBe("/session/transfers/nonsense");
+    expect(`${location.pathname}${location.hash}`).toBe("/session/transfers");
     expect(loadPage).not.toHaveBeenCalled();
   });
 });
