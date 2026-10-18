@@ -129,8 +129,8 @@ describe(feature("ui.layout"), () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
     expect(screen.getByText("Loading…")).toBeInTheDocument();
 
+    // Straight from the one that couldn't load them.
     vi.doUnmock("./pages");
-    act(() => navigate("/rooms/random"));
     act(() => navigate("/users/me/profile"));
     expect(await screen.findByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
   });

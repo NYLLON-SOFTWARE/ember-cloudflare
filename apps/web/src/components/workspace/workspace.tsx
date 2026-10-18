@@ -472,8 +472,11 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     />
   );
 
-  /** One of the pages few visits need, as `show` makes it once they've loaded. */
-  const rarePage = (show: (pages: RarePages) => ReactNode) => <RarePage show={show} onFailed={failed} />;
+  /**
+   * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
+   * from one that couldn't load them to another tries again.
+   */
+  const rarePage = (show: (pages: RarePages) => ReactNode) => <RarePage key={route.page} show={show} onFailed={failed} />;
   const page = () => {
     switch (route.page) {
       case "new-room":
