@@ -415,7 +415,7 @@ describe(feature("realtime.reconnect"), () => {
 });
 
 describe(feature("rooms.show"), () => {
-  it("takes the room's socket opened ahead of it, with what the room sent by then", async () => {
+  it("takes the room's socket opened ahead of it, with what the room sent by then, and tells the room the tab is shown", async () => {
     openRoomSocketAhead("/rooms/general");
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [message("m1")], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
@@ -424,12 +424,27 @@ describe(feature("rooms.show"), () => {
     expect(FakeSocket.all).toHaveLength(1);
     expect(result.current.state.status).toBe("open");
     expect(result.current.state.messages.map((m) => m.id)).toEqual(["m1"]);
+    expect(socket().sentOfType("presence.visible")).toEqual([{ type: "presence.visible", visible: true }]);
+  });
+
+  it("opens it as a hidden tab's, so that the room reads nothing for it until the room shows in a tab that's shown", async () => {
+    openRoomSocketAhead("/rooms/general");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3");
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sent).toEqual([]);
+
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    renderHook(() => useRoom("general", ada, () => {}));
+    await act(async () => {});
+    expect(FakeSocket.all).toHaveLength(1);
+    expect(socket().sentOfType("presence.visible")).toEqual([]);
   });
 
   it("takes one opened ahead at a message's permalink as it opens there", () => {
     openRoomSocketAhead("/rooms/general/@m1");
     renderHook(() => useRoom("general", ada, () => {}, "m1"));
-    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m1"]);
+    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3&around=m1"]);
   });
 
   it("opens none ahead for a page that shows no room", () => {

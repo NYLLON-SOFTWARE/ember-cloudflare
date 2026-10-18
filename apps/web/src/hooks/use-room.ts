@@ -16,7 +16,7 @@ import {
 } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
-import { openAhead, reconnectingSocket, type ReconnectingSocket } from "@/lib/reconnecting-socket";
+import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
@@ -45,15 +45,20 @@ export const RefusedUnboosts = createContext(0);
 const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body.length > MAX_MESSAGE_HTML_LENGTH;
 
 /**
+ * The address a room's socket is opened at ahead of the room: a hidden tab's, so that the room reads nothing
+ * for it, nor counts its person as there to see what's said, until it shows and says whether the tab is shown.
+ */
+const aheadUrl = (roomId: string, around?: string) => roomSocketUrl(roomId, { visible: false, around });
+
+/**
  * Opens the socket of the room the page at `pathname` shows, if it shows one, ahead of the room, which
- * takes it once it shows: as `useRoom` opens it, for the tab shown or hidden as it is now, so that the
- * room's newest messages are on their way while the workspace loads. Returns what closes it, unless the
- * room has taken it.
+ * takes it once it shows, so that the room's newest messages are on their way while the workspace loads.
+ * Returns what closes it, unless the room has taken it.
  */
 export function openRoomSocketAhead(pathname: string): () => void {
   const route = workspacePageOf(pathname);
   if (route?.page !== "room") return () => {};
-  return openAhead(roomSocketUrl(route.roomId, { visible: document.visibilityState === "visible", around: route.messageId }));
+  return openAhead(aheadUrl(route.roomId, route.messageId));
 }
 
 /**
@@ -176,7 +181,16 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
     dispatch({ type: "reset" });
     const room = reconnectingSocket({
-      url: () => roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen, around: openingAround }),
+      url: () => {
+        // The room's first socket is the one opened ahead of it, if one is waiting: a hidden tab's, which the
+        // welcome then tells whether the tab is shown.
+        const ahead = aheadUrl(roomId, openingAround);
+        if (seen === undefined && waitingAhead(ahead)) {
+          told = false;
+          return ahead;
+        }
+        return roomSocketUrl(roomId, { visible: (told = visibility.visible), since: seen, around: openingAround });
+      },
       onMessage,
       onConnecting: (status) => dispatch({ type: "status", status }),
       onOffline: (offline) => dispatch({ type: "offline", offline }),

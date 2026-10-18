@@ -101,6 +101,9 @@ function letGoAhead() {
   ahead = null;
 }
 
+/** Whether a socket opened ahead to `url` is waiting to be taken. */
+export const waitingAhead = (url: string) => ahead?.url === url;
+
 /** The socket opened ahead to `url`, and what it has heard, if one is waiting. */
 function takeAhead(url: string) {
   if (ahead?.url !== url) return null;

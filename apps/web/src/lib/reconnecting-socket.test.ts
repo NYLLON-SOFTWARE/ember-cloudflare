@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OFFLINE_AFTER_MS, openAhead, reconnectingSocket, type ReconnectingSocket, type ReconnectingSocketOptions, type SocketStatus } from "./reconnecting-socket";
+import { OFFLINE_AFTER_MS, openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket, type ReconnectingSocketOptions, type SocketStatus } from "./reconnecting-socket";
 
 /** Stands in for the browser's WebSocket; tests play the server and the network. */
 class FakeSocket {
@@ -400,6 +400,14 @@ describe(feature("rooms.show"), () => {
     expect(ahead.closedWith).toBeUndefined();
     wait(1);
     expect(ahead.closedWith).toBe(1000);
+  });
+
+  it("says whether one opened ahead to an address is waiting, until it's taken", () => {
+    openAhead("ws://localhost/socket");
+    expect(waitingAhead("ws://localhost/socket")).toBe(true);
+    expect(waitingAhead("ws://localhost/elsewhere")).toBe(false);
+    connect();
+    expect(waitingAhead("ws://localhost/socket")).toBe(false);
   });
 
   it("closes a socket opened ahead once another is, or when told to, unless it's been taken", () => {
