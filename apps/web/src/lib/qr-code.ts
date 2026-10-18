@@ -10,14 +10,13 @@ export function qrCodePath(url: string): string {
 
 /**
  * `url`'s QR code drawn in the page, as the Worker draws it, for a link whose address mustn't reach the
- * Worker, as a sign-in link's mustn't: the address of a file in memory, which `URL.revokeObjectURL` lets
- * go. What draws it loads the first time one's drawn. Fails for text too long for any QR code, which no
- * link of Ember's is.
+ * Worker, as a sign-in link's mustn't. What draws it loads the first time one's drawn. Fails for text
+ * too long for any QR code, which no link of Ember's is.
  */
-export async function drawnQrCode(url: string): Promise<string> {
+export async function drawnQrCode(url: string): Promise<Blob> {
   const { qrCodeSvg } = await import("@ember/protocol/qr-code");
   const svg = qrCodeSvg(new TextEncoder().encode(url));
   if (svg === null) throw new RangeError("Too long for a QR code");
   // The Worker's type, so Share names it as it does the Worker's.
-  return URL.createObjectURL(new Blob([svg], { type: "image/svg+xml; charset=utf-8" }));
+  return new Blob([svg], { type: "image/svg+xml; charset=utf-8" });
 }

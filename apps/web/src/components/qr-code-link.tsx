@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { Lightbox } from "@/components/lightbox";
 import { drawnQrCode, qrCodePath } from "@/lib/qr-code";
 
@@ -19,21 +19,14 @@ interface QrCodeLinkProps {
  */
 export function QrCodeLink({ url, drawn = false, className, children }: QrCodeLinkProps) {
   const [shown, setShown] = useState<string | null>(null);
-  // A drawing is kept only while it's shown.
-  useEffect(() => () => void (drawn && shown && URL.revokeObjectURL(shown)), [drawn, shown]);
-  const viewer = <Lightbox src={shown} filename="QR code.svg" onClose={() => setShown(null)} />;
-
   if (drawn) {
     return (
-      <>
-        {/* Where the drawing's code can't load, there's nothing to show. */}
-        <button type="button" onClick={() => void drawnQrCode(url).then(setShown, () => undefined)} className={className}>
-          {children}
-        </button>
-        {viewer}
-      </>
+      <DrawnQrCode url={url} className={className}>
+        {children}
+      </DrawnQrCode>
     );
   }
+
   const path = qrCodePath(url);
   return (
     <>
@@ -47,7 +40,37 @@ export function QrCodeLink({ url, drawn = false, className, children }: QrCodeLi
       >
         {children}
       </a>
-      {viewer}
+      <Lightbox src={shown} filename="QR code.svg" onClose={() => setShown(null)} />
     </>
   );
+}
+
+/** A button that draws `url`'s QR code in the page and opens it in the image viewer. */
+function DrawnQrCode({ url, className, children }: Omit<QrCodeLinkProps, "drawn">) {
+  const [drawing, setDrawing] = useState<Blob | null>(null);
+  const shown = useAddressOf(drawing);
+  return (
+    <>
+      {/* Where the drawing's code can't load, there's nothing to show. */}
+      <button type="button" onClick={() => void drawnQrCode(url).then(setDrawing, () => undefined)} className={className}>
+        {children}
+      </button>
+      <Lightbox src={shown} filename="QR code.svg" onClose={() => setDrawing(null)} />
+    </>
+  );
+}
+
+/**
+ * The address of a drawing in memory, which lasts only while it's shown: a drawing finished after the
+ * button has gone is never given one.
+ */
+function useAddressOf(drawing: Blob | null): string | null {
+  const [address, setAddress] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!drawing) return setAddress(null);
+    const address = URL.createObjectURL(drawing);
+    setAddress(address);
+    return () => URL.revokeObjectURL(address);
+  }, [drawing]);
+  return address;
 }
