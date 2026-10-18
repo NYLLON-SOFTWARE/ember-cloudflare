@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
@@ -15,6 +15,12 @@ import { MessageItem, type MessageActions, type MessageEditors } from "./message
 const AT_END_PX = 100;
 /** How near the view an end of the timeline comes before the page beyond it loads. */
 const PAGE_AHEAD_PX = 200;
+/**
+ * How many of its newest messages a page that fills an empty timeline, as a room's first page does, shows
+ * before the rest: more than a phone's view holds, so the rest go in above them, out of sight, once they're
+ * on screen. Drawing a whole page at once is most of what opening a room waits on.
+ */
+const FIRST_DRAWN = 15;
 
 /**
  * Campfire's `.message.search-highlight` (messages.css): the message a permalink goes to is outlined in
@@ -115,6 +121,11 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
   const arrivals = useRef(state.arrivals);
   // Whether new messages have come that the reader isn't at the end to see.
   const [behind, setBehind] = useState(false);
+  // Whether the timeline has drawn every message it holds: until it has, a page that fills it shows its newest
+  // messages first, unless it's a permalink's, whose message goes in the middle.
+  const [drawnAll, setDrawnAll] = useState(false);
+  const items = timeline(state.messages);
+  const newestFirst = !drawnAll && !state.focus?.messageId && items.length > FIRST_DRAWN;
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
@@ -152,7 +163,15 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
     focused.current = state.focus;
     if (moved && state.focus) go(state.focus.messageId);
     else settle();
-  }, [state.messages, state.focus]);
+  }, [state.messages, state.focus, drawnAll]);
+
+  // A page that showed its newest messages first draws the rest above them once they're on screen, or before the
+  // view is painted where they don't fill it with room to spare, so that nothing shows above them meanwhile.
+  useLayoutEffect(() => {
+    if (drawnAll || items.length === 0) return;
+    if (newestFirst && content.current!.offsetHeight >= scroller.current!.clientHeight + PAGE_AHEAD_PX) startTransition(() => setDrawnAll(true));
+    else setDrawnAll(true);
+  }, [drawnAll, newestFirst, items.length]);
 
   // When the timeline gets shorter, as it does when a phone's keyboard opens, or what it shows changes size
   // after it's drawn, the reader stays where they were.
@@ -208,17 +227,17 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
     place.current = placeIn(el);
   };
 
-  const items = timeline(state.messages);
   // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome.
   const welcomeCard = invitation !== null && state.paged === false;
-  // Until the room lets the socket in, which brings its messages afresh.
+  // Until the room lets the socket in, which brings its messages afresh. The timeline is busy then, and while it
+  // draws a page newest first, so screen readers read the page once it's whole.
   const waiting = state.status === "connecting" || state.status === "reconnecting";
 
   return (
     <div className="min-h-0 flex-1" {...dropTarget(onDropFiles)}>
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so Jump to newest message
           below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
-      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || undefined}>
+      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || newestFirst || undefined}>
         <div ref={content}>
           <div ref={top} aria-hidden className="h-px" />
           {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
@@ -234,7 +253,7 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
 
           <RoomConnection value={state.connections}>
             <RefusedUnboosts value={state.refusedUnboosts}>
-              {items.map(({ message, firstOfDay, threaded }) => {
+              {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
                 // Stable from optimistic copy to stored message, and distinct across senders.
                 const key = `${message.creator.id}:${message.clientMessageId}`;
                 return (
