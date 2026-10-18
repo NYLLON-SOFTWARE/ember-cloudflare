@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, startingInvolvement, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { PushContext } from "@/hooks/use-push";
@@ -9,7 +9,7 @@ import { navigate } from "@/hooks/use-route";
 import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
 import { PUSH_ON } from "@/test-push";
-import { Workspace } from "./workspace";
+import { Workspace, loadPageAhead } from "./workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
@@ -151,6 +151,10 @@ async function workspaceSends(frame: WorkspaceServerFrame) {
   await waitFor(() => expect(roomListRequests()).toBe(2));
   act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify(frame) }));
 }
+
+// The pages few visits need show at once here, as they do once they've loaded soon after the workspace
+// shows. pages.test.tsx tests them loading.
+beforeAll(() => loadPageAhead("/searches"));
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);

@@ -33,8 +33,27 @@ function roomIcons(): Plugin {
   };
 }
 
+/**
+ * Fails the build when the app's script imports another besides Rolldown's runtime: one more for the page to
+ * load before the app can run. Rolldown leaves what the main chunk shares with the pages few visits need and
+ * the editor in a chunk of its own when the main chunk imports a module it doesn't use that those pages do, as
+ * @ember/protocol's index did bots.ts until the bot pages imported it from @ember/protocol/bots.
+ */
+function oneAppScript(): Plugin {
+  const app = path.resolve(import.meta.dirname, "index.html");
+  return {
+    name: "ember-one-app-script",
+    apply: "build",
+    generateBundle(_, bundle) {
+      const script = Object.values(bundle).find((chunk) => chunk.type === "chunk" && chunk.facadeModuleId === app);
+      const more = script?.type === "chunk" ? script.imports.filter((name) => bundle[name]?.name !== "rolldown-runtime") : [];
+      if (more.length > 0) this.error(`The app's script imports ${more.join(", ")} besides Rolldown's runtime, so the page loads one more before the app can run (see oneAppScript).`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), roomIcons()],
+  plugins: [react(), tailwindcss(), roomIcons(), oneAppScript()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

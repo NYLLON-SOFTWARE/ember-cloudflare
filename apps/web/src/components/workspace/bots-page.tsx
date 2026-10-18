@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { botMessagesPath, type Bot, type BotRoom } from "@ember/protocol";
+import { botMessagesPath, type Bot, type BotRoom } from "@ember/protocol/bots";
 import { PRIMARY_BUTTON } from "@/components/field";
 import { useFlash } from "@/components/flash";
 import { Add, Attachment, MessagesOutlined, Pencil } from "@/components/icons/campfire";

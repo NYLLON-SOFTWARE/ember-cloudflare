@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type FormEvent } from "react";
-import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotSettings, type Me, type UserId } from "@ember/protocol";
+import type { Me, UserId } from "@ember/protocol";
+import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotSettings } from "@ember/protocol/bots";
 import { AUTH_FORM } from "@/components/auth-page";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";

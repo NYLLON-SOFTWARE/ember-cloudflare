@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Close } from "@/components/icons/ember";
@@ -13,24 +13,65 @@ import { ApiError, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, useRoute, type Route } from "@/hooks/use-route";
-import { BotSettingsPage, NewBotPage } from "./bot-settings-page";
-import { BotsPage } from "./bots-page";
-import { CustomStylesPage } from "./custom-styles-page";
-import { DirectSettingsPage } from "./direct-settings-page";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useRoute, type Route } from "@/hooks/use-route";
 import { NewDirectDialog } from "./new-direct-dialog";
-import { NewRoomPage } from "./new-room-page";
 import { DrawerOpen, PageHeader } from "./page-header";
-import { PersonPage } from "./person-page";
-import { ProfilePage } from "./profile-page";
-import { PushSubscriptionsPage } from "./push-subscriptions-page";
 import { Rail, type RailPage } from "./rail";
-import { RoomSettingsPage } from "./room-settings-page";
 import { RoomView, type RoomViewHandle } from "./room-view";
-import { SearchPage } from "./search-page";
 import { Sidebar } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
-import { WorkspaceSettingsPage } from "./workspace-settings-page";
+
+type RarePages = typeof import("./pages");
+
+let rarePages: RarePages | undefined;
+let loadingRarePages: Promise<RarePages> | undefined;
+
+/** The pages few visits need (pages.ts), which load together, apart from the rest of the app. */
+function loadRarePages(): Promise<RarePages> {
+  loadingRarePages ??= import("./pages").then(
+    (pages) => (rarePages = pages),
+    (error: unknown) => {
+      // The next page that needs them tries again.
+      loadingRarePages = undefined;
+      throw error;
+    },
+  );
+  return loadingRarePages;
+}
+
+/** What an address shows when it's one of the pages few visits need. */
+const RARE_PAGES = new Set<Route["page"]>([
+  "new-room",
+  "room-settings",
+  "direct-settings",
+  "workspace-settings",
+  "custom-styles",
+  "bots",
+  "new-bot",
+  "bot-settings",
+  "profile",
+  "push-subscriptions",
+  "person",
+  "search",
+]);
+
+/**
+ * Starts loading the page at `pathname` when few visits need it, so that it's there by the time the workspace
+ * shows, and returns what settles once it's loaded or failed to.
+ */
+export function loadPageAhead(pathname: string): Promise<unknown> {
+  return RARE_PAGES.has(routeOf(pathname).page) ? loadRarePages().catch(() => {}) : Promise.resolve();
+}
+
+/** Runs `run` once the browser is idle, or in a second where it can't say, and returns what cancels it. */
+function whenIdle(run: () => void): () => void {
+  if (typeof requestIdleCallback !== "function") {
+    const timer = setTimeout(run, 1_000);
+    return () => clearTimeout(timer);
+  }
+  const idle = requestIdleCallback(run);
+  return () => cancelIdleCallback(idle);
+}
 
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
@@ -74,6 +115,32 @@ const NO_ROOMS: SidebarRoom[] = [];
 const NO_FAVORITES: Favorites = { rooms: [], version: 0 };
 const NO_ORDER: RoomId[] = [];
 const NO_PEOPLE: User[] = [];
+
+/** What the page shows while its rooms, or the page itself, load. */
+const LOADING = (
+  <MainContent className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</MainContent>
+);
+
+/**
+ * What `show` makes of the pages few visits need, once they've loaded, and Loading… until then. They aren't
+ * `lazy` components, each of which shows its fallback the first time it shows, however long ago its code
+ * loaded, and React then keeps showing that for 300 ms.
+ */
+function RarePage({ show, onFailed }: { show: (pages: RarePages) => ReactNode; onFailed: (error: unknown) => void }) {
+  const [pages, setPages] = useState(rarePages);
+  useEffect(() => {
+    if (pages) return;
+    let current = true;
+    loadRarePages().then(
+      (loaded) => current && setPages(loaded),
+      (error: unknown) => current && onFailed(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [pages, onFailed]);
+  return pages ? show(pages) : LOADING;
+}
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
@@ -217,6 +284,11 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   // Another page starts with the drawer closed, as each of ember-rust's does.
   useEffect(() => setDrawerOpen(false), [route]);
+
+  // The pages few visits need load once the rooms have, while the browser is idle, so that going to one
+  // doesn't wait for them. If they fail to, the first page that needs them tries again.
+  const listed = rooms !== null;
+  useEffect(() => (listed ? whenIdle(() => void loadRarePages().catch(() => {})) : undefined), [listed]);
 
   // On a phone, the drawer closes as New direct message opens, as direct_message_controller.js has it.
   const openNewDirect = (opener: HTMLElement | null) => {
@@ -400,13 +472,15 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
     />
   );
 
+  /** One of the pages few visits need, as `show` makes it once they've loaded. */
+  const rarePage = (show: (pages: RarePages) => ReactNode) => <RarePage show={show} onFailed={failed} />;
   const page = () => {
     switch (route.page) {
       case "new-room":
         // Not keyed, so flipping Everyone, which changes the address, keeps what's filled in.
-        return <NewRoomPage access={route.access} me={me} onCreated={listRoom} onFailed={failed} />;
+        return rarePage(({ NewRoomPage }) => <NewRoomPage access={route.access} me={me} onCreated={listRoom} onFailed={failed} />);
       case "room-settings":
-        return (
+        return rarePage(({ RoomSettingsPage }) => (
           <RoomSettingsPage
             key={route.roomId}
             roomId={route.roomId}
@@ -417,9 +491,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             onMissing={missing}
             onFailed={failed}
           />
-        );
+        ));
       case "workspace-settings":
-        return (
+        return rarePage(({ WorkspaceSettingsPage }) => (
           <WorkspaceSettingsPage
             me={me}
             back={back}
@@ -434,23 +508,25 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             onSharedOrderSaved={reorderedRooms}
             onSessionChanged={onSessionChanged}
           />
-        );
+        ));
       case "custom-styles":
-        return <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />;
+        return rarePage(({ CustomStylesPage }) => <CustomStylesPage askForAccount={askForAccount} onFailed={failed} />);
       case "bots":
-        return <BotsPage onFailed={failed} />;
+        return rarePage(({ BotsPage }) => <BotsPage onFailed={failed} />);
       case "new-bot":
-        return <NewBotPage me={me} onFailed={failed} />;
+        return rarePage(({ NewBotPage }) => <NewBotPage me={me} onFailed={failed} />);
       case "bot-settings":
-        return <BotSettingsPage key={route.userId} botId={route.userId} onMissing={showNotFound} onFailed={failed} />;
+        return rarePage(({ BotSettingsPage }) => (
+          <BotSettingsPage key={route.userId} botId={route.userId} onMissing={showNotFound} onFailed={failed} />
+        ));
       case "profile":
-        return <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />;
+        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
-        return <PushSubscriptionsPage back={back} onFailed={failed} />;
+        return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
-        return <SearchPage me={me} back={back} onFailed={failed} />;
+        return rarePage(({ SearchPage }) => <SearchPage me={me} back={back} onFailed={failed} />);
       case "person":
-        return (
+        return rarePage(({ PersonPage }) => (
           <PersonPage
             key={route.userId}
             userId={route.userId}
@@ -461,10 +537,12 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             onMissing={showNotFound}
             onFailed={failed}
           />
-        );
+        ));
       default:
         if (direct)
-          return <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />;
+          return rarePage(({ DirectSettingsPage }) => (
+            <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
+          ));
         if (room)
           return (
             <RoomView
@@ -506,9 +584,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             </>
           );
         // While the rooms load, or before the page goes on to another, which it does before this paints.
-        return (
-          <MainContent className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</MainContent>
-        );
+        return LOADING;
     }
   };
 

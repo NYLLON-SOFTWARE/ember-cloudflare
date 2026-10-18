@@ -1,4 +1,5 @@
-import { botMessagesPath, MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
+import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
 import type { MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";

@@ -5,7 +5,7 @@ import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
-import { Workspace } from "@/components/workspace/workspace";
+import { Workspace, loadPageAhead } from "@/components/workspace/workspace";
 import { AccountContext } from "@/hooks/use-account";
 import { useAccountLogo } from "@/hooks/use-account-logo";
 import { useCustomStyles } from "@/hooks/use-custom-styles";
@@ -83,6 +83,8 @@ export function App() {
           if (!stopped) retry = setTimeout(() => void ask(attempt + 1), Math.min(MAX_RETRY_MS, 1_000 * 2 ** attempt));
         },
       );
+    // A page few visits need loads while Ember says who's signed in, rather than once the workspace shows.
+    void loadPageAhead(location.pathname);
     void ask(0);
     return () => {
       stopped = true;
