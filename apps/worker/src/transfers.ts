@@ -7,10 +7,12 @@ import { appPage, empty, formAnswer } from "./pages";
 import { workspace } from "./workspace";
 
 // Sign-in links, ported from ember-rust's session transfers (crates/ember/src/controllers/sessions/transfers.rs):
-// opening `/session/transfers/<id>` signs that browser in as the person the id was made for, until it
-// expires. ember-rust's id is a Rails signed id of the person (presenters/accounts.rs); this one is
-// their id and when it expires, signed with SESSION_SECRET as avatar tokens are, so changing the secret
-// ends every link, as changing ember-rust's SECRET_KEY_BASE does.
+// opening one signs that browser in as the person its id was made for, until it expires. ember-rust's
+// link is `/session/transfers/<id>`; this one keeps the id in its fragment (`transferLink`), and its
+// page sends it in a request's body, so no address the Worker is asked for, nor Cloudflare's log of
+// one, holds it. ember-rust's id is a Rails signed id of the person (presenters/accounts.rs); this one
+// is their id and when it expires, signed with SESSION_SECRET as avatar tokens are, so changing the
+// secret ends every link, as changing ember-rust's SECRET_KEY_BASE does.
 
 /** `User::Transferable::TRANSFER_LINK_EXPIRY_DURATION`. */
 export const TRANSFER_LINK_EXPIRY_MS = 4 * 60 * 60 * 1000;
@@ -48,25 +50,27 @@ export async function transferredUser(transferId: string, secret: string, now: n
 }
 
 /**
- * `GET /session/transfers/<id>`, for anyone, signed in or not, whatever the id: the app's page, which
- * signs in with the id straight away, as ember-rust's submits itself. No cache keeps it, since its
- * address signs someone in.
+ * `GET /session/transfers`, for anyone, signed in or not: the app's page, which signs in with the id in
+ * its fragment straight away, as ember-rust's submits itself.
  */
 export async function transferPage(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return notFound(request);
-  const page = await appPage(request, env, "/");
-  page.headers.set("Cache-Control", "no-store");
-  return page;
+  return appPage(request, env, "/");
 }
 
 /**
- * `PUT /api/session/transfers/<id>`: signs this browser in as the person the id names, with a session of
- * its own that replaces any it had without ending it, as ember-rust's `update` does, and answers who
- * that is. An id that's expired, tampered with or made up, or one for someone who's no longer active,
- * answers 400 with nothing else, as there, and so does a guest's while guests can't sign in.
+ * `POST /api/session/transfers`, with the link's id (`LinkSignIn`), where ember-rust's form updates
+ * `/session/transfers/<id>`: signs this browser in as the person the id names, with a session of its
+ * own that replaces any it had without ending it, as ember-rust's `update` does, and answers who that
+ * is. An id that's expired, tampered with or made up, or one for someone who's no longer active,
+ * answers 400 with nothing else, as there, and so does a guest's while guests can't sign in, or a body
+ * without an id.
  */
-export async function transferSession(request: Request, env: Env, transferId: string): Promise<Response> {
-  const userId = await transferredUser(transferId, env.SESSION_SECRET, Date.now());
+export async function transferSession(request: Request, env: Env): Promise<Response> {
+  // Any JSON value parses, null and numbers included, so don't assume an object.
+  const body: unknown = await request.json().catch(() => null);
+  const transferId = typeof body === "object" && body !== null ? (body as Record<string, unknown>).transferId : undefined;
+  const userId = typeof transferId === "string" ? await transferredUser(transferId, env.SESSION_SECRET, Date.now()) : null;
   if (!userId) return empty(400);
   const token = newSessionToken();
   const user = await workspace(env).transferSession(userId, await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));

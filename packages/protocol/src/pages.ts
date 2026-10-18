@@ -128,14 +128,13 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
  */
 export const isAppPage = (pathname: string) => pathname === SIGN_IN_PATH || workspacePageOf(pathname) !== null;
 
-/**
- * A sign-in link's address, as ember-rust's `session_transfer` route has it: opening it signs whoever
- * does in as the person it was made for, until it expires.
- */
-export const transferPath = (transferId: string) => `/session/transfers/${transferId}`;
+/** The page a sign-in link opens, which signs whoever opens it in as the person the link was made for, until it expires. */
+export const TRANSFER_PATH = "/session/transfers";
 
 /**
- * The id in a sign-in link's path, `/session/transfers/<id>`, or null if `pathname` isn't one. Ids are
- * letters, digits, dots, dashes and underscores, which nothing escapes, so the path holds them as they are.
+ * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's
+ * `session_transfer` route puts the id in the path. Browsers never send a fragment, so no request holds
+ * the id, nor any log of one, as ember-rust's setup link keeps its token (setup_access.js). Ids are
+ * letters, digits, dots, dashes and underscores, which nothing escapes.
  */
-export const transferIdFromPath = (pathname: string) => pathname.match(/^\/session\/transfers\/([^/]+)$/)?.[1] ?? null;
+export const transferLink = (transferId: string) => `${TRANSFER_PATH}#token=${transferId}`;

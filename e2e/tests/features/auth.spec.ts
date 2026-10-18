@@ -168,14 +168,23 @@ test.describe(feature("auth.sign-in-link"), () => {
     const grace = await members.signIn(unique("Grace"));
     await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
     const link = await grace.page.getByRole("textbox", { name: YOURS }).inputValue();
-    expect(new URL(link).pathname).toMatch(new RegExp(`^/session/transfers/${grace.session.user.id}\\.`));
+    const { pathname, hash } = new URL(link);
+    expect(pathname).toBe("/session/transfers");
+    expect(hash).toMatch(new RegExp(`^#token=${grace.session.user.id}\\.`));
+    const transferId = hash.slice("#token=".length);
+    // What a log can hold of each request: its address, which browsers send without the fragment, and the page it's from.
+    const sent: string[] = [];
+    page.on("request", (request) => sent.push(request.url().replace(/#.*/, ""), request.headers().referer ?? ""));
 
     // Another device, signed out, sent to sign in from the test's general.
     await page.goto(`/rooms/${rooms.general.id}`);
     await expect(signInHeading(page)).toBeVisible();
+    const signIn = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/session/transfers");
     await page.goto(link);
+    expect((await signIn).postDataJSON()).toEqual({ transferId });
     await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", grace.name);
+    expect(sent.filter((logged) => logged.includes(transferId))).toEqual([]);
 
     // The link works as often as it's opened until it expires, and Grace's first device stays signed in.
     await logOut(page);
@@ -207,12 +216,29 @@ test.describe(feature("auth.sign-in-link"), () => {
   });
 
   test("leaves the page blank for a link that doesn't work, signing nobody in", async ({ page }) => {
-    await page.goto("/session/transfers/nonsense");
+    await page.goto("/session/transfers#token=nonsense");
     await expect(page.getByRole("main")).toHaveAttribute("aria-busy", "false");
     await expect(page.getByRole("main")).toBeEmpty();
-    await expect(page).toHaveURL(/\/session\/transfers\/nonsense$/);
+    await expect(page).toHaveURL(/\/session\/transfers$/);
     await page.goto("/");
     await expect(signInHeading(page)).toBeVisible();
+  });
+});
+
+test.describe(feature("accounts.qr-codes"), () => {
+  test("draws a sign-in link's QR code in the page, so the link never reaches the Worker", async ({ members }) => {
+    const grace = await members.signIn(unique("Grace"));
+    await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
+    const asked: string[] = [];
+    grace.page.on("request", (request) => asked.push(new URL(request.url()).pathname));
+
+    await grace.page.getByRole("button", { name: "Show auto-login QR code" }).click();
+    const viewer = grace.page.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+    await expect(viewer.locator("img[src^='blob:']")).toBeVisible();
+    const download = grace.page.waitForEvent("download");
+    await viewer.getByRole("link", { name: "Download file" }).click();
+    expect((await download).suggestedFilename()).toBe("QR code.svg");
+    expect(asked.filter((path) => path.startsWith("/qr_code/"))).toEqual([]);
   });
 });
 

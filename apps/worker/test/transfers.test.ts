@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Me, NewWorkspace, PersonAnswer, ProfileAnswer, UserId } from "@ember/protocol";
+import { TRANSFER_PATH, type LinkSignIn, type Me, type NewWorkspace, type PersonAnswer, type ProfileAnswer, type UserId } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
@@ -24,9 +24,12 @@ const yourTransferId = async (session: Session) => ((await (await api("/api/user
 /** What someone's page tells `viewer` about `userId`. */
 const personAnswer = async (viewer: Session, userId: UserId) => (await (await api(`/api/users/${userId}`, { headers: as(viewer) })).json()) as PersonAnswer;
 
+/** Signs in with `transferId`, as a sign-in link's page does. */
+const signInWith = (transferId: string) => ({ method: "POST", body: JSON.stringify({ transferId } satisfies LinkSignIn) });
+
 /** Opens the sign-in link `transferId` in a browser signed in with `session`, if any, as its page does. */
 const transfer = (transferId: string, session?: Session | null, init: RequestInit = {}) =>
-  api(`/api/session/transfers/${encodeURIComponent(transferId)}`, { method: "PUT", ...init, headers: { ...as(session), ...init.headers } });
+  api("/api/session/transfers", { ...signInWith(transferId), ...init, headers: { ...as(session), ...init.headers } });
 
 /** Who `cookie` signs in, or the status that says nobody. */
 async function whoIs(cookie: string): Promise<Me | number> {
@@ -136,8 +139,14 @@ describe(feature("auth.sign-in-link"), () => {
       "made up": "nonsense",
     };
     for (const [why, transferId] of Object.entries(refused)) await expectRefused(await transfer(transferId, administrator), why);
-    await expectRefused(await api("/api/session/transfers/%FF", { method: "PUT" }), "not text");
     expect(await whoIs(administrator.cookie)).toMatchObject({ id: administrator.user.id });
+  });
+
+  it("answers 400 with nothing else when what's sent holds no link", async () => {
+    await setUp();
+    for (const body of [undefined, "", "{", "null", "1", '"nonsense"', "[]", "{}", '{"transferId":null}', '{"transferId":1}']) {
+      await expectRefused(await api("/api/session/transfers", { method: "POST", body }), String(body));
+    }
   });
 
   it("answers 400 once the person it's for is banned or removed", async () => {
@@ -156,10 +165,10 @@ describe(feature("auth.sign-in-link"), () => {
   it("answers 400 for someone who signed in with just a name, while EMBER_GUEST_SIGN_IN doesn't allow it", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
-    const put = (transferId: string, changes: Partial<Env>) => apiWith(changes, `/api/session/transfers/${transferId}`, { method: "PUT" });
+    const post = async (session: Session) => apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session/transfers", signInWith(await yourTransferId(session)));
 
-    await expectRefused(await put(await yourTransferId(grace), { EMBER_GUEST_SIGN_IN: undefined }), "guest");
-    expect((await put(await yourTransferId(administrator), { EMBER_GUEST_SIGN_IN: undefined })).status).toBe(201);
+    await expectRefused(await post(grace), "guest");
+    expect((await post(administrator)).status).toBe(201);
   });
 
   it("refuses to sign in from other sites", async () => {
@@ -169,23 +178,23 @@ describe(feature("auth.sign-in-link"), () => {
     expect(response.headers.has("Set-Cookie")).toBe(false);
   });
 
-  it("is the app's page, signed in or out, whatever the id, which no cache keeps", async () => {
+  it("is the app's page, signed in or out, with the link's id in its fragment, which browsers don't send", async () => {
     const administrator = await setUp();
     const transferId = await yourTransferId(administrator);
     const page = (path: string, { method, session }: { method?: string; session?: Session } = {}) =>
       apiWith({ ASSETS: builtPages }, path, { method, headers: as(session), redirect: "manual" });
 
-    for (const [path, session] of [
-      [`/session/transfers/${transferId}`, undefined],
-      [`/session/transfers/${transferId}`, administrator],
-      ["/session/transfers/nonsense", undefined],
-    ] as const) {
-      const response = await page(path, { session });
-      expect(response.status, path).toBe(200);
+    for (const session of [undefined, administrator]) {
+      const response = await page(TRANSFER_PATH, { session });
+      expect(response.status).toBe(200);
       expect(await response.text()).toBe("page /");
-      expect(response.headers.get("Cache-Control")).toBe("no-store");
     }
+    // ember-rust's addresses, with the id in the path, are no page or route here, so no request holds
+    // the id: the built app answers Campfire's 404 page for the page's.
+    const path = `${TRANSFER_PATH}/${transferId}`;
+    expect(await (await page(path)).text()).toBe(`page ${path}`);
+    expect((await api(`/api/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(404);
     // ember-rust's page signs in with a PUT to itself, which this one sends to the API.
-    expect((await page(`/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(404);
+    expect((await page(TRANSFER_PATH, { method: "PUT" })).status).toBe(404);
   });
 });

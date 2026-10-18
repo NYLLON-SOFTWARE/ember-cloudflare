@@ -194,7 +194,7 @@ describe(feature("accounts.remove-person"), () => {
     const { transferId } = (await (await api("/api/users/me/profile", { headers: { Cookie: member.cookie } })).json()) as ProfileAnswer;
 
     await remove(administrator, member.user.id);
-    expect((await api(`/api/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(400);
+    expect((await api("/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(400);
   });
 
   it("tells everyone's workspace sockets they're removed, as the directory now lists them", async () => {

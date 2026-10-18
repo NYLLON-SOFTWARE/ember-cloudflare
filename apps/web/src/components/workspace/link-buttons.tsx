@@ -23,14 +23,22 @@ export const ROUND_BUTTON =
 /** Campfire's `btn--success` (buttons.css), which the copy button plays each time it copies. */
 const COPIED = ["motion-safe:animate-success", "motion-safe:[&>img]:animate-zoom-fade"];
 
+interface LinkButtonsProps {
+  url: string;
+  sharing: LinkSharing;
+  /** Whether the page draws the link's QR code itself, as it does a sign-in link's (`QrCodeLink`). */
+  qrCodeDrawn?: boolean;
+  className: string;
+}
+
 /** `url`'s QR code, copy and share buttons, each styled with `className`. */
-export function LinkButtons({ url, sharing, className }: { url: string; sharing: LinkSharing; className: string }) {
+export function LinkButtons({ url, sharing, qrCodeDrawn = false, className }: LinkButtonsProps) {
   // As ember-rust's web_share_controller.js decides, before it's ever asked to share.
   const canShare = "canShare" in navigator;
 
   return (
     <>
-      <QrCodeLink url={url} className={className}>
+      <QrCodeLink url={url} drawn={qrCodeDrawn} className={className}>
         <span className="sr-only">{sharing.qrCodeLabel}</span>
         <QrCode className="size-[1.3em]" />
       </QrCodeLink>

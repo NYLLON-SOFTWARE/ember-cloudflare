@@ -67,8 +67,8 @@ export {
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
-  transferIdFromPath,
-  transferPath,
+  TRANSFER_PATH,
+  transferLink,
   WORKSPACE_SETTINGS_PATH,
   workspacePageOf,
   type RoomAccess,
@@ -356,7 +356,7 @@ export interface Person extends DirectoryUser {
 export interface PersonAnswer {
   person: Person;
   /**
-   * The id in a new sign-in link for them (`transferPath`), which administrators are given for anyone
+   * The id in a new sign-in link for them (`transferLink`), which administrators are given for anyone
    * active who isn't a bot, as ember-rust's page shows them it.
    */
   transferId?: string;
@@ -378,7 +378,7 @@ export interface Profile {
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
 export interface ProfileAnswer {
   profile: Profile;
-  /** The id in a new sign-in link for you (`transferPath`), as each of ember-rust's profile pages shows a new one. */
+  /** The id in a new sign-in link for you (`transferLink`), as each of ember-rust's profile pages shows a new one. */
   transferId: string;
 }
 
@@ -478,6 +478,11 @@ export interface NewWorkspace {
 export interface PasswordSignIn {
   emailAddress: string;
   password: string;
+}
+
+/** Signing in with a sign-in link (`POST /api/session/transfers`): its id, which the link's address keeps out of every request's. */
+export interface LinkSignIn {
+  transferId: string;
 }
 
 /** What `POST /api/unfurl` answers for a link with a preview. A link without one gets 204. */

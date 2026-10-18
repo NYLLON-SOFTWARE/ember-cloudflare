@@ -252,7 +252,7 @@ describe(feature("accounts.ban"), () => {
     const { transferId } = (await (await api("/api/users/me/profile", { headers: { Cookie: member.cookie } })).json()) as ProfileAnswer;
 
     await ban(administrator, member.user.id);
-    expect((await api(`/api/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(400);
+    expect((await api("/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(400);
   });
 
   it("deletes every message they wrote, in every room they could have written in, with its boosts, telling everyone there", async () => {
@@ -821,7 +821,7 @@ describe(feature("accounts.ban-enforcement"), () => {
       ["POST", "/api/session", { emailAddress: ada.emailAddress, password: ada.password }],
       ["POST", "/api/session", { name: "Hal" }],
       ["DELETE", "/api/session"],
-      ["PUT", `/api/session/transfers/${transferId}`],
+      ["POST", "/api/session/transfers", { transferId }],
       ["POST", `/api/join/${joinCode}`, { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
       ["PATCH", "/api/account", { name: "Banned" }],
       ["POST", "/api/account/join_code"],
@@ -852,7 +852,7 @@ describe(feature("accounts.ban-enforcement"), () => {
     expect(await everything()).toEqual(before);
     expect(await signedIn(administrator)).toBe(true);
     // Elsewhere, the sign-in link still works.
-    expect((await api(`/api/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(201);
+    expect((await api("/api/session/transfers", { method: "POST", body: JSON.stringify({ transferId }) })).status).toBe(201);
   });
 
   it("still lets a banned address read, connect and check Ember's health, and finds nothing where no route is", async () => {
