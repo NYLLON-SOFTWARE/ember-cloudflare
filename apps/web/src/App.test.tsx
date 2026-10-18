@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges, type Message } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -37,25 +37,26 @@ class QuietSocket {
 /** A room socket the test answers as the room. The tab's workspace socket stays quiet, and unlisted. */
 class RoomSocket extends QuietSocket {
   static all: RoomSocket[] = [];
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: ((event: { code: number }) => void) | null = null;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
 
   constructor(url: string) {
     super();
     if (url.includes("/api/rooms/")) RoomSocket.all.push(this);
   }
 
-  welcome(you: typeof ada) {
+  welcome(you: typeof ada, messages: Message[] = []) {
     this.readyState = RoomSocket.OPEN;
-    this.onopen?.();
-    this.onmessage?.({ data: JSON.stringify({ type: "welcome", you, messages: [], present: [you], hasMore: false, seq: 0 }) });
+    this.onopen?.(new Event("open"));
+    const welcome = { type: "welcome", you, messages, present: [you], hasMore: false, seq: 0 };
+    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(welcome) }));
   }
 
   /** The room closes the socket, saying why. */
   end(code: number) {
     this.readyState = 3;
-    this.onclose?.({ code });
+    this.onclose?.(new CloseEvent("close", { code }));
   }
 }
 
@@ -154,6 +155,19 @@ function serve({
     // Each read, at the level a room starts at.
     return Response.json({ rooms: rooms.map((room) => ({ ...room, unread: false, involvement: "mentions" })), favorites: { rooms: [], version: 0 }, invitation: null });
   });
+}
+
+/** Serves signed in, as `serve` does, holding back its answer to `held`, such as "GET /api/account", until it's let go. */
+function serveHolding(held: string) {
+  const server = serve({ signedIn: true });
+  const answer = server.getMockImplementation()!;
+  let letGo!: () => void;
+  const goes = new Promise<void>((resolve) => (letGo = resolve));
+  server.mockImplementation(async (input, init) => {
+    if (`${init?.method ?? "GET"} ${String(input)}` === held) await goes;
+    return answer(input, init);
+  });
+  return letGo;
 }
 
 const roomHeading = () => screen.findByRole("heading", { level: 1, name: "general" });
@@ -296,20 +310,47 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("accounts.name"), () => {
-  /** Serves signed in, as `serve` does, holding back its answer to `held`, such as "GET /api/account", until it's let go. */
-  function serveHolding(held: string) {
-    const server = serve({ signedIn: true });
-    const answer = server.getMockImplementation()!;
-    let letGo!: () => void;
-    const goes = new Promise<void>((resolve) => (letGo = resolve));
-    server.mockImplementation(async (input, init) => {
-      if (`${init?.method ?? "GET"} ${String(input)}` === held) await goes;
-      return answer(input, init);
-    });
-    return letGo;
-  }
+describe(feature("rooms.show"), () => {
+  const morning: Message = {
+    id: "m1",
+    clientMessageId: "m1",
+    roomId: "general",
+    creator: ada,
+    body: "<p>Morning!</p>",
+    plainText: "Morning!",
+    mentions: [],
+    createdAt: "2026-10-18T09:00:00.000Z",
+    updatedAt: "2026-10-18T09:00:00.000Z",
+    editedAt: null,
+    boosts: [],
+  };
 
+  it("connects to the room an address shows once it knows who's signed in, before the room can show, and the room takes that socket", async () => {
+    RoomSocket.all = [];
+    vi.stubGlobal("WebSocket", RoomSocket);
+    history.replaceState(null, "", "/rooms/general");
+    const sendRooms = serveHolding("GET /api/sidebar");
+    render(<App />);
+    await waitFor(() => expect(RoomSocket.all).toHaveLength(1));
+    act(() => RoomSocket.all[0]!.welcome(ada, [morning]));
+
+    sendRooms();
+    expect(await screen.findByText("Morning!")).toBeInTheDocument();
+    expect(RoomSocket.all).toHaveLength(1);
+  });
+
+  it("connects to no room before someone signs in", async () => {
+    RoomSocket.all = [];
+    vi.stubGlobal("WebSocket", RoomSocket);
+    history.replaceState(null, "", "/rooms/general");
+    serve({ signedIn: false });
+    render(<App />);
+    await signInPage();
+    expect(RoomSocket.all).toEqual([]);
+  });
+});
+
+describe(feature("accounts.name"), () => {
   it("takes a name saved in another tab at once, as the workspace socket says, on every page", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
