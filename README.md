@@ -138,8 +138,8 @@ that: the old link stops working, and any browser it unlocked locks again. Witho
 `EMBER_SETUP_TOKEN`, setup is open to whoever visits first, as in Campfire: fine on your own
 machine, but not on the internet.
 
-The setup form suggests Jane Cooper and jane@company.com for the administrator, as ember-rust's does.
-To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
+The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator, where ember-rust's
+suggests Jane Cooper. To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
 `EMBER_SETUP_EMAIL_PLACEHOLDER` variables, in `vars` in `apps/worker/wrangler.jsonc` for instance.
 
 The administrator then signs in at `/session/new` with the email address and password they set up
@@ -202,7 +202,7 @@ repository's token in place of the Worker's. The secrets go up with each deploy,
 The first deploy makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
-you add them, become the preview's setup form placeholders, so your own name needn't go in the code.
+you add them, become the preview's setup form placeholders.
 
 The preview is a private workspace, which its administrator invites people to with the join link.
 Its version, under the sign-in page's help contact, is the commit it deployed. After each deploy,

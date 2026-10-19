@@ -5,7 +5,7 @@ name: Preview
 # skips without them, so forks don't try to deploy. An EMBER_SETUP_TOKEN repository secret, if
 # there is one, becomes the preview's setup token, and EMBER_SETUP_NAME_PLACEHOLDER and
 # EMBER_SETUP_EMAIL_PLACEHOLDER repository variables, if set, are the name and email address its
-# Set up Ember form suggests in place of ember-rust's Jane Cooper.
+# Set up Ember form suggests in place of Kevin Rose's.
 on:
   push:
     branches: [main]

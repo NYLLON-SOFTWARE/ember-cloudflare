@@ -402,8 +402,8 @@ export interface Bootstrap {
   /** Whether setup takes the deployment's private link, because `EMBER_SETUP_TOKEN` is set. */
   setupProtected: boolean;
   /**
-   * What the Set up Ember form suggests: ember-rust's Jane Cooper, unless the deployment names its own
-   * with `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`.
+   * What the Set up Ember form suggests: Kevin Rose's name and email address, unless the deployment names
+   * its own with `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`.
    */
   setupPlaceholders: SetupPlaceholders;
   /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */

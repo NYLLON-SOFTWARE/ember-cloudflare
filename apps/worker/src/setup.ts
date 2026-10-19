@@ -64,11 +64,12 @@ export const setupTokenProblem = (env: Env) =>
 
 /**
  * What the Set up Ember form suggests, as `/api/bootstrap` tells the app: the deployment's own name and
- * email address, else ember-rust's (first_runs/show.html). A blank setting counts as unset.
+ * email address, else Kevin Rose's, in place of ember-rust's Jane Cooper (first_runs/show.html). A blank
+ * setting counts as unset.
  */
 export const setupPlaceholdersOf = (env: Env): SetupPlaceholders => ({
-  name: env.EMBER_SETUP_NAME_PLACEHOLDER?.trim() || "Jane Cooper",
-  emailAddress: env.EMBER_SETUP_EMAIL_PLACEHOLDER?.trim() || "jane@company.com",
+  name: env.EMBER_SETUP_NAME_PLACEHOLDER?.trim() || "Kevin Rose",
+  emailAddress: env.EMBER_SETUP_EMAIL_PLACEHOLDER?.trim() || "kevin@kevinrose.com",
 });
 
 /** Answers 500 rather than starting setup with a token that can't be right, the nearest a Worker comes to refusing to boot. */
