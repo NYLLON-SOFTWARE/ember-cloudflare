@@ -1,4 +1,4 @@
-import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
+import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace, type SetupPlaceholders } from "@ember/protocol";
 import { clientOf, cookieValues, isCrossSite, isHttps, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import { fromBase64url, fromHex, toBase64url, toHex } from "./encoding";
@@ -58,6 +58,15 @@ export const isSetupProtected = (env: Env) => env.EMBER_SETUP_TOKEN !== undefine
 /** What's wrong with EMBER_SETUP_TOKEN, for `/api/health`, if it's set to something that can't be a token. */
 export const setupTokenProblem = (env: Env) =>
   env.EMBER_SETUP_TOKEN === undefined || SETUP_TOKEN.test(env.EMBER_SETUP_TOKEN) ? null : "EMBER_SETUP_TOKEN must be 64 lowercase hex characters";
+
+/**
+ * What the Set up Ember form suggests, as `/api/bootstrap` tells the app: the deployment's own name and
+ * email address, else ember-rust's (first_runs/show.html). A blank setting counts as unset.
+ */
+export const setupPlaceholdersOf = (env: Env): SetupPlaceholders => ({
+  name: env.EMBER_SETUP_NAME_PLACEHOLDER?.trim() || "Jane Cooper",
+  emailAddress: env.EMBER_SETUP_EMAIL_PLACEHOLDER?.trim() || "jane@company.com",
+});
 
 /** Answers 500 rather than starting setup with a token that can't be right, the nearest a Worker comes to refusing to boot. */
 function misconfigured(): Response {

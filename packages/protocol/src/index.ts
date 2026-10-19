@@ -389,12 +389,23 @@ export interface HelpContact {
   emailAddress: string;
 }
 
+/** What the Set up Ember form shows in its Name and Email address fields while they're empty. */
+export interface SetupPlaceholders {
+  name: string;
+  emailAddress: string;
+}
+
 /** What the app asks first (`GET /api/bootstrap`): whether Ember is set up, and who this browser is signed in as. */
 export interface Bootstrap {
   /** "pending" until first run creates the workspace and its first administrator. */
   setup: "pending" | "complete";
   /** Whether setup takes the deployment's private link, because `EMBER_SETUP_TOKEN` is set. */
   setupProtected: boolean;
+  /**
+   * What the Set up Ember form suggests: ember-rust's Jane Cooper, unless the deployment names its own
+   * with `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`.
+   */
+  setupPlaceholders: SetupPlaceholders;
   /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */
   guestSignIn: boolean;
   /** "Ember" before setup, as in ember-rust. */

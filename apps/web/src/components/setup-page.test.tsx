@@ -11,6 +11,8 @@ vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const workspace = { user: { id: "u1", name: "Ada Lovelace" }, room: { id: "r1", kind: "open", name: "general", icon: null } };
+/** ember-rust's placeholders, which the Worker suggests unless the deployment names its own. */
+const JANE = { name: "Jane Cooper", emailAddress: "jane@company.com" };
 
 /** The server's answer to the form. */
 const answer = (status: number, body: object) => vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));
@@ -43,7 +45,7 @@ const sent = () => vi.mocked(fetch).mock.calls.at(-1)![1]!.body;
 
 describe(feature("auth.first-run"), () => {
   it("asks for the administrator's name, email address and password", () => {
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     expect(document.title).toBe("Set up Ember");
     expect(screen.getByRole("region", { name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
@@ -66,7 +68,7 @@ describe(feature("auth.first-run"), () => {
   });
 
   it("shows and hides the password", async () => {
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     const password = screen.getByLabelText("Password");
     const toggle = screen.getByRole("button", { name: "Show password" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -87,7 +89,7 @@ describe(feature("auth.first-run"), () => {
     const length = history.length;
     const fetch = answer(201, workspace);
     const onSetUp = vi.fn();
-    render(<SetupPage onSetUp={onSetUp} />);
+    render(<SetupPage placeholders={JANE} onSetUp={onSetUp} />);
     await fillIn("correct horse");
 
     await waitFor(() => expect(onSetUp).toHaveBeenCalledWith(workspace));
@@ -101,7 +103,7 @@ describe(feature("auth.first-run"), () => {
 
   it("starts the password over when it's too short, keeping the name and email", async () => {
     answer(422, { error: PASSWORD_TOO_SHORT, field: "password" });
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await fillIn("🔐🔐🔐🔐");
 
     const password = await screen.findByLabelText("Password");
@@ -117,21 +119,21 @@ describe(feature("auth.first-run"), () => {
 
   it("goes home when someone else set Ember up first", async () => {
     answer(409, { error: "Ember is already set up", redirect: "/" });
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await fillIn("correct horse");
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
   });
 
   it("reloads setup's page when the setup link's time has run out, which then says setup is locked", async () => {
     answer(403, { error: "Setup is locked" });
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await fillIn("correct horse");
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/first_run"));
   });
 
   it("says so when Ember can't be reached, and lets you try again", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     const user = await fillIn("correct horse");
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
 
@@ -142,7 +144,7 @@ describe(feature("auth.first-run"), () => {
   });
 
   it("offers a photo, optional, which shows as it's chosen, as ember-rust's `ui::avatar` does", async () => {
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     expect(preview()).toHaveAttribute("src", avatarPlaceholder);
     expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
     expect(photoField()).toHaveAccessibleDescription("Add a profile photo (optional).");
@@ -155,7 +157,7 @@ describe(feature("auth.first-run"), () => {
   it("sends the photo chosen, and its variant, with the rest of the form", async () => {
     answer(201, workspace);
     const onSetUp = vi.fn();
-    render(<SetupPage onSetUp={onSetUp} />);
+    render(<SetupPage placeholders={JANE} onSetUp={onSetUp} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("correct horse");
 
@@ -168,7 +170,7 @@ describe(feature("auth.first-run"), () => {
 
   it("keeps the photo when the password is too short", async () => {
     answer(422, { error: PASSWORD_TOO_SHORT, field: "password" });
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("🔐🔐🔐🔐");
 
@@ -179,7 +181,7 @@ describe(feature("auth.first-run"), () => {
 
   it("keeps the photo it sends until it's answered", async () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("correct horse");
 
@@ -189,7 +191,7 @@ describe(feature("auth.first-run"), () => {
 
   it("refuses a photo over 16 MB at once, saying so in place of its description", async () => {
     answer(201, workspace);
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     const huge = moon();
     Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
     await userEvent.upload(photoField(), huge);
@@ -205,7 +207,7 @@ describe(feature("auth.first-run"), () => {
 
   it("lets go of a photo the Worker refuses, saying why, so the form can be sent without it", async () => {
     const fetch = answer(503, { error: "Ember isn't set up to store files", field: "avatar" });
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     const user = await fillIn("correct horse");
 
@@ -221,7 +223,7 @@ describe(feature("auth.first-run"), () => {
 
 describe(feature("ui.accessibility"), () => {
   it("starts with Skip to main content, which focuses the main content, as ember-rust's first run does", async () => {
-    render(<SetupPage onSetUp={() => {}} />);
+    render(<SetupPage placeholders={JANE} onSetUp={() => {}} />);
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(document.body.querySelector("a[href], button, input")).toBe(skip);
     await userEvent.click(skip);
