@@ -3,7 +3,9 @@ name: Preview
 # Deploys main to a Worker named ember-production on the account's workers.dev subdomain, then checks
 # it end to end. It needs the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets and
 # skips without them, so forks don't try to deploy. An EMBER_SETUP_TOKEN repository secret, if
-# there is one, becomes the preview's setup token.
+# there is one, becomes the preview's setup token, and EMBER_SETUP_NAME_PLACEHOLDER and
+# EMBER_SETUP_EMAIL_PLACEHOLDER repository variables, if set, are the name and email address its
+# Set up Ember form suggests in place of ember-rust's Jane Cooper.
 on:
   push:
     branches: [main]
@@ -65,6 +67,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # Optional. The preview's private setup link is <url>/first_run/access#token=<this>.
           EMBER_SETUP_TOKEN: ${{ secrets.EMBER_SETUP_TOKEN }}
+          # Optional, and not secret: what the setup form suggests.
+          EMBER_SETUP_NAME_PLACEHOLDER: ${{ vars.EMBER_SETUP_NAME_PLACEHOLDER }}
+          EMBER_SETUP_EMAIL_PLACEHOLDER: ${{ vars.EMBER_SETUP_EMAIL_PLACEHOLDER }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.json
         run: |
           # The secrets this deploy adds (scripts/preview-secrets.sh says which) go up with its code,
@@ -73,8 +78,13 @@ jobs:
           trap 'rm -f "$secrets_file"' EXIT
           bash scripts/preview-secrets.sh "$WORKER_NAME" "$secrets_file"
 
-          # Its version, under the sign-in page's help contact, is the commit it deploys.
-          pnpm exec wrangler deploy --name "$WORKER_NAME" --secrets-file "$secrets_file" --var "GIT_REVISION:${GITHUB_SHA::7}"
+          # Its version, under the sign-in page's help contact, is the commit it deploys. The setup
+          # form's placeholders go up only when the repository's variables set them.
+          vars=(--var "GIT_REVISION:${GITHUB_SHA::7}")
+          for name in EMBER_SETUP_NAME_PLACEHOLDER EMBER_SETUP_EMAIL_PLACEHOLDER; do
+            if [ -n "${!name}" ]; then vars+=(--var "$name:${!name}"); fi
+          done
+          pnpm exec wrangler deploy --name "$WORKER_NAME" --secrets-file "$secrets_file" "${vars[@]}"
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then
             echo "::error::wrangler deployed $WORKER_NAME without a workers.dev URL"

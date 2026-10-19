@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room, type Sidebar } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Env } from "../src/env";
 import { verifyPassword } from "../src/passwords";
 import { api, apiWith, builtPages, cookieOf, freshDeploy, listedRoom, origin, signIn, workspaceSql, workspaceStub } from "./support";
 
@@ -23,6 +24,7 @@ describe(feature("auth.first-run"), () => {
     expect(await bootstrap()).toEqual({
       setup: "pending",
       setupProtected: false,
+      setupPlaceholders: { name: "Jane Cooper", emailAddress: "jane@company.com" },
       guestSignIn: true,
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
       helpContact: null,
@@ -42,6 +44,19 @@ describe(feature("auth.first-run"), () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     // Rails' default, as any page has, since nothing private is on the way.
     expect(response.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("suggests the name and email address the deployment names in place of ember-rust's", async () => {
+    const placeholders = async (changes: Partial<Env>) => ((await (await apiWith(changes, "/api/bootstrap")).json()) as Bootstrap).setupPlaceholders;
+    expect(await placeholders({ EMBER_SETUP_NAME_PLACEHOLDER: "Grace Hopper", EMBER_SETUP_EMAIL_PLACEHOLDER: " grace@example.com " })).toEqual({
+      name: "Grace Hopper",
+      emailAddress: "grace@example.com",
+    });
+    // Each stands alone, and a blank one counts as unset.
+    expect(await placeholders({ EMBER_SETUP_NAME_PLACEHOLDER: " ", EMBER_SETUP_EMAIL_PLACEHOLDER: "grace@example.com" })).toEqual({
+      name: "Jane Cooper",
+      emailAddress: "grace@example.com",
+    });
   });
 
   it("creates the workspace, its administrator, general and random, and signs them in, opening general", async () => {

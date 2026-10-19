@@ -20,6 +20,8 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
 const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
+/** What the deployment's Set up Ember form suggests. */
+const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
 /** The rooms first run makes, general first. */
 const firstRooms = [
@@ -113,7 +115,7 @@ function serve({
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupProtected: false, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupProtected: false, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -219,7 +221,11 @@ describe(feature("auth.first-run"), () => {
     serve({ signedIn: false, setup: "pending" });
     render(<App />);
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Name"), "Ada");
+    const name = await screen.findByLabelText("Name");
+    // What the deployment suggests, rather than ember-rust's Jane Cooper.
+    expect(name).toHaveAttribute("placeholder", PLACEHOLDERS.name);
+    expect(screen.getByLabelText("Email address")).toHaveAttribute("placeholder", PLACEHOLDERS.emailAddress);
+    await user.type(name, "Ada");
     await user.type(screen.getByLabelText("Email address"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse{Enter}");
 
