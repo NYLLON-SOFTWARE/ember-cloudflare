@@ -145,7 +145,7 @@ export function App() {
   // As in ember-rust, a sign-in link signs in whoever opens it, even someone signed in as someone else.
   const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atTransfer;
   const page = () => {
-    if (workspace.setup === "pending") return <SetupPage onSetUp={setUp} />;
+    if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} onSetUp={setUp} />;
     if (atTransfer) return <TransferPage />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)

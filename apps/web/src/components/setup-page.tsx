@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, type NewWorkspace } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, type NewWorkspace, type SetupPlaceholders } from "@ember/protocol";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type EmberIconProps } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -14,7 +14,8 @@ import { loadPage } from "@/lib/page";
 // ember-rust's Set up Ember page (crates/views/templates/first_runs/show.html and the macros in
 // components/ui.html), styled as its basecoat card (crates/assets/overrides/basecoat/src/theme.css).
 // Entering its fields doesn't select what's in them, since it isn't one of ember-rust's app pages, which
-// do (`useSelectOnEntry`).
+// do (`useSelectOnEntry`). Its name and email address placeholders are ember-rust's unless the
+// deployment suggests its own, which /api/bootstrap passes on.
 
 const TITLE = "Set up Ember";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */
@@ -24,7 +25,7 @@ const FIELD_ICON = "pointer-events-none absolute top-1/2 left-3 z-[1] size-[1.12
 const SKIP_LINK = "focus:top-[calc(0.5rem+env(safe-area-inset-top))] focus:left-[max(0.5rem,env(safe-area-inset-left))] focus:rounded-lg focus:border-0 focus:bg-card focus:px-4 focus:py-3 focus:outline-2 focus:outline-offset-0 focus:outline-ring";
 
 /** Creates the workspace and its first administrator, with the photo they choose, then opens general, its first room. */
-export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => void }) {
+export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceholders; onSetUp: (workspace: NewWorkspace) => void }) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -99,7 +100,7 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
                     id="user_name"
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    placeholder="Jane Cooper"
+                    placeholder={placeholders.name}
                     autoComplete="name"
                     autoFocus
                     required
@@ -113,7 +114,7 @@ export function SetupPage({ onSetUp }: { onSetUp: (workspace: NewWorkspace) => v
                     type="email"
                     value={emailAddress}
                     onChange={(event) => setEmailAddress(event.target.value)}
-                    placeholder="jane@company.com"
+                    placeholder={placeholders.emailAddress}
                     autoComplete="username"
                     required
                     className={INPUT}

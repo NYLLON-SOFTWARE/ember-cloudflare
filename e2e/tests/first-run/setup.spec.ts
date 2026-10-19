@@ -16,6 +16,9 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page).toHaveTitle("Set up Ember");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Set up Ember");
     await expect(page.getByLabel("Name")).toBeFocused();
+    // The test server names no placeholders of its own, so the form suggests ember-rust's.
+    await expect(page.getByLabel("Name")).toHaveAttribute("placeholder", "Jane Cooper");
+    await expect(page.getByLabel("Email address")).toHaveAttribute("placeholder", "jane@company.com");
     // With no header to show it under, Skip to main content shows at the page's top left, as basecoat's does.
     const skip = page.getByRole("link", { name: "Skip to main content" });
     await skip.focus();

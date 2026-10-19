@@ -35,6 +35,10 @@ export interface Env {
    * link `/first_run/access#token=<token>`. Unset, the first visitor sets up the workspace.
    */
   EMBER_SETUP_TOKEN?: string;
+  /** What the Set up Ember form suggests for the administrator's name in place of ember-rust's "Jane Cooper". */
+  EMBER_SETUP_NAME_PLACEHOLDER?: string;
+  /** What the Set up Ember form suggests for their email address in place of ember-rust's "jane@company.com". */
+  EMBER_SETUP_EMAIL_PLACEHOLDER?: string;
   /**
    * 64 lowercase hex characters (`openssl rand -hex 32`) that let apps/worker/scripts/reset-password.ts
    * reset anyone's password. Unset, nothing can, so set it only while it's needed.
