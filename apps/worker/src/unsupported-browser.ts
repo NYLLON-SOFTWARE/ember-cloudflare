@@ -1,6 +1,6 @@
 import { TRANSLATIONS } from "@ember/protocol";
+import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
-import { escapeHtml } from "./headers";
 import { isAppleMessages, isUnsupportedBrowser } from "./user-agent";
 import { workspace } from "./workspace";
 

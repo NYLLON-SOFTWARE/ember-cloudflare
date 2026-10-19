@@ -5,13 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import refusedPage from "../../web/public/422.html";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { lockedPage } from "../src/setup-locked";
 import { apiWith, builtPages, cookieOf, freshDeploy, origin, workspaceSql } from "./support";
 
 const TOKEN = "0123456789abcdef".repeat(4);
 const locked: Partial<Env> = { EMBER_SETUP_TOKEN: TOKEN, ASSETS: builtPages };
 
-const LOCKED_PAGE =
-  '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember setup</title><h1>Setup is locked</h1><p>Open the private setup link for this deployment.</p></html>';
 const FORGET_COOKIE = "__Host-ember_setup=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict";
 
 /** A request to a deployment whose setup takes the private link. */
@@ -41,7 +40,7 @@ function expectPrivate(response: Response) {
 async function expectLocked(response: Response) {
   expect(response.status).toBe(403);
   expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
-  expect(await response.text()).toBe(LOCKED_PAGE);
+  expect(await response.text()).toBe(lockedPage(origin));
   expectPrivate(response);
 }
 
@@ -59,6 +58,15 @@ describe(feature("auth.protected-setup"), () => {
     expect(await accounts()).toBe(0);
   });
 
+  it("says on the locked page why setup is locked and how to unlock it, with this deployment's link", async () => {
+    const page = await (await request("/first_run")).text();
+    expect(page).toContain('<h1 id="title">Setup is locked</h1>');
+    expect(page).toContain("Whoever sets up Ember becomes its administrator, so setup only opens from this deployment's private link.");
+    expect(page).toContain("<strong>Have the link?</strong> Open it in this browser. It unlocks setup here for a day.");
+    expect(page).toContain(`followed by the setup token, the Worker's <code>EMBER_SETUP_TOKEN</code> secret:<pre>${origin}/<wbr>first_run/<wbr>access#token=</pre>`);
+    expect(page).toContain("make a new one and save it as that secret, then open the link with it.<pre>openssl rand -hex 32\nwrangler secret put EMBER_SETUP_TOKEN</pre>");
+  });
+
   it("serves the access page over HTTPS alone, with a policy that allows only its script and post", async () => {
     const page = await request("/first_run/access");
     expect(page.status).toBe(200);
@@ -74,13 +82,13 @@ describe(feature("auth.protected-setup"), () => {
     expectPrivate(unprotected);
   });
 
-  it("trades the token for a 15-minute cookie that unlocks the form until setup is done", async () => {
+  it("trades the token for a day-long cookie that unlocks the form until setup is done", async () => {
     const response = await exchange(`token=${TOKEN}`);
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
     expectPrivate(response);
     const [setCookie] = response.headers.getSetCookie();
-    expect(setCookie).toMatch(/^__Host-ember_setup=[\w-]+; Max-Age=900; Path=\/; Secure; HttpOnly; SameSite=Strict$/);
+    expect(setCookie).toMatch(/^__Host-ember_setup=[\w-]+; Max-Age=86400; Path=\/; Secure; HttpOnly; SameSite=Strict$/);
     expect(setCookie).not.toContain(TOKEN);
     const cookie = cookieOf(response);
 
@@ -138,10 +146,18 @@ describe(feature("auth.protected-setup"), () => {
     expect(await accounts()).toBe(0);
   });
 
+  it("stays unlocked for a day, so a form left open can still be sent", async () => {
+    const cookie = await unlock();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 23 * 60 * 60 * 1000);
+    expect((await request("/first_run", { headers: { Cookie: cookie } })).status).toBe(200);
+    expect((await setUp(cookie)).status).toBe(201);
+  });
+
   it("locks again, forgetting the cookie, once it has expired", async () => {
     const cookie = await unlock();
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() + 15 * 60 * 1000 + 1000);
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1000);
     const response = await request("/first_run", { headers: { Cookie: cookie } });
     await expectLocked(response);
     expect(response.headers.get("Set-Cookie")).toBe(FORGET_COOKIE);

@@ -1,4 +1,4 @@
-// Text encodings for random tokens, digests, sealed cookies and QR codes' ids.
+// Text encodings for random tokens, digests, sealed cookies, QR codes' ids and HTML.
 
 /** Base64 without its padding, as the PHC string format writes salts and hashes. */
 export function toBase64(bytes: Uint8Array): string {
@@ -40,3 +40,7 @@ export const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toS
 
 /** The bytes lowercase hex encodes, or null if `text` isn't any. */
 export const fromHex = (text: string) => (/^(?:[0-9a-f]{2})*$/.test(text) ? Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16)) : null);
+
+/** `text` as HTML shows it, in an element or a quoted attribute. */
+export const escapeHtml = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&#34;").replace(/'/g, "&#39;");

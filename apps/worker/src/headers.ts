@@ -1,4 +1,5 @@
 import { isHttps } from "./auth";
+import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
 import { isSetupPath } from "./setup";
 import { versionOf } from "./version";
@@ -32,9 +33,6 @@ const LOOPBACK_HOST = /^(?:(?:.+\.)?localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
  * HTTPS for two years.
  */
 export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.trim() && !LOOPBACK_HOST.test(new URL(request.url).hostname);
-
-export const escapeHtml = (text: string) =>
-  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&#34;").replace(/'/g, "&#39;");
 
 /**
  * Sends plain HTTP to the same address over HTTPS, without its port, as ember-rust's TLS front does

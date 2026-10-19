@@ -5,7 +5,7 @@ import { PROTECTED_SETUP_TOKEN } from "../../projects/protected-setup";
 
 const expectLocked = async (page: Page) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Setup is locked");
-  await expect(page.getByText("Open the private setup link for this deployment.")).toBeVisible();
+  await expect(page.getByText("Open it in this browser. It unlocks setup here for a day.")).toBeVisible();
 };
 
 test.describe(feature("auth.protected-setup"), () => {
@@ -16,6 +16,8 @@ test.describe(feature("auth.protected-setup"), () => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/first_run$/);
     await expectLocked(page);
+    // The address the token goes on the end of, which is this deployment's.
+    await expect(page.getByText(`${baseURL}/first_run/access#token=`, { exact: true })).toBeVisible();
 
     await page.goto(`/first_run/access#token=${"f".repeat(64)}`);
     await expect(page.getByRole("status")).toHaveText("This setup link is unavailable. Request the current link from the server administrator.");
