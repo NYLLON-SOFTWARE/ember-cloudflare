@@ -6,25 +6,28 @@ import type { Env } from "./env";
 import { notFound, refused } from "./error-pages";
 import { appPage, empty, formAnswer, home, withCookies } from "./pages";
 import { passwordHasher } from "./passwords";
+import { lockedPage } from "./setup-locked";
 import { workspace } from "./workspace";
 
 // First run, which creates the workspace and its first administrator, and the lock that keeps it to
 // whoever has the deployment's private setup link. Ported from ember-rust's
 // crates/ember/src/controllers/first_runs.rs and first_runs/access.rs, path for path, except that
-// the form posts to /api/first_run.
+// the form posts to /api/first_run, the link unlocks setup for a day rather than 15 minutes, and
+// the locked page says how to unlock it (setup-locked.ts).
 
 /** EMBER_SETUP_TOKEN's shape, as ember-rust requires it (crates/ember/src/config.rs). */
 const SETUP_TOKEN = /^[0-9a-f]{64}$/;
 /** The cookie that unlocks setup once this browser has opened the private link. */
 const SETUP_COOKIE = "__Host-ember_setup";
-const SETUP_COOKIE_MAX_AGE_SECONDS = 15 * 60;
+/**
+ * A day, where ember-rust's lasts 15 minutes, which can run out while the form is still open: sending
+ * it then lands on the locked page with what was typed gone. The token itself lasts until setup is
+ * done, and rotating it still locks every browser it unlocked.
+ */
+const SETUP_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
 const SETUP_COOKIE_ATTRIBUTES = "Path=/; Secure; HttpOnly; SameSite=Strict";
 /** AES-GCM's nonce, at the front of the cookie's value. */
 const IV_BYTES = 12;
-
-/** ember-rust's locked page, word for word, except that there's no installer to print the link. */
-const LOCKED_PAGE =
-  '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember setup</title><h1>Setup is locked</h1><p>Open the private setup link for this deployment.</p></html>';
 
 /** The access page's policy: its own script, posting to this origin, and nothing else (access.rs). */
 const ACCESS_PAGE_POLICY = "default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
@@ -88,7 +91,7 @@ async function cookieKey(env: Env): Promise<CryptoKey> {
 }
 
 /**
- * The `Set-Cookie` that unlocks setup for 15 minutes: the token's fingerprint, never the token, and
+ * The `Set-Cookie` that unlocks setup for a day: the token's fingerprint, never the token, and
  * when it expires, encrypted so it can be neither read nor forged, as ember-rust's encrypted cookie is.
  */
 async function unlockingCookie(fingerprint: Uint8Array, env: Env): Promise<string> {
@@ -137,10 +140,11 @@ const isSetUp = async (env: Env) => (await workspace(env).account()) !== null;
  * cookie the private link gives. Answers why not, or null to go on.
  */
 async function refusal(request: Request, env: Env, fingerprint: Uint8Array): Promise<Response | null> {
-  if (new URL(request.url).search) return empty(400);
+  const { origin, search } = new URL(request.url);
+  if (search) return empty(400);
   if (!isHttps(request)) return empty(403);
   if (await isUnlocked(request, env, fingerprint)) return null;
-  const locked = new Response(LOCKED_PAGE, { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const locked = new Response(lockedPage(origin), { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } });
   return withCookies(locked, forgetUnlocking(request));
 }
 

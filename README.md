@@ -131,9 +131,12 @@ pnpm run deploy        # not `pnpm deploy`, which is pnpm's own command
 ```
 
 Then open `https://<your Worker>/first_run/access#token=<your setup token>`. The private link
-unlocks setup in that browser for 15 minutes, and whoever sets Ember up becomes its administrator,
-so keep the link to yourself. Without `EMBER_SETUP_TOKEN`, setup is open to whoever visits first,
-as in Campfire: fine on your own machine, but not on the internet.
+unlocks setup in that browser for a day, and whoever sets Ember up becomes its administrator, so
+keep the link to yourself. Until then, every other browser gets "Setup is locked" and how to unlock
+it. If you lose the token, make a new one with the first two commands above and open the link with
+that: the old link stops working, and any browser it unlocked locks again. Without
+`EMBER_SETUP_TOKEN`, setup is open to whoever visits first, as in Campfire: fine on your own
+machine, but not on the internet.
 
 The setup form suggests Jane Cooper and jane@company.com for the administrator, as ember-rust's does.
 To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
@@ -194,8 +197,9 @@ Actions tab. It needs two repository secrets, and skips without them:
 A third, `EMBER_SETUP_TOKEN` (`openssl rand -hex 32`), becomes the preview's setup token: once it's
 deployed, open `<preview link>/first_run/access#token=<your token>` to set up Ember. Without it, the
 first deploy gives the preview a token nobody knows, so setup stays locked until you add the secret
-and run the workflow again. The secrets go up with each deploy, never in its logs. The first deploy
-makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them.
+and run the workflow again, which is also how to replace a lost one: each deploy puts the
+repository's token in place of the Worker's. The secrets go up with each deploy, never in its logs.
+The first deploy makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
 you add them, become the preview's setup form placeholders, so your own name needn't go in the code.

@@ -61,7 +61,7 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
       }
       // A photo that's refused goes, so the form can be sent without it.
       if (error.field === "avatar") return photo.refuse(error.message);
-      // Someone else set it up first, or the setup link's 15 minutes ran out: the Worker's pages say which.
+      // Someone else set it up first, or the setup link's day ran out: the Worker's pages say which.
       if (error.status === 409) return loadPage("/");
       if (error.status === 403) return loadPage("/first_run");
       setProblem(error.message);
