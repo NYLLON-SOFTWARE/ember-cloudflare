@@ -64,7 +64,9 @@ describe(feature("auth.protected-setup"), () => {
     expect(page).toContain("Whoever sets up Ember becomes its administrator, so setup only opens from this deployment's private link.");
     expect(page).toContain("<strong>Have the link?</strong> Open it in this browser. It unlocks setup here for a day.");
     expect(page).toContain(`followed by the setup token, the Worker's <code>EMBER_SETUP_TOKEN</code> secret:<pre>${origin}/<wbr>first_run/<wbr>access#token=</pre>`);
-    expect(page).toContain("make a new one and save it as that secret, then open the link with it.<pre>openssl rand -hex 32\nwrangler secret put EMBER_SETUP_TOKEN</pre>");
+    expect(page).toContain("Make a new one and save it as that secret, then open the link with it:<pre>openssl rand -hex 32\nwrangler secret put EMBER_SETUP_TOKEN --name &lt;worker-name&gt;</pre>");
+    // Each of its deploys puts the repository's token back, so a token saved on the Worker alone wouldn't last.
+    expect(page).toContain("<p>If GitHub Actions deploys this Worker, save the new token as the repository's <code>EMBER_SETUP_TOKEN</code> secret instead, and run the workflow again.</p>");
   });
 
   it("serves the access page over HTTPS alone, with a policy that allows only its script and post", async () => {

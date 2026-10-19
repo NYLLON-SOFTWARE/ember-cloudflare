@@ -47,6 +47,7 @@ export const lockedPage = (origin: string) => `<!doctype html>
   code, pre { border-radius: 0.375rem; background: var(--muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monaco, monospace; }
   code { padding: 0.1em 0.3em; font-size: 0.875em; }
   pre { margin: 0.5rem 0 0; padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  li p { margin: 0.5rem 0 0; }
   @media (max-width: 23.75rem) {
     body { padding-top: calc(1.25rem + env(safe-area-inset-top)); padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
     h1 { font-size: 1.375rem; }
@@ -65,8 +66,8 @@ export const lockedPage = (origin: string) => `<!doctype html>
     <ul>
       <li><strong>Have the link?</strong> Open it in this browser. It unlocks setup here for a day.</li>
       <li><strong>No link?</strong> It's this address followed by the setup token, the Worker's <code>EMBER_SETUP_TOKEN</code> secret:<pre>${escapeHtml(origin)}/<wbr>first_run/<wbr>access#token=</pre></li>
-      <li><strong>Lost the token?</strong> Run these to make a new one and save it as that secret, then open the link with it.<pre>openssl rand -hex 32
-wrangler secret put EMBER_SETUP_TOKEN</pre></li>
+      <li><strong>Lost the token?</strong> Make a new one and save it as that secret, then open the link with it:<pre>openssl rand -hex 32
+wrangler secret put EMBER_SETUP_TOKEN --name &lt;worker-name&gt;</pre><p>If GitHub Actions deploys this Worker, save the new token as the repository's <code>EMBER_SETUP_TOKEN</code> secret instead, and run the workflow again.</p></li>
     </ul>
   </section>
 </main>
