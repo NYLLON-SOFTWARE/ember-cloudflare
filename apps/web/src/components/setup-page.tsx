@@ -14,8 +14,8 @@ import { loadPage } from "@/lib/page";
 // ember-rust's Set up Ember page (crates/views/templates/first_runs/show.html and the macros in
 // components/ui.html), styled as its basecoat card (crates/assets/overrides/basecoat/src/theme.css).
 // Entering its fields doesn't select what's in them, since it isn't one of ember-rust's app pages, which
-// do (`useSelectOnEntry`). Its name and email address placeholders are ember-rust's unless the
-// deployment suggests its own, which /api/bootstrap passes on.
+// do (`useSelectOnEntry`). Its name and email address placeholders come from /api/bootstrap: Kevin
+// Rose's, where ember-rust's are Jane Cooper's, unless the deployment suggests its own.
 
 const TITLE = "Set up Ember";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */

@@ -24,7 +24,7 @@ describe(feature("auth.first-run"), () => {
     expect(await bootstrap()).toEqual({
       setup: "pending",
       setupProtected: false,
-      setupPlaceholders: { name: "Jane Cooper", emailAddress: "jane@company.com" },
+      setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
       guestSignIn: true,
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
       helpContact: null,
@@ -46,7 +46,7 @@ describe(feature("auth.first-run"), () => {
     expect(response.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
   });
 
-  it("suggests the name and email address the deployment names in place of ember-rust's", async () => {
+  it("suggests the name and email address the deployment names in place of the defaults", async () => {
     const placeholders = async (changes: Partial<Env>) => ((await (await apiWith(changes, "/api/bootstrap")).json()) as Bootstrap).setupPlaceholders;
     expect(await placeholders({ EMBER_SETUP_NAME_PLACEHOLDER: "Grace Hopper", EMBER_SETUP_EMAIL_PLACEHOLDER: " grace@example.com " })).toEqual({
       name: "Grace Hopper",
@@ -54,7 +54,7 @@ describe(feature("auth.first-run"), () => {
     });
     // Each stands alone, and a blank one counts as unset.
     expect(await placeholders({ EMBER_SETUP_NAME_PLACEHOLDER: " ", EMBER_SETUP_EMAIL_PLACEHOLDER: "grace@example.com" })).toEqual({
-      name: "Jane Cooper",
+      name: "Kevin Rose",
       emailAddress: "grace@example.com",
     });
   });

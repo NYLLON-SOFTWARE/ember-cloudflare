@@ -222,7 +222,7 @@ describe(feature("auth.first-run"), () => {
     render(<App />);
     const user = userEvent.setup();
     const name = await screen.findByLabelText("Name");
-    // What the deployment suggests, rather than ember-rust's Jane Cooper.
+    // What the deployment suggests, rather than the defaults.
     expect(name).toHaveAttribute("placeholder", PLACEHOLDERS.name);
     expect(screen.getByLabelText("Email address")).toHaveAttribute("placeholder", PLACEHOLDERS.emailAddress);
     await user.type(name, "Ada");

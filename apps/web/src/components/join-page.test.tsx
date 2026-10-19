@@ -16,7 +16,7 @@ const grace = { id: "u2", name: "Grace Hopper" };
 const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
   setupProtected: false,
-  setupPlaceholders: { name: "Jane Cooper", emailAddress: "jane@company.com" },
+  setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },

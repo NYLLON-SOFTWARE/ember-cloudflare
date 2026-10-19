@@ -5,7 +5,7 @@ EMBER_GUEST_SIGN_IN=true
 # Makes setup take the private link /first_run/access#token=<this>, as a deployment on the internet
 # should; make one with `openssl rand -hex 32`. Setup then needs HTTPS: `wrangler dev --local-protocol https`.
 # EMBER_SETUP_TOKEN=
-# The name and email address the Set up Ember form suggests, rather than ember-rust's Jane Cooper.
+# The name and email address the Set up Ember form suggests, rather than Kevin Rose's.
 # EMBER_SETUP_NAME_PLACEHOLDER=
 # EMBER_SETUP_EMAIL_PLACEHOLDER=
 # Lets apps/worker/scripts/reset-password.ts reset anyone's password, given the same token in its own
