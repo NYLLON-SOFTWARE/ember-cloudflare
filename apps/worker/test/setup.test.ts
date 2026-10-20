@@ -23,7 +23,6 @@ describe(feature("auth.first-run"), () => {
   it("starts out waiting to be set up, with the setup page open to the first visitor", async () => {
     expect(await bootstrap()).toEqual({
       setup: "pending",
-      setupProtected: false,
       setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
       guestSignIn: true,
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
@@ -142,11 +141,21 @@ describe(feature("auth.first-run"), () => {
     expect(again.headers.get("Set-Cookie")).toBeNull();
     expect(await workspaceSql("SELECT name FROM users")).toEqual([{ name: "Ada Lovelace" }]);
 
-    for (const path of ["/first_run", "/first_run.json", "/first_run/access"]) {
+    for (const path of ["/first_run", "/first_run.json"]) {
       const response = await page(path);
       expect(response.status, path).toBe(302);
       expect(response.headers.get("Location"), path).toBe(`${origin}/`);
     }
+  });
+
+  it("opens setup to the first visitor even where an earlier deploy left a setup token", async () => {
+    // Setup once took a private link with this token, which a Worker's secrets may still hold.
+    const leftover = { ASSETS: builtPages, EMBER_SETUP_TOKEN: "0123456789abcdef".repeat(4) };
+    const form = await apiWith(leftover, "/first_run");
+    expect([form.status, await form.text()]).toEqual([200, "page /"]);
+    expect((await apiWith(leftover, "/first_run/access")).status).toBe(404);
+    const created = await apiWith(leftover, "/api/first_run", { method: "POST", body: JSON.stringify(ada) });
+    expect(created.status).toBe(201);
   });
 
   it("creates one workspace however many people submit at once", async () => {

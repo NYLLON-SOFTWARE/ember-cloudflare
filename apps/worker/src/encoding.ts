@@ -20,9 +20,6 @@ export function fromBase64(text: string): Uint8Array | null {
 /** Base64 that's safe in a URL or a cookie, without padding. */
 export const toBase64url = (bytes: Uint8Array) => toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_");
 
-/** The bytes base64url encodes, or null if `text` isn't any. */
-export const fromBase64url = (text: string) => (/^[\w-]*$/.test(text) ? fromBase64(text.replace(/-/g, "+").replace(/_/g, "/")) : null);
-
 /**
  * The bytes Ruby's `Base64.urlsafe_decode64` takes from `text`, or null where it raises: it pads text
  * that isn't padded and reads either alphabet, even mixed, but is strict about everything else.

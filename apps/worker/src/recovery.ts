@@ -11,7 +11,7 @@ import { workspace } from "./workspace";
 /** The recovery endpoint's address. */
 export const RECOVERY_PATH = "/api/recovery/reset-password";
 
-/** EMBER_RECOVERY_TOKEN's shape, as EMBER_SETUP_TOKEN's: 32 random bytes as hex, from `openssl rand -hex 32`. */
+/** EMBER_RECOVERY_TOKEN's shape: 32 random bytes as hex, from `openssl rand -hex 32`. */
 const RECOVERY_TOKEN = /^[0-9a-f]{64}$/;
 
 /** What emberctl says once it's done, since the endpoint closes the person's live connections as emberctl's restart does. */

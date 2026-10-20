@@ -64,8 +64,8 @@ pnpm screenshots    # remakes the web app manifest's screenshots
 ```
 
 Before the other suites start, the `first-run` project sets up the test server through the Set up
-Ember page, as its first visitor would. The `protected-setup` project gets a second server, over
-HTTPS with `EMBER_SETUP_TOKEN` set, and opens setup with its private link.
+Ember page, as its first visitor would. The `workspace-settings` suites, which change the whole
+workspace, get a second server, over HTTPS, which the same first run sets up.
 
 The features suite (`e2e/tests/features/`) has a spec per area of [PARITY.md](PARITY.md). Each test gets
 rooms of its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
@@ -124,19 +124,13 @@ one. [`docs/database.md`](docs/database.md) compares them with ember-rust's data
 ## Deploying
 
 ```sh
-openssl rand -hex 32   # your setup token: keep it until you've set up Ember
-pnpm --filter @ember/worker exec wrangler secret put EMBER_SETUP_TOKEN
 pnpm --filter @ember/worker exec wrangler secret put SESSION_SECRET
 pnpm run deploy        # not `pnpm deploy`, which is pnpm's own command
 ```
 
-Then open `https://<your Worker>/first_run/access#token=<your setup token>`. The private link
-unlocks setup in that browser for a day, and whoever sets Ember up becomes its administrator, so
-keep the link to yourself. Until then, every other browser gets "Setup is locked" and how to unlock
-it. If you lose the token, make a new one with the first two commands above and open the link with
-that: the old link stops working, and any browser it unlocked locks again. Without
-`EMBER_SETUP_TOKEN`, setup is open to whoever visits first, as in Campfire: fine on your own
-machine, but not on the internet.
+Then open `https://<your Worker>` and set up Ember. As in Campfire, setup is open to whoever has
+the address until someone sets Ember up, and they become its administrator, so do it as soon as
+it's deployed. There's no setup link or token to keep: Ember leaves out ember-rust's.
 
 The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator, where ember-rust's
 suggests Jane Cooper. To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
@@ -194,12 +188,9 @@ Actions tab. It needs two repository secrets, and skips without them:
 - `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
 
-A third, `EMBER_SETUP_TOKEN` (`openssl rand -hex 32`), becomes the preview's setup token: once it's
-deployed, open `<preview link>/first_run/access#token=<your token>` to set up Ember. Without it, the
-first deploy gives the preview a token nobody knows, so setup stays locked until you add the secret
-and run the workflow again, which is also how to replace a lost one: each deploy puts the
-repository's token in place of the Worker's. The secrets go up with each deploy, never in its logs.
-The first deploy makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them.
+Once it's deployed, open the preview's link to set up Ember, which whoever gets there first does.
+The first deploy makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them;
+they go up with the deploy, never in its logs.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
 you add them, become the preview's setup form placeholders.
@@ -209,8 +200,8 @@ Its version, under the sign-in page's help contact, is the commit it deployed. A
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
-and that setup, until it's done, takes the private link. The link is on the run's summary and under
-the repository's Deployments.
+and whether Ember is set up yet. The preview's link is on the run's summary and under the
+repository's Deployments.
 
 ### Resetting a password
 
@@ -236,8 +227,8 @@ address the API doesn't have does.
 ## Status
 
 This is the starter. Working now: first-run setup, which creates the administrator and the rooms
-general and random and can be kept to whoever has the private setup link, the join link on general's
-welcome card, sign-in by email address and password (10 tries per IP address every 3 minutes) or,
+general and random, the join link on general's welcome card, sign-in by email address and password
+(10 tries per IP address every 3 minutes) or,
 when `EMBER_GUEST_SIGN_IN` allows it, by display name, with a session cookie the Workspace keeps,
 sign-out, which closes that browser's sockets, open and private rooms that only their members can
 open (made through the API until the New room page lands), live messages with optimistic sends, edit

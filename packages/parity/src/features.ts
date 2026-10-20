@@ -35,7 +35,7 @@ export const features = [
     id: "auth.protected-setup",
     title: "Installer-protected setup link",
     origin: "ember",
-    status: "ported",
+    status: "n/a",
     behaviors: [
       "When `EMBER_SETUP_TOKEN` is set, `/first_run` answers 403 with \"Setup is locked\" / \"Open the private setup link printed by the installer.\" until this browser has opened the installer's private link `/first_run/access#token=<token>`. Without a token, setup is open as in Campfire and `/first_run/access` answers 404.",
       "The token must be 64 lowercase hex characters: any other value, even an empty one, stops the server from starting.",
@@ -48,7 +48,8 @@ export const features = [
     ],
     sources: ["crates/ember/src/controllers/first_runs/access.rs", "crates/assets/overrides/setup_access.js", "crates/ember/src/config.rs", "crates/ember/src/app.rs"],
     upstreamTests: ["crates/ember/src/controllers/first_runs/access/tests.rs", "parity/kro/protected-setup.test.mjs"],
-    notes: "There's no installer, so the access page says \"Open the complete private HTTPS setup link for this deployment.\" instead, and whoever sets the `EMBER_SETUP_TOKEN` secret makes the link (`platform.deploy-secrets`). The locked page is drawn as the Set up Ember form's card rather than bare, which read as a broken page, and says why setup is locked and how to unlock it: \"Whoever sets up Ember becomes its administrator, so setup only opens from this deployment's private link.\", then, as three cases, opening the link in this browser, this deployment's `/first_run/access#token=` address with the secret that goes on its end, and how to make and save a new token, with wrangler or, where GitHub Actions deploys the Worker, as the repository's secret, which each deploy puts back. The cookie lasts a day rather than 15 minutes, which could run out while the form was open, so sending it landed on the locked page with what was typed gone; the token lasts until setup anyway, and rotating it still locks every browser it unlocked. A Worker can't refuse to start, so with a malformed token every setup page answers 500 and `/api/health` 503. The cookie is sealed with AES-GCM under a key derived from `SESSION_SECRET`. The form posts to `/api/first_run`, which takes the same cookie over HTTPS but otherwise only the check every API write gets (`auth.csrf`), and ignores a query string.",
+    notes:
+      "Left out on purpose: setup is open to whoever opens a new deployment first, as in Campfire and as ember-rust's is without a token, since the lock got in the way of setting a deployment up. A Worker that still has an `EMBER_SETUP_TOKEN` secret ignores it, `/first_run/access` answers 404, and `/api/bootstrap` no longer says whether setup is protected.",
   },
   {
     id: "auth.sign-in",
@@ -2485,7 +2486,7 @@ export const features = [
     sources: ["crates/ember/src/controllers.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs"],
     notes:
-      "`/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage, push, files }`, saying whether push notifications are on and an R2 bucket for files is bound, only once `SESSION_SECRET` is set, `EMBER_SETUP_TOKEN` is unset or well formed, and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.",
+      "`/up` picks its format as Rails does: from the extension, else from an Accept header that isn't a browser's, with `Vary: Accept`, and 406 for any other format. Beside it, `GET /api/health` goes deeper: it answers `{ ok: true, storage, push, files }`, saying whether push notifications are on and an R2 bucket for files is bound, only once `SESSION_SECRET` is set and the Workspace and a room's object have both read their storage, and 503 with `{ ok: false, storage, error }` otherwise. It isn't checked for old browsers either, and the deploy check relies on it instead of signing in.",
   },
   {
     id: "platform.error-pages",
@@ -2501,7 +2502,7 @@ export const features = [
     sources: ["reference/public/404.html", "reference/public/422.html", "reference/public/500.html", "crates/assets/overrides/public/502.html", "reference/public/robots.txt", "crates/ember/src/app.rs", "crates/ember/src/controllers.rs", "crates/kit/src/adapter.rs", "crates/kit/src/ctx.rs", "crates/kit/src/exceptions.rs"],
     upstreamTests: ["crates/ember/src/app/tests.rs", "crates/kit/src/exceptions.rs", "parity/screens.yml"],
     notes:
-      "The Worker serves the app's page only at the addresses the app shows a page at, which `@ember/protocol` lists for the app's router too; the built app answers any other path with one of its files or Campfire's 404 page (`not_found_handling`), and the Worker answers a write to a page, an unknown address under `/first_run` and a QR code's address without a code with the 404 page itself. Rails' unused actions, such as `/rooms/new`, are 404s as in ember-rust, but My profile, New direct message and a DM's settings, which the app links to before it has them, go home for now. Where ember-rust ignores a trailing or doubled slash, the Worker redirects to the page's own address, which the app reads. The setup link's exchange is the only page a cross-site write reaches; the API refuses one with JSON, as it answers every error, an exception's included (`{ \"error\": \"Something went wrong\" }`), where ember-rust answers any JSON request with `{\"status\":…,\"error\":…}`; elsewhere a JSON request gets the page. On setup's pages and form, an exception's log says only that the request failed, as ember-rust's does. Campfire's pages have no viewport, so a phone shrinks them to fit a 980px layout and Go back is too small to tap; these add one, and a language. An old browser gets the upgrade page even at an unknown address, since that check comes first (`platform.browser-support`). There's no 502 page: a Worker has no start-up to wait through, and a deploy switches over at once. Each of the app's pages comes with a Link header that has the browser fetch what the app asks for first along with the page: `/api/bootstrap`, and on a page with the sidebar, for a browser with a session cookie, `/api/sidebar` and `/api/users`; so the page varies with the cookie.",
+      "The Worker serves the app's page only at the addresses the app shows a page at, which `@ember/protocol` lists for the app's router too; the built app answers any other path with one of its files or Campfire's 404 page (`not_found_handling`), and the Worker answers a write to a page, an unknown address under `/first_run` and a QR code's address without a code with the 404 page itself. Rails' unused actions, such as `/rooms/new`, are 404s as in ember-rust, but My profile, New direct message and a DM's settings, which the app links to before it has them, go home for now. Where ember-rust ignores a trailing or doubled slash, the Worker redirects to the page's own address, which the app reads. No page takes a write, so only the API sees a cross-site one, and it refuses it with JSON, as it answers every error, an exception's included (`{ \"error\": \"Something went wrong\" }`), where ember-rust answers any JSON request with `{\"status\":…,\"error\":…}`; elsewhere a JSON request gets the page. On setup's form, an exception's log says only that the request failed, as ember-rust's does. Campfire's pages have no viewport, so a phone shrinks them to fit a 980px layout and Go back is too small to tap; these add one, and a language. An old browser gets the upgrade page even at an unknown address, since that check comes first (`platform.browser-support`). There's no 502 page: a Worker has no start-up to wait through, and a deploy switches over at once. Each of the app's pages comes with a Link header that has the browser fetch what the app asks for first along with the page: `/api/bootstrap`, and on a page with the sidebar, for a browser with a session cookie, `/api/sidebar` and `/api/users`; so the page varies with the cookie.",
   },
   {
     id: "platform.storage",
@@ -2582,23 +2583,22 @@ export const features = [
     sources: ["crates/kit/src/app.rs", "crates/kit/src/ctx.rs", "crates/kit/src/adapter.rs", "crates/kit/src/front/tls.rs", "reference/config/environments/production.rb"],
     upstreamTests: ["crates/kit/tests/http.rs", "crates/kit/src/cookies.rs"],
     notes:
-      "Page loads go through the Worker (`run_worker_first`, all but the built app's static files), which adds Rails' headers to everything it answers, its errors included, where ember-rust's error pages go without; a room socket's upgrade gets none. Plain HTTP gets ember-rust's TLS front's answer: 301 to the same address over HTTPS for every method, with a link for a GET, and setup's addresses kept out of caches and referrers and refused with a query. HSTS goes on every HTTPS answer from the Worker, but static files go without it. Localhost and loopback addresses are never redirected and get no HSTS, so `wrangler dev` works as it is and HSTS never sticks to them; `DISABLE_SSL` turns both off anywhere else. Cookies are `Secure` whenever the request is HTTPS, which away from loopback it always is unless `DISABLE_SSL` is set.",
+      "Page loads go through the Worker (`run_worker_first`, all but the built app's static files), which adds Rails' headers to everything it answers, its errors included, where ember-rust's error pages go without; a room socket's upgrade gets none. Plain HTTP gets ember-rust's TLS front's answer: 301 to the same address over HTTPS for every method, with a link for a GET. ember-rust's also keeps setup's addresses out of caches and referrers and refuses them with a query, which could hold its setup token; with no token (`auth.protected-setup`), they're redirected like any other. HSTS goes on every HTTPS answer from the Worker, but static files go without it. Localhost and loopback addresses are never redirected and get no HSTS, so `wrangler dev` works as it is and HSTS never sticks to them; `DISABLE_SSL` turns both off anywhere else. Cookies are `Secure` whenever the request is HTTPS, which away from loopback it always is unless `DISABLE_SSL` is set.",
   },
   {
     id: "platform.deploy-secrets",
-    title: "Deploy secrets and the private setup link",
+    title: "Deploy secrets",
     origin: "cloudflare",
     status: "ported",
     behaviors: [
       "A deploy without `SESSION_SECRET` generates one, and later deploys keep it; a failed lookup of the Worker's secrets stops the deploy rather than replacing one.",
-      "`EMBER_SETUP_TOKEN` comes from the repository secret when one is set. Otherwise the first deploy stores a random one that nobody sees, so setup stays locked rather than open.",
       "A deploy without either VAPID key generates a pair, and later deploys keep it, so browsers' push subscriptions outlast deploys; a Worker with just one key keeps it.",
-      "Secrets go live with the code in a single deploy, and neither the token nor the setup link appears in logs or the run summary.",
-      "The deploy check fails when setup is pending and unprotected.",
+      "Secrets go live with the code in a single deploy, and none appears in logs or the run summary.",
+      "The deploy check says whether Ember is set up yet.",
     ],
     sources: ["deploy/installer/emberctl.py", "crates/ember/src/admin.rs"],
     upstreamTests: ["crates/ember/src/admin.rs", "deploy/installer/tests/test_installer.py", "deploy/installer/tests/test_install_recovery.py"],
-    notes: "The Preview workflow's `scripts/preview-secrets.sh` writes the secrets a deploy adds, which `wrangler deploy --secrets-file` uploads with the code. The deploy check lets setup stay open on this machine, for `pnpm dev`.",
+    notes: "The Preview workflow's `scripts/preview-secrets.sh` writes the secrets a deploy adds, which `wrangler deploy --secrets-file` uploads with the code. Setup takes no token (`auth.protected-setup`), so a deploy adds none.",
   },
   {
     id: "platform.manifest",

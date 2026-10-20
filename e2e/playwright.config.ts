@@ -3,9 +3,8 @@ import { defineConfig } from "@playwright/test";
 import { featureProjects, RECOVERY_TOKEN } from "./projects/features";
 import { FIRST_RUN, firstRunProjects } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
-import { PROTECTED_SETUP_PORT, PROTECTED_SETUP_TOKEN, protectedSetupProjects } from "./projects/protected-setup";
 import { screenshotProjects } from "./projects/screenshots";
-import { workspaceSettingsProjects } from "./projects/workspace-settings";
+import { SETTINGS_SERVER_PORT, workspaceSettingsProjects } from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
 /**
@@ -33,7 +32,6 @@ export default defineConfig<MobileOptions>({
   // Every suite finds the server set up: the first-run project sets it up before the others start.
   projects: [
     ...firstRunProjects,
-    ...protectedSetupProjects,
     ...workspaceSettingsProjects,
     ...[...featureProjects, ...mobileProjects, ...screenshotProjects].map((project) => ({ ...project, dependencies: [FIRST_RUN] })),
   ],
@@ -53,15 +51,15 @@ export default defineConfig<MobileOptions>({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },
-    // The same build again, over HTTPS with a setup token, for the protected-setup project and then
-    // the workspace-settings one. Servers start in turn, so the app is built by then.
+    // The same build again, over HTTPS, for the workspace-settings projects. Servers start in turn,
+    // so the app is built by then.
     {
       command: [
-        `node -e "require('node:fs').rmSync('e2e/.wrangler/protected-state', { recursive: true, force: true })"`,
-        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${PROTECTED_SETUP_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_SETUP_TOKEN:${PROTECTED_SETUP_TOKEN} --persist-to ../../e2e/.wrangler/protected-state`,
+        `node -e "require('node:fs').rmSync('e2e/.wrangler/settings-state', { recursive: true, force: true })"`,
+        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${SETTINGS_SERVER_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --persist-to ../../e2e/.wrangler/settings-state`,
       ].join(" && "),
       cwd: path.resolve(import.meta.dirname, ".."),
-      url: `https://127.0.0.1:${PROTECTED_SETUP_PORT}/api/health`,
+      url: `https://127.0.0.1:${SETTINGS_SERVER_PORT}/api/health`,
       ignoreHTTPSErrors: true,
       env: { WRANGLER_SEND_METRICS: "false" },
       reuseExistingServer: !process.env.CI,

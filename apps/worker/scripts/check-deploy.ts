@@ -1,7 +1,7 @@
 // Checks a deployed Worker without signing in: /api/health answers once SESSION_SECRET is set and
 // the Workspace and a room's Durable Object both read their storage, the app's page loads through
-// the Worker, an address with no page answers Campfire's 404 page, the API asks for sign-in, and,
-// until Ember is set up, setup takes the private link.
+// the Worker, an address with no page answers Campfire's 404 page, the API asks for sign-in, and
+// whether Ember is set up yet.
 // The Preview workflow runs it after each deploy; it works against `pnpm dev` too:
 //
 //   node apps/worker/scripts/check-deploy.ts http://localhost:8787
@@ -51,18 +51,12 @@ async function checkSignInRequired(baseUrl: string): Promise<void> {
   if (response.status !== 401) throw new Error(`/api/me answered ${response.status} without a session, not 401`);
 }
 
-/**
- * Until Ember is set up, whoever opens it first becomes its administrator, so anywhere but this
- * machine setup has to take the private link (EMBER_SETUP_TOKEN). Answers what it found.
- */
+/** Whether Ember is set up yet. Until it is, whoever opens it first becomes its administrator. */
 async function checkSetup(baseUrl: string): Promise<string> {
   const response = await fetch(new URL("/api/bootstrap", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`/api/bootstrap answered ${response.status}`);
-  const { setup, setupProtected } = (await response.json()) as Bootstrap;
-  if (setup === "complete") return "Ember is set up";
-  if (setupProtected) return "Setup waits for the private link: /first_run/access#token=<EMBER_SETUP_TOKEN>";
-  if (["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseUrl).hostname)) return "Setup is open to the first visitor, which is fine on this machine";
-  throw new Error("Setup is open to whoever visits first: set the EMBER_SETUP_TOKEN secret");
+  const { setup } = (await response.json()) as Bootstrap;
+  return setup === "complete" ? "Ember is set up" : "Setup is waiting: whoever opens it first becomes its administrator";
 }
 
 async function check(baseUrl: string): Promise<void> {

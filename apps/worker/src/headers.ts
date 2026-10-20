@@ -1,7 +1,6 @@
 import { isHttps } from "./auth";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
-import { isSetupPath } from "./setup";
 import { versionOf } from "./version";
 
 // What ember-rust adds around everything its app answers, for every answer the Worker makes: Rails'
@@ -36,21 +35,11 @@ export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.t
 
 /**
  * Sends plain HTTP to the same address over HTTPS, without its port, as ember-rust's TLS front does
- * with Thruster's redirect: 301, with a link to follow when it's a GET. Setup's addresses are kept out
- * of caches and referrers, and refused with a query, which could hold the private link's token.
+ * with Thruster's redirect: 301, with a link to follow when it's a GET.
  */
 export function redirectToHttps(request: Request): Response {
   const { hostname, pathname, search } = new URL(request.url);
   const headers = new Headers();
-  if (isSetupPath(pathname)) {
-    headers.set("Cache-Control", "no-store");
-    headers.set("Referrer-Policy", "no-referrer");
-    if (search) {
-      headers.set("Content-Type", "text/plain; charset=utf-8");
-      headers.set("X-Content-Type-Options", "nosniff");
-      return new Response("Bad Request\n", { status: 400, headers });
-    }
-  }
   const location = `https://${hostname}${pathname}${search}`;
   headers.set("Location", location);
   if (request.method === "GET" || request.method === "HEAD") headers.set("Content-Type", "text/html; charset=utf-8");

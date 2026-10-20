@@ -3,7 +3,7 @@ import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "@playwright/test";
 import { ADMINISTRATOR, drawnPicture, shownPicture } from "../../fixtures";
 
-// The test server starts empty, so this sets it up through the Set up Ember page before any other
+// Each test server starts empty, so this sets it up through the Set up Ember page before any other
 // suite runs; they then find the workspace, its general and random rooms, and its administrator there.
 
 test.describe(feature("auth.first-run"), () => {
@@ -69,7 +69,11 @@ test.describe(feature("auth.first-run"), () => {
     await page.goto("/first_run");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     expect(new URL(page.url()).pathname).not.toBe("/first_run");
-    const again = await request.post("/api/first_run", { data: { name: "Mallory", emailAddress: "mallory@example.com", password: "12345678" } });
+    // Sent as the app's own page would send it, since over HTTPS a write that doesn't say so is refused as cross-site.
+    const again = await request.post("/api/first_run", {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+      data: { name: "Mallory", emailAddress: "mallory@example.com", password: "12345678" },
+    });
     expect(again.status()).toBe(409);
   });
 });

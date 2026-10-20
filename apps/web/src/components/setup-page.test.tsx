@@ -124,13 +124,6 @@ describe(feature("auth.first-run"), () => {
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
   });
 
-  it("reloads setup's page when the setup link's time has run out, which then says setup is locked", async () => {
-    answer(403, { error: "Setup is locked" });
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
-    await fillIn("correct horse");
-    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/first_run"));
-  });
-
   it("says so when Ember can't be reached, and lets you try again", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("Failed to fetch"));
     render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
