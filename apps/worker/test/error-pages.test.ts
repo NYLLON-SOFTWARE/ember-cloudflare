@@ -104,20 +104,11 @@ describe(feature("platform.error-pages"), () => {
     expect(logged).toHaveBeenCalledWith("GET /api/bootstrap failed:", expect.objectContaining({ message: "The Workspace is out of reach" }));
   });
 
-  it("logs no more than that setup failed, whose pages and form can hold its token or a password", async () => {
+  it("logs no more than that setup failed, whose form holds the administrator's password", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const changes = { WORKSPACE: unreachable, EMBER_SETUP_TOKEN: "0123456789abcdef".repeat(4) };
-    const failed = await page("/first_run", {}, changes);
-    await expectPage(failed.clone(), 500, failedPage);
-    // Kept as private as setup's other answers.
-    expect(failed.headers.get("Cache-Control")).toBe("no-store");
-    expect(failed.headers.get("Referrer-Policy")).toBe("no-referrer");
-    const posted = await page("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada", emailAddress: "ada@example.com", password: "12345678" }) }, changes);
+    const posted = await page("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada", emailAddress: "ada@example.com", password: "12345678" }) }, { WORKSPACE: unreachable });
     expect(posted.status).toBe(500);
-    expect(logged.mock.calls).toEqual([
-      ["GET /first_run failed:", "500 Internal Server Error"],
-      ["POST /api/first_run failed:", "500 Internal Server Error"],
-    ]);
+    expect(logged.mock.calls).toEqual([["POST /api/first_run failed:", "500 Internal Server Error"]]);
   });
 
   it("answers unknown API paths with JSON, not the page", async () => {

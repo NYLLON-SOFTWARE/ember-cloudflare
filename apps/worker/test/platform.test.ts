@@ -1,6 +1,8 @@
 import { feature } from "@ember/parity";
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import type { Env } from "../src/env";
+import { withHeaders } from "../src/headers";
 import { api, apiWith, builtPages, cookieOf, freshRoom, signIn, upgrade } from "./support";
 
 // User agents from ember-rust's vectors/campfire_user_agents.json, with whether it blocks them.
@@ -107,12 +109,12 @@ describe(feature("platform.security-headers"), () => {
     }
   });
 
-  it("leaves a header an answer sets itself", async () => {
-    // Setup's access page keeps itself out of frames and sends no referrer.
-    const access = await apiWith({ ASSETS: builtPages, EMBER_SETUP_TOKEN: "0123456789abcdef".repeat(4) }, "/first_run/access");
-    expect(access.headers.get("X-Frame-Options")).toBe("DENY");
-    expect(access.headers.get("Referrer-Policy")).toBe("no-referrer");
-    expect(access.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  it("leaves a header an answer sets itself", () => {
+    const answer = new Response(null, { headers: { "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer" } });
+    const sent = withHeaders(answer, new Request("https://ember.test/"), env as unknown as Env, { version: false });
+    expect(sent.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(sent.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(sent.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
   it("pins HTTPS with HSTS on every answer", async () => {
@@ -135,22 +137,6 @@ describe(feature("platform.security-headers"), () => {
     const post = await overHttp("/api/session", { method: "POST", body: "{}" });
     expect([post.status, post.headers.get("Location"), post.headers.has("Content-Type")]).toEqual([301, "https://ember.test/api/session", false]);
     expect(await post.text()).toBe("");
-  });
-
-  it("keeps setup's addresses out of caches and referrers, and refuses them with a query", async () => {
-    for (const path of ["/first_run", "/first_run/access", "/first_run.json"]) {
-      const redirect = await overHttp(path);
-      expect(redirect.status).toBe(301);
-      expect(redirect.headers.get("Cache-Control")).toBe("no-store");
-      expect(redirect.headers.get("Referrer-Policy")).toBe("no-referrer");
-
-      const withQuery = await overHttp(`${path}?token=PRIVATE_SETUP_CREDENTIAL`);
-      expect(withQuery.status).toBe(400);
-      expect(withQuery.headers.has("Location")).toBe(false);
-      expect(withQuery.headers.get("Cache-Control")).toBe("no-store");
-      expect(withQuery.headers.get("Referrer-Policy")).toBe("no-referrer");
-      expect(await withQuery.text()).toBe("Bad Request\n");
-    }
   });
 
   it("lets plain HTTP through without HSTS on this machine, or when DISABLE_SSL is set", async () => {
@@ -210,21 +196,6 @@ describe(feature("platform.browser-support"), () => {
       expect(html, path).toContain("<h1>Upgrade to a supported web browser</h1>");
       expectRailsDefaults(response);
       expect(response.headers.get("X-Version")).toBe("0.1");
-    }
-  });
-
-  it("keeps the page in setup's place as private as setup's own", async () => {
-    // Otherwise its logos would send the address as their referrer, with any token put in its query.
-    const protectedSetup = { EMBER_SETUP_TOKEN: "a".repeat(64) };
-    for (const [path, changes] of [
-      ["/first_run/access?token=PRIVATE_SETUP_CREDENTIAL", {}],
-      ["/first_run", protectedSetup],
-      ["/first_run.json?token=PRIVATE_SETUP_CREDENTIAL", protectedSetup],
-    ] as const) {
-      const response = await apiWith({ ASSETS: builtPages, ...changes }, path, as(OLD_CHROME));
-      expect(await response.text(), path).toContain("<h1>Upgrade to a supported web browser</h1>");
-      expect(response.headers.get("Cache-Control"), path).toBe("no-store");
-      expect(response.headers.get("Referrer-Policy"), path).toBe("no-referrer");
     }
   });
 

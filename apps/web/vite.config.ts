@@ -62,13 +62,8 @@ export default defineConfig({
     },
   },
   build: {
-    // The polyfill would be a chunk of its own once there are two pages, and one more request for the
-    // app's. Browsers without modulepreload still load everything; they just don't fetch it early.
+    // Browsers without modulepreload still load everything; they just don't fetch it early.
     modulePreload: { polyfill: false },
-    rolldownOptions: {
-      // The app, and the page that opens the private setup link, which only the Worker serves.
-      input: [path.resolve(import.meta.dirname, "index.html"), path.resolve(import.meta.dirname, "first_run/access.html")],
-    },
   },
   server: {
     // `wrangler dev` serves the API, room sockets, web app manifest, QR codes and avatars on 8787.

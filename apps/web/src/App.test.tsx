@@ -115,7 +115,7 @@ function serve({
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupProtected: false, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];

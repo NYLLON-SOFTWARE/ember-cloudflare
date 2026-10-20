@@ -78,7 +78,7 @@ import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
-import { firstRun, isSetupPath, isSetupProtected, keepSetupPrivate, setupPage, setupPlaceholdersOf } from "./setup";
+import { firstRun, isSetupPath, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
 import { unfurlLink } from "./unfurl";
@@ -155,7 +155,6 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
   ]);
   const body: Bootstrap = {
     setup: account ? "complete" : "pending",
-    setupProtected: isSetupProtected(env),
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env),
     account: account ?? ACCOUNT_BEFORE_SETUP,
@@ -799,8 +798,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // address still answers 404, a banned IP address can't change anything, sign in or join.
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
   // Then, where ember-rust checks after sign-in and the forgery check: a browser too old for the app
-  // has nothing to sign in to. In setup's place, the page is kept as private as setup's own.
-  if (isFromUnsupportedBrowser(request)) return keepSetupPrivate(await unsupportedBrowserPage(request, env), env, pathname);
+  // has nothing to sign in to.
+  if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
@@ -822,16 +821,16 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
 
 /**
  * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API and the
- * bot API, and Campfire's 500 page otherwise. Setup's pages and form can hold the setup token or the
- * first administrator's password, and recovery its token and a new password, so there the log says only
- * that the request failed, and a bot's key is filtered out of its address, as Campfire's log filters it.
+ * bot API, and Campfire's 500 page otherwise. Setup's form holds the first administrator's password,
+ * and recovery its token and a new password, so there the log says only that the request failed, and
+ * a bot's key is filtered out of its address, as Campfire's log filters it.
  */
-function failure(request: Request, env: Env, pathname: string, error: unknown): Response {
-  const holdsSecrets = isSetupPath(pathname) || pathname === "/api/first_run" || pathname === RECOVERY_PATH;
+function failure(request: Request, pathname: string, error: unknown): Response {
+  const holdsSecrets = pathname === "/api/first_run" || pathname === RECOVERY_PATH;
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
   if (isBotPath(pathname)) return exception(500);
-  return keepSetupPrivate(failed(request), env, pathname);
+  return failed(request);
 }
 
 export default {
@@ -843,7 +842,7 @@ export default {
     // /up skips ember-rust's before-actions, so it's never checked and carries no version, and
     // Active Storage's files, which Campfire's controllers don't serve, carry none either.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
-    const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, env, pathname, error));
+    const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, pathname, error));
     return withHeaders(response, request, env, { version: !isUp && !fileAddressOf(pathname) });
   },
 } satisfies ExportedHandler<Env>;

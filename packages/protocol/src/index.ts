@@ -399,8 +399,6 @@ export interface SetupPlaceholders {
 export interface Bootstrap {
   /** "pending" until first run creates the workspace and its first administrator. */
   setup: "pending" | "complete";
-  /** Whether setup takes the deployment's private link, because `EMBER_SETUP_TOKEN` is set. */
-  setupProtected: boolean;
   /**
    * What the Set up Ember form suggests: Kevin Rose's name and email address, unless the deployment names
    * its own with `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`.

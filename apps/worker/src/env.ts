@@ -30,11 +30,6 @@ export interface Env {
   SESSION_SECRET: string;
   /** "true" lets anyone sign in with just a name, for tests and demos. Leave it unset otherwise. */
   EMBER_GUEST_SIGN_IN?: string;
-  /**
-   * 64 lowercase hex characters (`openssl rand -hex 32`) that keep setup to whoever opens the private
-   * link `/first_run/access#token=<token>`. Unset, the first visitor sets up the workspace.
-   */
-  EMBER_SETUP_TOKEN?: string;
   /** What the Set up Ember form suggests for the administrator's name in place of "Kevin Rose". */
   EMBER_SETUP_NAME_PLACEHOLDER?: string;
   /** What the Set up Ember form suggests for their email address in place of "kevin@kevinrose.com". */

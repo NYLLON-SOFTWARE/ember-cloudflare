@@ -1,5 +1,4 @@
 import notFoundPage from "../../web/public/404.html";
-import refusedPage from "../../web/public/422.html";
 import failedPage from "../../web/public/500.html";
 
 // Campfire's error pages, from the web app's public/, which serves them as static files too. Campfire's
@@ -12,9 +11,6 @@ const page = (request: Request, status: number, html: string) =>
 
 /** "We can’t find that (404)", for a path or method nothing answers. */
 export const notFound = (request: Request) => page(request, 404, notFoundPage);
-
-/** "That didn’t work (422)", for a write refused as cross-site. */
-export const refused = (request: Request) => page(request, 422, refusedPage);
 
 /** "Something went wrong (500)", for an exception. */
 export const failed = (request: Request) => page(request, 500, failedPage);

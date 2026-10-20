@@ -1,6 +1,5 @@
 import type { Env } from "./env";
 import { webPush } from "./push/keys";
-import { setupTokenProblem } from "./setup";
 import { workspace } from "./workspace";
 
 // ember-rust's /up (Rails::HealthController, `health::show` in crates/ember/src/controllers.rs),
@@ -70,8 +69,6 @@ export function up(request: Request): Response {
 export async function health(env: Env): Promise<Response> {
   const storage = env.STORAGE_BACKEND;
   if (!env.SESSION_SECRET) return Response.json({ ok: false, storage, error: "SESSION_SECRET isn't set" }, { status: 503 });
-  const setupToken = setupTokenProblem(env);
-  if (setupToken) return Response.json({ ok: false, storage, error: setupToken }, { status: 503 });
   try {
     await Promise.all([workspace(env).health(), env.CHAT_ROOM.getByName(HEALTH_ROOM).health(HEALTH_ROOM)]);
   } catch (error) {
