@@ -85,49 +85,11 @@ export function ArrowRight(props: EmberIconProps) {
   );
 }
 
-export function Home(props: EmberIconProps) {
-  return (
-    <EmberIcon {...props}>
-      <path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
-      <path d="M9 21v-9h6v9" />
-    </EmberIcon>
-  );
-}
-
-export function Messages(props: EmberIconProps) {
-  return (
-    <EmberIcon {...props}>
-      <path d="M15 13H7l-4 4V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1Z" />
-      <path d="M8 17h9l4 4V9" />
-    </EmberIcon>
-  );
-}
-
-export function Bell(props: EmberIconProps) {
-  return (
-    <EmberIcon {...props}>
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
-    </EmberIcon>
-  );
-}
-
 export function Search(props: EmberIconProps) {
   return (
     <EmberIcon {...props}>
       <circle cx="10.5" cy="10.5" r="6.5" />
       <path d="m16 16 5 5" />
-    </EmberIcon>
-  );
-}
-
-export function Settings(props: EmberIconProps) {
-  return (
-    <EmberIcon {...props}>
-      <path
-        d="m9 3-.5 3-2 1.2L3.6 7l-2 3.5 2.5 1.7v2.3l-2.5 1.7 2 3.5 2.9-.2 2 1.2L9 23h4l.5-2.3 2-1.2 2.9.2 2-3.5-2.5-1.7v-2.3l2.5-1.7-2-3.5-2.9.2-2-1.2L13 3Z"
-        transform="translate(1 -1) scale(.95)"
-      />
-      <circle cx="12" cy="12" r="3" />
     </EmberIcon>
   );
 }

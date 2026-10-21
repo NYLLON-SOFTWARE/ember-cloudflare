@@ -4,13 +4,14 @@ import {
   MAX_FILE_SIZE,
   MAX_FILE_TYPE_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
+  MESSAGE_TOO_LONG,
   type Boost,
   type Message,
   type RoomId,
   type UserId,
 } from "@ember/protocol";
 import { directoryOf } from "../avatar-tokens";
-import { BLANK, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
+import { BLANK, EMPTY, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
 import { objectKey } from "../files/blobs";
@@ -21,21 +22,25 @@ import type { PageCursor } from "../store";
 import { workspace, type BotAccess } from "../workspace";
 import { botKeyParts } from "./keys";
 import { railsJson } from "./rails-json";
+import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
 
 // The bot API, as ember-rust's `Messages::ByBotsController` and `Messages::Boosts::ByBotsController`
 // answer it (crates/ember/src/controllers/messages/by_bots.rs and boosts/by_bots.rs): a bot posts text or
 // a file to a room it's in, and reads it, at /rooms/<room id>/<bot key>/messages, and edits, deletes and
 // boosts its messages under that. The key is all a bot has, so these routes never read a session cookie,
-// which leaves another site's page nothing to forge.
+// which leaves another site's page nothing to forge. At /rooms/<room id>/<bot key>/slack, a bot posts what a
+// Slack incoming webhook is sent instead (slack.ts), so tools that post to Slack can post to a room.
 
 /** A room's address for bots, `room_bot_messages`, and those of its messages, their boosts and a boost, each with or without `.json`. */
 const BOT_MESSAGES = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages(?:\.json)?$/;
 const BOT_MESSAGE = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages\/([^/.]+)(?:\.json)?$/;
 const BOT_BOOSTS = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages\/([^/.]+)\/boosts(?:\.json)?$/;
 const BOT_BOOST = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages\/([^/.]+)\/boosts\/([^/.]+)(?:\.json)?$/;
+/** A room's address for a bot's Slack-compatible webhook. */
+const BOT_SLACK = /^\/rooms\/([^/.]+)\/([^/.]+)\/slack$/;
 
-/** A key in a room's address for bots, as Campfire's `LogScrubbingFormatter` finds one. */
-const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/messages\b)/g;
+/** A key in a room's address for bots, as Campfire's `LogScrubbingFormatter` finds one, or in its Slack-compatible webhook's. */
+const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/(?:messages|slack)\b)/g;
 
 /**
  * The most bytes of text a bot can post: no more than `MAX_MESSAGE_HTML_LENGTH` characters, since none
@@ -70,11 +75,13 @@ export function botAction(request: Request, env: Env, pathname: string): (() => 
   if (boosts && method === "POST") return () => createBoost(request, env, boosts[1]!, boosts[2]!, boosts[3]!);
   const boost = pathname.match(BOT_BOOST);
   if (boost && method === "DELETE") return () => deleteBoost(env, boost[1]!, boost[2]!, boost[3]!, boost[4]!);
+  const slack = pathname.match(BOT_SLACK);
+  if (slack && method === "POST") return () => postSlackMessage(request, env, slack[1]!, slack[2]!);
   return null;
 }
 
 /** Whether `pathname` is one of the bot API's addresses, whose failures answer JSON. */
-export const isBotPath = (pathname: string) => [BOT_MESSAGES, BOT_MESSAGE, BOT_BOOSTS, BOT_BOOST].some((route) => route.test(pathname));
+export const isBotPath = (pathname: string) => [BOT_MESSAGES, BOT_MESSAGE, BOT_BOOSTS, BOT_BOOST, BOT_SLACK].some((route) => route.test(pathname));
 
 /** `text` with every bot key in an address `[FILTERED]`, as Campfire's log lines have them. */
 export const withoutBotKeys = (text: string) => text.replace(BOT_KEY_IN_PATH, "$1[FILTERED]");
@@ -101,10 +108,15 @@ const noStorage = () => Response.json({ error: NO_STORAGE }, { status: 503 });
  * otherwise: 401 unless the key is an active bot's own, and an empty 404 when the bot isn't in the room.
  */
 async function botIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | Response> {
-  const parts = botKeyParts(segmentText(key));
-  const access = parts && (await workspace(env).botInRoom(parts.botId, parts.token, roomId));
+  const access = await botAccessIn(env, roomId, key);
   if (!access) return unknownKey();
   return access === "not found" ? head(404) : access;
+}
+
+/** The bot the key segment `key` names in room `roomId`, as `botIn` finds it: null unless it's an active bot's key, and "not found" when the bot isn't in the room. */
+async function botAccessIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | "not found" | null> {
+  const parts = botKeyParts(segmentText(key));
+  return parts && workspace(env).botInRoom(parts.botId, parts.token, roomId);
 }
 
 /** A path segment as Rails reads it, or "" for malformed percent-encoding, which names nothing. */
@@ -140,6 +152,67 @@ async function createMessage(request: Request, env: Env, roomId: RoomId, key: st
   if (typeof created === "string") return unprocessable(created);
   return createdAt(request, created);
 }
+
+/**
+ * `POST /rooms/<room id>/<bot key>/slack`: posts what a Slack incoming webhook is sent, its JSON or a form's
+ * `payload`, as the bot's message, as `slackMessage` reads it, and answers as Slack's webhooks do: `ok`, or
+ * what's wrong in their words.
+ */
+async function postSlackMessage(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
+  const access = await slackBotIn(env, roomId, key);
+  if (access instanceof Response) return access;
+  const payload = await slackPayloadIn(request);
+  if (payload instanceof Response) return payload;
+  const message = slackMessage(payload);
+  if (typeof message === "string") return slackAnswer(400, message);
+  // Again now the body has arrived, as `createMessage` checks text.
+  const arrived = await slackBotIn(env, roomId, key);
+  if (arrived instanceof Response) return arrived;
+  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, message.markup);
+  if (!created) return slackAnswer(404, "channel_not_found");
+  if (typeof created === "string") return slackAnswer(400, slackReason(created));
+  return slackAnswer(200, "ok");
+}
+
+/**
+ * The bot `key` names, if it's in room `roomId`, as `botIn` finds it, or what Slack's webhooks answer
+ * otherwise: 403 `invalid_token` unless the key is an active bot's, and 404 `channel_not_found` when the bot
+ * isn't in the room.
+ */
+async function slackBotIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | Response> {
+  const access = await botAccessIn(env, roomId, key);
+  if (!access) return slackAnswer(403, "invalid_token");
+  return access === "not found" ? slackAnswer(404, "channel_not_found") : access;
+}
+
+/**
+ * The payload a Slack webhook's request brings, its body or its multipart form's `payload` field, or what it
+ * answers: 413 for more than a message's markup can be, and 400 `invalid_payload` for no payload.
+ */
+async function slackPayloadIn(request: Request): Promise<SlackPayload | Response> {
+  const text = await bodyText(request);
+  if (text === null) return slackAnswer(413, "msg_too_long");
+  const type = request.headers.get("Content-Type");
+  const payload = isFormType(type) ? await formPayloadOf(text, type!) : slackPayloadOf(text);
+  return payload ?? slackAnswer(400, "invalid_payload");
+}
+
+/** The payload in the `payload` field of the multipart form `text`, of type `type`, or null when it has none. */
+async function formPayloadOf(text: string, type: string): Promise<SlackPayload | null> {
+  let field: File | string | null;
+  try {
+    field = (await new Response(text, { headers: { "Content-Type": type } }).formData()).get("payload");
+  } catch {
+    return null;
+  }
+  return payloadOf(typeof field === "string" ? field : ((await field?.text()) ?? null));
+}
+
+/** Slack's words for why the room keeps nothing of a message. */
+const slackReason = (reason: string): SlackError => (reason === MESSAGE_TOO_LONG ? "msg_too_long" : reason === EMPTY ? "no_text" : "invalid_payload");
+
+/** What Slack's webhooks answer, `ok` or what's wrong, as text. */
+const slackAnswer = (status: number, text: string) => new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
 /** What posting `message` answers: 201 with where it is. */
 const createdAt = (request: Request, message: Message) =>

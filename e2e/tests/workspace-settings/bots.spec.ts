@@ -217,6 +217,29 @@ test.describe(feature("bots.api-post"), () => {
   });
 });
 
+test.describe(feature("bots.slack-webhook"), () => {
+  test("what a tool sends a bot's Slack-compatible webhook shows in its room at once, formatted, as the bot", async ({ page }) => {
+    await openBots(page);
+    const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await addBot(page, name);
+    const webhook = botNamed(page, name).getByRole("group", { name: "general", exact: true }).getByRole("textbox", { name: "Slack-compatible webhook URL" });
+    await expect(webhook).toHaveValue(/^https:\/\/127\.0\.0\.1:\d+\/rooms\/[^/]+\/[^/]+-[A-Za-z0-9]{12}\/slack$/);
+    const url = await webhook.inputValue();
+    await page.goto(new URL(url).pathname.replace(/\/[^/]+\/slack$/, ""));
+    await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+
+    const build = crypto.randomUUID().slice(0, 8);
+    const posted = await page.request.post(url, { data: { text: `Deploy *finished* :tada: <https://ci.example.com/builds/${build}|Build ${build}>`, username: "Impostor" } });
+    expect([posted.status(), await posted.text()]).toEqual([200, "ok"]);
+    const message = page.getByRole("article").filter({ hasText: `Build ${build}` });
+    await expect(message).toContainText(name);
+    const content = message.locator(".message-content");
+    await expect(content).toHaveText(`Deploy finished 🎉 Build ${build}`);
+    await expect(content.locator("strong")).toHaveText("finished");
+    await expect(content.getByRole("link", { name: `Build ${build}` })).toHaveAttribute("href", `https://ci.example.com/builds/${build}`);
+  });
+});
+
 test.describe(feature("bots.api-edit-delete"), () => {
   test("a bot edits its message, then deletes it, which the room shows at once", async ({ page }) => {
     const url = await openGeneralFor(page, `Build Bot ${crypto.randomUUID().slice(0, 8)}`);

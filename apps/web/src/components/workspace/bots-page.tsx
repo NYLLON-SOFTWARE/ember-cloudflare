@@ -1,8 +1,8 @@
 import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { botMessagesPath, type Bot, type BotRoom } from "@ember/protocol/bots";
+import { botMessagesPath, botSlackPath, type Bot, type BotRoom } from "@ember/protocol/bots";
 import { PRIMARY_BUTTON } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Attachment, MessagesOutlined, Pencil } from "@/components/icons/campfire";
+import { Add, Attachment, ExternalWeb, MessagesOutlined, Pencil } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
@@ -124,7 +124,10 @@ function BotItem({ bot }: { bot: Bot }) {
   );
 }
 
-/** The commands that post to `room` as the bot whose key is `botKey`, in a fieldset with the room's name on its border. */
+/**
+ * The commands that post to `room` as the bot whose key is `botKey`, and its Slack-compatible webhook, which
+ * ember-rust doesn't have, in a fieldset with the room's name on its border.
+ */
 function RoomCommands({ room, botKey }: { room: BotRoom; botKey: string }) {
   const url = new URL(botMessagesPath(room.id, botKey), location.origin).href;
   return (
@@ -143,6 +146,12 @@ function RoomCommands({ room, botKey }: { room: BotRoom; botKey: string }) {
         command={curlUploadLine(url)}
         label="curl command for posting attachments"
         copyLabel="Copy attachment command"
+      />
+      <Command
+        icon={<ExternalWeb width={24} height={24} className="size-6 flex-none" />}
+        command={new URL(botSlackPath(room.id, botKey), location.origin).href}
+        label="Slack-compatible webhook URL"
+        copyLabel="Copy Slack-compatible webhook URL"
       />
     </fieldset>
   );

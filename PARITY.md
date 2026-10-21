@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 166 ported and 0 partial of 172 features; 0 not started, 6 not applicable.
+**Overall:** 167 ported and 0 partial of 173 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 6 | 0 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 13 | 0 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 15 | 0 | 0 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 16 | 0 | 0 | 0 | 16 |
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 11 | 0 | 0 | 4 | 15 |
-| **Total** | **166** | **0** | **0** | **6** | **172** |
+| **Total** | **167** | **0** | **0** | **6** | **173** |
 
 ## Sign-in and sessions
 
@@ -1974,6 +1974,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | A bot's profile | `bots.profile` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [person-page](apps/web/src/components/workspace/person-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bot keys in logs | `bots.log-redaction` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Webhooks run in the background | `bots.webhook-jobs` | Ember | ✅ Ported | Worker: [webhooks](apps/worker/test/webhooks.test.ts) |
+| Slack-compatible webhooks | `bots.slack-webhook` | This port | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts)<br>Worker: [mrkdwn](apps/worker/test/mrkdwn.test.ts), [slack-webhook](apps/worker/test/slack-webhook.test.ts)<br>Web: [bots-page](apps/web/src/components/workspace/bots-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -2191,6 +2192,19 @@ Sources: [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-r
 
 ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs/tests.rs)
 
+**Slack-compatible webhooks** (`bots.slack-webhook`) ✅
+
+- `POST /rooms/<room id>/<bot key>/slack` posts what a Slack incoming webhook is sent as the bot's message: JSON, whatever the request's type says, or a form's `payload` field, urlencoded or multipart.
+- It answers as Slack's webhooks do, as text: 200 `ok`; 400 `invalid_payload` for no JSON object, `no_text` for nothing to show, `too_many_attachments` past 100 and `msg_too_long` past a message's 10,000 characters; 403 `invalid_token` for a key that isn't an active bot's; 404 `channel_not_found` for a room the bot isn't in; and 413 `msg_too_long` for a body past 100,000 characters.
+- `text` is mrkdwn: *bold*, _italics_, ~strike-through~, `code`, code blocks between triple backticks, `>` and `>>>` quotes, `<url|label>` links to web and email addresses, emoji by name with skin tones, and the escapes `&amp;`, `&lt;` and `&gt;`. Formatting needs a word's edge, so `node_cpu_seconds_total` keeps its underscores, and `mrkdwn: false` leaves only links, mentions, emoji and escapes.
+- Mentions, `<@U…>`, `<#C…|name>`, `<!subteam^…|@handle>`, `<!here>`, `<!channel>` and `<!everyone>`, show as text and notify nobody, and `<!date^…|fallback>` shows its fallback.
+- `blocks` show in place of `text`, which shows when they show nothing. Header, section, context, Markdown, rich text and actions blocks post as rich text, and legacy `attachments` as quotes after their pretext, with their blocks inside, formatted only in the fields their `mrkdwn_in` names, or as their fallback when nothing else in them shows.
+- `username`, `icon_emoji`, `icon_url`, `channel` and `thread_ts` change nothing: the bot posts as itself, to the room its address names.
+- The bots page gives each of a bot's rooms its "Slack-compatible webhook URL", with "Copy Slack-compatible webhook URL" beside it.
+- Logs filter the key out of the address, as they do the bot API's.
+
+Note: This port's own, so tools that post to Slack can post to a room, as Mattermost, Rocket.Chat, Discord (at `/slack`) and Zulip let them. Emoji names come from emoji-datasource 16.0.0, which `apps/worker/scripts/emoji-names.ts` turns into `src/bots/emoji-names.ts`. Mentions name Slack's ids, which name nobody here. Until cards draw them, attachments and blocks post as rich text. "Slack-compatible" describes the payload: Slack is a trademark of Slack Technologies, LLC, and Ember isn't affiliated with it, as the README says.
+
 </details>
 
 ## Composer
@@ -2305,7 +2319,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Links are 56px squares with a 22px icon over an 11px label. The current page's link is marked: Home on a room's page (not on a message's permalink), and none while Activity is on.
 - DMs opens the new direct message dialog without leaving the page.
 
-Note: Home, Search, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Search on search, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. The logo is the workspace's, on the page's background, or Ember's flame while there's none (`accounts.logo`).
+Note: Home, Search, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Search on search, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. The logo is the workspace's, on the page's background, or Ember's flame while there's none (`accounts.logo`). The links draw Iconoir's icons rather than ember-rust's, as the project's owner chose (`ui.icons`).
 
 Sources: [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html) · [`crates/assets/overrides/ember/shell.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/shell.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/assets/overrides/controllers/direct_message_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/direct_message_controller.js)
 
@@ -2344,7 +2358,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - `<html>` carries the choice in `data-appearance` and the matching `color-scheme`, and once the page is running its theme color follows too, #171717 in dark and #ffffff in light, in place of the starting values (`platform.head-tags`).
 - Escape closes the menu and returns focus to the button.
 
-Note: The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`).
+Note: The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`). The button and the menu show Iconoir's Sun Light, Half Moon and Computer rather than Lucide's sun, moon and monitor, as the rail's links draw Iconoir's icons (`ui.icons`).
 
 Sources: [`crates/views/templates/components/appearance.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/appearance.html) · [`crates/assets/overrides/basecoat/src/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/appearance.js) · [`crates/assets/overrides/basecoat/src/workspace-appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/workspace-appearance.js) · [`crates/assets/overrides/basecoat/src/theme-init.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/theme-init.js) · [`crates/assets/overrides/basecoat/src/lifecycle.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/basecoat/src/lifecycle.js) · [`crates/assets/overrides/ember/appearance.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/ember/appearance.js) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css) · [`crates/views/templates/layouts/application.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/layouts/application.html)
 
@@ -2412,7 +2426,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Room icons and message actions come from a pinned catalog of 1,869 Lucide icons, and Campfire's SVGs remain for bell levels, boosts, attachments, copy, trash and similar.
 - The rail shows the Ember flame, or the workspace's logo.
 
-Note: Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (the app's own, each checked against ember-rust's catalog, and every room icon from that catalog, `rooms.icons`), Campfire's SVGs, and the flame on the rail and sign-in page, or the workspace's logo while it has one (`accounts.logo`).
+Note: Every icon drawn here is ember-rust's, but for the rail's links and appearance button: its own line icons, Lucide pinned to the same 1.53.0 (the app's own, each checked against ember-rust's catalog, and every room icon from that catalog, `rooms.icons`), Campfire's SVGs, and the flame on the rail and sign-in page, or the workspace's logo while it has one (`accounts.logo`). The rail's links and appearance button draw Iconoir's icons instead (24×24, stroke 1.5), as the project's owner chose: Home, Multi Bubble for DMs, Bell for Activity, Search, Box for Admin or Workspace, and Sun Light, Half Moon and Computer for Light, Dark and System, from Iconoir 7.12.1, each checked against the release's file.
 
 Sources: [`crates/views/templates/components/icons.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/components/icons.html) · [`crates/assets/overrides/lucide/catalog.json`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/lucide/catalog.json) · [`crates/assets/overrides/logos`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/logos)
 

@@ -175,6 +175,26 @@ describe(feature("bots.list"), () => {
   });
 });
 
+describe(feature("bots.slack-webhook"), () => {
+  it("gives each of a bot's rooms its Slack-compatible webhook URL, on this host, with a button that copies it", async () => {
+    showPage();
+    const [build] = await listed(2);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    const rooms = within(build!).getAllByRole("group");
+    for (const [room, { id }] of [
+      [rooms[0]!, BUILD_BOT.rooms[0]!],
+      [rooms[1]!, BUILD_BOT.rooms[1]!],
+    ] as const) {
+      const webhook = within(room).getByRole("textbox", { name: "Slack-compatible webhook URL" });
+      expect(webhook).toHaveValue(`http://localhost:3000/rooms/${id}/${BUILD_BOT.key}/slack`);
+      expect(webhook).toHaveAttribute("readonly");
+    }
+    await userEvent.click(within(rooms[1]!).getByRole("button", { name: "Copy Slack-compatible webhook URL" }));
+    expect(writeText.mock.calls).toEqual([[`http://localhost:3000/rooms/${BUILD_BOT.rooms[1]!.id}/${BUILD_BOT.key}/slack`]]);
+  });
+});
+
 describe(feature("accounts.translation-buttons"), () => {
   it("has a translation button for Chat bots once an administrator shows them", () => {
     showPage({ ...account, hideTranslationButtons: false });
