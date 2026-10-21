@@ -314,9 +314,11 @@ curl -H 'Content-Type: application/json' -d '{"text": "Deploy *finished* :tada:"
 The bot posts the payload's `text`, read as Slack's mrkdwn, with its formatting, links, quotes, code
 and emoji, and Ember answers as Slack does: `ok`, or what's wrong, such as `invalid_payload` or
 `no_text`. Its legacy `attachments` show as cards under the text, each with a bar in its `color`,
-and with its author, title, text, fields, image, link buttons and footer; its `blocks` post as rich
-text for now. Mentions of Slack's people and channels show as text and notify nobody, and a payload
-can't change the bot's name, avatar or room.
+and with its author, title, text, fields, image, link buttons and footer. Its Block Kit `blocks` show
+as a card in place of the text, with headers, sections and their fields, context rows, rules, images,
+rich text, Markdown, tables, small cards and carousels, and link buttons; buttons and menus only a
+Slack app could answer are left out. Mentions of Slack's people and channels show as text and notify
+nobody, and a payload can't change the bot's name, avatar or room.
 
 Slack is a trademark of Slack Technologies, LLC. Ember is not created by, affiliated with, or
 supported by Slack Technologies, LLC.

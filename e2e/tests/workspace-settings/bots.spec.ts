@@ -318,6 +318,111 @@ test.describe(feature("bots.cards"), () => {
       await phone.close();
     }
   });
+
+  test("blocks sent to a bot's Slack-compatible webhook show as a card in place of its text, with a table and small cards, on a computer and a phone, in light and dark", async ({ page, browser, baseURL }) => {
+    await openBots(page);
+    // A room of its own, as the attachment's test has, for the phone's audit.
+    const roomName = `Deploys ${crypto.randomUUID().slice(0, 8)}`;
+    const created = await page.request.post("/api/rooms", { headers: { "Sec-Fetch-Site": "same-origin" }, data: { kind: "open", name: roomName } });
+    expect(created.status(), await created.text()).toBe(201);
+    const name = `Deploy Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await addBot(page, name);
+    const webhook = botNamed(page, name).getByRole("group", { name: roomName, exact: true }).getByRole("textbox", { name: "Slack-compatible webhook URL" });
+    const url = await webhook.inputValue();
+    const room = new URL(url).pathname.replace(/\/[^/]+\/slack$/, "");
+    await page.goto(room);
+    await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+
+    const header = `Deployed web ${crypto.randomUUID().slice(0, 8)}`;
+    const posted = await page.request.post(url, {
+      data: {
+        text: `${header}, which only notifications show beside blocks`,
+        blocks: [
+          { type: "header", text: { type: "plain_text", text: header } },
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "*3 services* are live in *production*." },
+            accessory: { type: "button", text: { type: "plain_text", text: "Release notes" }, url: "https://example.com/releases", style: "primary" },
+          },
+          {
+            type: "table",
+            column_settings: [{ is_wrapped: true }, { align: "right" }],
+            rows: [
+              [
+                { type: "raw_text", text: "Service" },
+                { type: "raw_text", text: "Errors" },
+              ],
+              [
+                { type: "raw_text", text: "api" },
+                { type: "raw_number", value: 0 },
+              ],
+              [
+                { type: "raw_text", text: "workers" },
+                { type: "raw_number", value: 2 },
+              ],
+            ],
+          },
+          { type: "context", elements: [{ type: "mrkdwn", text: "Started by *Ada Lovelace*" }] },
+          {
+            type: "carousel",
+            elements: [
+              {
+                type: "card",
+                title: { type: "plain_text", text: "api" },
+                body: { type: "mrkdwn", text: "Took *1m 12s*" },
+                actions: [{ type: "button", text: { type: "plain_text", text: "Logs" }, url: "https://example.com/logs/api" }],
+              },
+              {
+                type: "card",
+                title: { type: "plain_text", text: "workers" },
+                body: { type: "mrkdwn", text: "Took *2m 3s*, with 2 errors" },
+                actions: [
+                  { type: "button", text: { type: "plain_text", text: "Logs" }, url: "https://example.com/logs/workers" },
+                  { type: "button", text: { type: "plain_text", text: "Roll back" }, url: "https://example.com/rollback/workers", style: "danger" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect([posted.status(), await posted.text()]).toEqual([200, "ok"]);
+
+    const card = page.getByRole("article", { name: header });
+    const message = page.getByRole("article").filter({ has: card });
+    await expect(message).toContainText(name);
+    await expect(message).not.toContainText("only notifications show");
+    await expect(card.locator(":scope > span[aria-hidden]")).toHaveCount(0);
+    await expect(card.getByRole("link", { name: "Release notes" })).toHaveAttribute("href", "https://example.com/releases");
+    const cells = card.getByRole("region", { name: "Table" }).getByRole("cell");
+    await expect(cells).toHaveText(["Service", "Errors", "api", "0", "workers", "2"]);
+    await expect(cells.nth(1)).toHaveCSS("text-align", "end");
+    const tiles = card.getByRole("region", { name: "Cards" }).getByRole("listitem");
+    await expect(tiles).toHaveCount(2);
+    await expect(tiles.nth(1).getByRole("link")).toHaveText(["Roll back", "Logs"]);
+
+    // The frame is the page's background, which dark mode darkens.
+    const background = await card.evaluate((element) => getComputedStyle(element).backgroundColor);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect.poll(() => card.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(background);
+
+    // On a phone, the card fits the screen, its table and small cards scroll sideways within it, and its buttons are a finger's size.
+    const phone = await browser.newContext({ ...devices["Galaxy S24"], baseURL, ignoreHTTPSErrors: true });
+    try {
+      const onPhone = await phone.newPage();
+      await useOwnAddress(onPhone);
+      await onPhone.goto(room);
+      await signInAsAdministrator(onPhone);
+      const cardOnPhone = onPhone.getByRole("article", { name: header });
+      await cardOnPhone.getByRole("region", { name: "Cards" }).scrollIntoViewIfNeeded();
+      await expect(cardOnPhone.getByRole("link", { name: "Logs" }).first()).toBeVisible();
+      const results = await auditScreen(onPhone, { top: 0, right: 0, bottom: 0, left: 0 });
+      expect(results.overflow, "Nothing is cut off or pushed off the side of the screen").toEqual([]);
+      expect(results.touchTargets, "Every control is easy to tap").toEqual([]);
+    } finally {
+      await phone.close();
+    }
+  });
 });
 
 test.describe(feature("bots.api-edit-delete"), () => {

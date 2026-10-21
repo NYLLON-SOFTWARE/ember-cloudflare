@@ -58,15 +58,22 @@ function mrkdwnLine(text: string, formatting: Formatting = "plain"): string {
   return lines.map((line) => lineHtml(line, formatting)).join("<br>");
 }
 
-/** `text` as plain text, as Slack shows a title or a name: its links as their labels, and its mentions, dates and emoji. */
-export function mrkdwnText(text: string): string {
-  // The line's only markup is its links and line breaks, and its text is escaped.
-  return mrkdwnLine(text)
+/**
+ * `text` as plain text, as Slack shows a title or a name: its links as their labels, and its mentions, dates and
+ * emoji, without the formatting `formatting` reads, as a text object's mrkdwn is in a header or a button.
+ */
+export const mrkdwnText = (text: string, formatting: Formatting = "plain") => lineText(mrkdwnLine(text, formatting));
+
+/** Text that Slack shows as it is, a `plain_text` object's, as plain text, with emoji by name unless `emoji` is false. */
+export const plainText = (text: string, emoji = true) => lineText(plainTextLine(text, emoji));
+
+/** A line of markup, whose text is escaped as `escapeText` escapes it, as the text it shows, its line breaks kept. */
+const lineText = (html: string) =>
+  html
     .replace(/<br>/g, "\n")
     .replace(/<[^>]*>/g, "")
     .replace(/&(amp|lt|gt);/g, (_, name: string) => UNESCAPED[name]!)
     .trim();
-}
 
 /** Text that Slack shows as it is, a `plain_text` object's, as markup: a paragraph, with emoji by name unless `emoji` is false. */
 export function plainTextHtml(text: string, emoji = true): string {

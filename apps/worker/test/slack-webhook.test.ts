@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
 import type { Env } from "../src/env";
+import slackPayloads from "./fixtures/slack_payloads.json";
 import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, objectSql, roomSql, roomStub, shown, workspaceSql, type Session } from "./support";
 
 // What a Slack incoming webhook is sent, posted to a room at /rooms/<room id>/<bot key>/slack (bots/slack.ts),
@@ -169,8 +170,9 @@ describe(feature("bots.slack-webhook"), () => {
     expect(await bodiesIn(general)).toEqual(['<p>*as is* <a href="https://example.com/">link</a> @U1 🎉 &lt;3</p>']);
   });
 
-  it("shows blocks in place of the text, as rich text until cards draw them, and the text when they show nothing yet", async () => {
-    const { bot, general } = await withBot();
+  it("shows blocks as a card in place of the text, and the text when they show nothing here", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
     const blocks = [
       { type: "header", text: { type: "plain_text", text: "Deploy finished :rocket:", emoji: true } },
       {
@@ -191,13 +193,16 @@ describe(feature("bots.slack-webhook"), () => {
             type: "rich_text_section",
             elements: [
               { type: "text", text: "Read " },
-              { type: "text", text: "this", style: { bold: true, italic: true } },
+              { type: "text", text: "this", style: { bold: true, italic: true, underline: true } },
               { type: "link", url: "https://example.com/notes", text: " notes" },
               { type: "emoji", name: "wave", skin_tone: 3 },
               { type: "text", text: "\n" },
             ],
           },
           { type: "rich_text_list", style: "ordered", elements: [{ type: "rich_text_section", elements: [{ type: "text", text: "one" }] }, { type: "rich_text_section", elements: [{ type: "user", user_id: "U2" }] }] },
+          // Slack sends a nested list as a list of its own, a level further in, which the list around it then continues.
+          { type: "rich_text_list", style: "bullet", indent: 1, elements: [{ type: "rich_text_section", elements: [{ type: "text", text: "nested" }] }] },
+          { type: "rich_text_list", style: "ordered", elements: [{ type: "rich_text_section", elements: [{ type: "text", text: "three" }] }] },
           { type: "rich_text_preformatted", elements: [{ type: "text", text: "npm run deploy\n<ok>" }] },
           { type: "rich_text_quote", elements: [{ type: "text", text: "Quoted", style: { code: true } }] },
         ],
@@ -206,49 +211,86 @@ describe(feature("bots.slack-webhook"), () => {
       {
         type: "actions",
         elements: [
-          { type: "button", text: { type: "plain_text", text: "View build" }, url: "https://ci.example.com/42" },
+          { type: "button", text: { type: "plain_text", text: "View build" }, url: "https://ci.example.com/42", style: "primary" },
           { type: "button", text: { type: "plain_text", text: "Approve" }, action_id: "approve" },
+          { type: "static_select", placeholder: { type: "plain_text", text: "Pick an environment" }, action_id: "environment" },
         ],
       },
     ];
     expect(await answerTo(bot.key, general, { text: "Deploy finished (hidden beside blocks)", blocks })).toEqual(OK);
-    expect(await answerTo(bot.key, general, { text: "Shown *instead*", blocks: [{ type: "divider" }, { type: "image", image_url: "https://example.com/a.png", alt_text: "chart" }] })).toEqual(OK);
+    const { message } = await inRoom.next("message.created");
+    expect(message).toMatchObject({
+      body: "",
+      plainText: [
+        "Deploy finished 🚀",
+        "web is live at example.com",
+        "Environment:\nproduction",
+        "Took 42s *as is*",
+        "By @U1",
+        "Read this notes👋🏼\n\n1. one\n2. @U2\n  • nested\n3. three\n\nnpm run deploy\n<ok>“Quoted”",
+        "Markdown as it's written",
+        "View build",
+      ].join("\n"),
+    });
+    expect(message.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          { kind: "header", text: "Deploy finished 🚀" },
+          {
+            kind: "section",
+            html: '<p><strong>web</strong> is live at <a href="https://example.com/">example.com</a></p>',
+            fields: [
+              { html: "<p><strong>Environment:</strong><br>production</p>", short: true },
+              { html: "<p>Took 42s *as is*</p>", short: true },
+            ],
+            thumb: { url: "https://example.com/logo.png", alt: "logo" },
+          },
+          { kind: "divider" },
+          { kind: "context", items: [{ image: { url: "https://example.com/a.png", alt: "Ada" } }, { html: "<p>By @U1</p>" }] },
+          {
+            kind: "text",
+            html: [
+              '<p>Read <strong><em><u>this</u></em></strong><a href="https://example.com/notes"> notes</a>👋🏼</p>',
+              "<ol><li>one</li><li>@U2<ul><li>nested</li></ul></li><li>three</li></ol>",
+              "<pre>npm run deploy\n&lt;ok&gt;</pre>",
+              "<blockquote><p><code>Quoted</code></p></blockquote>",
+            ].join(""),
+          },
+          { kind: "text", html: "<p><strong>Markdown</strong> as it's written</p>" },
+          { kind: "buttons", buttons: [{ text: "View build", href: "https://ci.example.com/42", style: "primary" }] },
+        ],
+      },
+    ]);
+
+    // A rule shows nothing on its own, nor does a button only an app could answer.
+    const unanswerable = { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Approve" }, action_id: "approve" }] };
+    expect(await answerTo(bot.key, general, { text: "Shown *instead*", blocks: [{ type: "divider" }, unanswerable] })).toEqual(OK);
     const blank = [
       { type: "rich_text_list", style: "bullet", elements: [] },
       { type: "rich_text_list", style: "ordered", elements: [{ type: "rich_text_section", elements: [{ type: "text", text: " " }] }] },
       { type: "rich_text_section", elements: [{ type: "text", text: " \n " }] },
     ];
     expect(await answerTo(bot.key, general, { text: "Shown beside lists with nothing in them", blocks: [{ type: "rich_text", elements: blank }] })).toEqual(OK);
-
-    expect(await bodiesIn(general)).toEqual([
-      [
-        "<p><strong>Deploy finished 🚀</strong></p>",
-        '<p><strong>web</strong> is live at <a href="https://example.com/">example.com</a></p>',
-        "<p><strong>Environment:</strong><br>production</p>",
-        "<p>Took 42s *as is*</p>",
-        "<p>By @U1</p>",
-        '<p>Read <strong><em>this</em></strong><a href="https://example.com/notes"> notes</a>👋🏼</p>',
-        "<ol><li>one</li><li>@U2</li></ol>",
-        "<pre>npm run deploy\n&lt;ok&gt;</pre>",
-        "<blockquote><p><code>Quoted</code></p></blockquote>",
-        "<p>**Markdown** as it's written</p>",
-        '<p><a href="https://ci.example.com/42">View build</a></p>',
-      ].join(""),
-      "<p>Shown <strong>instead</strong></p>",
-      "<p>Shown beside lists with nothing in them</p>",
+    const shown = await Promise.all([1, 2].map(async () => (await inRoom.next("message.created")).message));
+    expect(shown.map(({ body, cards }) => ({ body, cards }))).toEqual([
+      { body: "<p>Shown <strong>instead</strong></p>", cards: undefined },
+      { body: "<p>Shown beside lists with nothing in them</p>", cards: undefined },
     ]);
   });
 
   it("skips what it can't read in a block, such as a date or skin tone that isn't a number, rather than failing", async () => {
-    const { bot, general } = await withBot();
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
     const elements = [
       { type: "date", timestamp: { valueOf: 1, toString: 1 } },
       { type: "text", text: "Deployed" },
       { type: "emoji", name: "wave", skin_tone: 2.5 },
     ];
     expect(await answerTo(bot.key, general, { blocks: [{ type: "rich_text", elements: [{ type: "rich_text_section", elements }] }] })).toEqual(OK);
+    expect((await inRoom.next("message.created")).message.cards).toEqual([{ source: "blocks", parts: [{ kind: "text", html: "<p>Deployed👋</p>" }] }]);
     expect(await answerTo(bot.key, general, { text: ">>> Quoted\n```\nwith its code\n```\nto the end" })).toEqual(OK);
-    expect(await bodiesIn(general)).toEqual(["<p>Deployed👋</p>", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
+    expect(await bodiesIn(general)).toEqual(["", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
   });
 
   it("posts each legacy attachment as a card under the text, formatted only where mrkdwn_in says, with its blocks, or as its fallback", async () => {
@@ -310,7 +352,7 @@ describe(feature("bots.slack-webhook"), () => {
             { type: "context", elements: [{ type: "mrkdwn", text: "by <@U1>" }] },
           ],
         },
-        { fallback: "A chart, which doesn't show yet", blocks: [{ type: "image", image_url: "https://example.com/chart.png", alt_text: "chart" }] },
+        { fallback: "A chart", blocks: [{ type: "image", image_url: "https://example.com/chart.png", alt_text: "chart" }] },
       ],
     };
     expect(await answerTo(bot.key, general, blocksInside)).toEqual(OK);
@@ -359,10 +401,17 @@ describe(feature("bots.slack-webhook"), () => {
       },
       {
         body: "",
-        plainText: "Deployed to production\n\nby @U1\nA chart, which doesn't show yet",
+        plainText: "Deployed to production\nby @U1",
         cards: [
-          { source: "attachment", color: "good", parts: [{ kind: "text", html: "<p><strong>Deployed</strong> to production</p><p>by @U1</p>" }] },
-          { source: "attachment", parts: [{ kind: "text", html: "<p>A chart, which doesn't show yet</p>" }] },
+          {
+            source: "attachment",
+            color: "good",
+            parts: [
+              { kind: "section", html: "<p><strong>Deployed</strong> to production</p>" },
+              { kind: "context", items: [{ html: "<p>by @U1</p>" }] },
+            ],
+          },
+          { source: "attachment", parts: [{ kind: "image", image: { url: "https://example.com/chart.png", alt: "chart" } }] },
         ],
       },
     ]);
@@ -454,7 +503,188 @@ describe(feature("bots.cards"), () => {
     ]);
   });
 
-  it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be, or text and cards longer than a message", async () => {
+  it("shows a table block's cells, raw text as it's written, lined up and wrapped as its columns say, a line of plain text to a row", async () => {
+    const link = { type: "rich_text", elements: [{ type: "rich_text_section", elements: [{ type: "link", url: "https://example.com/api", text: "api" }] }] };
+    const { message } = await postedCards({
+      blocks: [
+        {
+          type: "table",
+          column_settings: [{ is_wrapped: true }, { align: "right" }],
+          rows: [
+            [
+              { type: "raw_text", text: "Service" },
+              { type: "raw_text", text: "Errors :x:" },
+            ],
+            [link, { type: "raw_number", value: 42 }],
+            [
+              { type: "raw_text", text: "web\nworker" },
+              { type: "raw_number", text: "1,024", value: 1024 },
+            ],
+          ],
+        },
+      ],
+    });
+    expect(message.plainText).toBe("Service | Errors :x:\napi | 42\nweb worker | 1,024");
+    expect(message.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          {
+            kind: "table",
+            rows: [
+              ["<p>Service</p>", "<p>Errors :x:</p>"],
+              ['<p><a href="https://example.com/api">api</a></p>', "<p>42</p>"],
+              ["<p>web<br>worker</p>", "<p>1,024</p>"],
+            ],
+            columns: [
+              { align: "left", wrap: true },
+              { align: "right", wrap: false },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("shows card blocks as small cards, a carousel's in a row, a video as a link to it, an image under its title, and a section's link button", async () => {
+    const { message } = await postedCards({
+      blocks: [
+        {
+          type: "card",
+          hero_image: { type: "image", image_url: "https://example.com/hero.png", alt_text: "The room" },
+          icon: { type: "image", image_url: "https://example.com/icon.png", alt_text: "" },
+          title: { type: "mrkdwn", text: "*Room* 1" },
+          subtitle: { type: "plain_text", text: "Second floor" },
+          body: { type: "mrkdwn", text: "Seats *8*" },
+          subtext: { type: "mrkdwn", text: "Free until 3" },
+          actions: [
+            { type: "button", text: { type: "plain_text", text: "Book" }, url: "https://example.com/book", style: "primary" },
+            { type: "button", text: { type: "plain_text", text: "Skip" }, action_id: "skip" },
+          ],
+        },
+        {
+          type: "carousel",
+          elements: [
+            { type: "card", title: { type: "plain_text", text: "A" }, body: { type: "plain_text", text: "First" } },
+            { type: "card", title: { type: "plain_text", text: "B" }, actions: { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Go" }, url: "https://example.com/b" }] } },
+            { type: "section", text: { type: "plain_text", text: "Not a card" } },
+          ],
+        },
+        {
+          type: "video",
+          title: { type: "plain_text", text: "Demo <video>" },
+          title_url: "https://example.com/watch",
+          video_url: "https://example.com/embed",
+          description: { type: "plain_text", text: "Two minutes" },
+          alt_text: "Demo",
+          thumbnail_url: "https://example.com/thumb.png",
+        },
+        { type: "image", image_url: "https://example.com/chart.png", alt_text: "Error rate", title: { type: "plain_text", text: "Last hour :chart_with_upwards_trend:" } },
+        { type: "section", text: { type: "mrkdwn", text: "Approve?" }, accessory: { type: "button", text: { type: "plain_text", text: "Open" }, url: "https://example.com/open", style: "danger" } },
+        // What only an app could answer goes, and a block Ember doesn't know keeps its text.
+        { type: "input", label: { type: "plain_text", text: "Reason" }, element: { type: "plain_text_input", action_id: "reason" } },
+        { type: "future_block", text: { type: "mrkdwn", text: "Unknown with *text*" } },
+      ],
+    });
+    expect(message.plainText).toBe("Room 1\nSecond floor\nSeats 8\nFree until 3\nBook\nA\nFirst\nB\nGo\nDemo <video>\n\nTwo minutes\nLast hour 📈\nApprove?\nOpen\nUnknown with text");
+    expect(message.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          {
+            kind: "tiles",
+            tiles: [
+              {
+                hero: { url: "https://example.com/hero.png", alt: "The room" },
+                icon: { url: "https://example.com/icon.png", alt: "" },
+                title: "Room 1",
+                subtitle: "Second floor",
+                body: "<p>Seats <strong>8</strong></p>",
+                subtext: "<p>Free until 3</p>",
+                buttons: [{ text: "Book", href: "https://example.com/book", style: "primary" }],
+              },
+            ],
+          },
+          {
+            kind: "tiles",
+            tiles: [
+              { title: "A", body: "<p>First</p>" },
+              { title: "B", buttons: [{ text: "Go", href: "https://example.com/b" }] },
+            ],
+          },
+          { kind: "text", html: '<p><a href="https://example.com/watch">Demo &lt;video&gt;</a></p><p>Two minutes</p>' },
+          { kind: "image", image: { url: "https://example.com/chart.png", alt: "Error rate" }, title: "Last hour 📈" },
+          { kind: "section", html: "<p>Approve?</p>", button: { text: "Open", href: "https://example.com/open", style: "danger" } },
+          { kind: "text", html: "<p>Unknown with <strong>text</strong></p>" },
+        ],
+      },
+    ]);
+  });
+
+  it("reads a markdown block as GitHub's Markdown, its headings at one size, a task's box as a character, HTML as its text, and images as links", async () => {
+    const markdown = [
+      "# Release 2.0",
+      "## What changed",
+      "**Bold**, _italic_, ~~struck~~ and `code`, [a link](https://example.com/notes) and <https://example.com/auto>",
+      "next line",
+      "",
+      "1. first",
+      "2. second",
+      "   - nested",
+      "",
+      "- [x] done",
+      "- [ ] not yet",
+      "",
+      "> Quoted",
+      "",
+      "```ts",
+      "const ok = 1 < 2;",
+      "```",
+      "",
+      "| Service | Errors |",
+      "|:--|--:|",
+      "| api | 3 |",
+      "",
+      "---",
+      "",
+      "<b>raw</b> ![chart](https://example.com/chart.png) [unsafe](javascript:alert(1))",
+    ].join("\n");
+    const { message } = await postedCards({ blocks: [{ type: "markdown", text: markdown }] });
+    expect(message.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          {
+            kind: "text",
+            html: [
+              "<h4>Release 2.0</h4><h4>What changed</h4>",
+              '<p><strong>Bold</strong>, <em>italic</em>, <del>struck</del> and <code>code</code>, <a href="https://example.com/notes">a link</a> and <a href="https://example.com/auto">https://example.com/auto</a><br>next line</p>',
+              "<ol><li>first</li><li>second<ul><li>nested</li></ul></li></ol>",
+              "<ul><li>☑ done</li><li>☐ not yet</li></ul>",
+              "<blockquote><p>Quoted</p></blockquote>",
+              '<pre data-language="ts">const ok = 1 &lt; 2;</pre>',
+              "<table><thead><tr><th>Service</th><th>Errors</th></tr></thead><tbody><tr><td>api</td><td>3</td></tr></tbody></table>",
+              "<hr>",
+              '<p>&lt;b&gt;raw&lt;/b&gt; <a href="https://example.com/chart.png">chart</a> unsafe</p>',
+            ].join(""),
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("shows what tools send Slack as Slack shows it: Alertmanager's, Grafana's, GitLab's, Gitea's and Uptime Kuma's alerts, and Block Kit's examples", async () => {
+    // Written from each tool's code (fixtures/README.md), with the message the room makes of each.
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    for (const { name, payload, message: expected } of slackPayloads) {
+      expect([name, ...(await answerTo(bot.key, general, payload))]).toEqual([name, ...OK]);
+      const { message } = await inRoom.next("message.created");
+      expect({ name, body: message.body, plainText: message.plainText, cards: message.cards }).toEqual({ name, ...expected });
+    }
+  });
+
+  it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be, text and cards longer than a message, or more Markdown than Slack takes", async () => {
     const { bot, general } = await withBot();
     expect(await answerTo(bot.key, general, { attachments: [{ color: "good" }, { fallback: " ", footer: " " }] })).toEqual(refused(400, "no_text"));
     // Each escaped ampersand takes five characters.
@@ -463,7 +693,12 @@ describe(feature("bots.cards"), () => {
     const long = [{ text: "x".repeat(6000) }, { text: "y".repeat(6000) }];
     expect(await answerTo(bot.key, general, { attachments: long })).toEqual(refused(400, "msg_too_long"));
     expect(await answerTo(bot.key, general, { text: "Hi", attachments: long })).toEqual(refused(400, "msg_too_long"));
+    // Slack takes 12,000 characters of Markdown across a payload's markdown blocks, its attachments' too.
+    const markdown = (length: number) => ({ type: "markdown", text: "x".repeat(length) });
+    expect(await answerTo(bot.key, general, { blocks: [markdown(6000)], attachments: [{ blocks: [markdown(6001)] }] })).toEqual(refused(400, "msg_too_long"));
     expect(await bodiesIn(general)).toEqual([]);
+
+    expect(await answerTo(bot.key, general, { blocks: [markdown(6000)], attachments: [{ blocks: [markdown(3000)] }] })).toEqual(OK);
   });
 
   it("refuses to change a message with cards from the room, which its editor offers only to delete", async () => {

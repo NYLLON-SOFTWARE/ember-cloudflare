@@ -43,3 +43,14 @@ themselves. `ruby_core.json` is ember-rust's `vectors/ruby_core.json`, also unmo
 `../files.test.ts` checks this port's file types, metadata, names and byte ranges against them, and
 `../uploads.test.ts` uploads some of the images. The worker tests can't read files inside workerd,
 so `vitest.config.ts` hands them the images as Base64.
+
+# Payloads tools send Slack
+
+`slack_payloads.json` holds what tools that post to Slack send its incoming webhooks, each written
+from the code that sends it, which its `source` links: Prometheus Alertmanager's and Grafana's alerts
+from their default templates, GitLab's pipelines, Gitea's pushes and issues, Uptime Kuma's monitors,
+and Block Kit's own examples. They aren't recorded from the tools themselves, and the names, addresses
+and times in them are made up. Beside each is the message the room makes of it, its body, plain text
+and cards, checked by hand against how Slack shows the payload.
+
+`../slack-webhook.test.ts` posts each to a bot's Slack-compatible webhook and checks the message.

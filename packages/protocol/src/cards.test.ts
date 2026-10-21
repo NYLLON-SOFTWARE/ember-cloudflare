@@ -50,7 +50,7 @@ describe(feature("bots.cards"), () => {
 
   it("leaves out parts of kinds it doesn't know, malformed ones and ones too long, and a card left with nothing", () => {
     const parts = [
-      { kind: "header", text: "Not yet" },
+      { kind: "video", text: "Not a part" },
       { kind: "title", text: "   " },
       { kind: "title", text: "x".repeat(3001) },
       { kind: "text", html: "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1) },
@@ -62,10 +62,93 @@ describe(feature("bots.cards"), () => {
       null,
     ];
     expect(parseCards([card(parts)], address)).toEqual([card([{ kind: "fields", fields: [{ title: "Kept", html: "", short: false }] }])]);
-    expect(parseCards([card([{ kind: "title", text: "" }]), card([], { pretext: "<p>Only this</p>" }), { source: "blocks", parts: [{ kind: "title", text: "Hi" }] }, "card"], address)).toEqual([
+    expect(parseCards([card([{ kind: "title", text: "" }]), card([], { pretext: "<p>Only this</p>" }), { source: "embed", parts: [{ kind: "title", text: "Hi" }] }, "card"], address)).toEqual([
       card([], { pretext: "<p>Only this</p>" }),
     ]);
     expect(parseCards({ source: "attachment" }, address)).toEqual([]);
+  });
+
+  it("keeps a card of a message's blocks, framed without a bar, with every part blocks show", () => {
+    const blocks = {
+      source: "blocks",
+      parts: [
+        { kind: "header", text: "Deploy finished" },
+        {
+          kind: "section",
+          html: "<p><strong>web</strong> is live</p>",
+          fields: [{ html: "<p>production</p>", short: true }],
+          thumb: { url: "https://example.com/logo.png", alt: "logo" },
+          button: { text: "Open", href: "https://example.com/open", style: "primary" },
+        },
+        { kind: "divider" },
+        { kind: "context", items: [{ image: { url: "https://example.com/ada.png", alt: "Ada" } }, { html: "<p>By Ada</p>" }] },
+        { kind: "image", image: { url: "https://example.com/chart.png", alt: "Error rate" }, title: "Last hour" },
+        {
+          kind: "table",
+          rows: [
+            ["<p>Service</p>", "<p>Errors</p>"],
+            ["<p>api</p>", ""],
+          ],
+          columns: [
+            { align: "left", wrap: true },
+            { align: "right", wrap: false },
+          ],
+        },
+        {
+          kind: "tiles",
+          tiles: [
+            {
+              hero: { url: "https://example.com/hero.png", alt: "" },
+              icon: { url: "https://example.com/icon.png", alt: "" },
+              title: "Room 1",
+              subtitle: "Second floor",
+              body: "<p>Seats 8</p>",
+              subtext: "<p>Free until 3</p>",
+              buttons: [{ text: "Book", href: "https://example.com/book", style: "primary" }],
+            },
+            { title: "Room 2" },
+          ],
+        },
+      ],
+    };
+    expect(parseCards([blocks], address)).toEqual([blocks]);
+    // Only an attachment has a bar, a pretext and a thumbnail.
+    expect(parseCards([{ ...blocks, color: "good", pretext: "<p>Above</p>", thumb: { url: "https://example.com/t.png", alt: "" } }], address)).toEqual([blocks]);
+  });
+
+  it("leaves out what a block's part can't keep, and a card that shows nothing but rules", () => {
+    const parts = [
+      { kind: "section", thumb: { url: "https://example.com/logo.png", alt: "" } },
+      { kind: "section", html: "<p>Kept</p>", thumb: { url: "ftp://example.com/logo.png", alt: "" }, button: { text: "Mail", href: "mailto:ada@example.com" } },
+      { kind: "context", items: [{ image: { url: "data:image/png;base64,AAAA", alt: "" } }, { html: "" }, "item"] },
+      { kind: "context", items: [{ image: { url: "https://example.com/a.png" } }, { html: "<p>Kept</p>", image: 7 }] },
+      { kind: "image", image: { url: "https://example.com/chart.png", alt: "" }, title: "x".repeat(3001) },
+      { kind: "header", text: "   " },
+      { kind: "table", rows: ["row", [], [7, "<p>Kept</p>", ...Array.from({ length: 20 }, () => "<p>More</p>")]], columns: [{ align: "justify", wrap: "yes" }, null] },
+      { kind: "tiles", tiles: [{ icon: { url: "https://example.com/icon.png", alt: "" } }, { title: "Kept", buttons: Array.from({ length: 4 }, (_, index) => ({ text: `Go ${index}`, href: "https://example.com/go" })) }] },
+    ];
+    expect(parseCards([{ source: "blocks", parts }], address)).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          { kind: "section", html: "<p>Kept</p>" },
+          { kind: "context", items: [{ image: { url: "https://example.com/a.png", alt: "" } }] },
+          { kind: "image", image: { url: "https://example.com/chart.png", alt: "" } },
+          {
+            kind: "table",
+            rows: [["", "<p>Kept</p>", ...Array.from({ length: 18 }, () => "<p>More</p>")]],
+            columns: [
+              { align: "left", wrap: false },
+              { align: "left", wrap: false },
+            ],
+          },
+          { kind: "tiles", tiles: [{ title: "Kept", buttons: [0, 1, 2].map((index) => ({ text: `Go ${index}`, href: "https://example.com/go" })) }] },
+        ],
+      },
+    ]);
+    expect(parseCards([{ source: "blocks", parts: [{ kind: "divider" }, { kind: "divider" }] }, card([{ kind: "divider" }]), card([{ kind: "divider" }], { pretext: "<p>Above</p>" })], address)).toEqual([
+      card([{ kind: "divider" }], { pretext: "<p>Above</p>" }),
+    ]);
   });
 
   it("keeps up to a message's cards", () => {

@@ -14,6 +14,7 @@
   "dependencies": {
     "@ember/protocol": "workspace:*",
     "@ember/richtext": "workspace:*",
+    "marked": "18.1.0",
     "parse5": "^8.0.1"
   },
   "devDependencies": {
