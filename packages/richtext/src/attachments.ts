@@ -134,6 +134,18 @@ export function webUrl(value: string | undefined, host: string): string | undefi
 }
 
 /**
+ * `value` when a bot's card may link to it or show it, as `webUrl` decides for a preview, or undefined,
+ * as for an address `webUrl` can't read. A card's addresses come from a webhook, not from Rails.
+ */
+export function cardAddress(value: string, host: string): string | undefined {
+  try {
+    return webUrl(value, host);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * `named_host?`: a domain name, written plainly, whose last label is a word, not a number or its
  * hexadecimal spelling, as an address can be written. Ruby's `split(".")` drops the empty labels at
  * the end, and raises when that leaves none.

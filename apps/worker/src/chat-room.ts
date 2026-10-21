@@ -4,11 +4,13 @@ import {
   HISTORY_PAGE_SIZE,
   isMessageTooLong,
   MAX_BOOST_LENGTH,
+  MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
   type Boost,
+  type Card,
   type ClientFrame,
   type Message,
   type NewUpload,
@@ -21,6 +23,7 @@ import {
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
 import { JobQueue } from "./at-once";
 import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
+import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
 import type { Env } from "./env";
@@ -34,7 +37,7 @@ import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, typ
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
-import { MessageStore, type PageCursor, type PostedFile } from "./store";
+import { MessageStore, type PageCursor, type PostedFile, type StoredBody } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace, type BotAccess } from "./workspace";
 import type { MessagePush, MessageWebhook } from "./workspace-store";
@@ -68,6 +71,8 @@ const UNDELIVERED_ROOM = "undeliveredRoom";
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
 const UNREADABLE = "That message couldn't be saved.";
 export const EMPTY = "Your message is empty.";
+/** Why the room changes nothing of a bot's message with cards that a person edits, as the editor can't hold a card. */
+const HAS_CARDS = "Messages with cards can't be edited.";
 /** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
 const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
 /**
@@ -334,15 +339,16 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Posts `markup` as a message from the bot the Workspace let in, as ember-rust's bot API does
    * (messages/by_bots.rs `create`): as a socket's message.create does, with a client message id of its
-   * own, as Campfire gives one (`Random.uuid`, message.rb). Answers the message, why the room keeps
-   * nothing of it, or null once the room has heard that the bot's access ended, or the room was deleted,
-   * after the Workspace checked, as it turns away a socket then.
+   * own, as Campfire gives one (`Random.uuid`, message.rb), and with `cards` under its text, as a Slack
+   * incoming webhook's attachments show. Answers the message, why the room keeps nothing of it, or null
+   * once the room has heard that the bot's access ended, or the room was deleted, after the Workspace
+   * checked, as it turns away a socket then.
    */
-  async createBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, markup: string): Promise<Message | string | null> {
+  async createBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, markup: string, cards: Card[] = []): Promise<Message | string | null> {
     return this.serially(async () => {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return null;
-      const body = await this.prepare(markup);
+      const body = await this.prepareWithCards(markup, cards);
       if (typeof body === "string") return body;
       return this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, now);
     });
@@ -645,6 +651,7 @@ export class ChatRoom extends DurableObject<Env> {
         const message = await store.find(frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only edit your own messages");
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
+        if (message.cards) return this.send(ws, { type: "error", message: HAS_CARDS, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
         await this.edit(store, message, body, now);
@@ -707,7 +714,7 @@ export class ChatRoom extends DurableObject<Env> {
     store: MessageStore,
     user: User,
     clientMessageId: string,
-    body: Pick<PreparedBody, "html" | "plainText" | "mentions">,
+    body: StoredBody,
     now: string,
     kind?: "message" | "reply",
     posted?: PostedFile,
@@ -764,12 +771,12 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Replaces `message`'s text with `body`, telling everyone in the room and sending the search index its
-   * log, and answers the message as it is now. Saved as it was, it stays as it was, its update time
-   * included, as Rails saves nothing then.
+   * Replaces `message`'s text with `body`, and its cards with none, telling everyone in the room and
+   * sending the search index its log, and answers the message as it is now. Saved as it was, it stays as
+   * it was, its update time included, as Rails saves nothing then.
    */
   private async edit(store: MessageStore, message: Message, body: PreparedBody, now: string): Promise<Message> {
-    if (body.html === message.body) return message;
+    if (body.html === message.body && !message.cards) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
     this.couriersFor(store.roomId).index.deliver();
@@ -831,6 +838,21 @@ export class ChatRoom extends DurableObject<Env> {
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
     return isMessageTooLong(body.plainText) ? MESSAGE_TOO_LONG : body;
+  }
+
+  /**
+   * What the room keeps of a bot's message with `cards`: its text, as `prepare` keeps a body, though it may
+   * be empty once the room keeps a card, and the cards, as `keptCards` keeps them, whose plain text
+   * follows the text's, or why it keeps nothing.
+   */
+  private async prepareWithCards(markup: string, cards: Card[]): Promise<StoredBody | string> {
+    const kept = cards.length === 0 ? null : keptCards(cards);
+    if (!kept || kept.cards.length === 0) return this.prepare(markup);
+    if (JSON.stringify(kept.cards).length > MAX_MESSAGE_HTML_LENGTH) return MESSAGE_TOO_LONG;
+    const body = await this.prepare(markup);
+    if (body === EMPTY) return { html: "", plainText: kept.plainText, mentions: [], cards: kept.cards };
+    if (typeof body === "string") return body;
+    return { ...body, plainText: [body.plainText, kept.plainText].filter((text) => text !== "").join("\n"), cards: kept.cards };
   }
 
   /** The room's database, with its migrations applied first if its storage needs them. */

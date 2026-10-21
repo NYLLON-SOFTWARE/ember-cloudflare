@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Boost, Message, StoredFile, User } from "@ember/protocol";
+import type { Boost, Card, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
@@ -44,6 +44,12 @@ const report: StoredFile = {
   downloadUrl: "/files/k1/s1/Q3%20report.pdf?disposition=attachment",
 };
 
+/** A bot's card, as a Slack-compatible webhook's attachment makes one. */
+const deployCard: Card = { source: "attachment", color: "good", parts: [{ kind: "title", text: "Deployed 🚀" }, { kind: "text", html: "<p>web is live</p>" }] };
+
+/** A message with a card and no text, whose plain text is its card's, as the room posts it. */
+const cardMessage = (overrides: Partial<Message> = {}) => message({ body: "", plainText: "Deployed 🚀\nweb is live", cards: [deployCard], ...overrides });
+
 /** A file message, whose text is empty and whose plain text is its file's name, as the room posts it. */
 const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", plainText: report.name, attachment: report, ...overrides });
 
@@ -83,7 +89,8 @@ function show(m: Message | PendingMessage, { me = ada, administrator = false, th
   const update = (next: Message | PendingMessage) => act(() => setMessage(next));
   const reconnect = () => act(() => setConnections((connections) => connections + 1));
   const refuse = () => act(() => setRefusals((refusals) => refusals + 1));
-  return { actions, editors, update, reconnect, refuse, user: userEvent.setup(), article: within(container).getByRole("article") };
+  // The message's article, which holds a bot's cards' own.
+  return { actions, editors, update, reconnect, refuse, user: userEvent.setup(), article: within(container).getAllByRole("article")[0]! };
 }
 
 /** The editor Edit opens, test-setup.ts's stand-in for Lexxy, which shows a message's text. */
@@ -1063,5 +1070,38 @@ describe(feature("users.profile"), () => {
     expect(screen.queryByText("Ada")).not.toBeInTheDocument();
     // Someone the directory doesn't list keeps the name the boost was given.
     expect(reactions().getAllByRole("img").map((avatar) => avatar.getAttribute("alt"))).toEqual(["Grace Hopper boosted 👍", "Linus boosted 👍"]);
+  });
+});
+
+describe(feature("bots.cards"), () => {
+  it("shows a bot's cards under its text, with no text above them where it sent none", () => {
+    const { article } = show(message({ plainText: "Nightly report", cards: [deployCard] }));
+    const [text, card] = [within(article).getByText("Nightly report"), within(article).getByRole("article", { name: "Deployed 🚀" })];
+    expect(text.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+
+    const alone = show(cardMessage()).article;
+    expect(within(alone).getByRole("article", { name: "Deployed 🚀" })).toBeInTheDocument();
+    expect(alone.querySelector("[data-body-content] > .message-content")).toBeNull();
+  });
+
+  it("never shows a message with cards large, though its plain text is only emoji", () => {
+    const { article } = show(message({ plainText: "🚀", cards: [{ source: "attachment", parts: [{ kind: "title", text: "🚀" }] }] }));
+    expect(article.querySelector(".text-\\[2\\.4em\\]")).toBeNull();
+  });
+
+  it("edits a message with cards as it shows, with Delete message alone, as a file message's editor does", async () => {
+    const { actions, user, article } = show(message({ plainText: "Nightly report", cards: [deployCard] }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await pressAction(user, "Edit", "Nightly report");
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    expect(within(article).getByText("Nightly report")).toBeInTheDocument();
+    expect(within(article).getByRole("article", { name: "Deployed 🚀" })).toBeInTheDocument();
+
+    const remove = screen.getByRole("button", { name: "Delete message" });
+    expect(remove).toHaveFocus();
+    await user.click(remove);
+    expect(actions.remove).toHaveBeenCalledWith("m1");
   });
 });

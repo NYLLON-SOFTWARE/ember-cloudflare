@@ -53,9 +53,19 @@ export function mrkdwnHtml(text: string, formatting: Formatting = "mrkdwn"): str
 }
 
 /** `text` as a line of markup, its line breaks `<br>`, formatted as `formatting` says but without quotes or code blocks. */
-export function mrkdwnLine(text: string, formatting: Formatting = "plain"): string {
+function mrkdwnLine(text: string, formatting: Formatting = "plain"): string {
   const lines = withoutBlankEnds(text.replace(/\r\n?/g, "\n").split("\n"));
   return lines.map((line) => lineHtml(line, formatting)).join("<br>");
+}
+
+/** `text` as plain text, as Slack shows a title or a name: its links as their labels, and its mentions, dates and emoji. */
+export function mrkdwnText(text: string): string {
+  // The line's only markup is its links and line breaks, and its text is escaped.
+  return mrkdwnLine(text)
+    .replace(/<br>/g, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(amp|lt|gt);/g, (_, name: string) => UNESCAPED[name]!)
+    .trim();
 }
 
 /** Text that Slack shows as it is, a `plain_text` object's, as markup: a paragraph, with emoji by name unless `emoji` is false. */

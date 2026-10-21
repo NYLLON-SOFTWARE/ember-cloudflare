@@ -8,10 +8,11 @@ import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { Attachment } from "./attachment";
+import { BotCards } from "./bot-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { FileMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { FixedMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, userTitle } from "./user-avatar";
 
@@ -119,7 +120,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // for an avatar address that mentions don't have, so ember-rust never does.
   const mentioned = message.mentions.some((person) => person.id === me.id);
   const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
-  const allEmoji = isAllEmoji(message.plainText);
+  // A message's plain text holds its cards', which never show large.
+  const allEmoji = !message.cards && isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
   const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
 
@@ -161,13 +163,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
       {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 
-      {editing && message.attachment ? (
-        <FileMessageEditor
-          ref={attachEditor}
-          file={message.attachment}
-          onDelete={() => actions.remove(message.id) && editors.returnFocus()}
-          onClose={() => editors.close(message.id)}
-        />
+      {editing && (message.attachment || message.cards) ? (
+        <FixedMessageEditor ref={attachEditor} onDelete={() => actions.remove(message.id) && editors.returnFocus()} onClose={() => editors.close(message.id)}>
+          {message.attachment ? <Attachment file={message.attachment} /> : message.body !== "" && <MessageBody nodes={shown} mentions={message.mentions} />}
+          {message.cards && <BotCards cards={message.cards} />}
+        </FixedMessageEditor>
       ) : editing ? (
         <MessageEditor
           ref={attachEditor}
@@ -213,7 +213,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
               Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
               shows its file in place of its text, as ember-rust's `message_presentation` does, and its upload's
-              card until the room has it. */}
+              card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
           {upload ? (
             <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
               <UploadCard upload={upload} />
@@ -224,14 +224,18 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
               {threaded && edited}
             </div>
           ) : (
-            <MessageBody
-              nodes={shown}
-              mentions={message.mentions}
-              emoji={allEmoji}
-              trailing={(threaded && edited) || undefined}
-              className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
-            />
+            (message.body !== "" || !message.cards) && (
+              <MessageBody
+                nodes={shown}
+                mentions={message.mentions}
+                emoji={allEmoji}
+                trailing={(threaded && edited) || undefined}
+                className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
+              />
+            )
           )}
+
+          {message.cards && <BotCards cards={message.cards} className={threaded ? "col-start-1" : "touch:pr-8"} />}
 
           {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
 

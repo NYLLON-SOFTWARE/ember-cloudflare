@@ -1,5 +1,5 @@
-import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
-import type { Message, StoredFile } from "@ember/protocol";
+import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { Check, Remove, Trash } from "@/components/icons/campfire";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
@@ -7,7 +7,6 @@ import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
-import { Attachment } from "./attachment";
 import { avatarUrlOf } from "./user-avatar";
 
 /**
@@ -138,20 +137,22 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   );
 }
 
-interface FileMessageEditorProps {
-  file: StoredFile;
+interface FixedMessageEditorProps {
+  /** The message as it shows. */
+  children: ReactNode;
   onDelete: () => void;
   onClose: () => void;
   ref?: Ref<MessageEditorHandle>;
 }
 
 /**
- * ember-rust's edit form for a file message (messages/edit.html), whose text can't be edited: its file as
- * the message shows it, with Delete message centered under it, beside the button that closes it. It
- * focuses Delete message as it opens, as the text editor focuses the text, where ember-rust's form leaves
- * focus behind, and Escape closes it, as the text editor's form does. Delete message asks first.
+ * ember-rust's edit form for a file message (messages/edit.html), whose text can't be edited: the message as
+ * it shows, its file, with Delete message centered under it, beside the button that closes it. A message with
+ * cards, whose text the room won't change, opens it too. It focuses Delete message as it opens, as the text
+ * editor focuses the text, where ember-rust's form leaves focus behind, and Escape closes it, as the text
+ * editor's form does. Delete message asks first.
  */
-export function FileMessageEditor({ file, onDelete, onClose, ref }: FileMessageEditorProps) {
+export function FixedMessageEditor({ children, onDelete, onClose, ref }: FixedMessageEditorProps) {
   const container = useRef<HTMLDivElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
   useImperativeHandle(ref, () => ({ focus: () => deleteButton.current?.focus() }), []);
@@ -166,7 +167,7 @@ export function FileMessageEditor({ file, onDelete, onClose, ref }: FileMessageE
       }}
     >
       <div className="min-w-0 flex-1">
-        <Attachment file={file} />
+        {children}
         <div className="flex justify-center pt-2">
           <DeleteButton ref={deleteButton} onDelete={onDelete} className="mb-4" autoFocus />
         </div>
