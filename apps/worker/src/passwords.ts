@@ -23,6 +23,9 @@ const HASH_BYTES = 32;
 const CURRENT = `$scrypt$ln=${LOG_N},r=${R},p=${P}$`;
 const SCRYPT_DIGEST = /^\$scrypt\$ln=([1-9]\d?),r=([1-9]\d*),p=([1-9]\d*)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/;
 const PBKDF2_DIGEST = /^\$pbkdf2-sha256\$i=([1-9]\d*)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/;
+/** The iterations Ember made PBKDF2 digests with, which checking one costs besides the scrypt that replaces it. */
+const PBKDF2_ITERATIONS_BEFORE_SCRYPT = 100_000;
+const DUMMY_SALT = new Uint8Array(SALT_BYTES);
 
 const encoder = new TextEncoder();
 
@@ -117,14 +120,18 @@ export class PasswordHasher extends DurableObject<Env> {
   /**
    * Checks `password` against `digest`, and when it matches a digest from before scrypt, or one made
    * at another cost, makes one to keep instead. Such a digest is checked in a fraction of the time, so
-   * the password is hashed anew whether it matched or not, and the answer takes as long either way, as
-   * it does for an unknown address.
+   * the password is hashed anew whether it matched or not, and a current digest, the dummy one for an
+   * unknown address among them, pays the PBKDF2 that one from before costs, so the answer takes as
+   * long whatever the address and however old its digest.
    */
   async verify(password: string, digest: string): Promise<Verification> {
     const matches = await verifyPassword(password, digest);
-    if (isCurrentDigest(digest)) return { matches, rehash: null };
-    const rehash = await hashPassword(password);
-    return { matches, rehash: matches ? rehash : null };
+    if (!isCurrentDigest(digest)) {
+      const rehash = await hashPassword(password);
+      return { matches, rehash: matches ? rehash : null };
+    }
+    await pbkdf2(password, DUMMY_SALT, PBKDF2_ITERATIONS_BEFORE_SCRYPT, HASH_BYTES);
+    return { matches, rehash: null };
   }
 }
 
