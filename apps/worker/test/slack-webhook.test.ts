@@ -621,7 +621,7 @@ describe(feature("bots.cards"), () => {
     ]);
   });
 
-  it("reads a markdown block as GitHub's Markdown, its headings at one size, a task's box as a character, HTML as its text, and images as links", async () => {
+  it("reads a markdown block as GitHub's Markdown, its headings at one size, a task's box as a character, HTML as its text, and images as links, keeping its headings, code and table cells apart in its plain text", async () => {
     const markdown = [
       "# Release 2.0",
       "## What changed",
@@ -657,13 +657,13 @@ describe(feature("bots.cards"), () => {
           {
             kind: "text",
             html: [
-              "<h4>Release 2.0</h4><h4>What changed</h4>",
+              "<div><h4>Release 2.0</h4></div><div><h4>What changed</h4></div>",
               '<p><strong>Bold</strong>, <em>italic</em>, <del>struck</del> and <code>code</code>, <a href="https://example.com/notes">a link</a> and <a href="https://example.com/auto">https://example.com/auto</a><br>next line</p>',
               "<ol><li>first</li><li>second<ul><li>nested</li></ul></li></ol>",
               "<ul><li>☑ done</li><li>☐ not yet</li></ul>",
               "<blockquote><p>Quoted</p></blockquote>",
-              '<pre data-language="ts">const ok = 1 &lt; 2;</pre>',
-              "<table><thead><tr><th>Service</th><th>Errors</th></tr></thead><tbody><tr><td>api</td><td>3</td></tr></tbody></table>",
+              '<div><pre data-language="ts">const ok = 1 &lt; 2;</pre></div>',
+              "<div><table><thead><tr><th>Service </th><th>Errors </th></tr></thead><tbody><tr><td>api </td><td>3 </td></tr></tbody></table></div>",
               "<hr>",
               '<p>&lt;b&gt;raw&lt;/b&gt; <a href="https://example.com/chart.png">chart</a> unsafe</p>',
             ].join(""),
@@ -671,6 +671,27 @@ describe(feature("bots.cards"), () => {
         ],
       },
     ]);
+    expect(message.plainText).toBe(
+      [
+        "Release 2.0",
+        "What changed",
+        "Bold, italic, struck and code, a link and https://example.com/auto",
+        "next line",
+        "",
+        "1. first",
+        "2. second",
+        "  • nested",
+        "",
+        "• ☑ done",
+        "• ☐ not yet",
+        "",
+        "“Quoted”",
+        "",
+        "const ok = 1 < 2;",
+        "Service Errors api 3 ",
+        "<b>raw</b> chart unsafe",
+      ].join("\n"),
+    );
   });
 
   it("shows what tools send Slack as Slack shows it: Alertmanager's, Grafana's, GitLab's, Gitea's and Uptime Kuma's alerts, and Block Kit's examples", async () => {

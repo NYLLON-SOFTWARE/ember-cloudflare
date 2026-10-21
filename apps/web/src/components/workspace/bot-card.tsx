@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import type { Card, CardButton, CardColumn, CardContextItem, CardField, CardImage, CardPart, CardTile } from "@ember/protocol";
-import { cardAddress, displayBody, type DisplayNode } from "@ember/richtext/dom";
+import { cardAddress, displayBody, type DisplayElement, type DisplayNode } from "@ember/richtext/dom";
 import { Button } from "@/components/ui/button";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
@@ -367,6 +367,12 @@ function shownText(html: string): DisplayNode[] | null {
   }
 }
 
+/** Whether a block's first child is a block, which starts the same line, as Markdown's headings in a `div` do. */
+const startsWithBlock = (block: DisplayElement) => {
+  const first = block.children[0];
+  return first?.kind === "element" && BLOCKS.has(first.name);
+};
+
 /** Whether text runs past 700 characters or 5 line breaks. */
 function isLong(nodes: DisplayNode[]): boolean {
   let characters = 0;
@@ -377,7 +383,7 @@ function isLong(nodes: DisplayNode[]): boolean {
       characters += node.value.length;
       lineBreaks += node.value.split("\n").length - 1;
     } else if (node.kind === "element") {
-      if (node.name === "br" || BLOCKS.has(node.name)) lineBreaks++;
+      if (node.name === "br" || (BLOCKS.has(node.name) && !startsWithBlock(node))) lineBreaks++;
       node.children.forEach(count);
     }
   };

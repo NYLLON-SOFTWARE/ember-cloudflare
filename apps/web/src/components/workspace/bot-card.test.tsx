@@ -237,10 +237,11 @@ describe(feature("bots.cards"), () => {
     expect(frame).toHaveTextContent("DeployBy AdaLovelace");
   });
 
-  it("folds text past 700 characters or 5 line breaks behind Show more", async () => {
+  it("folds text past 700 characters or 5 line breaks behind Show more, where a block that starts with a block starts one line", async () => {
     const user = userEvent.setup();
     const text = (html: string) => card([{ kind: "text", html }]);
-    show(text(`<p>${"x".repeat(700)}</p>`), text("<p>1<br>2<br>3<br>4<br>5<br>6</p>"), text(`<p>${"x".repeat(701)}</p>`), text("<p>1</p><p>2<br>3<br>4<br>5<br>6<br>7</p>"));
+    const headings = "<div><h4>1</h4></div><p>2</p><div><h4>3</h4></div><p>4</p><div><h4>5</h4></div><p>6</p>";
+    show(text(`<p>${"x".repeat(700)}</p>`), text("<p>1<br>2<br>3<br>4<br>5<br>6</p>"), text(`<p>${"x".repeat(701)}</p>`), text("<p>1</p><p>2<br>3<br>4<br>5<br>6<br>7</p>"), text(headings));
     const buttons = screen.getAllByRole("button", { name: "Show more" });
     expect(buttons).toHaveLength(2);
     expect(buttons[0]!.previousElementSibling).toHaveClass("max-h-[5lh]", "overflow-hidden");
