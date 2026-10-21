@@ -19,8 +19,8 @@ type Mode = Formatting | "code";
 /** A piece of a line: a character, or markup that emphasis can't start or end inside. */
 type Atom = string | { html: string };
 
-/** A paragraph or quote, with its lines, or a code block, with its text. */
-type Block = { tag: "p" | "blockquote"; lines: string[] } | { tag: "pre"; text: string };
+/** A paragraph or quote, with its lines; a code block, with its text; or the blocks after a `>>>`, which it quotes. */
+type Block = { tag: "p" | "blockquote"; lines: string[] } | { tag: "pre"; text: string } | { tag: "rest"; blocks: Block[] };
 
 const FENCE = "```";
 /** `>>>` quotes the rest of the text, and `>` its line, either escaped or not. */
@@ -74,7 +74,7 @@ export function plainTextLine(text: string, emoji = true): string {
 export function emojiNamed(name: string, tone?: number): string | undefined {
   if (!Object.hasOwn(EMOJI, name)) return undefined;
   const emoji = EMOJI[name]!;
-  const rule = tone !== undefined && tone >= 2 && tone <= 6 && Object.hasOwn(TONED, name) ? TONED[name] : undefined;
+  const rule = tone !== undefined && Number.isInteger(tone) && tone >= 2 && tone <= 6 && Object.hasOwn(TONED, name) ? TONED[name] : undefined;
   if (!rule) return emoji;
   const modifier = String.fromCodePoint(0x1f3fb + tone! - 2);
   const [first, ...rest] = [...emoji];
@@ -112,27 +112,37 @@ function blocksOf(text: string): Block[] {
     const last = pieces.pop()!;
     pieces[pieces.length - 1] += FENCE + last;
   }
-  return pieces.flatMap((piece, index): Block[] => {
+  const blocks: Block[] = [];
+  // The blocks from the first line that starts with `>>>` on, code blocks too, which it quotes.
+  let rest: Block[] | undefined;
+  for (const [index, piece] of pieces.entries()) {
+    if (index % 2 === 1) {
+      const code = piece.replace(/^\n+|\n+$/g, "");
+      if (code.trim() !== "") (rest ?? blocks).push({ tag: "pre", text: code });
+      continue;
+    }
     // The spaces beside a fence are its line's, which the code block ends.
-    if (index % 2 === 0) return lineBlocksOf(piece.replace(/^[ \t]+|[ \t]+$/g, ""));
-    const code = piece.replace(/^\n+|\n+$/g, "");
-    return code.trim() === "" ? [] : [{ tag: "pre", text: code }];
-  });
+    const lines = piece.replace(/^[ \t]+|[ \t]+$/g, "").split("\n");
+    if (rest) {
+      rest.push({ tag: "p", lines });
+      continue;
+    }
+    const quoting = lines.findIndex((line) => QUOTE_REST.test(line));
+    blocks.push(...lineBlocksOf(quoting < 0 ? lines : lines.slice(0, quoting)));
+    if (quoting >= 0) {
+      rest = [{ tag: "p", lines: [lines[quoting]!.replace(QUOTE_REST, ""), ...lines.slice(quoting + 1)] }];
+      blocks.push({ tag: "rest", blocks: rest });
+    }
+  }
+  return blocks;
 }
 
-/** The paragraphs and quotes of text between code blocks: each run of lines that are quoted, or aren't. */
-function lineBlocksOf(text: string): Block[] {
+/** The paragraphs and quotes of lines between code blocks: each run of lines that start with `>`, or don't. */
+function lineBlocksOf(lines: string[]): Block[] {
   const blocks: { tag: "p" | "blockquote"; lines: string[] }[] = [];
-  let quotingRest = false;
-  for (const written of text.split("\n")) {
-    let line = written;
-    if (!quotingRest && QUOTE_REST.test(line)) {
-      quotingRest = true;
-      line = line.replace(QUOTE_REST, "");
-    }
-    const quoted = quotingRest || QUOTE.test(line);
-    if (quoted && !quotingRest) line = line.replace(QUOTE, "");
-    const tag = quoted ? "blockquote" : "p";
+  for (const written of lines) {
+    const tag = QUOTE.test(written) ? "blockquote" : "p";
+    const line = tag === "blockquote" ? written.replace(QUOTE, "") : written;
     const last = blocks.at(-1);
     if (last?.tag === tag) last.lines.push(line);
     else blocks.push({ tag, lines: [line] });
@@ -142,6 +152,10 @@ function lineBlocksOf(text: string): Block[] {
 
 function blockHtml(block: Block, formatting: Formatting): string {
   if (block.tag === "pre") return `<pre>${atomsHtml(atomsOf(block.text, "code"))}</pre>`;
+  if (block.tag === "rest") {
+    const html = block.blocks.map((quoted) => blockHtml(quoted, formatting)).join("");
+    return html && `<blockquote>${html}</blockquote>`;
+  }
   const lines = withoutBlankEnds(block.lines);
   if (lines.length === 0) return "";
   const html = lines.map((line) => lineHtml(line, formatting)).join("<br>");
@@ -184,14 +198,27 @@ function atomAt(text: string, at: number, mode: Mode | "emoji"): [number, Atom] 
     if (escape) return [escape[0].length, UNESCAPED[escape[1]!]!];
   }
   if (mode !== "code") {
-    const address = matchAt(WEB_ADDRESS, text, at);
-    if (address) return [address[0].length, { html: escapeText(mode === "emoji" ? address[0] : unescaped(address[0])) }];
+    const match = matchAt(WEB_ADDRESS, text, at);
+    const address = match && (mode === "mrkdwn" ? withoutClosingMarks(match[0]) : match[0]);
+    if (address) return [address.length, { html: escapeText(mode === "emoji" ? address : unescaped(address)) }];
     const shortcode = matchAt(SHORTCODE, text, at);
     const emoji = shortcode && emojiNamed(shortcode[1]!, shortcode[2] === undefined ? undefined : Number(shortcode[2]));
     if (emoji) return [shortcode[0].length, { html: emoji }];
   }
   const char = String.fromCodePoint(text.codePointAt(at)!);
   return [char.length, char];
+}
+
+/**
+ * A web address without the marks after its last letter or digit, which end the emphasis around it, as in
+ * `*https://example.com*.`, and what follows them.
+ */
+function withoutClosingMarks(address: string): string {
+  const chars = [...address];
+  let end = chars.length;
+  while (end > 0 && !WORD.test(chars[end - 1]!)) end--;
+  const mark = chars.slice(end).findIndex((char) => EMPHASES.has(char));
+  return mark < 0 ? address : chars.slice(0, end + mark).join("");
 }
 
 function matchAt(pattern: RegExp, text: string, at: number): RegExpExecArray | null {

@@ -232,6 +232,18 @@ describe(feature("bots.slack-webhook"), () => {
     ]);
   });
 
+  it("skips what it can't read in a block, such as a date or skin tone that isn't a number, rather than failing", async () => {
+    const { bot, general } = await withBot();
+    const elements = [
+      { type: "date", timestamp: { valueOf: 1, toString: 1 } },
+      { type: "text", text: "Deployed" },
+      { type: "emoji", name: "wave", skin_tone: 2.5 },
+    ];
+    expect(await answerTo(bot.key, general, { blocks: [{ type: "rich_text", elements: [{ type: "rich_text_section", elements }] }] })).toEqual(OK);
+    expect(await answerTo(bot.key, general, { text: ">>> Quoted\n```\nwith its code\n```\nto the end" })).toEqual(OK);
+    expect(await bodiesIn(general)).toEqual(["<p>Deployed👋</p>", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
+  });
+
   it("posts each legacy attachment as a quote after its pretext, formatted only where mrkdwn_in says, or as its fallback", async () => {
     const { bot, general } = await withBot();
     // As Prometheus Alertmanager's Slack notifier sends an alert, by default.

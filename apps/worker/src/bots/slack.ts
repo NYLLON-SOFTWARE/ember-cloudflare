@@ -191,7 +191,7 @@ function inlineElementHtml(element: unknown): string {
     case "broadcast":
       return escapeText(`@${stringOf(element.range)}`);
     case "date": {
-      const text = escapeText(stringOf(element.fallback) || utcTime(Number(element.timestamp)));
+      const text = escapeText(stringOf(element.fallback) || utcTime(numberOf(element.timestamp)));
       const href = linkHref(stringOf(element.url));
       return href ? anchor(href, text) : text;
     }
@@ -216,6 +216,9 @@ function styled(html: string, style: unknown): string {
 const isObject = (value: unknown): value is SlackPayload => typeof value === "object" && value !== null && !Array.isArray(value);
 
 const stringOf = (value: unknown) => (typeof value === "string" ? value : "");
+
+/** A number in a payload, written as one or as text, or NaN for anything else. */
+const numberOf = (value: unknown) => (typeof value === "number" || typeof value === "string" ? Number(value) : NaN);
 
 /** A list in a payload: an array, or one written as JSON in a string, as Slack's forms take one; or none. */
 function listOf(value: unknown): unknown[] {

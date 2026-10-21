@@ -32,6 +32,10 @@ describe(feature("bots.slack-webhook"), () => {
       expect(mrkdwnHtml(">quoted\n> more\nafter")).toBe("<blockquote><p>quoted<br>more</p></blockquote><p>after</p>");
       expect(mrkdwnHtml("&gt; escaped, *bold*")).toBe("<blockquote><p>escaped, <strong>bold</strong></p></blockquote>");
       expect(mrkdwnHtml("before\n>>> all\nof\n\nthis")).toBe("<p>before</p><blockquote><p>all<br>of<br><br>this</p></blockquote>");
+      expect(mrkdwnHtml("> one line\n>>> the rest\n```\nits code\n```\n> and *more*")).toBe(
+        "<blockquote><p>one line</p></blockquote><blockquote><p>the rest</p><pre>its code</pre><p>&gt; and <strong>more</strong></p></blockquote>",
+      );
+      expect(mrkdwnHtml("```first```\n>>> quoted ```code``` too")).toBe("<pre>first</pre><blockquote><p>quoted</p><pre>code</pre><p>too</p></blockquote>");
     });
 
     it("sets code blocks between ``` fences, where nothing is formatted but links, and an unpaired fence is text", () => {
@@ -83,11 +87,20 @@ describe(feature("bots.slack-webhook"), () => {
       expect(emojiNamed("__proto__")).toBeUndefined();
       expect(emojiNamed("raised_hand", 6)).toBe("✋🏿");
       expect(emojiNamed("woman-running", 3)).toBe("🏃🏼‍♀️");
+      expect(emojiNamed("raised_hand", 2.5)).toBe("✋");
     });
 
     it("leaves web addresses written out alone, for Ember to link as it shows them", () => {
       expect(mrkdwnHtml("see https://example.com/_a_/b_c:tada: and *this*")).toBe("<p>see https://example.com/_a_/b_c:tada: and <strong>this</strong></p>");
       expect(mrkdwnHtml("https://example.com/?a=1&amp;b=2")).toBe("<p>https://example.com/?a=1&amp;b=2</p>");
+    });
+
+    it("ends the emphasis around a web address at the marks after it", () => {
+      expect(mrkdwnHtml("*See https://example.com*")).toBe("<p><strong>See https://example.com</strong></p>");
+      expect(mrkdwnHtml("(_logs at https://example.com/a_b_), ~https://example.com/~*")).toBe(
+        "<p>(<em>logs at https://example.com/a_b</em>), <s>https://example.com/</s>*</p>",
+      );
+      expect(mrkdwnHtml("https://example.com/a_b_ and https://example.com/𝐀_")).toBe("<p>https://example.com/a_b_ and https://example.com/𝐀_</p>");
     });
 
     it("formats only links, mentions, dates, emoji and escapes when plain", () => {
