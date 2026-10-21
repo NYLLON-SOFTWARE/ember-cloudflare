@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 165 ported and 0 partial of 172 features; 0 not started, 7 not applicable.
+**Overall:** 166 ported and 0 partial of 173 features; 0 not started, 7 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 6 | 0 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 13 | 0 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 15 | 0 | 0 | 0 | 15 |
+| [Bots and webhooks](#bots-and-webhooks) | 16 | 0 | 0 | 0 | 16 |
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 11 | 0 | 0 | 4 | 15 |
-| **Total** | **165** | **0** | **0** | **7** | **172** |
+| **Total** | **166** | **0** | **0** | **7** | **173** |
 
 ## Sign-in and sessions
 
@@ -1974,6 +1974,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | A bot's profile | `bots.profile` | Campfire | ✅ Ported | Worker: [bots](apps/worker/test/bots.test.ts)<br>Web: [person-page](apps/web/src/components/workspace/person-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 | Bot keys in logs | `bots.log-redaction` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Webhooks run in the background | `bots.webhook-jobs` | Ember | ✅ Ported | Worker: [webhooks](apps/worker/test/webhooks.test.ts) |
+| Slack-compatible webhooks | `bots.slack-webhook` | This port | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts)<br>Worker: [mrkdwn](apps/worker/test/mrkdwn.test.ts), [slack-webhook](apps/worker/test/slack-webhook.test.ts)<br>Web: [bots-page](apps/web/src/components/workspace/bots-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -2190,6 +2191,19 @@ Note: A room delivers its new messages in the background once the Workspace has 
 Sources: [`crates/ember/src/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs.rs) · [`crates/ember/src/integrations/jobs.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/integrations/jobs.rs) · [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/config.rs) · [`crates/ember/src/app.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/app.rs) · [`reference/app/jobs/bot/webhook_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/bot/webhook_job.rb) · [`reference/app/jobs/application_job.rb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/jobs/application_job.rb)
 
 ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/jobs/tests.rs)
+
+**Slack-compatible webhooks** (`bots.slack-webhook`) ✅
+
+- `POST /rooms/<room id>/<bot key>/slack` posts what a Slack incoming webhook is sent as the bot's message: JSON, whatever the request's type says, or a form's `payload` field, urlencoded or multipart.
+- It answers as Slack's webhooks do, as text: 200 `ok`; 400 `invalid_payload` for no JSON object, `no_text` for nothing to show, `too_many_attachments` past 100 and `msg_too_long` past a message's 10,000 characters; 403 `invalid_token` for a key that isn't an active bot's; 404 `channel_not_found` for a room the bot isn't in; and 413 `msg_too_long` for a body past 100,000 characters.
+- `text` is mrkdwn: *bold*, _italics_, ~strike-through~, `code`, code blocks between triple backticks, `>` and `>>>` quotes, `<url|label>` links to web and email addresses, emoji by name with skin tones, and the escapes `&amp;`, `&lt;` and `&gt;`. Formatting needs a word's edge, so `node_cpu_seconds_total` keeps its underscores, and `mrkdwn: false` leaves only links, mentions, emoji and escapes.
+- Mentions, `<@U…>`, `<#C…|name>`, `<!subteam^…|@handle>`, `<!here>`, `<!channel>` and `<!everyone>`, show as text and notify nobody, and `<!date^…|fallback>` shows its fallback.
+- `blocks` show in place of `text`, which shows when they show nothing. Header, section, context, Markdown, rich text and actions blocks post as rich text, and legacy `attachments` as quotes after their pretext, formatted only in the fields their `mrkdwn_in` names.
+- `username`, `icon_emoji`, `icon_url`, `channel` and `thread_ts` change nothing: the bot posts as itself, to the room its address names.
+- The bots page gives each of a bot's rooms its "Slack-compatible webhook URL", with "Copy Slack-compatible webhook URL" beside it.
+- Logs filter the key out of the address, as they do the bot API's.
+
+Note: This port's own, so tools that post to Slack can post to a room, as Mattermost, Rocket.Chat, Discord (at `/slack`) and Zulip let them. Emoji names come from emoji-datasource 16.0.0, which `apps/worker/scripts/emoji-names.ts` turns into `src/bots/emoji-names.ts`. Mentions name Slack's ids, which name nobody here. Until cards draw them, attachments and blocks post as rich text. "Slack-compatible" describes the payload: Slack is a trademark of Slack Technologies, LLC, and Ember isn't affiliated with it, as the README says.
 
 </details>
 

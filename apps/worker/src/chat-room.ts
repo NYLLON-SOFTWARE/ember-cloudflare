@@ -67,7 +67,7 @@ const UNDELIVERED_ROOM = "undeliveredRoom";
 
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
 const UNREADABLE = "That message couldn't be saved.";
-const EMPTY = "Your message is empty.";
+export const EMPTY = "Your message is empty.";
 /** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
 const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
 /**

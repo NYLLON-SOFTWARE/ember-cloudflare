@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
-import { botMessagesPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./bots";
+import { botMessagesPath, botSlackPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./bots";
 import { MAX_USER_NAME_LENGTH } from "./index";
 
 describe(feature("bots.create-edit"), () => {
@@ -44,5 +44,12 @@ describe(feature("bots.list"), () => {
   it("puts where a bot posts to a room at the room's address, then the bot's key", () => {
     expect(botMessagesPath("0mgk3x2a9b4c5a", "0mgk3x2a9b4c5e-Ab3dEf5hiJ7k")).toBe("/rooms/0mgk3x2a9b4c5a/0mgk3x2a9b4c5e-Ab3dEf5hiJ7k/messages");
     expect(botMessagesPath("café", "1-a")).toBe("/rooms/caf%C3%A9/1-a/messages");
+  });
+});
+
+describe(feature("bots.slack-webhook"), () => {
+  it("puts a bot's Slack-compatible webhook beside where it posts to the room", () => {
+    expect(botSlackPath("0mgk3x2a9b4c5a", "0mgk3x2a9b4c5e-Ab3dEf5hiJ7k")).toBe("/rooms/0mgk3x2a9b4c5a/0mgk3x2a9b4c5e-Ab3dEf5hiJ7k/slack");
+    expect(botSlackPath("café", "1-a")).toBe("/rooms/caf%C3%A9/1-a/slack");
   });
 });
