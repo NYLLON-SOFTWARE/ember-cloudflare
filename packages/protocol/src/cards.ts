@@ -20,7 +20,7 @@ const MAX_URL_LENGTH = 3000;
 export interface Card {
   /** What it shows: an attachment, whose bar takes its color. */
   source: "attachment";
-  /** Its bar's color: Slack's `good`, `warning` or `danger`, or a color written `#rrggbb`. */
+  /** Its bar's color, in lowercase: Slack's `good`, `warning` or `danger`, or a color written `#rrggbb`. */
   color?: string;
   /** Rich text above its frame, where Slack puts an attachment's pretext. */
   pretext?: string;
@@ -77,14 +77,23 @@ export function parseCards(value: unknown, address: CardAddress): Card[] {
   return value.slice(0, MAX_CARDS).flatMap((card) => parseCard(card, address) ?? []);
 }
 
-function parseCard(value: unknown, address: CardAddress): Card | null {
-  if (!isRecord(value) || value.source !== "attachment") return null;
-  const parts = listOf(value.parts)
+/**
+ * The parts `value` lists as a card keeps them: those that are well formed and not too long, of kinds it
+ * knows, with the addresses `address` keeps. A bot's translator keeps the same, so that a part the room
+ * would leave out can't take the place of what the card shows without it.
+ */
+export function parseParts(value: unknown, address: CardAddress): CardPart[] {
+  return listOf(value)
     .slice(0, MAX_PARTS)
     .flatMap((part) => parsePart(part, address) ?? []);
+}
+
+function parseCard(value: unknown, address: CardAddress): Card | null {
+  if (!isRecord(value) || value.source !== "attachment") return null;
+  const parts = parseParts(value.parts, address);
   const pretext = htmlOf(value.pretext);
   if (parts.length === 0 && pretext === undefined) return null;
-  const color = typeof value.color === "string" && COLOR.test(value.color) ? value.color : undefined;
+  const color = typeof value.color === "string" && COLOR.test(value.color) ? value.color.toLowerCase() : undefined;
   const thumb = imageOf(value.thumb, address);
   return { source: "attachment", ...(color && { color }), ...(pretext && { pretext }), ...(thumb && { thumb }), parts };
 }

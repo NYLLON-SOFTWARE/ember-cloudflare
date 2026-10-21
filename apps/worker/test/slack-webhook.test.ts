@@ -441,12 +441,28 @@ describe(feature("bots.cards"), () => {
     ]);
   });
 
-  it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be", async () => {
+  it("shows an attachment's fallback in place of parts the room doesn't keep, such as an image whose address is too long", async () => {
+    const { message } = await postedCards({
+      attachments: [
+        { fallback: "A chart", image_url: `https://example.com/${"x".repeat(3000)}.png` },
+        { fallback: "A long title", title: "x".repeat(3001) },
+      ],
+    });
+    expect(message.cards).toEqual([
+      { source: "attachment", parts: [{ kind: "text", html: "<p>A chart</p>" }] },
+      { source: "attachment", parts: [{ kind: "text", html: "<p>A long title</p>" }] },
+    ]);
+  });
+
+  it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be, or text and cards longer than a message", async () => {
     const { bot, general } = await withBot();
     expect(await answerTo(bot.key, general, { attachments: [{ color: "good" }, { fallback: " ", footer: " " }] })).toEqual(refused(400, "no_text"));
     // Each escaped ampersand takes five characters.
     const attachments = Array.from({ length: 25 }, () => ({ text: "&".repeat(900) }));
     expect(await answerTo(bot.key, general, { attachments })).toEqual(refused(400, "msg_too_long"));
+    const long = [{ text: "x".repeat(6000) }, { text: "y".repeat(6000) }];
+    expect(await answerTo(bot.key, general, { attachments: long })).toEqual(refused(400, "msg_too_long"));
+    expect(await answerTo(bot.key, general, { text: "Hi", attachments: long })).toEqual(refused(400, "msg_too_long"));
     expect(await bodiesIn(general)).toEqual([]);
   });
 

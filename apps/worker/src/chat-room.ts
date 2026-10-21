@@ -843,16 +843,17 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * What the room keeps of a bot's message with `cards`: its text, as `prepare` keeps a body, though it may
    * be empty once the room keeps a card, and the cards, as `keptCards` keeps them, whose plain text
-   * follows the text's, or why it keeps nothing.
+   * follows the text's, together no longer than a message's, or why it keeps nothing.
    */
   private async prepareWithCards(markup: string, cards: Card[]): Promise<StoredBody | string> {
     const kept = cards.length === 0 ? null : keptCards(cards);
     if (!kept || kept.cards.length === 0) return this.prepare(markup);
     if (JSON.stringify(kept.cards).length > MAX_MESSAGE_HTML_LENGTH) return MESSAGE_TOO_LONG;
     const body = await this.prepare(markup);
-    if (body === EMPTY) return { html: "", plainText: kept.plainText, mentions: [], cards: kept.cards };
-    if (typeof body === "string") return body;
-    return { ...body, plainText: [body.plainText, kept.plainText].filter((text) => text !== "").join("\n"), cards: kept.cards };
+    if (typeof body === "string" && body !== EMPTY) return body;
+    const text = typeof body === "string" ? { html: "", plainText: "", mentions: [] } : body;
+    const plainText = [text.plainText, kept.plainText].filter((line) => line !== "").join("\n");
+    return isMessageTooLong(plainText) ? MESSAGE_TOO_LONG : { ...text, plainText, cards: kept.cards };
   }
 
   /** The room's database, with its migrations applied first if its storage needs them. */

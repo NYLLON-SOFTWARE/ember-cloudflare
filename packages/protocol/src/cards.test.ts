@@ -25,11 +25,10 @@ describe(feature("bots.cards"), () => {
     expect(parseCards([whole], address)).toEqual([whole]);
   });
 
-  it("leaves out a color that isn't Slack's or six hex digits, and an address the rule doesn't keep", () => {
-    expect(parseCards([card([{ kind: "title", text: "Hi" }], { color: "#36a64f" }), card([{ kind: "title", text: "Hi" }], { color: "#ABCDEF" })], address)).toEqual([
-      card([{ kind: "title", text: "Hi" }], { color: "#36a64f" }),
-      card([{ kind: "title", text: "Hi" }], { color: "#ABCDEF" }),
-    ]);
+  it("keeps Slack's colors and six hex digits in lowercase, leaving out any other color, and an address the rule doesn't keep", () => {
+    expect(parseCards(["#36a64f", "#ABCDEF", "DANGER", "DaNgEr"].map((color) => card([{ kind: "title", text: "Hi" }], { color })), address)).toEqual(
+      ["#36a64f", "#abcdef", "danger", "danger"].map((color) => card([{ kind: "title", text: "Hi" }], { color })),
+    );
     for (const color of ["red", "#fff", "#36a64f; background: url(x)", "javascript:alert(1)", 7]) {
       expect(parseCards([card([{ kind: "title", text: "Hi" }], { color })], address)).toEqual([card([{ kind: "title", text: "Hi" }])]);
     }

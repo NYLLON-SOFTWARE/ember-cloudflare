@@ -1,4 +1,4 @@
-import { MAX_CARDS, MAX_MESSAGE_HTML_LENGTH, type Card, type CardButton, type CardField, type CardImage, type CardPart } from "@ember/protocol";
+import { MAX_CARDS, MAX_MESSAGE_HTML_LENGTH, parseParts, type Card, type CardButton, type CardField, type CardImage, type CardPart } from "@ember/protocol";
 import { cardAddress } from "@ember/richtext";
 import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainTextHtml, plainTextLine, utcTime, type Formatting } from "./mrkdwn";
 
@@ -60,13 +60,14 @@ export function slackMessage(payload: SlackPayload): SlackMessage | SlackError {
  * A legacy attachment as a card, in its color: its author, linked title, text, fields, image, buttons, blocks
  * and footer, under its pretext and beside its thumbnail, or, when those show nothing, its fallback. Slack formats
  * only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them, and its blocks
- * are rich text until cards draw them. Like the room (`parseCards`), it keeps only addresses a card can show.
+ * are rich text until cards draw them. It keeps only the parts and addresses the room keeps (`parseParts`), so one
+ * the room would leave out, such as an image whose address is too long, can't hide the fallback.
  */
 function attachmentCard(attachment: unknown): Card | null {
   if (!isObject(attachment)) return null;
   const formatted = new Set(listOf(attachment.mrkdwn_in));
   const formattingOf = (field: string): Formatting => (formatted.has(field) ? "mrkdwn" : "plain");
-  const parts = [
+  const candidates = [
     authorPart(attachment),
     titlePart(attachment),
     textPart(mrkdwnHtml(stringOf(attachment.text), formattingOf("text"))),
@@ -76,6 +77,7 @@ function attachmentCard(attachment: unknown): Card | null {
     textPart(listOf(attachment.blocks).map(blockHtml).join("")),
     footerPart(attachment),
   ].filter((part) => part !== null);
+  const parts = parseParts(candidates, addressOf);
   const fallback = textPart(mrkdwnHtml(stringOf(attachment.fallback), "plain"));
   const shown = parts.length > 0 ? parts : fallback ? [fallback] : [];
   const pretext = mrkdwnHtml(stringOf(attachment.pretext), formattingOf("pretext"));

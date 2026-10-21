@@ -22,7 +22,7 @@ export {
   MAX_AVATAR_SIZE,
   MAX_LOGO_SIZE,
 } from "./avatars.ts";
-export { MAX_CARDS, parseCards, type Card, type CardAddress, type CardButton, type CardField, type CardImage, type CardPart } from "./cards.ts";
+export { MAX_CARDS, parseCards, parseParts, type Card, type CardAddress, type CardButton, type CardField, type CardImage, type CardPart } from "./cards.ts";
 // The rest of bots.ts is imported from "@ember/protocol/bots": only the bot pages and the Worker's bot API use it,
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
