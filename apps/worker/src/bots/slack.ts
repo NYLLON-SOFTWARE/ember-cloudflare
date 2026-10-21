@@ -49,15 +49,15 @@ export function slackMessage(payload: SlackPayload): SlackMessage | SlackError {
   if (attachments.length > MAX_ATTACHMENTS) return "too_many_attachments";
   const formatting: Formatting = payload.mrkdwn === false ? "plain" : "mrkdwn";
   const blocks = listOf(payload.blocks).map(blockHtml).join("");
-  const markup = (blocks || mrkdwnHtml(stringOf(payload.text), formatting)) + attachments.map(attachmentHtml).join("");
-  if (markup === "") return "no_text";
+  const markup = (shows(blocks) ? blocks : mrkdwnHtml(stringOf(payload.text), formatting)) + attachments.map(attachmentHtml).join("");
+  if (!shows(markup)) return "no_text";
   return markup.length > MAX_MESSAGE_HTML_LENGTH ? "msg_too_long" : { markup };
 }
 
 /**
  * A legacy attachment, until cards draw it, as a quote, whose bar stands in for its color: its author, linked
- * title, text, fields, buttons and footer, after its pretext, or, without those, its fallback. Slack formats
- * only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them.
+ * title, text, fields, buttons, blocks and footer, after its pretext, or, when those show nothing, its fallback.
+ * Slack formats only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them.
  */
 function attachmentHtml(attachment: unknown): string {
   if (!isObject(attachment)) return "";
@@ -69,9 +69,10 @@ function attachmentHtml(attachment: unknown): string {
     textOf("text"),
     ...listOf(attachment.fields).map((field) => fieldHtml(field, formatted.has("fields") ? "mrkdwn" : "plain")),
     buttonsHtml(listOf(attachment.actions)),
+    ...listOf(attachment.blocks).map(blockHtml),
     mrkdwnHtml(stringOf(attachment.footer), "plain"),
   ].join("");
-  const shown = quoted || mrkdwnHtml(stringOf(attachment.fallback), "plain");
+  const shown = shows(quoted) ? quoted : mrkdwnHtml(stringOf(attachment.fallback), "plain");
   return textOf("pretext") + (shown && `<blockquote>${shown}</blockquote>`);
 }
 
@@ -152,8 +153,10 @@ function richTextHtml(element: unknown): string {
       return inline && `<pre>${inline.replace(/<br>/g, "\n")}</pre>`;
     case "rich_text_list": {
       const tag = element.style === "ordered" ? "ol" : "ul";
-      const items = listOf(element.elements).map((item) => (isObject(item) ? `<li>${inlineHtml(listOf(item.elements))}</li>` : ""));
-      return `<${tag}>${items.join("")}</${tag}>`;
+      const items = listOf(element.elements)
+        .map((item) => (isObject(item) ? `<li>${inlineHtml(listOf(item.elements))}</li>` : ""))
+        .join("");
+      return shows(items) ? `<${tag}>${items}</${tag}>` : "";
     }
     default:
       return "";
@@ -212,6 +215,9 @@ function styled(html: string, style: unknown): string {
   if (style.bold === true) styledHtml = `<strong>${styledHtml}</strong>`;
   return styledHtml;
 }
+
+/** Whether markup shows anything: text beside its tags that isn't all space. */
+const shows = (html: string) => html.replace(/<[^>]*>/g, "").trim() !== "";
 
 const isObject = (value: unknown): value is SlackPayload => typeof value === "object" && value !== null && !Array.isArray(value);
 

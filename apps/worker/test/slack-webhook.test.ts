@@ -213,6 +213,12 @@ describe(feature("bots.slack-webhook"), () => {
     ];
     expect(await answerTo(bot.key, general, { text: "Deploy finished (hidden beside blocks)", blocks })).toEqual(OK);
     expect(await answerTo(bot.key, general, { text: "Shown *instead*", blocks: [{ type: "divider" }, { type: "image", image_url: "https://example.com/a.png", alt_text: "chart" }] })).toEqual(OK);
+    const blank = [
+      { type: "rich_text_list", style: "bullet", elements: [] },
+      { type: "rich_text_list", style: "ordered", elements: [{ type: "rich_text_section", elements: [{ type: "text", text: " " }] }] },
+      { type: "rich_text_section", elements: [{ type: "text", text: " \n " }] },
+    ];
+    expect(await answerTo(bot.key, general, { text: "Shown beside lists with nothing in them", blocks: [{ type: "rich_text", elements: blank }] })).toEqual(OK);
 
     expect(await bodiesIn(general)).toEqual([
       [
@@ -229,6 +235,7 @@ describe(feature("bots.slack-webhook"), () => {
         '<p><a href="https://ci.example.com/42">View build</a></p>',
       ].join(""),
       "<p>Shown <strong>instead</strong></p>",
+      "<p>Shown beside lists with nothing in them</p>",
     ]);
   });
 
@@ -244,7 +251,7 @@ describe(feature("bots.slack-webhook"), () => {
     expect(await bodiesIn(general)).toEqual(["<p>Deployed👋</p>", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
   });
 
-  it("posts each legacy attachment as a quote after its pretext, formatted only where mrkdwn_in says, or as its fallback", async () => {
+  it("posts each legacy attachment as a quote after its pretext, formatted only where mrkdwn_in says, with its blocks, or as its fallback", async () => {
     const { bot, general } = await withBot();
     // As Prometheus Alertmanager's Slack notifier sends an alert, by default.
     const alertmanager = {
@@ -286,6 +293,21 @@ describe(feature("bots.slack-webhook"), () => {
       ],
     };
     expect(await answerTo(bot.key, general, formattedHere)).toEqual(OK);
+    // As Slack suggests a colored bar beside blocks.
+    const blocksInside = {
+      attachments: [
+        {
+          color: "good",
+          fallback: "Deployed",
+          blocks: [
+            { type: "section", text: { type: "mrkdwn", text: "*Deployed* to production" } },
+            { type: "context", elements: [{ type: "mrkdwn", text: "by <@U1>" }] },
+          ],
+        },
+        { fallback: "A chart, which doesn't show yet", blocks: [{ type: "image", image_url: "https://example.com/chart.png", alt_text: "chart" }] },
+      ],
+    };
+    expect(await answerTo(bot.key, general, blocksInside)).toEqual(OK);
 
     expect(await bodiesIn(general)).toEqual([
       "<blockquote>" +
@@ -303,6 +325,7 @@ describe(feature("bots.slack-webhook"), () => {
         "<p>CI &amp; CD</p>" +
         "</blockquote>" +
         "<blockquote><p>Only a fallback, *plain*</p></blockquote>",
+      "<blockquote><p><strong>Deployed</strong> to production</p><p>by @U1</p></blockquote><blockquote><p>A chart, which doesn't show yet</p></blockquote>",
     ]);
   });
 
