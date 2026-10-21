@@ -8,7 +8,7 @@ import type { Env } from "../src/env";
 import { hashPassword } from "../src/passwords";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import { api, apiWith, closeOf, connect, cookieOf, forwardUpgrade, freshDeploy, freshRoom, origin, post, settle, shown, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, closeOf, connect, cookieOf, forwardUpgrade, freshDeploy, freshRoom, origin, pbkdf2Digest, post, settle, shown, signIn, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
@@ -104,6 +104,54 @@ describe(feature("auth.sign-in"), () => {
     );
     expect((await signInWith({ emailAddress: "bot@example.com", password: "" })).status).toBe(401);
     expect((await signInWith({ emailAddress: "bot@example.com", password: "anything at all" })).status).toBe(401);
+  });
+
+  /** Grace, who joined with the password `digest` is the digest of. */
+  async function graceWith(digest: string): Promise<string> {
+    const now = new Date().toISOString();
+    await workspaceSql(
+      "INSERT INTO users (id, name, email_address, password_digest, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "gracegracegrace1",
+      "Grace Hopper",
+      "grace@example.com",
+      digest,
+      now,
+      now,
+    );
+    return now;
+  }
+  const graceStored = async () => ((await workspaceSql("SELECT password_digest, updated_at FROM users WHERE id = ?", "gracegracegrace1")) as Array<{ password_digest: string; updated_at: string }>)[0]!;
+
+  it("replaces a digest from before scrypt as its password signs in, and only then", async () => {
+    await setUp();
+    const legacy = await pbkdf2Digest("compiler");
+    const joined = await graceWith(legacy);
+    // A wrong password changes nothing.
+    expect((await signInWith({ emailAddress: "grace@example.com", password: "Compiler" })).status).toBe(401);
+    expect((await graceStored()).password_digest).toBe(legacy);
+
+    expect((await signInWith({ emailAddress: "grace@example.com", password: "compiler" })).status).toBe(201);
+    const { password_digest: current, updated_at } = await graceStored();
+    expect(current).toMatch(/^\$scrypt\$ln=15,r=8,p=3\$/);
+    // Nothing Grace did, so nothing she'd see as a change.
+    expect(updated_at).toBe(joined);
+
+    // From then on the new digest is the one checked, and kept.
+    expect((await signInWith({ emailAddress: "grace@example.com", password: "compiler" })).status).toBe(201);
+    expect((await graceStored()).password_digest).toBe(current);
+    expect((await signInWith({ emailAddress: "grace@example.com", password: "Compiler" })).status).toBe(401);
+  });
+
+  it("keeps a password reset while a sign-in with the old one was checked, and starts no session for it", async () => {
+    await setUp();
+    const legacy = await pbkdf2Digest("compiler");
+    await graceWith(legacy);
+    // The Workspace hears which digest the password was checked against, and a reset in between leaves another.
+    await workspaceSql("UPDATE users SET password_digest = ? WHERE id = ?", "$reset$", "gracegracegrace1");
+    const laptop = await credentialsFor("A".repeat(43), new Request(origin), env as unknown as Env);
+    expect(await workspaceStub().startSession("gracegracegrace1", legacy, await hashPassword("compiler"), laptop.tokenDigest, laptop.client)).toBeNull();
+    expect((await graceStored()).password_digest).toBe("$reset$");
+    expect(await sessionCount()).toBe(1);
   });
 
   it("signs in someone the administrator didn't create, with the password they chose", async () => {

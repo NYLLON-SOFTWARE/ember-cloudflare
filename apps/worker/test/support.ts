@@ -24,7 +24,7 @@ import { applyD1Migrations, reset, runInDurableObject, type D1Migration } from "
 import { env, exports } from "cloudflare:workers";
 import { expect } from "vitest";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER, type ChatRoom } from "../src/chat-room";
-import { toBase64url, urlsafeDecode64 } from "../src/encoding";
+import { toBase64, toBase64url, urlsafeDecode64 } from "../src/encoding";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { searchIndex } from "../src/search-index";
@@ -51,6 +51,14 @@ export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<I
 export function recordedImage(name: string): Uint8Array {
   const { TEST_RECORDED_IMAGES } = env as unknown as { TEST_RECORDED_IMAGES: Record<string, string> };
   return Uint8Array.from(atob(TEST_RECORDED_IMAGES[name]!), (c) => c.charCodeAt(0));
+}
+
+/** A digest as Ember made them before scrypt: PBKDF2-SHA256 at the 100,000 iterations Web Crypto allows on Workers. */
+export async function pbkdf2Digest(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const hash = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 100_000 }, key, 256));
+  return `$pbkdf2-sha256$i=100000$${toBase64(salt)}$${toBase64(hash)}`;
 }
 
 /** Stands in for the built app's pages, which the worker tests run without: each answers with its path. */

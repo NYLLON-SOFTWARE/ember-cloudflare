@@ -167,12 +167,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
   signs the cookie that carries it. We store an HMAC of the token, keyed by `SESSION_SECRET`, so a
   leaked database or backup holds no live sessions; changing the secret still signs everyone out, as
   it does there.
-- **Passwords are PBKDF2-SHA256 digests.** ember-rust keeps bcrypt digests, which Workers could only
-  make with bcrypt compiled to WebAssembly. Web Crypto has PBKDF2 built in, up to 100,000 iterations,
-  so `users.password_digest` holds `$pbkdf2-sha256$i=100000$<salt>$<hash>` (the PHC string format):
-  since it names its scheme and cost, a stronger one can take over by rehashing at sign-in. A hash
-  takes tens of milliseconds of CPU, and a request on Workers Free gets 10 ms, so it runs in a
-  `PasswordHasher` Durable Object made for it, whose requests get 30 seconds.
+- **Passwords are scrypt digests.** ember-rust keeps bcrypt digests, which Workers could only make
+  with bcrypt compiled to WebAssembly. `users.password_digest` holds `$scrypt$ln=15,r=8,p=3$<salt>$<hash>`
+  (the PHC string format), made by Node's `crypto.scrypt`, which Workers run natively under
+  `nodejs_compat`, at OWASP's cost, 32 MiB and under a quarter of a second of CPU, and memory-hard
+  where bcrypt isn't. Since a digest names its scheme and cost, a
+  stronger one takes over by rehashing at sign-in, which is how the PBKDF2-SHA256 digests Ember made
+  before scrypt (`$pbkdf2-sha256$i=100000$<salt>$<hash>`, the most iterations Web Crypto allows on
+  Workers) are replaced as their passwords sign in. A request on Workers Free gets 10 ms of CPU, so
+  hashing runs in a `PasswordHasher` Durable Object made for it, whose requests get 30 seconds.
 - **Guests are marked.** `users.guest` is 1 for people who signed in with just a name, which only this
   port allows, so turning `EMBER_GUEST_SIGN_IN` off keeps them out without deleting anyone.
 - **Sessions are kept in memory.** ember-rust looks up each request's session in its database. Ours

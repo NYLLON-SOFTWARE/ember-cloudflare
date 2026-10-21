@@ -94,7 +94,7 @@ describe(feature("accounts.roles"), () => {
         return session;
       });
 
-      const signingIn = workspace.startSession(grace.user.id, "checked", laptop!.tokenDigest, laptop!.client);
+      const signingIn = workspace.startSession(grace.user.id, "checked", null, laptop!.tokenDigest, laptop!.client);
       await reading;
       await workspace.changeRole(ada!, grace.user.id, "administrator");
       answer();

@@ -124,10 +124,12 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
   if (found === "limited") return problem(429, SIGN_IN_REFUSED);
   if (!given) return problem(401, SIGN_IN_REFUSED);
 
-  const matches = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
+  const { matches, rehash } = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
   const token = newSessionToken();
   const user =
-    found && matches ? await workspace(env).startSession(found.userId, found.passwordDigest, await tokenDigest(token, env.SESSION_SECRET), clientOf(request)) : null;
+    found && matches
+      ? await workspace(env).startSession(found.userId, found.passwordDigest, rehash, await tokenDigest(token, env.SESSION_SECRET), clientOf(request))
+      : null;
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }

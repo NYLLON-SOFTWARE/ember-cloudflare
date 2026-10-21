@@ -60,7 +60,7 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   const form = parseSignUp(sent.fields);
   if (typeof form === "string") return signUpRefusal(form);
   // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
-  // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
+  // password's first 72 bytes, scrypt hashes every character, so the server takes no more than the
   // form can send.
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);

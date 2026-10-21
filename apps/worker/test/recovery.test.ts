@@ -244,7 +244,7 @@ describe(feature("accounts.reset-password"), () => {
 
     expect((await recover({ emailAddress: grace.emailAddress, password: "new password" })).status).toBe(200);
     const laptop = await credentialsFor(newSessionToken(), new Request(origin), env as unknown as Env);
-    expect(await workspaceStub().startSession(member.user.id, found.passwordDigest, laptop.tokenDigest, laptop.client)).toBeNull();
+    expect(await workspaceStub().startSession(member.user.id, found.passwordDigest, null, laptop.tokenDigest, laptop.client)).toBeNull();
     expect(await sessionsOf(member.user.id)).toBe(0);
   });
 
