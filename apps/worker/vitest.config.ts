@@ -22,6 +22,8 @@ const backend = (name: "do-sqlite" | "d1") => ({
           SESSION_SECRET: "test-secret",
           STORAGE_BACKEND: name,
           EMBER_GUEST_SIGN_IN: "true",
+          // The deploy's setup token, which test/support.ts's `api` sends to set Ember up.
+          EMBER_SETUP_TOKEN: "fedcba9876543210".repeat(4),
           // ember-rust's reference test keys (parity/.env.reference), which its Web Push tests and
           // recordings sign with, so push is on unless a test turns it off.
           VAPID_PUBLIC_KEY: "BEYXTBB5_jNhNzXDmx5KEU55Vbbd-u--Lk9rM5OFQvUkPIBwZJ9QzAq0zdEzFw6yTV8cTriz_qYBVicY02_VxTQ=",

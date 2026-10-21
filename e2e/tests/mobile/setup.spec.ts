@@ -3,6 +3,7 @@ import { expect, test } from "./fixtures";
 
 const PENDING: Bootstrap = {
   setup: "pending",
+  setupAccess: "open",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: true,
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
@@ -23,6 +24,15 @@ test.beforeEach(async ({ page, baseURL }) => {
 test("the Set up Ember screen fits the phone", async ({ page, screenIsFine }) => {
   await page.goto("/first_run");
   await expect(page.getByRole("heading", { name: "Set up Ember" })).toBeVisible();
+  await screenIsFine();
+});
+
+test("the setup link screen fits the phone", async ({ page, screenIsFine }) => {
+  // As a deployed Worker, opened without its setup link, shows it.
+  await page.route("**/api/bootstrap", (route) => route.fulfill({ json: { ...PENDING, setupAccess: "link" } }));
+  await page.goto("/first_run");
+  await expect(page.getByText("Ember is waiting for its administrator.")).toBeVisible();
+  await expect(page.getByText("wrangler secret put EMBER_SETUP_TOKEN")).toBeVisible();
   await screenIsFine();
 });
 

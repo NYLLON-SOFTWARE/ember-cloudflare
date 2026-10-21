@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges, type Message } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges, type Bootstrap, type Message } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -99,11 +99,14 @@ class WorkspaceSocket extends QuietSocket {
 function serve({
   signedIn,
   setup = "complete",
+  setupAccess = "open",
   guestSignIn = true,
   account: given = EMBER,
 }: {
   signedIn: boolean;
   setup?: "pending" | "complete";
+  /** What setting Ember up takes, until it's set up. */
+  setupAccess?: Bootstrap["setupAccess"];
   guestSignIn?: boolean;
   /** The workspace as it's set up, rather than `EMBER`. */
   account?: Account;
@@ -115,7 +118,7 @@ function serve({
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
       const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -233,6 +236,32 @@ describe(feature("auth.first-run"), () => {
     expect(location.pathname).toBe("/rooms/r1");
     expect(screen.getAllByRole("link", { name: "Your profile" })[0]).toHaveAttribute("title", "Ada");
     expect(loadPage).not.toHaveBeenCalled();
+  });
+
+  it("sets up Ember through its setup link, sending the link's token and taking it out of the address", async () => {
+    const token = "e2e1".repeat(16);
+    history.replaceState(null, "", `/first_run#token=${token}`);
+    const fetch = serve({ signedIn: false, setup: "pending", setupAccess: "link" });
+    render(<App />);
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("Name");
+    expect(location.hash).toBe("");
+    expect(location.pathname).toBe("/first_run");
+    await user.type(name, "Ada");
+    await user.type(screen.getByLabelText("Email address"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse{Enter}");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "general" })).toBeInTheDocument();
+    const [, init] = fetch.mock.calls.find(([path, init]) => path === "/api/first_run" && init?.method === "POST")!;
+    expect(new Headers(init!.headers).get("Authorization")).toBe(`Bearer ${token}`);
+  });
+
+  it("asks for the setup link where Ember takes one and this address brought none", async () => {
+    history.replaceState(null, "", "/first_run");
+    serve({ signedIn: false, setup: "pending", setupAccess: "link" });
+    render(<App />);
+    expect(await screen.findByText("Ember is waiting for its administrator.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });
 
   it("leaves /first_run for the workspace once Ember is set up", async () => {
