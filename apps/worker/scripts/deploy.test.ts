@@ -21,8 +21,8 @@ type Listing = string[] | "no worker" | "error";
 /**
  * Stands in for `pnpm exec wrangler`: `secret list` answers as $LISTING says, and `deploy` keeps
  * what it was given in $OUT (its options, its secrets file's path, mode and contents), records the
- * Worker's address as wrangler does, in $WRANGLER_OUTPUT_FILE_PATH, unless $NO_URL says it has none,
- * and exits with $DEPLOY_STATUS.
+ * deploy's targets, $TARGETS, as wrangler does, in $WRANGLER_OUTPUT_FILE_PATH, unless $NO_URL says
+ * there's no record, and exits with $DEPLOY_STATUS.
  */
 const PNPM = `#!/usr/bin/env bash
 [ "$1 $2" = "exec wrangler" ] || { echo "unexpected: $*" >&2; exit 2; }
@@ -42,7 +42,7 @@ elif [ "$1 $2" = "deploy --secrets-file" ]; then
   echo "$*" > "$OUT/deploy-args"
   echo "Deployed ember"
   if [ -n "$WRANGLER_OUTPUT_FILE_PATH" ] && [ -z "$NO_URL" ]; then
-    echo '{"version":1,"type":"deploy","targets":["https://ember.example.workers.dev"]}' >> "$WRANGLER_OUTPUT_FILE_PATH"
+    echo '{"version":1,"type":"deploy","targets":'"$TARGETS"'}' >> "$WRANGLER_OUTPUT_FILE_PATH"
   fi
   exit "\${DEPLOY_STATUS:-0}"
 else
@@ -70,7 +70,7 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
   // The suite itself runs under CI, which the script must hear only from the test.
   const { CI: _ci, GITHUB_ACTIONS: _actions, WORKERS_CI: _workers, EMBER_SETUP_TOKEN: _token, WRANGLER_OUTPUT_FILE_PATH: _output, ...shell } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
-    env: { ...shell, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus), ...env },
+    env: { ...shell, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus), TARGETS: JSON.stringify([WORKER_URL]), ...env },
     encoding: "utf8",
   });
   const secrets = output("secrets.json");
@@ -195,6 +195,22 @@ describe(feature("auth.protected-setup"), () => {
 
   it("names the Worker where wrangler recorded no address, rather than guessing one", () => {
     const { secrets, logs } = deploy(withoutSetupToken, [], { env: { NO_URL: "1" } });
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!, "https://<your Worker>"));
+  });
+
+  // wrangler records routes and custom domains as their patterns with notes, and queues and workflows in words.
+  it.each([
+    ["a custom domain", ["chat.example.com (custom domain - zone name: example.com)"], "https://chat.example.com"],
+    ["a zone's route, among targets that aren't addresses", ["Producer for jobs", "example.com/* (zone id: 0123abcd)", "workflow: nightly"], "https://example.com"],
+    ["the workers.dev address, before a custom domain", ["chat.example.com (custom domain)", "https://ember.example.workers.dev/"], WORKER_URL],
+  ])("makes the setup link at %s", (_, targets, origin) => {
+    const { secrets, logs } = deploy(withoutSetupToken, [], { env: { TARGETS: JSON.stringify(targets) } });
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!, origin));
+  });
+
+  it("names the Worker rather than a route Ember can't be opened at: one under a path, or on a wildcard host", () => {
+    const targets = ["*.example.com/* (zone name: example.com)", "example.com/chat/* (zone name: example.com)", "...and 3 more routes"];
+    const { secrets, logs } = deploy(withoutSetupToken, [], { env: { TARGETS: JSON.stringify(targets) } });
     expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!, "https://<your Worker>"));
   });
 

@@ -98,9 +98,25 @@ async function missingSecrets(names: string[]): Promise<{ secrets: Record<string
 }
 
 /**
+ * The https origin a target of the deploy names, or null for one that names none. wrangler records
+ * the workers.dev address as a URL, routes and custom domains as their patterns with notes after a
+ * space (`chat.example.com (custom domain)`, `example.com/* (zone name: example.com)`), and queues,
+ * workflows and the like in words (`Producer for jobs`). A route under a path, or with a wildcard
+ * host, isn't an address Ember can be opened at.
+ */
+function originOf(target: string): string | null {
+  if (URL.canParse(target)) {
+    const url = new URL(target);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  }
+  const host = /^([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:\/\*)?(?: |$)/i.exec(target)?.[1];
+  return host === undefined ? null : `https://${host}`;
+}
+
+/**
  * The Worker's address, from wrangler's record of this deploy in `outputFile`, or null where it recorded
- * none. wrangler appends a record to the file for each deploy, so a file the environment keeps may hold
- * earlier deploys' records, maybe other Workers', before this one's: the last record is this deploy's.
+ * none it can be opened at. wrangler appends a record to the file for each deploy, so a file the environment
+ * keeps may hold earlier deploys' records, maybe other Workers', before this one's: the last record is this deploy's.
  */
 function deployedUrl(outputFile: string): string | null {
   if (!existsSync(outputFile)) return null;
@@ -113,8 +129,8 @@ function deployedUrl(outputFile: string): string | null {
         return [];
       }
     });
-  const targets = records.findLast((record) => record.type === "deploy")?.targets ?? [];
-  return targets.find((target) => target.endsWith(".workers.dev")) ?? targets[0] ?? null;
+  const origins = (records.findLast((record) => record.type === "deploy")?.targets ?? []).flatMap((target) => originOf(target) ?? []);
+  return origins.find((origin) => origin.endsWith(".workers.dev")) ?? origins[0] ?? null;
 }
 
 /**
@@ -122,7 +138,7 @@ function deployedUrl(outputFile: string): string | null {
  * Worker as the deploy's `target` options do, so a new token goes to the Worker deployed, not wrangler.jsonc's.
  */
 function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: string | null, target: string[]): void {
-  const page = `${(url ?? "https://<your Worker>").replace(/\/$/, "")}/first_run#token=`;
+  const page = `${url ?? "https://<your Worker>"}/first_run#token=`;
   // `wrangler secret put` asks for the value, so the person sees the token they make, which a pipe would hide.
   const newToken = `make one with openssl rand -hex 32, give it to the Worker with ${["pnpm exec wrangler secret put EMBER_SETUP_TOKEN", ...target].join(" ")}, which asks for it, and open ${page}<the token>`;
   if (setupToken === "made") {
