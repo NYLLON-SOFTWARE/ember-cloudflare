@@ -1,5 +1,17 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Bootstrap, type NewWorkspace, type Room, type Sidebar } from "@ember/protocol";
+import {
+  EMAIL_ADDRESS_TOO_LONG,
+  MAX_EMAIL_ADDRESS_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  MAX_USER_NAME_LENGTH,
+  NAME_TOO_LONG,
+  PASSWORD_TOO_LONG,
+  PASSWORD_TOO_SHORT,
+  type Bootstrap,
+  type NewWorkspace,
+  type Room,
+  type Sidebar,
+} from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import { verifyPassword } from "../src/passwords";
@@ -114,6 +126,24 @@ describe(feature("auth.first-run"), () => {
     expect((await setUp({ ...ada, password })).status).toBe(201);
     const [administrator] = (await workspaceSql("SELECT password_digest FROM users")) as Array<{ password_digest: string }>;
     expect(await verifyPassword(password, administrator!.password_digest)).toBe(true);
+  });
+
+  it.each([
+    ["a name", { ...ada, name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, { error: NAME_TOO_LONG, field: "name" }],
+    ["an email address", { ...ada, emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com` }, { error: EMAIL_ADDRESS_TOO_LONG, field: "emailAddress" }],
+  ])("answers 422 to %s longer than Ember keeps, and creates nothing", async (_, form, body) => {
+    const response = await setUp(form);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual(body);
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+    for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
+  });
+
+  it("takes a name and an email address as long as Ember keeps", async () => {
+    const name = "x".repeat(MAX_USER_NAME_LENGTH);
+    const emailAddress = `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - 12)}@example.com`;
+    expect((await setUp({ ...ada, name, emailAddress })).status).toBe(201);
+    expect(await workspaceSql("SELECT name, email_address FROM users")).toEqual([{ name, email_address: emailAddress }]);
   });
 
   it.each([
