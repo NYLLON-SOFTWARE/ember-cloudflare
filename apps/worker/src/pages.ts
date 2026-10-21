@@ -1,5 +1,6 @@
 import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, workspacePageOf } from "@ember/protocol";
 import { sessionToken } from "./auth";
+import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
 
@@ -8,14 +9,38 @@ import { notFound } from "./error-pages";
 
 /**
  * One of the built app's pages, from its static assets, with headers this response can change. The
- * request's own headers go along, so a browser that has the page already hears it's unchanged.
+ * request's own headers go along, so a browser that has the page already hears it's unchanged. Its
+ * policy names the page's inline script, which applies the saved appearance before first paint.
  */
 export async function appPage(request: Request, env: Env, path: string): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method, headers: request.headers }));
   const response = new Response(page.body, page);
   response.headers.set("Link", preloadsFor(request));
   response.headers.append("Vary", "Cookie");
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy(request, await appScriptHashes(request, env, page.headers.get("ETag"))));
   return response;
+}
+
+/**
+ * The hashes of the app page's inline scripts, read from the built page once per build, which its
+ * ETag tells apart. A read that fails is forgotten, so the next page reads again, and the page it
+ * failed for names no script, which costs it the saved appearance until the app applies it.
+ */
+let appScripts: { etag: string | null; hashes: Promise<string[]> } | undefined;
+
+function appScriptHashes(request: Request, env: Env, etag: string | null): Promise<string[]> {
+  if (!appScripts || appScripts.etag !== etag) {
+    const hashes: Promise<string[]> = env.ASSETS.fetch(new URL("/", request.url))
+      .then((page) => page.text())
+      .then(inlineScriptHashes)
+      .catch((error: unknown) => {
+        console.error("Couldn't read the app's page for its scripts' hashes", error);
+        if (appScripts?.hashes === hashes) appScripts = undefined;
+        return [];
+      });
+    appScripts = { etag, hashes };
+  }
+  return appScripts.hashes;
 }
 
 /**

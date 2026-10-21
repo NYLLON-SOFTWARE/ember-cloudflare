@@ -34,7 +34,7 @@ interface Target {
  * from one (hundreds of sockets saying goodbye, say) can't slow the next.
  */
 async function withServer<T>({ storage, url }: Target, fn: (server: Server) => Promise<T>): Promise<T> {
-  const server = url ? await existingServer(url) : await startServer(storage);
+  const server = url ? await existingServer(url, storage) : await startServer(storage);
   try {
     return await fn(server);
   } finally {

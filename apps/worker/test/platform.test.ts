@@ -1,9 +1,10 @@
 import { feature } from "@ember/parity";
 import { env, exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { inlineScriptHashes } from "../src/csp";
 import type { Env } from "../src/env";
 import { withHeaders } from "../src/headers";
-import { api, apiWith, builtPages, cookieOf, freshRoom, signIn, upgrade } from "./support";
+import { api, apiWith, builtPages, cookieOf, freshRoom, origin, signIn, upgrade } from "./support";
 
 // User agents from ember-rust's vectors/campfire_user_agents.json, with whether it blocks them.
 /** Chrome 119, one version too old. */
@@ -37,6 +38,20 @@ const RAILS_DEFAULTS = {
 function expectRailsDefaults(response: Response) {
   for (const [name, value] of Object.entries(RAILS_DEFAULTS)) expect(response.headers.get(name), name).toBe(value);
 }
+
+/** The policy every answer carries, for this suite's host, without a page's own scripts. */
+const POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' blob:; connect-src 'self' wss://ember.test; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /csp-report";
+
+/** `text`'s SHA-256 in base64, as a policy names a script. */
+const sha256 = async (text: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))));
+/** The upgrade page's inline scripts, as the page is drawn, which its policy must name, in order. */
+const upgradePageScripts = async () => {
+  const response = await page("/", as(OLD_CHROME));
+  const hashes = await inlineScriptHashes(await response.text());
+  expect(response.headers.get("Content-Security-Policy")).toContain(`script-src 'self' ${hashes.map((hash) => `'sha256-${hash}'`).join(" ")};`);
+  return hashes;
+};
 
 describe(feature("platform.health"), () => {
   it("answers /up with Rails' green page", async () => {
@@ -117,6 +132,108 @@ describe(feature("platform.security-headers"), () => {
     expect(sent.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
+  it("sets a Content-Security-Policy on every answer but a file's, opening sockets to this host alone", async () => {
+    for (const response of [await api("/api/bootstrap"), await api("/api/nope"), await api("/up"), await page("/rooms/general")]) {
+      expect(response.headers.get("Content-Security-Policy")).toBe(POLICY);
+    }
+    // Over plain HTTP, as `wrangler dev` serves it, sockets and previews' images are plain too.
+    const local = await exports.default.fetch("http://localhost:8787/api/bootstrap");
+    expect(local.headers.get("Content-Security-Policy")).toBe(POLICY.replace("https: data:", "https: http: data:").replace("wss://ember.test", "ws://localhost:8787"));
+    // A room's files go without one: nothing served from there can run script, and Chrome's PDF viewer is particular about a policy.
+    const file = await api(`/files/${"a".repeat(28)}/signature/picture.png`);
+    expect([403, 404]).toContain(file.status);
+    expect(file.headers.has("Content-Security-Policy")).toBe(false);
+    expectRailsDefaults(file);
+  });
+
+  it("names the app page's inline script to its policy by hash, reading the built page once per build", async () => {
+    const script = "\n      document.documentElement.classList.add('dark');\n    ";
+    const html = `<!doctype html><html><head><script>${script}</script></head><body><script type="module" crossorigin src="/assets/index-abc123.js"></script></body></html>`;
+    let served = 0;
+    const assets = { fetch: async () => (served++, new Response(html, { headers: { "Content-Type": "text/html", ETag: '"built-1"' } })) } as unknown as Fetcher;
+    const named = POLICY.replace("script-src 'self';", `script-src 'self' 'sha256-${await sha256(script)}';`);
+    for (const path of ["/", "/rooms/general", "/session/new"]) {
+      expect((await apiWith({ ASSETS: assets }, path)).headers.get("Content-Security-Policy"), path).toBe(named);
+    }
+    // Three pages, and the page read once more for its hashes.
+    expect(served).toBe(4);
+  });
+
+  it("hashes each inline script's own code, as the policy names it, and none with a src", async () => {
+    const html = `<script>alert(1)</script><script type="module" src="/a.js"></script><script type="text/javascript">\n x\n</script>`;
+    expect(await inlineScriptHashes(html)).toEqual(["bhHHL3z2vDgxUt0W3dWQOrprscmda2Y5pLsLg4GF+pI=", await sha256("\n x\n")]);
+  });
+
+  it("names the upgrade page's own script to its policy: before Ember is set up, the appearance script alone", async () => {
+    expect(await upgradePageScripts()).toHaveLength(1);
+  });
+
+  it("forgets a read of the app's page that failed, so the next page reads it again, and names no script meanwhile", async () => {
+    const html = `<!doctype html><html><head><script>theme()</script></head><body></body></html>`;
+    let calls = 0;
+    const assets = {
+      fetch: async () => {
+        // The first page's own read answers, and its read for the hashes doesn't.
+        if (++calls === 2) throw new Error("Assets are away");
+        return new Response(html, { headers: { "Content-Type": "text/html", ETag: '"built-2"' } });
+      },
+    } as unknown as Fetcher;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const first = await apiWith({ ASSETS: assets }, "/rooms/general");
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Content-Security-Policy")).toBe(POLICY);
+    expect(logged).toHaveBeenCalledWith("Couldn't read the app's page for its scripts' hashes", expect.any(Error));
+    logged.mockRestore();
+    const second = await apiWith({ ASSETS: assets }, "/rooms/general");
+    expect(second.headers.get("Content-Security-Policy")).toBe(POLICY.replace("script-src 'self';", `script-src 'self' 'sha256-${await sha256("theme()")}';`));
+    expect(calls).toBe(4);
+  });
+
+  it("logs what a browser reports the policy blocked, from any browser, and answers 204", async () => {
+    const logged = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const violation = {
+      "document-uri": "https://ember.test/rooms/general",
+      "effective-directive": "img-src",
+      "violated-directive": "img-src",
+      "blocked-uri": "http://tracker.test/pixel.gif",
+      "source-file": "https://ember.test/assets/index-abc123.js",
+      "line-number": 12,
+      "column-number": 3,
+      "original-policy": POLICY,
+    };
+    // A browser sends it without the page's cookies or origin, and an old browser's page has a policy too.
+    const init = { method: "POST", headers: { "Content-Type": "application/csp-report", "User-Agent": OLD_CHROME }, body: JSON.stringify({ "csp-report": violation }) };
+    const response = await exports.default.fetch(`${origin}/csp-report`, init);
+    expect(response.status).toBe(204);
+    expect(logged).toHaveBeenCalledWith("Content-Security-Policy violation", {
+      page: "https://ember.test/rooms/general",
+      directive: "img-src",
+      blocked: "http://tracker.test/pixel.gif",
+      source: "https://ember.test/assets/index-abc123.js",
+      line: 12,
+      column: 3,
+    });
+    logged.mockRestore();
+  });
+
+  it("answers 400 to a report that isn't one, 413 to one over 8 KiB, and 404 to anything but a POST", async () => {
+    expect((await api("/csp-report", { method: "POST", body: "not json" })).status).toBe(400);
+    expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ hello: 1 }) })).status).toBe(400);
+    expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ "csp-report": { "blocked-uri": "x".repeat(9_000) } }) })).status).toBe(413);
+    // Bytes, not characters, and a body sent without its length is read only as far as the limit.
+    expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ "csp-report": { "blocked-uri": "é".repeat(4_500) } }) })).status).toBe(413);
+    let sent = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new Uint8Array(1024).fill(0x78));
+      },
+    });
+    expect((await api("/csp-report", { method: "POST", body: endless })).status).toBe(413);
+    expect(sent).toBeLessThan(16 * 1024);
+    for (const method of ["GET", "PUT", "DELETE"]) expect((await api("/csp-report", { method })).status, method).toBe(404);
+  });
+
   it("pins HTTPS with HSTS on every answer", async () => {
     for (const response of [await api("/api/bootstrap"), await page("/"), await api("/up")]) {
       expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=63072000; includeSubDomains");
@@ -162,6 +279,7 @@ describe(feature("platform.security-headers"), () => {
     const response = await api(`/api/rooms/${room}/socket`, upgrade(cookie));
     expect(response.status).toBe(101);
     expect(response.headers.has("X-Frame-Options")).toBe(false);
+    expect(response.headers.has("Content-Security-Policy")).toBe(false);
     expect(response.headers.has("X-Version")).toBe(false);
     response.webSocket!.accept();
     response.webSocket!.close();
@@ -250,6 +368,8 @@ describe(feature("accounts.translation-buttons"), () => {
     expect((await show(true)).status).toBe(200);
     const html = await upgradePage();
     expect(html).toContain('<summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>');
+    // The globe brings a script of its own, which the policy names beside the appearance one.
+    expect(await upgradePageScripts()).toHaveLength(2);
     const listed = listedIn(html);
     expect(listed.map(([flag]) => flag)).toEqual(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
     expect(listed[0]![1]).toBe("Upgrade to a supported web browser. Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.");

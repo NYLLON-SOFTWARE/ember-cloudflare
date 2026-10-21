@@ -90,15 +90,40 @@ describe(feature("realtime.connection"), () => {
 });
 
 describe(feature("platform.health"), () => {
+  /** A recovery token the Worker can be given, and sent. */
+  const TOKEN = "ab".repeat(32);
+  const asRecovery = { headers: { Authorization: `Bearer ${TOKEN}` } };
   /** /api/health from a Worker whose bindings differ from this suite's by `changes`. */
-  const healthWith = (changes: Partial<Env>) => apiWith(changes, "/api/health");
+  const healthWith = (changes: Partial<Env>, init: RequestInit<IncomingRequestCfProperties> = {}) => apiWith(changes, "/api/health", init);
+  /** What it tells someone who may hear how the deployment is set up. */
+  const detail = { ok: true, storage: bindings.STORAGE_BACKEND, push: { on: true }, files: { on: true } };
+  /** Sets Ember up, answering its first administrator's cookie. */
+  async function administrator(): Promise<{ headers: { Cookie: string } }> {
+    const response = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
+    expect(response.status).toBe(201);
+    return withCookie(cookieOf(response));
+  }
 
-  it("reports that the Worker is up, which storage it uses, and whether push notifications and files are on", async () => {
+  it("tells anyone only that the Worker is up, guests included", async () => {
     const response = await api("/api/health");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, storage: bindings.STORAGE_BACKEND, push: { on: true }, files: { on: true } });
-    expect(await (await healthWith({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined })).json()).toMatchObject({ ok: true, push: { on: false, reason: KEYS_MISSING } });
-    expect(await (await healthWith({ FILES: undefined })).json()).toMatchObject({ ok: true, files: { on: false } });
+    expect(await response.json()).toEqual({ ok: true });
+    const { cookie } = await signIn("Ada");
+    expect(await (await api("/api/health", withCookie(cookie))).json()).toEqual({ ok: true });
+  });
+
+  it("tells an administrator which storage it uses, and whether push notifications and files are on", async () => {
+    const admin = await administrator();
+    expect(await (await api("/api/health", admin)).json()).toEqual(detail);
+    expect(await (await healthWith({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }, admin)).json()).toMatchObject({ ok: true, push: { on: false, reason: KEYS_MISSING } });
+    expect(await (await healthWith({ FILES: undefined }, admin)).json()).toMatchObject({ ok: true, files: { on: false } });
+  });
+
+  it("tells the same to whoever sends EMBER_RECOVERY_TOKEN, as the deploy check can, and nothing more for another token", async () => {
+    expect(await (await healthWith({ EMBER_RECOVERY_TOKEN: TOKEN }, asRecovery)).json()).toEqual(detail);
+    expect(await (await healthWith({ EMBER_RECOVERY_TOKEN: TOKEN }, { headers: { Authorization: `Bearer ${"cd".repeat(32)}` } })).json()).toEqual({ ok: true });
+    // Nor while the Worker has no token to compare with.
+    expect(await (await healthWith({ EMBER_RECOVERY_TOKEN: undefined }, asRecovery)).json()).toEqual({ ok: true });
   });
 
   it("reaches the Workspace and a room's object, so a deploy can be checked without signing in", async () => {
@@ -109,19 +134,32 @@ describe(feature("platform.health"), () => {
     expect(rooms.some((id) => id.equals(bindings.CHAT_ROOM.idFromName("_health")))).toBe(true);
   });
 
-  it("answers 503 and says so when SESSION_SECRET isn't set", async () => {
-    const response = await healthWith({ SESSION_SECRET: "" });
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "SESSION_SECRET isn't set" });
-  });
-
-  it("answers 503 when the Workspace can't read its storage", async () => {
-    const failing = { getByName: () => ({ health: () => Promise.reject(new Error("No such table")) }) };
+  it("answers 503 when SESSION_SECRET isn't set, saying so in the log and to whoever sends the recovery token", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const response = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] });
+    const response = await healthWith({ SESSION_SECRET: "" });
+    const told = await healthWith({ SESSION_SECRET: "", EMBER_RECOVERY_TOKEN: TOKEN }, asRecovery);
+    expect(logged).toHaveBeenCalledWith("Health check failed: SESSION_SECRET isn't set");
     logged.mockRestore();
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "Storage isn't answering" });
+    expect(await response.json()).toEqual({ ok: false });
+    expect(told.status).toBe(503);
+    expect(await told.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "SESSION_SECRET isn't set" });
+  });
+
+  it("answers 503 when the Workspace can't read its storage, to someone signed in too, whose role it can't read either", async () => {
+    const away = () => Promise.reject(new Error("No such table"));
+    const failing = { getByName: () => ({ health: away, me: away }) };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] });
+    const signedIn = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] }, withCookie(unknownSession));
+    const told = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"], EMBER_RECOVERY_TOKEN: TOKEN }, asRecovery);
+    expect(logged).toHaveBeenCalledWith("Health check failed: Storage isn't answering", expect.any(Error));
+    logged.mockRestore();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false });
+    expect(signedIn.status).toBe(503);
+    expect(await signedIn.json()).toEqual({ ok: false });
+    expect(await told.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "Storage isn't answering" });
   });
 
   it("answers unknown API paths with a JSON 404", async () => {

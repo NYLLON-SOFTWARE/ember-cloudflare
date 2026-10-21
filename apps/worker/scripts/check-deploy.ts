@@ -19,14 +19,18 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function health(baseUrl: string): Promise<{ storage: string }> {
-  const response = await fetch(new URL("/api/health", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+/** The Worker's recovery token, if the shell has it: /api/health describes the deployment only to whoever sends it, or to an administrator. */
+const recoveryToken = process.env.EMBER_RECOVERY_TOKEN;
+
+async function health(baseUrl: string): Promise<{ storage?: string }> {
+  const headers = recoveryToken ? { Authorization: `Bearer ${recoveryToken}` } : undefined;
+  const response = await fetch(new URL("/api/health", baseUrl), { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) {
-    // It says what's missing, such as SESSION_SECRET.
+    // It says what's missing, such as SESSION_SECRET, to whoever sends the token; the Worker's log says so to everyone.
     const { error } = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(`/api/health answered ${response.status}${error ? `: ${error}` : ""}`);
+    throw new Error(`/api/health answered ${response.status}${error ? `: ${error}` : " (the Worker's log says why)"}`);
   }
-  return (await response.json()) as { storage: string };
+  return (await response.json()) as { storage?: string };
 }
 
 async function checkPage(baseUrl: string): Promise<void> {
@@ -73,7 +77,7 @@ async function check(baseUrl: string): Promise<void> {
   };
 
   const { storage } = await eventually(() => health(baseUrl));
-  console.log(`✓ /api/health answers: the Workspace and a room read their storage in ${storage}`);
+  console.log(`✓ /api/health answers: the Workspace and a room read their storage${storage ? ` in ${storage}` : ""}`);
   await eventually(() => checkPage(baseUrl));
   console.log("✓ The app's page loads, through the Worker");
   await eventually(() => checkNotFound(baseUrl));

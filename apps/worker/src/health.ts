@@ -1,5 +1,7 @@
+import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { webPush } from "./push/keys";
+import { carriesRecoveryToken } from "./recovery";
 import { workspace } from "./workspace";
 
 // ember-rust's /up (Rails::HealthController, `health::show` in crates/ember/src/controllers.rs),
@@ -62,19 +64,38 @@ export function up(request: Request): Response {
 
 /**
  * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
- * their storage, so a deploy can be checked without signing in. It says whether push notifications
- * are on too, and why not, which ember-rust only logs, and whether there's a bucket for files, but
- * neither decides whether it's healthy.
+ * their storage, so a deploy can be checked without signing in. To an administrator, or a request
+ * carrying EMBER_RECOVERY_TOKEN as the deploy check can, it says which storage that is, whether push
+ * notifications are on, and why not, which ember-rust only logs, and whether there's a bucket for
+ * files, though neither decides whether it's healthy, and why it isn't when it isn't. Anyone else
+ * hears only whether it's up, so a deployment doesn't describe itself to strangers; what's wrong is
+ * logged for whoever runs it.
  */
-export async function health(env: Env): Promise<Response> {
+export async function health(request: Request, env: Env): Promise<Response> {
+  // Who's asking is read from the storage being checked, so while that's down the check says so below.
+  const detailed = await mayReadDetail(request, env).catch(() => false);
   const storage = env.STORAGE_BACKEND;
-  if (!env.SESSION_SECRET) return Response.json({ ok: false, storage, error: "SESSION_SECRET isn't set" }, { status: 503 });
+  const failed = (error: string, cause?: unknown) => {
+    console.error(`Health check failed: ${error}`, ...(cause === undefined ? [] : [cause]));
+    return Response.json(detailed ? { ok: false, storage, error } : { ok: false }, { status: 503 });
+  };
+  if (!env.SESSION_SECRET) return failed("SESSION_SECRET isn't set");
   try {
     await Promise.all([workspace(env).health(), env.CHAT_ROOM.getByName(HEALTH_ROOM).health(HEALTH_ROOM)]);
   } catch (error) {
-    console.error("Health check failed", error);
-    return Response.json({ ok: false, storage, error: "Storage isn't answering" }, { status: 503 });
+    return failed("Storage isn't answering", error);
   }
+  if (!detailed) return Response.json({ ok: true });
   const push = await webPush(env);
   return Response.json({ ok: true, storage, push: push.on ? { on: true } : { on: false, reason: push.reason }, files: { on: env.FILES !== undefined } });
+}
+
+/** Whether the request is an administrator's, or carries the recovery token, which needs no session. */
+async function mayReadDetail(request: Request, env: Env): Promise<boolean> {
+  if (await carriesRecoveryToken(request, env)) return true;
+  // Without SESSION_SECRET there's no session to check, which the answer is about to say.
+  if (!env.SESSION_SECRET) return false;
+  const credentials = await credentialsOf(request, env);
+  const me = credentials && (await workspace(env).me(credentials));
+  return me?.administrator === true;
 }

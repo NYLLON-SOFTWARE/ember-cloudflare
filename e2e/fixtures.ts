@@ -344,9 +344,49 @@ export interface AppFixtures {
   room: TestRoom;
   /** Connects someone else to the test's room. Disconnected when the test ends. */
   participant: (name: string) => Promise<Participant>;
+  /** Fails the test if the policy blocked something on any of its pages, unless it said it would. Every test has it. */
+  policyKept: void;
 }
 
+/** What Chromium logs when a page's Content-Security-Policy blocks something, which is all a browser does about it. */
+const CSP_VIOLATION = /Content Security Policy/;
+/** The annotation a test that means to see the policy refuse something carries, naming the directive. */
+const EXPECTED_VIOLATION = "policy-violation";
+/** What the policy blocked on the pages of every context this worker opened, since the test began. */
+const blocked: string[] = [];
+const watchPolicy = (context: BrowserContext) =>
+  context.on("page", (page) => page.on("console", (message) => void (CSP_VIOLATION.test(message.text()) && blocked.push(message.text()))));
+
+/** Says the test means to see the policy refuse something under `directive`, which otherwise fails it. */
+export const expectsPolicyViolation = (directive: string) => test.info().annotations.push({ type: EXPECTED_VIOLATION, description: directive });
+
 export const test = base.extend<AppFixtures>({
+  // The Worker's policy applies to every page a test opens, in its own context or one it makes for
+  // someone else, so every context the browser opens reports what the policy got in the way of,
+  // which the browser only logs...
+  browser: [
+    async ({ browser }, use) => {
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...options) => {
+        const context = await newContext(...options);
+        watchPolicy(context);
+        return context;
+      };
+      await use(browser);
+    },
+    { scope: "worker" },
+  ],
+  // ...and a test fails if it got in the way of anything, unless it said it would.
+  policyKept: [
+    async ({}, use, testInfo) => {
+      blocked.length = 0;
+      await use();
+      const expected = testInfo.annotations.filter((annotation) => annotation.type === EXPECTED_VIOLATION).map((annotation) => annotation.description);
+      const unexpected = blocked.filter((message) => !expected.some((directive) => message.includes(`directive: "${directive}`)));
+      expect(unexpected, "The Content-Security-Policy blocked something on a page").toEqual([]);
+    },
+    { auto: true },
+  ],
   session: async ({ request }, use) => {
     await use(await createSession(request, "Test Person"));
   },

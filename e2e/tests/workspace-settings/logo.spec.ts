@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../../fixtures";
 import { drawnPicture, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { urlsafeDecode64 } from "../src/encoding";
 import { qrCode, qrCodeSvg } from "@ember/protocol/qr-code";
 import rqrcode from "./fixtures/rqrcode.json";
-import { api } from "./support";
+import { api, signIn } from "./support";
 
 /**
  * ember-rust's golden vectors (crates/ember/src/controllers/qr_code/testdata/rqrcode.json), which
@@ -31,28 +31,41 @@ describe(feature("accounts.qr-codes"), () => {
     }
   });
 
-  it("answers anyone with the link's SVG, cached publicly for a year", async () => {
-    const response = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q");
+  /** A request from someone signed in. */
+  const session = async () => ({ headers: { Cookie: (await signIn("Ada")).cookie } });
+
+  it("answers someone signed in with the link's SVG, cached in their browser for a year", async () => {
+    const response = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", await session());
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
-    expect(response.headers.get("Cache-Control")).toBe("max-age=31556952, public");
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=31556952");
     const svg = await response.text();
     expect(svg.startsWith('<?xml version="1.0" standalone="yes"?><svg')).toBe(true);
     expect(svg).toBe(qrCodeSvg(utf8("http://campfire.test")));
   });
 
+  it("sends someone signed out to sign in, as an avatar does, where ember-rust draws for anyone", async () => {
+    for (const headers of [{}, { Cookie: `__Host-session_token=${"A".repeat(43)}` }] as HeadersInit[]) {
+      const response = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { headers, redirect: "manual" });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("https://ember.test/session/new");
+      expect(await response.text()).toBe("");
+    }
+  });
+
   it("draws any text, not only this site's links", async () => {
-    const response = await api(`/qr_code/${btoa("Not a link at all")}`);
+    const response = await api(`/qr_code/${btoa("Not a link at all")}`, await session());
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(qrCodeSvg(utf8("Not a link at all")));
   });
 
   it("answers HEAD with the headers alone, and ignores a format, as Rails routes do", async () => {
-    const head = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { method: "HEAD" });
+    const ada = await session();
+    const head = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { ...ada, method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
     expect(await head.text()).toBe("");
-    const svg = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q.svg");
+    const svg = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q.svg", ada);
     expect(await svg.text()).toBe(qrCodeSvg(utf8("http://campfire.test")));
   });
 
@@ -70,18 +83,21 @@ describe(feature("accounts.qr-codes"), () => {
   });
 
   it("answers 400 for an id that isn't base64, where ember-rust answers 500", async () => {
-    for (const id of ["a", "aB==", "a*bc", "QQ%3", "%E2%82"]) expect((await api(`/qr_code/${id}`)).status, id).toBe(400);
+    const ada = await session();
+    for (const id of ["a", "aB==", "a*bc", "QQ%3", "%E2%82"]) expect((await api(`/qr_code/${id}`, ada)).status, id).toBe(400);
     // Percent-encoding is undone first, as Rails does.
-    expect((await api("/qr_code/aGk%3D")).status).toBe(200);
+    expect((await api("/qr_code/aGk%3D", ada)).status).toBe(200);
   });
 
   it("answers 422 for text too long for the largest QR code", async () => {
     expect(qrCodeSvg(new Uint8Array(3_000).fill(0x61))).toBeNull();
-    const response = await api(`/qr_code/${btoa("a".repeat(3_000))}`);
+    const response = await api(`/qr_code/${btoa("a".repeat(3_000))}`, await session());
     expect(response.status).toBe(422);
   });
 
-  it("answers 404 to other methods and to paths that hold no id", async () => {
+  it("answers 404 to other methods and to paths that hold no id, signed in or not", async () => {
+    const ada = await session();
+    expect((await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { ...ada, method: "POST" })).status).toBe(404);
     expect((await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { method: "POST" })).status).toBe(404);
     for (const path of ["/qr_code/", "/qr_code/a/b", "/qr_code/.svg"]) expect((await api(path)).status, path).toBe(404);
   });

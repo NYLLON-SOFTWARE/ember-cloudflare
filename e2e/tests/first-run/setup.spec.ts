@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, shownPicture } from "../../fixtures";
 
 // Each test server starts empty, so this sets it up through the Set up Ember page before any other
