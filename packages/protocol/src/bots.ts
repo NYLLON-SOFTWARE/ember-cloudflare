@@ -1,4 +1,4 @@
-import type { DirectoryUser, RoomId } from "./index.ts";
+import { MAX_USER_NAME_LENGTH, type DirectoryUser, type RoomId } from "./index.ts";
 
 // Chat bots, as administrators add, change and delete them through `/api/account/bots`: ember-rust's
 // `accounts/bots` and `accounts/bots/keys` controllers (crates/ember/src/controllers/accounts/bots.rs),
@@ -65,8 +65,9 @@ export interface NewBot {
 
 /**
  * Parses an untrusted change to a bot. Returns why it's refused instead: a name has to have more than
- * spaces, where ember-rust saves whatever the form sends. The name is saved as typed, and the webhook
- * URL trimmed, as the form's URL field sends it; the Worker checks that it's a URL.
+ * spaces, and no more than a person's name can (`MAX_USER_NAME_LENGTH`), where ember-rust saves
+ * whatever the form sends. The name is saved as typed, and the webhook URL trimmed, as the form's URL
+ * field sends it; the Worker checks that it's a URL.
  */
 export function parseBotChanges(data: unknown): BotChanges | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
@@ -75,6 +76,7 @@ export function parseBotChanges(data: unknown): BotChanges | string {
   if (name !== undefined) {
     if (typeof name !== "string") return "Name must be text";
     if (!name.trim()) return "Name can't be blank";
+    if (name.length > MAX_USER_NAME_LENGTH) return `Name can't be longer than ${MAX_USER_NAME_LENGTH} characters`;
     changes.name = name;
   }
   if (webhookUrl !== undefined) {

@@ -13,12 +13,14 @@ import {
   MAX_BOOST_LENGTH,
   MAX_CHECKED_MESSAGES,
   MAX_CUSTOM_STYLES_LENGTH,
+  MAX_EMAIL_ADDRESS_LENGTH,
   MAX_LISTED_USERS,
   MAX_MESSAGE_HTML_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
+  MAX_USER_NAME_LENGTH,
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
@@ -470,8 +472,13 @@ describe(feature("users.profile"), () => {
     expect(parseProfileChanges({})).toEqual({});
   });
 
-  it("takes as long a password as sign-in does, and a bio as long as the form lets anyone type", () => {
-    const longest = { password: "🔐".repeat(MAX_PASSWORD_LENGTH / 2), bio: "x".repeat(MAX_BIO_LENGTH) };
+  it("takes as long a name and email address as Ember keeps, a password as long as sign-in does, and a bio as long as the form lets anyone type", () => {
+    const longest = {
+      name: "x".repeat(MAX_USER_NAME_LENGTH),
+      emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - "@example.com".length)}@example.com`,
+      password: "🔐".repeat(MAX_PASSWORD_LENGTH / 2),
+      bio: "x".repeat(MAX_BIO_LENGTH),
+    };
     expect(parseProfileChanges(longest)).toEqual(longest);
   });
 
@@ -482,6 +489,8 @@ describe(feature("users.profile"), () => {
     ["an email address that isn't text", { emailAddress: ["ada@example.com"] }, "Email address must be text"],
     ["a password that isn't text", { password: 12345678 }, "Password must be text"],
     ["a bio that isn't text", { bio: false }, "Bio must be text"],
+    ["a name longer than Ember keeps", { name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, "Name must be at most 100 characters"],
+    ["an email address longer than any deliverable one", { emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.com` }, "Email address must be at most 254 characters"],
     ["a password longer than sign-in takes", { password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, "Password must be at most 72 characters."],
     ["a bio longer than the form takes", { bio: "x".repeat(MAX_BIO_LENGTH + 1) }, "Bio must be at most 200 characters"],
   ])("refuses %s and says why", (_, body, error) => {
@@ -526,8 +535,20 @@ describe(feature("auth.first-run"), () => {
     ["no email address", { name: "Ada", emailAddress: "", password: "12345678" }, "Name, email address and password are required"],
     ["no password", { name: "Ada", emailAddress: "ada@example.com" }, "Name, email address and password are required"],
     ["a password that isn't text", { name: "Ada", emailAddress: "ada@example.com", password: 12345678 }, "Name, email address and password are required"],
+    ["a name longer than Ember keeps", { name: "x".repeat(MAX_USER_NAME_LENGTH + 1), emailAddress: "ada@example.com", password: "secret words" }, "Name must be at most 100 characters"],
+    [
+      "an email address longer than any deliverable one",
+      { name: "Ada", emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.com`, password: "secret words" },
+      "Email address must be at most 254 characters",
+    ],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseSignUp(body)).toBe(error);
+  });
+
+  it("takes a name and an email address as long as Ember keeps, counting the name once trimmed", () => {
+    const name = "x".repeat(MAX_USER_NAME_LENGTH);
+    const emailAddress = `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - "@example.com".length)}@example.com`;
+    expect(parseSignUp({ name: ` ${name} `, emailAddress, password: "secret words" })).toEqual({ name, emailAddress, password: "secret words" });
   });
 
   it("counts a password's characters, not its bytes or UTF-16 units", () => {

@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { botMessagesPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./bots";
+import { MAX_USER_NAME_LENGTH } from "./index";
 
 describe(feature("bots.create-edit"), () => {
   it("takes the name as typed and the webhook URL trimmed, leaving out what isn't sent", () => {
@@ -26,6 +27,7 @@ describe(feature("bots.create-edit"), () => {
     ["a list", [{ name: "Build Bot" }], "Expected a JSON object"],
     ["a name that isn't text", { name: 7 }, "Name must be text"],
     ["a blank name", { name: " \t" }, "Name can't be blank"],
+    ["a name longer than a person's can be", { name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, "Name can't be longer than 100 characters"],
     ["a webhook URL that isn't text", { name: "Build Bot", webhookUrl: null }, "Webhook URL must be text"],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseBotChanges(body)).toBe(error);

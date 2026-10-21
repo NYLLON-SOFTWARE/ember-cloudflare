@@ -1,4 +1,4 @@
-import { isAppPage, workspacePageOf } from "@ember/protocol";
+import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, workspacePageOf } from "@ember/protocol";
 import { sessionToken } from "./auth";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
@@ -67,3 +67,13 @@ export const signInFirst = (request: Request) => new Response(null, { status: 30
 /** A form's answer, which no cache keeps, since it can sign someone in. */
 export const formAnswer = (data: unknown, status: number, ...cookies: Array<string | null>) =>
   withCookies(Response.json(data, { status, headers: { "Cache-Control": "no-store" } }), ...cookies);
+
+/**
+ * The answer to a sign-up form `parseSignUp` refused: a name or email address longer than Ember keeps
+ * is unprocessable (422) on its field, as a password too long is, and a field missing is a bad request.
+ */
+export function signUpRefusal(error: string): Response {
+  if (error === NAME_TOO_LONG) return formAnswer({ error, field: "name" }, 422);
+  if (error === EMAIL_ADDRESS_TOO_LONG) return formAnswer({ error, field: "emailAddress" }, 422);
+  return formAnswer({ error }, 400);
+}

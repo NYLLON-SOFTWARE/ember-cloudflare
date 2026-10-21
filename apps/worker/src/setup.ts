@@ -3,7 +3,7 @@ import { clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
-import { appPage, empty, formAnswer, home } from "./pages";
+import { appPage, empty, formAnswer, home, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
 import { workspace } from "./workspace";
 
@@ -58,7 +58,7 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   const sent = await userFormOf(request);
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
-  if (typeof form === "string") return formAnswer({ error: form }, 400);
+  if (typeof form === "string") return signUpRefusal(form);
   // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
   // password's first 72 bytes, PBKDF2 hashes every character, so the server takes no more than the
   // form can send.

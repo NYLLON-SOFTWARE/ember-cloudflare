@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# The checks only read the repository, so their token can only read it.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest

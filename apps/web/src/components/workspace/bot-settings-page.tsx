@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, type FormEvent } from "react";
-import type { Me, UserId } from "@ember/protocol";
+import { MAX_USER_NAME_LENGTH, type Me, type UserId } from "@ember/protocol";
 import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotSettings } from "@ember/protocol/bots";
 import { AUTH_FORM } from "@/components/auth-page";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
@@ -202,6 +202,7 @@ function BotForm({ avatar, photo, fields, onChange, saving, onSave }: FormProps)
           id="user_name"
           autoComplete="name"
           placeholder="Name the bot"
+          maxLength={MAX_USER_NAME_LENGTH}
           autoFocus
           required
           data-1p-ignore

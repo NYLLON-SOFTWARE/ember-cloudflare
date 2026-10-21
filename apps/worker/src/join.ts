@@ -2,7 +2,7 @@ import { isPasswordTooLong, parseSignUp, PASSWORD_TOO_LONG, type Me } from "@emb
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
-import { appPage, empty, formAnswer, home } from "./pages";
+import { appPage, empty, formAnswer, home, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
 import { workspace } from "./workspace";
 
@@ -44,7 +44,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   const sent = await userFormOf(request);
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
-  if (typeof form === "string") return formAnswer({ error: form }, 400);
+  if (typeof form === "string") return signUpRefusal(form);
   // Unlike ember-rust, which takes an empty password and makes an account nobody can sign in to. A
   // long one is refused for the reason first run's is.
   if (form.password === "") return formAnswer({ error: PASSWORD_BLANK, field: "password" }, 422);

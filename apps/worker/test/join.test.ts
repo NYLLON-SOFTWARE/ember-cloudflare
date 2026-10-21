@@ -1,5 +1,16 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap, type NewWorkspace, type Sidebar, type User } from "@ember/protocol";
+import {
+  EMAIL_ADDRESS_TOO_LONG,
+  MAX_EMAIL_ADDRESS_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  MAX_USER_NAME_LENGTH,
+  NAME_TOO_LONG,
+  PASSWORD_TOO_LONG,
+  type Bootstrap,
+  type NewWorkspace,
+  type Sidebar,
+  type User,
+} from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
@@ -134,6 +145,8 @@ describe(feature("auth.sign-up"), () => {
   it.each([
     ["a blank password", { ...grace, password: "" }, 422, { error: "Password can't be blank.", field: "password" }],
     ["a password longer than the form sends", { ...grace, password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, 422, { error: PASSWORD_TOO_LONG, field: "password" }],
+    ["a name longer than Ember keeps", { ...grace, name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, 422, { error: NAME_TOO_LONG, field: "name" }],
+    ["an email address longer than any deliverable one", { ...grace, emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com` }, 422, { error: EMAIL_ADDRESS_TOO_LONG, field: "emailAddress" }],
     ["a blank name", { ...grace, name: " " }, 400, { error: "Name, email address and password are required" }],
     ["no email address", { ...grace, emailAddress: undefined }, 400, { error: "Name, email address and password are required" }],
     ["no body", null, 400, { error: "Expected a JSON object" }],
