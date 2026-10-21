@@ -1,18 +1,20 @@
 import { useRef, useState } from "react";
-import { Check, Monitor, Moon, Sun } from "@/components/icons/lucide";
+import { Computer, HalfMoon, SunLight } from "@/components/icons/iconoir";
+import { Check } from "@/components/icons/lucide";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { chooseAppearance, useAppearance } from "@/lib/appearance";
 
 const OPTIONS = [
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
-  { value: "system", label: "System", Icon: Monitor },
+  { value: "light", label: "Light", Icon: SunLight },
+  { value: "dark", label: "Dark", Icon: HalfMoon },
+  { value: "system", label: "System", Icon: Computer },
 ] as const;
 
 /**
  * The rail's appearance button, from ember-rust's components/appearance.html: it's named for the
  * choice shown and opens a small dialog of Light, Dark and System radio buttons. A choice applies at
- * once and leaves the dialog open, which Escape or a click elsewhere closes.
+ * once and leaves the dialog open, which Escape or a click elsewhere closes. Like the rail's, its
+ * icons are Iconoir's, where ember-rust draws Lucide's sun, moon and monitor.
  */
 export function AppearanceMenu() {
   const appearance = useAppearance();

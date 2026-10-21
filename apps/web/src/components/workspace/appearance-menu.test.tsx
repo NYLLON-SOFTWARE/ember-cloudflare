@@ -28,17 +28,17 @@ describe(feature("ui.appearance"), () => {
     const button = renderOnRail();
     expect(button).toHaveAccessibleName("Appearance: System");
     expect(button).toHaveAttribute("title", "Appearance: System");
-    expect(button.querySelector(".lucide-monitor")).toBeInTheDocument();
+    expect(button.querySelector(".iconoir-computer")).toBeInTheDocument();
 
     await user.click(button);
     await user.click(screen.getByText("Dark"));
     expect(button).toHaveAccessibleName("Appearance: Dark");
     expect(button).toHaveAttribute("title", "Appearance: Dark");
-    expect(button.querySelector(".lucide-moon")).toBeInTheDocument();
+    expect(button.querySelector(".iconoir-half-moon")).toBeInTheDocument();
 
     await user.click(screen.getByText("Light"));
     expect(button).toHaveAccessibleName("Appearance: Light");
-    expect(button.querySelector(".lucide-sun")).toBeInTheDocument();
+    expect(button.querySelector(".iconoir-sun-light")).toBeInTheDocument();
   });
 
   it("opens a dialog of Light, Dark and System radio buttons, with the current one checked and focused", async () => {
@@ -51,6 +51,12 @@ describe(feature("ui.appearance"), () => {
     expect(button).toHaveAttribute("aria-expanded", "true");
     const choices = within(dialog()!).getByRole("group", { name: "Appearance" });
     expect(within(choices).getAllByRole("radio").map((choice) => choice.closest("label")!.textContent)).toEqual(["Light", "Dark", "System"]);
+    // Each with the icon the button shows for it.
+    expect(within(choices).getAllByRole("radio").map((choice) => choice.closest("label")!.querySelector("svg")!.classList[0])).toEqual([
+      "iconoir-sun-light",
+      "iconoir-half-moon",
+      "iconoir-computer",
+    ]);
     expect(radio("System")).toBeChecked();
     expect(radio("System")).toHaveFocus();
   });
