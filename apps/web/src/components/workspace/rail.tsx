@@ -1,6 +1,6 @@
 import type { ComponentType, MouseEvent } from "react";
 import type { Me } from "@ember/protocol";
-import { Bell, Home, Messages, Search, Settings } from "@/components/icons/ember";
+import { Bell, Box, Home, MultiBubble, Search } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
@@ -87,7 +87,10 @@ interface Props {
   onNewDirect: (opener: HTMLElement) => void;
 }
 
-/** The persistent navigation rail from ember-rust's layouts/application.html. */
+/**
+ * The persistent navigation rail from ember-rust's layouts/application.html, drawn with Iconoir's
+ * icons rather than ember-rust's, as the project's owner chose.
+ */
 export function Rail({ me, workspaceName, current, activity, onNewDirect }: Props) {
   const { logo } = useAccount();
   const marked = activity.on ? null : current;
@@ -113,11 +116,11 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
       </PageLink>
       <RailLink icon={Home} label="Home" href="/" current={marked === "home" || marked === "room"} />
       {/* Never marked, since its address opens New direct message over the last room visited. */}
-      <RailLink icon={Messages} label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
+      <RailLink icon={MultiBubble} label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
       <RailLink icon={Search} label="Search" href={SEARCHES_PATH} current={marked === "search"} />
       <hr className="my-1 w-8 border-t" />
-      <RailLink icon={Settings} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
+      <RailLink icon={Box} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
       <AppearanceMenu />
       {/* ember-rust's `.mb-rail__profile`: your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink

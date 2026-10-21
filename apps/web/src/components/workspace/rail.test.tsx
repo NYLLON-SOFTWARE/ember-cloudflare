@@ -89,6 +89,23 @@ describe(feature("ui.rail"), () => {
     expect(screen.queryAllByRole("link", { current: "page" })).toEqual([]);
   });
 
+  it("draws Iconoir's icons, which the project's owner chose over ember-rust's", () => {
+    render(railAt("home"));
+    const rail = screen.getByRole("navigation", { name: "Workspace" });
+    const icons = Object.fromEntries(
+      [...rail.querySelectorAll("a, button")].map((item) => [item.getAttribute("aria-label") ?? item.textContent, item.querySelector("svg")?.classList[0]]),
+    );
+    expect(icons).toEqual({
+      "Ember home": undefined,
+      Home: "iconoir-home",
+      DMs: "iconoir-multi-bubble",
+      Activity: "iconoir-bell",
+      Search: "iconoir-search",
+      Workspace: "iconoir-box",
+      "Appearance: System": "iconoir-computer",
+      "Your profile": undefined,
+    });
+  });
 });
 
 describe(feature("search.page"), () => {

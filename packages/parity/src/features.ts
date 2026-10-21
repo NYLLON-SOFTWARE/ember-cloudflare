@@ -2340,7 +2340,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/layouts/application.html", "crates/assets/overrides/ember/shell.js", "crates/assets/overrides/zz-ember.css", "crates/assets/overrides/controllers/direct_message_controller.js"],
     upstreamTests: ["parity/kro/workspace.test.mjs"],
-    notes: "Home, Search, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Search on search, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. The logo is the workspace's, on the page's background, or Ember's flame while there's none (`accounts.logo`).",
+    notes: "Home, Search, Activity and Admin, Workspace for members, work: the logo and Home are marked at home, Home on a room's page, Search on search, Admin or Workspace on workspace settings, your avatar on your profile, and nothing on a room's forms or while Activity is on. DMs opens New direct message over the page (`dms.picker`), which opens at its address, `/rooms/directs/new`, in a new tab. The logo is the workspace's, on the page's background, or Ember's flame while there's none (`accounts.logo`). The links draw Iconoir's icons rather than ember-rust's, as the project's owner chose (`ui.icons`).",
   },
   {
     id: "ui.room-header",
@@ -2385,7 +2385,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/appearance.html", "crates/assets/overrides/basecoat/src/appearance.js", "crates/assets/overrides/basecoat/src/workspace-appearance.js", "crates/assets/overrides/basecoat/src/theme-init.js", "crates/assets/overrides/basecoat/src/lifecycle.js", "crates/assets/overrides/ember/appearance.js", "crates/assets/overrides/zz-ember.css", "crates/views/templates/layouts/application.html"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "parity/kro/first-run.test.mjs", "crates/assets/overrides/basecoat/test/lifecycle.test.mjs"],
-    notes: "The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`).",
+    notes: "The menu is a Radix popover rather than the browser's Popover API, so it behaves the same in every browser: opening it focuses the current choice, and Tab closes it and goes on from the button, as ember-rust's menu does where the browser lacks the Popover API. With the API, ember-rust leaves focus on the button as the menu opens and leaves the menu open as focus moves on. The button only exists once the app runs, so there's nothing to keep hidden until then. Every page follows other tabs and the device, setup included, and recolors the browser around it, where ember-rust's setup pages keep the system's theme colors. The `matchbox:appearance` and `campfire:appearance` keys earlier versions saved aren't read, since no browser has them for this app (`platform.rename-compat`). The button and the menu show Iconoir's Sun Light, Half Moon and Computer rather than Lucide's sun, moon and monitor, as the rail's links draw Iconoir's icons (`ui.icons`).",
   },
   {
     id: "ui.scroll",
@@ -2469,7 +2469,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/components/icons.html", "crates/assets/overrides/lucide/catalog.json", "crates/assets/overrides/logos"],
     upstreamTests: ["crates/assets/overrides/basecoat/test/lucide.test.mjs", "parity/kro/workspace.test.mjs"],
-    notes: "Every icon drawn here is ember-rust's: its own line icons, Lucide pinned to the same 1.53.0 (the app's own, each checked against ember-rust's catalog, and every room icon from that catalog, `rooms.icons`), Campfire's SVGs, and the flame on the rail and sign-in page, or the workspace's logo while it has one (`accounts.logo`).",
+    notes: "Every icon drawn here is ember-rust's, but for the rail's links and appearance button: its own line icons, Lucide pinned to the same 1.53.0 (the app's own, each checked against ember-rust's catalog, and every room icon from that catalog, `rooms.icons`), Campfire's SVGs, and the flame on the rail and sign-in page, or the workspace's logo while it has one (`accounts.logo`). The rail's links and appearance button draw Iconoir's icons instead (24×24, stroke 1.5), as the project's owner chose: Home, Multi Bubble for DMs, Bell for Activity, Search, Box for Admin or Workspace, and Sun Light, Half Moon and Computer for Light, Dark and System, from Iconoir 7.12.1, each checked against the release's file.",
   },
 
   // Platform
