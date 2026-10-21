@@ -244,9 +244,14 @@ test.describe(feature("bots.slack-webhook"), () => {
 test.describe(feature("bots.cards"), () => {
   test("an attachment sent to a bot's Slack-compatible webhook shows as a card under its text, on a computer and a phone, in light and dark", async ({ page, browser, baseURL }) => {
     await openBots(page);
+    // A room of its own, so the phone's screen holds no other test's messages, which the audit would check too. It's
+    // made as the app's own page would make it, since over HTTPS a write that doesn't say so is refused as cross-site.
+    const roomName = `Alerts ${crypto.randomUUID().slice(0, 8)}`;
+    const created = await page.request.post("/api/rooms", { headers: { "Sec-Fetch-Site": "same-origin" }, data: { kind: "open", name: roomName } });
+    expect(created.status(), await created.text()).toBe(201);
     const name = `Alert Bot ${crypto.randomUUID().slice(0, 8)}`;
     await addBot(page, name);
-    const webhook = botNamed(page, name).getByRole("group", { name: "general", exact: true }).getByRole("textbox", { name: "Slack-compatible webhook URL" });
+    const webhook = botNamed(page, name).getByRole("group", { name: roomName, exact: true }).getByRole("textbox", { name: "Slack-compatible webhook URL" });
     const url = await webhook.inputValue();
     const room = new URL(url).pathname.replace(/\/[^/]+\/slack$/, "");
     await page.goto(room);
