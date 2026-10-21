@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev -c ../../wrangler.jsonc --var SESSION_SECRET:local-dev-only --var EMBER_GUEST_SIGN_IN:true",
+    "dev": "wrangler dev -c ../../wrangler.jsonc --persist-to .wrangler/state --var SESSION_SECRET:local-dev-only --var EMBER_GUEST_SIGN_IN:true",
     "build": "wrangler deploy -c ../../wrangler.jsonc --dry-run --outdir dist",
     "typecheck": "tsc -p . && tsc -p scripts && tsc -p scripts/tsconfig.test.json",
     "test": "vitest run",

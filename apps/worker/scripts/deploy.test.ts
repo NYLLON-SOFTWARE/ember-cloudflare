@@ -108,6 +108,15 @@ describe(feature("platform.deploy-secrets"), () => {
     expect(output("deploy-args")).toBe("--name ember-production --var GIT_REVISION:abc1234");
   });
 
+  it.each([
+    [["--config", "wrangler.production.jsonc", "--env", "staging"], "secret list --config wrangler.production.jsonc --env staging"],
+    [["-c=wrangler.production.jsonc", "-e", "staging", "--var", "A:b"], "secret list -c=wrangler.production.jsonc -e staging"],
+  ])("lists the secrets of the Worker another config or environment picks, as it deploys that one (%j)", (args, listed) => {
+    deploy(EVERY_SECRET, args);
+    expect(output("list-args")).toBe(listed);
+    expect(output("deploy-args")).toBe(args.join(" "));
+  });
+
   it("lists the secrets of the Worker wrangler.jsonc names when it's given no name, as Deploy to Cloudflare runs it", () => {
     deploy(EVERY_SECRET);
     expect(output("list-args")).toBe("secret list");

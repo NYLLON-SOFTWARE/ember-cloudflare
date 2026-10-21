@@ -2,7 +2,7 @@
 // making them. Deploy to Cloudflare's build runs it as `pnpm run deploy`, and the Preview workflow
 // runs it with its own options, which go on to `wrangler deploy`:
 //
-//   node apps/worker/scripts/deploy.ts [--name <worker>] [--var NAME:value ...]
+//   node apps/worker/scripts/deploy.ts [--name <worker>] [--config <file>] [--var NAME:value ...]
 //
 // Sessions are stored keyed with SESSION_SECRET, so changing it would sign everyone out: the first
 // deploy makes one and later ones keep it. Browsers subscribe to push notifications with
@@ -26,19 +26,23 @@ function wrangler(args: string[], capture: boolean) {
   return spawnSync("pnpm", ["exec", "wrangler", ...args], { cwd: ROOT, encoding: "utf8", stdio: capture ? "pipe" : "inherit" });
 }
 
-/** `--name <worker>` from wrangler deploy's options, or nothing, which leaves it to wrangler.jsonc. */
-function nameOption(args: string[]): string[] {
-  const at = args.findIndex((arg) => arg === "--name" || arg.startsWith("--name="));
-  if (at < 0) return [];
-  return args.slice(at, args[at] === "--name" ? at + 2 : at + 1);
+/** The wrangler options that pick which Worker a command acts on, besides the ones wrangler.jsonc names. */
+const TARGET_OPTIONS = ["--name", "--config", "-c", "--env", "-e"];
+
+/** The options among wrangler deploy's that pick its Worker, so `wrangler secret list` looks at the same one. */
+function targetOptions(args: string[]): string[] {
+  return args.flatMap((arg, at) => {
+    if (TARGET_OPTIONS.includes(arg)) return args.slice(at, at + 2);
+    return TARGET_OPTIONS.some((option) => arg.startsWith(`${option}=`)) ? [arg] : [];
+  });
 }
 
 /**
  * The names of the Worker's secrets, or none when there's no Worker yet. Failing to list them for
  * any other reason throws, rather than replacing ones that may be there.
  */
-function secretNames(nameArgs: string[]): string[] {
-  const listed = wrangler(["secret", "list", ...nameArgs], true);
+function secretNames(target: string[]): string[] {
+  const listed = wrangler(["secret", "list", ...target], true);
   if (listed.status === 0) return (JSON.parse(listed.stdout) as { name: string }[]).map(({ name }) => name);
   if (/Worker "[^"]+" not found/.test(listed.stdout + listed.stderr)) return [];
   throw new Error(`Couldn't list the Worker's secrets:\n${listed.stdout}${listed.stderr}`);
@@ -58,7 +62,7 @@ async function missingSecrets(names: string[]): Promise<Record<string, string>> 
 
 /** Deploys with `args` and the missing secrets, and answers wrangler's exit status. */
 async function deploy(args: string[]): Promise<number> {
-  const secrets = await missingSecrets(secretNames(nameOption(args)));
+  const secrets = await missingSecrets(secretNames(targetOptions(args)));
   const dir = mkdtempSync(path.join(tmpdir(), "ember-deploy-"));
   try {
     const file = path.join(dir, "secrets.json");
