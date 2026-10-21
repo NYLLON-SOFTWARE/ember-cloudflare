@@ -4,7 +4,7 @@
 //   pnpm vapid:keys
 //
 // Browsers subscribe with the public key, so changing a deployment's keys loses every subscription,
-// and everyone has to turn notifications on again. scripts/preview-secrets.sh makes the preview's.
+// and everyone has to turn notifications on again. scripts/deploy.ts makes a deployment's on its first deploy.
 
 import { fileURLToPath } from "node:url";
 

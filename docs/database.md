@@ -5,7 +5,7 @@ choices to adopt as features land.
 
 ## Where the data lives
 
-`STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
+`STORAGE_BACKEND` in `wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
 each room's messages, boosts, recent revocations and deletions, its files' records, and the changes
 the Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
 storage, and the account, people, their sessions, browsers' push subscriptions, bots' webhooks, bans

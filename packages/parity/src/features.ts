@@ -2598,7 +2598,7 @@ export const features = [
     ],
     sources: ["deploy/installer/emberctl.py", "crates/ember/src/admin.rs"],
     upstreamTests: ["crates/ember/src/admin.rs", "deploy/installer/tests/test_installer.py", "deploy/installer/tests/test_install_recovery.py"],
-    notes: "The Preview workflow's `scripts/preview-secrets.sh` writes the secrets a deploy adds, which `wrangler deploy --secrets-file` uploads with the code. Setup takes no token (`auth.protected-setup`), so a deploy adds none.",
+    notes: "`pnpm run deploy` (`apps/worker/scripts/deploy.ts`) makes the secrets a Worker is missing and uploads them with the code through `wrangler deploy --secrets-file`, for Deploy to Cloudflare's builds, which ask the deployer for none, and the Preview workflow alike. Cloudflare's build logs mask nothing, so the script never prints a secret. Setup takes no token (`auth.protected-setup`), so a deploy adds none.",
   },
   {
     id: "platform.manifest",

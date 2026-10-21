@@ -16,11 +16,22 @@
     "test:mobile": "pnpm --filter @ember/e2e test:e2e --project 'mobile *'",
     "screenshots": "pnpm --filter @ember/e2e test:e2e --project screenshots --update-snapshots",
     "parity": "pnpm --filter @ember/parity regenerate",
-    "deploy": "pnpm build && pnpm --filter @ember/worker run deploy",
+    "deploy": "node apps/worker/scripts/deploy.ts",
     "vapid:keys": "node apps/worker/scripts/vapid-keys.ts",
     "perf": "pnpm --filter @ember/perf start"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "wrangler": "^4.149.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "FILES": {
+        "description": "The R2 bucket for the files people upload to rooms. Any name works; the deploy creates it if your account has none by that name."
+      },
+      "STORAGE_BACKEND": {
+        "description": "Where messages live. Keep `do-sqlite`, which needs nothing more; `d1` also needs a D1 database bound as `DB` (see the README)."
+      }
+    }
   }
 }

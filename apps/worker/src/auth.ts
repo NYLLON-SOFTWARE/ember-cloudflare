@@ -55,7 +55,7 @@ export const newSessionToken = () => toBase64url(crypto.getRandomValues(new Uint
  * holds no sessions, and changing the secret signs everyone out, as changing ember-rust's does.
  */
 export async function tokenDigest(token: string, secret: string): Promise<string> {
-  if (!secret) throw new Error("SESSION_SECRET isn't set. Copy apps/worker/.dev.vars.example to .dev.vars.");
+  if (!secret) throw new Error("SESSION_SECRET isn't set. `pnpm dev` and `pnpm run deploy` set it.");
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return toBase64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token))));
 }

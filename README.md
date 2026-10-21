@@ -7,6 +7,11 @@ The design and UX are ported from [ember-rust](https://github.com/NYLLON-SOFTWAR
 NYLLON's Rust fork of Campfire. That repository is the reference for how things should look and
 behave; this one rebuilds it on Workers and Durable Objects.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/NYLLON-SOFTWARE/ember-cloudflare)
+
+The button copies this repository to your GitHub or GitLab account and deploys it to your
+Cloudflare account, as [Deploying](#deploying) describes.
+
 ## Layout
 
 | Path | Package | What |
@@ -35,9 +40,12 @@ Requires Node 22.22.2+, 24.15+ or 26+ (jsdom's supported versions) and pnpm 10.
 
 ```sh
 pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
 pnpm dev            # wrangler dev on :8787 and Vite on :5173 (proxies /api)
 ```
+
+`pnpm dev` sets a `SESSION_SECRET` for your machine and lets anyone sign in with just a name. The
+optional settings, such as push notifications' keys, go in a `.dev.vars` beside `wrangler.jsonc`:
+`.dev.vars.example` lists them.
 
 Open http://localhost:5173 and set up Ember: the first visitor creates the workspace's administrator
 and its rooms, general and random. Then open a second browser, pick a name, and chat with yourself.
@@ -106,12 +114,12 @@ suite started with are in `perf/baseline/report.md`.
 
 ## Storage: Durable Object SQLite or D1
 
-`STORAGE_BACKEND` in `apps/worker/wrangler.jsonc` picks where messages live.
+`STORAGE_BACKEND` in `wrangler.jsonc` picks where messages live.
 
 - **`do-sqlite`** (default): each room's Durable Object keeps its messages in its own SQLite
   storage. Nothing to provision, and reads and writes never leave the object.
 - **`d1`**: messages go to one shared D1 database, which makes cross-room queries (activity,
-  exports) straightforward. Create the database with `wrangler d1 create ember`,
+  exports) straightforward. Create the database with `pnpm exec wrangler d1 create ember`,
   uncomment the `d1_databases` block, set `STORAGE_BACKEND` to `"d1"`, and apply
   `apps/worker/migrations/` with `pnpm --filter @ember/worker d1:migrate:local` (or `--remote`).
 
@@ -123,10 +131,20 @@ one. [`docs/database.md`](docs/database.md) compares them with ember-rust's data
 
 ## Deploying
 
+The Deploy to Cloudflare button at the top asks you to name the repository, the Worker and the R2
+bucket for files (turn R2 on for your account first), then Cloudflare's Workers Builds builds and
+deploys it, and again after every push to the copy. There are no secrets to fill in. To deploy from
+your machine instead, after `pnpm exec wrangler login`:
+
 ```sh
-pnpm --filter @ember/worker exec wrangler secret put SESSION_SECRET
+pnpm build
 pnpm run deploy        # not `pnpm deploy`, which is pnpm's own command
 ```
+
+Either way, `pnpm run deploy` (`apps/worker/scripts/deploy.ts`) makes the Worker's `SESSION_SECRET`
+and a VAPID key pair for push notifications on its first deploy, and later deploys keep them, since
+a new secret would sign everyone out and a new pair would end every push subscription. They go up
+with the code and never appear in the deploy's output.
 
 Then open `https://<your Worker>` and set up Ember. As in Campfire, setup is open to whoever has
 the address until someone sets Ember up, and they become its administrator, so do it as soon as
@@ -134,7 +152,7 @@ it's deployed. There's no setup link or token to keep: Ember leaves out ember-ru
 
 The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator, where ember-rust's
 suggests Jane Cooper. To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
-`EMBER_SETUP_EMAIL_PLACEHOLDER` variables, in `vars` in `apps/worker/wrangler.jsonc` for instance.
+`EMBER_SETUP_EMAIL_PLACEHOLDER` variables, in `vars` in `wrangler.jsonc` for instance.
 
 The administrator then signs in at `/session/new` with the email address and password they set up
 with, and invites people with the join link on general's welcome card.
@@ -147,13 +165,13 @@ checks, as Rails' does, without touching storage.
 
 ### Push notifications
 
-Push notifications need a VAPID key pair. `pnpm vapid:keys` prints a new one as the Worker's two
-settings, for `apps/worker/.dev.vars` or its secrets:
+Push notifications need a VAPID key pair, which the first deploy makes. `pnpm vapid:keys` prints a
+new one as the Worker's two settings, for `.dev.vars` or to replace a deployment's:
 
 ```sh
 pnpm vapid:keys
-pnpm --filter @ember/worker exec wrangler secret put VAPID_PUBLIC_KEY
-pnpm --filter @ember/worker exec wrangler secret put VAPID_PRIVATE_KEY
+pnpm exec wrangler secret put VAPID_PUBLIC_KEY
+pnpm exec wrangler secret put VAPID_PRIVATE_KEY
 ```
 
 Without them push is off, and `/api/health` says why. Keep the pair once people use it: browsers
@@ -169,10 +187,10 @@ of messages sent together, fail and are logged; the Paid plan allows 10,000.
 
 ### Files
 
-The files people upload go to an R2 bucket, bound as `FILES` in `apps/worker/wrangler.jsonc` and
+The files people upload go to an R2 bucket, bound as `FILES` in `wrangler.jsonc` and
 named `ember`. Turn R2 on for your Cloudflare account, then deploy: Wrangler binds the account's
 bucket of that name, and creates it if there's none and its token may, or make it yourself first
-with `pnpm --filter @ember/worker exec wrangler r2 bucket create ember`. Change `bucket_name` to use
+with `pnpm exec wrangler r2 bucket create ember`. Change `bucket_name` to use
 another. `wrangler dev` keeps files on your machine. Without the binding Ember keeps no files, and
 `/api/health` says so.
 
@@ -213,9 +231,9 @@ shell's environment, so set one up just for the reset (add `--name ember-product
 
 ```sh
 export EMBER_RECOVERY_TOKEN=$(openssl rand -hex 32)
-printf %s "$EMBER_RECOVERY_TOKEN" | pnpm --filter @ember/worker exec wrangler secret put EMBER_RECOVERY_TOKEN
+printf %s "$EMBER_RECOVERY_TOKEN" | pnpm exec wrangler secret put EMBER_RECOVERY_TOKEN
 node apps/worker/scripts/reset-password.ts https://<your Worker> ada@example.com
-pnpm --filter @ember/worker exec wrangler secret delete EMBER_RECOVERY_TOKEN
+pnpm exec wrangler secret delete EMBER_RECOVERY_TOKEN
 ```
 
 The script asks for the new password twice without showing it, or reads one line from stdin. All

@@ -4,13 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "dev": "wrangler dev -c ../../wrangler.jsonc --var SESSION_SECRET:local-dev-only --var EMBER_GUEST_SIGN_IN:true",
+    "build": "wrangler deploy -c ../../wrangler.jsonc --dry-run --outdir dist",
     "typecheck": "tsc -p . && tsc -p scripts && tsc -p scripts/tsconfig.test.json",
     "test": "vitest run",
-    "cf-typegen": "wrangler types --include-runtime false",
-    "d1:migrate:local": "wrangler d1 migrations apply ember --local"
+    "cf-typegen": "wrangler types -c ../../wrangler.jsonc --include-runtime false",
+    "d1:migrate:local": "wrangler d1 migrations apply DB -c ../../wrangler.jsonc --local"
   },
   "dependencies": {
     "@ember/protocol": "workspace:*",

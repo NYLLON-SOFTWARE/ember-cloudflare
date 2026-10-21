@@ -46,7 +46,7 @@ CI run only with another CI run.
 ### Backend
 
 Every scenario, and every fan-out room size, starts its own `wrangler dev` with empty storage. Its
-config is generated from `apps/worker/wrangler.jsonc` with `STORAGE_BACKEND` switched and, for D1,
+config is generated from the root `wrangler.jsonc` with `STORAGE_BACKEND` switched and, for D1,
 a local database migrated from `apps/worker/migrations/`. Clients sign in through `/api/session`
 and talk to rooms over real WebSockets, sending the same frames as the web app.
 

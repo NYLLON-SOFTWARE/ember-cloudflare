@@ -1,7 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Kept at the root, beside the workspace, so Deploy to Cloudflare finds it: the button renames the
+  // Worker and the bucket here for each deployer.
   "name": "ember",
-  "main": "src/index.ts",
+  "main": "apps/worker/src/index.ts",
   "compatibility_date": "2026-10-01",
   // Link previews fetch pages people name: this sends those fetches out over the public Internet even
   // when they name a host in this Worker's own zone, rather than straight to its origin.
@@ -17,7 +19,7 @@
   // (/webmanifest.json) and QR codes (/qr_code/<id>) itself, and fetches the app's page for the
   // addresses the app shows a page at. Anything else is a static file or Campfire's 404 page.
   "assets": {
-    "directory": "../web/dist",
+    "directory": "apps/web/dist",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
     "run_worker_first": ["/*", "!/assets/*", "!/browsers/*", "!/globe.svg", "!/logos/*", "!/lucide/*", "!/screenshots/*", "!/shortcuts/*", "!/ember-icon.png", "!/robots.txt"]
@@ -55,9 +57,9 @@
     "STORAGE_BACKEND": "do-sqlite"
   }
 
-  // To use D1, create a database (`wrangler d1 create ember`), paste its id here,
-  // set STORAGE_BACKEND to "d1", and apply migrations/ with `pnpm d1:migrate:local`.
+  // To use D1, create a database (`pnpm exec wrangler d1 create ember`), paste its id here,
+  // set STORAGE_BACKEND to "d1", and apply apps/worker/migrations/ with `pnpm --filter @ember/worker d1:migrate:local`.
   // "d1_databases": [
-  //   { "binding": "DB", "database_name": "ember", "database_id": "<your-database-id>", "migrations_dir": "migrations" }
+  //   { "binding": "DB", "database_name": "ember", "database_id": "<your-database-id>", "migrations_dir": "apps/worker/migrations" }
   // ]
 }
