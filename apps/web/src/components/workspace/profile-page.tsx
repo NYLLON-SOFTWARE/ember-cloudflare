@@ -3,7 +3,9 @@ import {
   AVATAR_TOO_LARGE,
   MAX_AVATAR_SIZE,
   MAX_BIO_LENGTH,
+  MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
+  MAX_USER_NAME_LENGTH,
   type Me,
   type Profile,
   type ProfileAnswer,
@@ -223,6 +225,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               id="user_name"
               autoComplete="name"
               placeholder="Enter your name"
+              maxLength={MAX_USER_NAME_LENGTH}
               required
               data-1p-ignore
               disabled={!fields}
@@ -237,6 +240,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               type="email"
               autoComplete="username"
               placeholder="Enter your email address"
+              maxLength={MAX_EMAIL_ADDRESS_LENGTH}
               disabled={!fields}
               value={fields?.emailAddress ?? ""}
               onChange={change("emailAddress")}

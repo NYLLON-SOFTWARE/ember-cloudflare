@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_SHORT, type NewWorkspace, type SetupPlaceholders } from "@ember/protocol";
+import {
+  MAX_EMAIL_ADDRESS_LENGTH,
+  MAX_PASSWORD_LENGTH,
+  MAX_USER_NAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_TOO_SHORT,
+  type NewWorkspace,
+  type SetupPlaceholders,
+} from "@ember/protocol";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type EmberIconProps } from "@/components/icons/ember";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -100,6 +108,7 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     placeholder={placeholders.name}
+                    maxLength={MAX_USER_NAME_LENGTH}
                     autoComplete="name"
                     autoFocus
                     required
@@ -114,6 +123,7 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
                     value={emailAddress}
                     onChange={(event) => setEmailAddress(event.target.value)}
                     placeholder={placeholders.emailAddress}
+                    maxLength={MAX_EMAIL_ADDRESS_LENGTH}
                     autoComplete="username"
                     required
                     className={INPUT}

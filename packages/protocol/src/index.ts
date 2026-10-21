@@ -789,6 +789,16 @@ export const MAX_FAVORITES = 4_096;
 export const MAX_SHARED_ORDER = 4_096;
 /** The profile's Bio field's `maxlength` (users/profiles/show.html), which the server keeps too. */
 export const MAX_BIO_LENGTH = 200;
+/**
+ * ember-rust has no limit on a person's or a bot's name; this keeps one to what a byline, a mention
+ * and a directory row can show. Every message copies its author's name, so a name of megabytes would
+ * swell a room's storage and every page of its history for everyone in it.
+ */
+export const MAX_USER_NAME_LENGTH = 100;
+/** ember-rust has no limit; no deliverable address is longer (RFC 5321's path limit). */
+export const MAX_EMAIL_ADDRESS_LENGTH = 254;
+export const NAME_TOO_LONG = `Name must be at most ${MAX_USER_NAME_LENGTH} characters`;
+export const EMAIL_ADDRESS_TOO_LONG = `Email address must be at most ${MAX_EMAIL_ADDRESS_LENGTH} characters`;
 
 /** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
@@ -1051,14 +1061,17 @@ export function parseProfileChanges(data: unknown): ProfileChanges | string {
     if (typeof value !== "string") return `${label} must be text`;
     changes[field] = value;
   }
+  if (changes.name !== undefined && changes.name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
+  if (changes.emailAddress !== undefined && changes.emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   if (changes.password !== undefined && isPasswordTooLong(changes.password)) return PASSWORD_TOO_LONG;
   if (changes.bio !== undefined && changes.bio.length > MAX_BIO_LENGTH) return `Bio must be at most ${MAX_BIO_LENGTH} characters`;
   return changes;
 }
 
 /**
- * Parses an untrusted first run or join. Returns why it's refused instead, when a field is missing;
- * the password's length is checked apart from this, since each form has its own rules.
+ * Parses an untrusted first run or join. Returns why it's refused instead, when a field is missing or
+ * the name or email address is longer than Ember keeps; the password's length is checked apart from
+ * this, since each form has its own rules.
  */
 export function parseSignUp(data: unknown): SignUp | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
@@ -1067,6 +1080,8 @@ export function parseSignUp(data: unknown): SignUp | string {
   // Like ember-rust, take the address as typed: the browser checks its shape and trims it.
   const emailAddress = typeof f.emailAddress === "string" ? f.emailAddress : "";
   if (!name || !emailAddress || typeof f.password !== "string") return "Name, email address and password are required";
+  if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
+  if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   return { name, emailAddress, password: f.password };
 }
 

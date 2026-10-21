@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MAX_PASSWORD_LENGTH, type Me } from "@ember/protocol";
+import { MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
@@ -78,6 +78,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               autoFocus
               autoComplete="name"
               placeholder="Name"
+              maxLength={MAX_USER_NAME_LENGTH}
               data-1p-ignore
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -91,6 +92,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               required
               autoComplete="username"
               placeholder="Email address"
+              maxLength={MAX_EMAIL_ADDRESS_LENGTH}
               value={emailAddress}
               onChange={(event) => setEmailAddress(event.target.value)}
               className={FIELD_INPUT}

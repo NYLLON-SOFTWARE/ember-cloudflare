@@ -12,6 +12,10 @@ on:
   pull_request:
     types: [labeled, synchronize]
 
+# The run only reads the repository; its report goes to the step summary and an artifact.
+permissions:
+  contents: read
+
 # A newer push or label replaces a run still in progress on the same pull request.
 concurrency:
   group: perf-${{ github.event.pull_request.number || github.ref }}
