@@ -21,16 +21,23 @@ export async function appPage(request: Request, env: Env, path: string): Promise
   return response;
 }
 
-/** The hashes of the app page's inline scripts, and the ETag of the page they were read from. */
+/**
+ * The hashes of the app page's inline scripts, read from the built page once per build, which its
+ * ETag tells apart. A read that fails is forgotten, so the next page reads again, and the page it
+ * failed for names no script, which costs it the saved appearance until the app applies it.
+ */
 let appScripts: { etag: string | null; hashes: Promise<string[]> } | undefined;
 
-/**
- * The hashes the app page's policy names, read from the built page once per build of it: the page
- * changes only with a deploy, which its ETag tells, so one read serves every page this isolate answers.
- */
 function appScriptHashes(request: Request, env: Env, etag: string | null): Promise<string[]> {
   if (!appScripts || appScripts.etag !== etag) {
-    const hashes = env.ASSETS.fetch(new URL("/", request.url)).then((page) => page.text()).then(inlineScriptHashes);
+    const hashes: Promise<string[]> = env.ASSETS.fetch(new URL("/", request.url))
+      .then((page) => page.text())
+      .then(inlineScriptHashes)
+      .catch((error: unknown) => {
+        console.error("Couldn't read the app's page for its scripts' hashes", error);
+        if (appScripts?.hashes === hashes) appScripts = undefined;
+        return [];
+      });
     appScripts = { etag, hashes };
   }
   return appScripts.hashes;

@@ -72,7 +72,8 @@ export function up(request: Request): Response {
  * logged for whoever runs it.
  */
 export async function health(request: Request, env: Env): Promise<Response> {
-  const detailed = await mayReadDetail(request, env);
+  // Who's asking is read from the storage being checked, so while that's down the check says so below.
+  const detailed = await mayReadDetail(request, env).catch(() => false);
   const storage = env.STORAGE_BACKEND;
   const failed = (error: string, cause?: unknown) => {
     console.error(`Health check failed: ${error}`, ...(cause === undefined ? [] : [cause]));

@@ -146,15 +146,19 @@ describe(feature("platform.health"), () => {
     expect(await told.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "SESSION_SECRET isn't set" });
   });
 
-  it("answers 503 when the Workspace can't read its storage", async () => {
-    const failing = { getByName: () => ({ health: () => Promise.reject(new Error("No such table")) }) };
+  it("answers 503 when the Workspace can't read its storage, to someone signed in too, whose role it can't read either", async () => {
+    const away = () => Promise.reject(new Error("No such table"));
+    const failing = { getByName: () => ({ health: away, me: away }) };
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] });
+    const signedIn = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"] }, withCookie(unknownSession));
     const told = await healthWith({ WORKSPACE: failing as unknown as Env["WORKSPACE"], EMBER_RECOVERY_TOKEN: TOKEN }, asRecovery);
     expect(logged).toHaveBeenCalledWith("Health check failed: Storage isn't answering", expect.any(Error));
     logged.mockRestore();
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ ok: false });
+    expect(signedIn.status).toBe(503);
+    expect(await signedIn.json()).toEqual({ ok: false });
     expect(await told.json()).toEqual({ ok: false, storage: bindings.STORAGE_BACKEND, error: "Storage isn't answering" });
   });
 

@@ -45,6 +45,13 @@ const POLICY =
 
 /** `text`'s SHA-256 in base64, as a policy names a script. */
 const sha256 = async (text: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))));
+/** The upgrade page's inline scripts, as the page is drawn, which its policy must name, in order. */
+const upgradePageScripts = async () => {
+  const response = await page("/", as(OLD_CHROME));
+  const hashes = await inlineScriptHashes(await response.text());
+  expect(response.headers.get("Content-Security-Policy")).toContain(`script-src 'self' ${hashes.map((hash) => `'sha256-${hash}'`).join(" ")};`);
+  return hashes;
+};
 
 describe(feature("platform.health"), () => {
   it("answers /up with Rails' green page", async () => {
@@ -157,11 +164,29 @@ describe(feature("platform.security-headers"), () => {
     expect(await inlineScriptHashes(html)).toEqual(["bhHHL3z2vDgxUt0W3dWQOrprscmda2Y5pLsLg4GF+pI=", await sha256("\n x\n")]);
   });
 
-  it("names the upgrade page's own scripts to its policy", async () => {
-    const response = await page("/", as(OLD_CHROME));
-    const policy = response.headers.get("Content-Security-Policy")!;
-    expect(policy).toMatch(/^default-src 'self'; script-src 'self' 'sha256-[^']+' 'sha256-[^']+'; style-src/);
-    for (const hash of await inlineScriptHashes(await response.text())) expect(policy).toContain(`'sha256-${hash}'`);
+  it("names the upgrade page's own script to its policy: before Ember is set up, the appearance script alone", async () => {
+    expect(await upgradePageScripts()).toHaveLength(1);
+  });
+
+  it("forgets a read of the app's page that failed, so the next page reads it again, and names no script meanwhile", async () => {
+    const html = `<!doctype html><html><head><script>theme()</script></head><body></body></html>`;
+    let calls = 0;
+    const assets = {
+      fetch: async () => {
+        // The first page's own read answers, and its read for the hashes doesn't.
+        if (++calls === 2) throw new Error("Assets are away");
+        return new Response(html, { headers: { "Content-Type": "text/html", ETag: '"built-2"' } });
+      },
+    } as unknown as Fetcher;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const first = await apiWith({ ASSETS: assets }, "/rooms/general");
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Content-Security-Policy")).toBe(POLICY);
+    expect(logged).toHaveBeenCalledWith("Couldn't read the app's page for its scripts' hashes", expect.any(Error));
+    logged.mockRestore();
+    const second = await apiWith({ ASSETS: assets }, "/rooms/general");
+    expect(second.headers.get("Content-Security-Policy")).toBe(POLICY.replace("script-src 'self';", `script-src 'self' 'sha256-${await sha256("theme()")}';`));
+    expect(calls).toBe(4);
   });
 
   it("logs what a browser reports the policy blocked, from any browser, and answers 204", async () => {
@@ -191,10 +216,21 @@ describe(feature("platform.security-headers"), () => {
     logged.mockRestore();
   });
 
-  it("answers 400 to a report that isn't one, 413 to one too long, and 404 to anything but a POST", async () => {
+  it("answers 400 to a report that isn't one, 413 to one over 8 KiB, and 404 to anything but a POST", async () => {
     expect((await api("/csp-report", { method: "POST", body: "not json" })).status).toBe(400);
     expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ hello: 1 }) })).status).toBe(400);
     expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ "csp-report": { "blocked-uri": "x".repeat(9_000) } }) })).status).toBe(413);
+    // Bytes, not characters, and a body sent without its length is read only as far as the limit.
+    expect((await api("/csp-report", { method: "POST", body: JSON.stringify({ "csp-report": { "blocked-uri": "é".repeat(4_500) } }) })).status).toBe(413);
+    let sent = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new Uint8Array(1024).fill(0x78));
+      },
+    });
+    expect((await api("/csp-report", { method: "POST", body: endless })).status).toBe(413);
+    expect(sent).toBeLessThan(16 * 1024);
     for (const method of ["GET", "PUT", "DELETE"]) expect((await api("/csp-report", { method })).status, method).toBe(404);
   });
 
@@ -332,6 +368,8 @@ describe(feature("accounts.translation-buttons"), () => {
     expect((await show(true)).status).toBe(200);
     const html = await upgradePage();
     expect(html).toContain('<summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>');
+    // The globe brings a script of its own, which the policy names beside the appearance one.
+    expect(await upgradePageScripts()).toHaveLength(2);
     const listed = listedIn(html);
     expect(listed.map(([flag]) => flag)).toEqual(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
     expect(listed[0]![1]).toBe("Upgrade to a supported web browser. Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.");

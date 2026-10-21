@@ -67,13 +67,13 @@ interface Violation {
 /**
  * `POST /csp-report`, with what the policy blocked in a browser: logs it, so the Workers Logs show a
  * page the policy got in the way of, and answers 204. A body that isn't a browser's report answers
- * 400, and anything but a POST answers 404, as an address with no page does.
+ * 400, one over 8 KiB, which anyone can send, answers 413 as soon as it's that long, and anything
+ * but a POST answers 404, as an address with no page does.
  */
 export async function cspReport(request: Request): Promise<Response> {
   if (request.method !== "POST") return new Response(null, { status: 404 });
-  if (Number(request.headers.get("Content-Length")) > MAX_REPORT_BYTES) return new Response(null, { status: 413 });
-  const body = await request.text();
-  if (body.length > MAX_REPORT_BYTES) return new Response(null, { status: 413 });
+  const body = await bodyUpTo(request, MAX_REPORT_BYTES);
+  if (body === null) return new Response(null, { status: 413 });
   const violation = violationOf(body);
   if (!violation) return new Response(null, { status: 400 });
   console.warn("Content-Security-Policy violation", {
@@ -85,6 +85,31 @@ export async function cspReport(request: Request): Promise<Response> {
     column: violation["column-number"],
   });
   return new Response(null, { status: 204 });
+}
+
+/** The request's body as text, or null if it holds more than `max` bytes, which it stops reading at. */
+async function bodyUpTo(request: Request, max: number): Promise<string | null> {
+  if (Number(request.headers.get("Content-Length")) > max) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      length += read.value.byteLength;
+      if (length > max) return null;
+      chunks.push(read.value);
+    }
+  } finally {
+    await reader.cancel();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** The report in `body`, if it's a browser's. */
