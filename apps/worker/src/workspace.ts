@@ -557,6 +557,11 @@ export class Workspace extends DurableObject<Env> {
     return emailAddress === null ? null : this.store.passwordFor(emailAddress);
   }
 
+  /** Whose password `emailAddress` signs in with, and its digest as kept now, for a sign-in that found the one it checked replaced. */
+  passwordKept(emailAddress: string): Promise<{ userId: UserId; passwordDigest: string } | null> {
+    return this.store.passwordFor(emailAddress);
+  }
+
   /**
    * Counts a link preview against the limit of the person `credentials` signs in: "limited" past it,
    * null without a valid session.
@@ -571,10 +576,10 @@ export class Workspace extends DurableObject<Env> {
    * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
    * active since, or their password has been reset while it was checked.
    */
-  async startSession(userId: UserId, passwordDigest: string, tokenDigest: string, client: Client): Promise<Me | null> {
+  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startSession(userId, passwordDigest, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startSession(userId, passwordDigest, rehash, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }

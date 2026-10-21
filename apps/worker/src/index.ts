@@ -124,10 +124,20 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
   if (found === "limited") return problem(429, SIGN_IN_REFUSED);
   if (!given) return problem(401, SIGN_IN_REFUSED);
 
-  const matches = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
+  const { matches, rehash } = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
   const token = newSessionToken();
-  const user =
-    found && matches ? await workspace(env).startSession(found.userId, found.passwordDigest, await tokenDigest(token, env.SESSION_SECRET), clientOf(request)) : null;
+  const digest = await tokenDigest(token, env.SESSION_SECRET);
+  const client = clientOf(request);
+  let user = found && matches ? await workspace(env).startSession(found.userId, found.passwordDigest, rehash, digest, client) : null;
+  // Two sign-ins with the same password can arrive together while its digest is one from before
+  // scrypt: the first keeps a new digest, and the second finds the one it checked gone. Its password
+  // is checked against the digest kept now, which a reset meanwhile would have left unlike it.
+  if (!user && found && matches && rehash !== null && given) {
+    const kept = await workspace(env).passwordKept(emailAddress);
+    if (kept && (await passwordHasher(env).verify(password, kept.passwordDigest)).matches) {
+      user = await workspace(env).startSession(kept.userId, kept.passwordDigest, null, digest, client);
+    }
+  }
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }

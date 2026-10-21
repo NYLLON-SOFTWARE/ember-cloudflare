@@ -262,6 +262,9 @@ What a self-hoster should know, beyond setting Ember up as soon as it's deployed
   join link its code; Reset key and Regenerate join link are the remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
   per-request record.
+- Passwords are kept as scrypt digests at OWASP's cost, which takes about a quarter of a second of
+  CPU in a Durable Object of its own; digests from before scrypt are replaced as their passwords
+  sign in.
 - Sessions last 400 days, refresh on use, and survive the person's own password change; an
   administrator's reset, deactivation or ban ends them within a minute.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
