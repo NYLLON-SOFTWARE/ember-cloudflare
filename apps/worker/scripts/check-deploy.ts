@@ -61,11 +61,12 @@ async function checkSetup(baseUrl: string): Promise<{ fine: boolean; said: strin
   if (!response.ok) throw new Error(`/api/bootstrap answered ${response.status}`);
   const { setup, setupAccess } = (await response.json()) as Bootstrap;
   const link = `${new URL("/first_run", baseUrl).href}#token=<the token>`;
-  const newToken = "openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN";
+  // `wrangler secret put` asks for the value, so the person sees the token they make, which a pipe would hide.
+  const newToken = "make one with openssl rand -hex 32 and give it to the Worker with wrangler secret put EMBER_SETUP_TOKEN (plus its --name, if it isn't wrangler.jsonc's), which asks for it";
   if (setup === "complete") return { fine: true, said: "Ember is set up" };
-  if (setupAccess === "link") return { fine: true, said: `Setup is waiting for the setup link the deploy printed (lost it? ${newToken}, then open ${link})` };
+  if (setupAccess === "link") return { fine: true, said: `Setup is waiting for the setup link the deploy printed (if it's lost, ${newToken}, then open ${link})` };
   if (setupAccess === "open") return { fine: true, said: "Setup is waiting, open to whoever is here" };
-  return { fine: false, said: `Setup is waiting, and nobody can do it: the Worker has no EMBER_SETUP_TOKEN. Deploy with pnpm run deploy, or ${newToken}, then open ${link}` };
+  return { fine: false, said: `Setup is waiting, and nobody can do it: the Worker has no EMBER_SETUP_TOKEN. Deploy it with pnpm run deploy, which makes one and prints the link, or ${newToken}, then open ${link}` };
 }
 
 async function check(baseUrl: string): Promise<void> {

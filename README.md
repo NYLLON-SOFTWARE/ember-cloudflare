@@ -155,10 +155,11 @@ Ember. Only that link opens the form, so nobody who merely finds the address can
 the administrator, as ember-rust's installer-printed setup link makes sure, and once Ember is set up
 the link is spent: setup closes for good, as in Campfire. The token rides in the link's fragment,
 which no request or log sees. `/first_run` opened without it says all this, and if the link is lost,
-give the Worker a new token and open the link with that one:
+make a new token, give it to the Worker, and open the link with that one:
 
 ```sh
-openssl rand -hex 32 | pnpm exec wrangler secret put EMBER_SETUP_TOKEN
+openssl rand -hex 32                              # the new token: keep it
+pnpm exec wrangler secret put EMBER_SETUP_TOKEN   # asks for it; add --name <worker> for a Worker not named in wrangler.jsonc
 ```
 
 On localhost, where `wrangler dev` serves, setup is open to whoever's there unless `.dev.vars`
@@ -227,7 +228,8 @@ the workflow prints no setup link and makes no setup token: the Worker takes its
 deploy, and the run's log then says to open `<the preview>/first_run#token=<your token>` to set
 Ember up. Without the secret, the deploy check says nobody can set the preview up until you deploy
 it from a terminal with `pnpm run deploy --name ember-production`, which makes a token and prints
-the link, or give it one with `wrangler secret put EMBER_SETUP_TOKEN --name ember-production`.
+the link, or make one with `openssl rand -hex 32` and give it to the preview with
+`wrangler secret put EMBER_SETUP_TOKEN --name ember-production`, which asks for it.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
 you add them, become the preview's setup form placeholders.

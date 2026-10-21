@@ -97,39 +97,48 @@ async function missingSecrets(names: string[]): Promise<{ secrets: Record<string
   return { secrets, setupToken };
 }
 
-/** The Worker's address, from wrangler's record of the deploy in `outputFile`, or null where it recorded none. */
+/**
+ * The Worker's address, from wrangler's record of this deploy in `outputFile`, or null where it recorded
+ * none. wrangler appends a record to the file for each deploy, so a file the environment keeps may hold
+ * earlier deploys' records, maybe other Workers', before this one's: the last record is this deploy's.
+ */
 function deployedUrl(outputFile: string): string | null {
   if (!existsSync(outputFile)) return null;
-  const targets = readFileSync(outputFile, "utf8")
+  const records = readFileSync(outputFile, "utf8")
     .split("\n")
     .flatMap((line) => {
       try {
-        const entry = JSON.parse(line) as { type?: string; targets?: string[] };
-        return entry.type === "deploy" ? (entry.targets ?? []) : [];
+        return [JSON.parse(line) as { type?: string; targets?: string[] }];
       } catch {
         return [];
       }
     });
+  const targets = records.findLast((record) => record.type === "deploy")?.targets ?? [];
   return targets.find((target) => target.endsWith(".workers.dev")) ?? targets[0] ?? null;
 }
 
-/** Says how to set Ember up at `url`, as what became of the Worker's setup token allows. */
-function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: string | null): void {
+/**
+ * Says how to set Ember up at `url`, as what became of the Worker's setup token allows, naming the
+ * Worker as the deploy's `target` options do, so a new token goes to the Worker deployed, not wrangler.jsonc's.
+ */
+function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: string | null, target: string[]): void {
   const page = `${(url ?? "https://<your Worker>").replace(/\/$/, "")}/first_run#token=`;
-  const newToken = "openssl rand -hex 32 | pnpm exec wrangler secret put EMBER_SETUP_TOKEN";
+  // `wrangler secret put` asks for the value, so the person sees the token they make, which a pipe would hide.
+  const newToken = `make one with openssl rand -hex 32, give it to the Worker with ${["pnpm exec wrangler secret put EMBER_SETUP_TOKEN", ...target].join(" ")}, which asks for it, and open ${page}<the token>`;
   if (setupToken === "made") {
-    console.log(`\nSet up Ember at ${page}${token}\nThat link carries this deployment's setup token, printed only now, and is spent once Ember is set up. For a new one: ${newToken}`);
+    console.log(`\nSet up Ember at ${page}${token}\nThat link carries this deployment's setup token, printed only now, and is spent once Ember is set up. If it's lost, ${newToken}`);
   } else if (setupToken === "given") {
     console.log(`\nSet up Ember at ${page}<your EMBER_SETUP_TOKEN>`);
   } else if (setupToken === "withheld") {
-    const notice = `Nobody can set Ember up until the Worker has an EMBER_SETUP_TOKEN secret, and this log may be public, so this deploy made none. Set EMBER_SETUP_TOKEN in the deploy's environment from a secret of your own (openssl rand -hex 32) and deploy again, or run ${newToken}; then open ${page}<the token>`;
+    const notice = `Nobody can set Ember up until the Worker has an EMBER_SETUP_TOKEN secret, and this log may be public, so this deploy made none. Set EMBER_SETUP_TOKEN in the deploy's environment from a secret of your own (openssl rand -hex 32) and deploy again, then open ${page}<your EMBER_SETUP_TOKEN>; or ${newToken}`;
     console.log(process.env.GITHUB_ACTIONS === "true" ? `::notice::${notice}` : `\n${notice}`);
   }
 }
 
 /** Deploys with `args` and the missing secrets, says how to set Ember up, and answers wrangler's exit status. */
 async function deploy(args: string[]): Promise<number> {
-  const { secrets, setupToken } = await missingSecrets(secretNames(targetOptions(args)));
+  const target = targetOptions(args);
+  const { secrets, setupToken } = await missingSecrets(secretNames(target));
   const dir = mkdtempSync(path.join(tmpdir(), "ember-deploy-"));
   try {
     const file = path.join(dir, "secrets.json");
@@ -139,7 +148,7 @@ async function deploy(args: string[]): Promise<number> {
     // wrangler records what it deployed, the Worker's address among it, in the file the environment names, else one of this deploy's own.
     const output = process.env.WRANGLER_OUTPUT_FILE_PATH || path.join(dir, "wrangler-output.json");
     const status = wrangler(["deploy", "--secrets-file", file, ...args], false, { WRANGLER_OUTPUT_FILE_PATH: output }).status ?? 1;
-    if (status === 0) tellSetupLink(setupToken, secrets.EMBER_SETUP_TOKEN, deployedUrl(output));
+    if (status === 0) tellSetupLink(setupToken, secrets.EMBER_SETUP_TOKEN, deployedUrl(output), target);
     return status;
   } finally {
     rmSync(dir, { recursive: true, force: true });

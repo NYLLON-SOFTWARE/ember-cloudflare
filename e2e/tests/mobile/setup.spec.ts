@@ -32,7 +32,7 @@ test("the setup link screen fits the phone", async ({ page, screenIsFine }) => {
   await page.route("**/api/bootstrap", (route) => route.fulfill({ json: { ...PENDING, setupAccess: "link" } }));
   await page.goto("/first_run");
   await expect(page.getByText("Ember is waiting for its administrator.")).toBeVisible();
-  await expect(page.getByText("openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN")).toBeVisible();
+  await expect(page.getByText("wrangler secret put EMBER_SETUP_TOKEN")).toBeVisible();
   await screenIsFine();
 });
 

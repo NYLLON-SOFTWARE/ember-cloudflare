@@ -36,8 +36,10 @@ import { loadPage } from "@/lib/page";
 const TITLE = "Set up Ember";
 /** What's in a setup link's fragment, read as ember-rust's setup_access.js reads its link's token. */
 const setupTokenOf = (hash: string) => new URLSearchParams(hash.slice(1)).get("token") || null;
-/** Makes the Worker a new setup token; the link then carries it. */
-const NEW_TOKEN = "openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN";
+/** Makes a new setup token where the person sees it; `wrangler secret put` then asks for it, where a pipe would hide it. */
+const NEW_TOKEN = "openssl rand -hex 32";
+/** Gives the Worker the token made; the link then carries it. */
+const PUT_TOKEN = "wrangler secret put EMBER_SETUP_TOKEN";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */
 const INPUT = "h-10 touch:h-11 rounded-[0.7rem] bg-card pr-3 pl-9 text-base shadow-none md:text-base dark:bg-card focus-visible:border-input focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring";
 const FIELD_ICON = "pointer-events-none absolute top-1/2 left-3 z-[1] size-[1.125rem] -translate-y-1/2 text-muted-foreground";
@@ -177,8 +179,8 @@ function SetupLinkNeeded() {
           setup token, so only whoever deployed it can set it up.
         </p>
         <p>
-          The link is in the output of <Code>pnpm run deploy</Code>, or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. If it's lost, give the
-          Worker a new token with <Code>{NEW_TOKEN}</Code> and open the link with that token.
+          The link is in the output of <Code>pnpm run deploy</Code>, or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. If it's lost, make a
+          new token with <Code>{NEW_TOKEN}</Code>, give it to the Worker with <Code>{PUT_TOKEN}</Code>, which asks for it, and open the link with that token.
         </p>
       </Notice>
     </SetupCard>
@@ -192,8 +194,8 @@ function SetupClosed() {
       <Notice>
         <p>This deployment has no setup token, so there's no setup link to open.</p>
         <p>
-          Deploy it with <Code>pnpm run deploy</Code>, which makes a token and prints the link, or give the Worker one yourself with <Code>{NEW_TOKEN}</Code> and open{" "}
-          <Code>{`${location.origin}/first_run#token=<the token>`}</Code>.
+          Deploy it with <Code>pnpm run deploy</Code>, which makes a token and prints the link, or make one with <Code>{NEW_TOKEN}</Code>, give it to the Worker with{" "}
+          <Code>{PUT_TOKEN}</Code>, which asks for it, and open <Code>{`${location.origin}/first_run#token=<the token>`}</Code>.
         </p>
       </Notice>
     </SetupCard>

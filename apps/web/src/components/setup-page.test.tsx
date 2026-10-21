@@ -250,7 +250,9 @@ describe(feature("auth.protected-setup"), () => {
     expect(screen.getByText("Ember is waiting for its administrator.")).toBeInTheDocument();
     expect(linkShape()).toBeInTheDocument();
     expect(screen.getByText("pnpm run deploy")).toBeInTheDocument();
-    expect(screen.getByText("openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN")).toBeInTheDocument();
+    // Made where it can be seen, then given to `wrangler secret put`, which asks for it, rather than piped out of sight.
+    expect(screen.getByText("openssl rand -hex 32")).toBeInTheDocument();
+    expect(screen.getByText("wrangler secret put EMBER_SETUP_TOKEN")).toBeInTheDocument();
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Skip to main content" })).toBeInTheDocument();
@@ -271,6 +273,7 @@ describe(feature("auth.protected-setup"), () => {
     render(<SetupPage placeholders={DEFAULTS} access="closed" onSetUp={() => {}} />);
     expect(screen.getByText("Nobody can set it up yet.")).toBeInTheDocument();
     expect(screen.getByText("This deployment has no setup token, so there's no setup link to open.")).toBeInTheDocument();
+    expect(screen.getByText("wrangler secret put EMBER_SETUP_TOKEN")).toBeInTheDocument();
     expect(screen.getByText(`${location.origin}/first_run#token=<the token>`)).toBeInTheDocument();
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
   });

@@ -160,7 +160,24 @@ describe(feature("auth.protected-setup"), () => {
     expect(secrets).toEqual({ EMBER_SETUP_TOKEN: expect.stringMatching(SECRET) });
     expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
     expect(logs).toContain("printed only now");
-    expect(logs).toContain("openssl rand -hex 32 | pnpm exec wrangler secret put EMBER_SETUP_TOKEN");
+    // A new token is made where the person sees it, then given to `wrangler secret put`, which asks for it: a pipe would hide it.
+    expect(logs).toContain("make one with openssl rand -hex 32, give it to the Worker with pnpm exec wrangler secret put EMBER_SETUP_TOKEN, which asks for it");
+    expect(logs).not.toContain("openssl rand -hex 32 |");
+  });
+
+  it("names the Worker deployed in how to make a new token, so it doesn't go to wrangler.jsonc's", () => {
+    const { logs } = deploy(withoutSetupToken, ["--name", "ember-production", "--config=../wrangler.jsonc", "--var", "GIT_REVISION:abc1234"]);
+    expect(logs).toContain("pnpm exec wrangler secret put EMBER_SETUP_TOKEN --name ember-production --config=../wrangler.jsonc, which asks for it");
+  });
+
+  it("reads this deploy's address from an output file that wrangler appended earlier deploys' records to", () => {
+    const outputFile = path.join(dir, "kept-output.json");
+    writeFileSync(outputFile, `${JSON.stringify({ version: 1, type: "deploy", targets: ["https://earlier.example.workers.dev"] })}\n`);
+    const { secrets, logs } = deploy(withoutSetupToken, [], { env: { WRANGLER_OUTPUT_FILE_PATH: outputFile } });
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
+    expect(logs).not.toContain("earlier.example");
+    // And left the file for the environment that keeps it, with this deploy's record after the earlier one.
+    expect(readFileSync(outputFile, "utf8").trim().split("\n")).toHaveLength(2);
   });
 
   it("keeps the setup token a Worker has, and says nothing of a link it can't know", () => {
@@ -209,7 +226,8 @@ describe(feature("auth.protected-setup"), () => {
     expect(secrets).toEqual({ SESSION_SECRET: expect.any(String), VAPID_PUBLIC_KEY: expect.any(String), VAPID_PRIVATE_KEY: expect.any(String) });
     expect(logs).not.toContain("Set up Ember at");
     expect(logs).toContain("this log may be public, so this deploy made none");
-    expect(logs).toContain(`${WORKER_URL}/first_run#token=<the token>`);
+    expect(logs).toContain(`${WORKER_URL}/first_run#token=<your EMBER_SETUP_TOKEN>`);
+    expect(logs).toContain(`pnpm exec wrangler secret put EMBER_SETUP_TOKEN, which asks for it, and open ${WORKER_URL}/first_run#token=<the token>`);
     expect(logs).not.toContain("::notice::");
   });
 
