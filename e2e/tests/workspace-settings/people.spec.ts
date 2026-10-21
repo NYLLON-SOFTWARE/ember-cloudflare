@@ -1,6 +1,7 @@
 import { feature } from "@ember/parity";
 import { SIGN_IN_REFUSED, type Directory } from "@ember/protocol";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 

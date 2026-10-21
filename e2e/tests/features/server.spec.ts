@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { feature } from "@ember/parity";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, expectsPolicyViolation, test } from "../../fixtures";
 
 // What the Worker answers whoever asks: its headers, /up, its error pages, and the page for browsers
 // too old to run Ember. These start signed out and need no rooms, so they use Playwright's own fixtures: with the
@@ -88,12 +91,22 @@ test.describe(feature("platform.security-headers"), () => {
     await showInFrame("/session/new");
     await expect(page.frameLocator("iframe").getByRole("heading", { name: "Sign in to Ember" })).toBeVisible();
 
-    // The same server by another name is another site to the browser.
-    await page.goto(`${baseURL!.replace("127.0.0.1", "localhost")}/up`);
-    const framed = page.waitForResponse(`${baseURL}/session/new`);
-    await showInFrame(`${baseURL}/session/new`);
-    expect((await framed).headers()["x-frame-options"]).toBe("SAMEORIGIN");
-    await expect.poll(() => page.frames()[1]?.url()).toMatch(/^chrome-error:/);
+    // Another site on this machine, with a page of its own, since a page of Ember's couldn't try: its
+    // policy lets it frame only Ember. (Chrome lets no site elsewhere reach this machine's addresses.)
+    const site = createServer((_, response) => response.writeHead(200, { "Content-Type": "text/html" }).end("<!doctype html><title>Another site</title>"));
+    await new Promise<void>((resolve) => site.listen(0, resolve));
+    expectsPolicyViolation("frame-ancestors");
+    try {
+      await page.goto(`http://localhost:${(site.address() as AddressInfo).port}/`);
+      const framed = page.waitForResponse(`${baseURL}/session/new`);
+      await showInFrame(`${baseURL}/session/new`);
+      const headers = (await framed).headers();
+      expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+      expect(headers["content-security-policy"]).toContain("frame-ancestors 'self'");
+      await expect.poll(() => page.frames()[1]?.url()).toMatch(/^chrome-error:/);
+    } finally {
+      site.close();
+    }
   });
 });
 

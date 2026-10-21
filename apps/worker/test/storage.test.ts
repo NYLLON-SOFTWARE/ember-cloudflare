@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { openDb, statement } from "../src/db";
 import type { Env } from "../src/env";
 import { MIGRATIONS, migrate, SEARCH_MIGRATIONS, type Scope } from "../src/migrations";
-import { api, connect, freshRoom, objectSql, post, roomSql, roomStub, searchIndexStub, workspaceStub } from "./support";
+import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, searchIndexStub, workspaceStub } from "./support";
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Exclude<Scope, "search">, string[]> = {
@@ -51,7 +51,10 @@ const roomMigrations = MIGRATIONS.filter((migration) => migration.scope === "roo
 // The whole worker suite runs twice, once per STORAGE_BACKEND (see vitest.config.ts).
 describe(feature("platform.storage"), () => {
   it("keeps messages in the backend STORAGE_BACKEND names", async () => {
-    const { storage } = (await (await api("/api/health")).json()) as { storage: string };
+    // /api/health tells whoever sends the recovery token which storage that is.
+    const token = "ab".repeat(32);
+    const health = await apiWith({ EMBER_RECOVERY_TOKEN: token }, "/api/health", { headers: { Authorization: `Bearer ${token}` } });
+    const { storage } = (await health.json()) as { storage: string };
     const db = (env as { DB?: D1Database }).DB;
     expect(storage).toBe(db ? "d1" : "do-sqlite");
     if (!db) return;

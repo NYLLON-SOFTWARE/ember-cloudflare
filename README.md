@@ -174,9 +174,9 @@ pnpm exec wrangler secret put VAPID_PUBLIC_KEY
 pnpm exec wrangler secret put VAPID_PRIVATE_KEY
 ```
 
-Without them push is off, and `/api/health` says why. Keep the pair once people use it: browsers
-subscribe with its public key, so a new pair leaves everyone to turn notifications on again. A pair
-from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
+Without them push is off, and `/api/health` tells an administrator why. Keep the pair once people
+use it: browsers subscribe with its public key, so a new pair leaves everyone to turn notifications
+on again. A pair from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
 
 A new message is pushed from its room's Durable Object as the room tells the Workspace of it, to the
 subscriptions of the members who aren't viewing the room and want to hear of it. Push services may
@@ -192,7 +192,7 @@ named `ember`. Turn R2 on for your Cloudflare account, then deploy: Wrangler bin
 bucket of that name, and creates it if there's none and its token may, or make it yourself first
 with `pnpm exec wrangler r2 bucket create ember`. Change `bucket_name` to use
 another. `wrangler dev` keeps files on your machine. Without the binding Ember keeps no files, and
-`/api/health` says so.
+`/api/health` tells an administrator so.
 
 A file goes up in parts of 10 MiB, since a Worker takes at most 100 MB a request, and R2 puts them
 back together. R2 deletes the parts of an upload nobody finishes after a week.
@@ -218,8 +218,10 @@ Its version, under the sign-in page's help contact, is the commit it deployed. A
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
-and whether Ember is set up yet. The preview's link is on the run's summary and under the
-repository's Deployments.
+and whether Ember is set up yet. `/api/health` tells strangers only whether Ember is up; with the
+Worker's `EMBER_RECOVERY_TOKEN` in its environment, the check hears which storage it uses too, and
+why when it's down. The preview's link is on the run's summary and under the repository's
+Deployments.
 
 ### Resetting a password
 
@@ -241,6 +243,34 @@ the person's sessions end, and their open tabs go to sign in. Their role and sta
 were, so someone deactivated or banned still can't sign in. Whoever has the token can take over any
 account, so delete the secret once you're done; without it, the endpoint answers 404, as any
 address the API doesn't have does.
+
+### Security notes
+
+What a self-hoster should know, beyond setting Ember up as soon as it's deployed:
+
+- Every answer carries a `Content-Security-Policy` beside Rails' headers: scripts only from your
+  Worker, images from any HTTPS site, since link previews show their page's image, and no page of
+  Ember's in a frame elsewhere. When the policy gets in the way of something in a browser, the
+  browser reports it to `/csp-report` and the Worker logs it, so look there if a page misbehaves.
+- An administrator can make a sign-in link for anyone, administrators included, which signs in as
+  that person for 4 hours, more than once. Its id travels in the address's fragment, which no log
+  sees.
+- A file's address is signed and never expires: whoever has it can open the file until its message
+  is deleted, as with Active Storage's links.
+- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Workers
+  Logs record each request's address, which for Campfire's bot API holds the bot's key and for the
+  join link its code; Reset key and Regenerate join link are the remedies if a log is shared, and
+  `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
+  per-request record.
+- Sessions last 400 days, refresh on use, and survive the person's own password change; an
+  administrator's reset, deactivation or ban ends them within a minute.
+- `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
+  `wrangler dev`, as `.dev.vars.example` says.
+- Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
+  the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
+  resetting a password, as above.
+- `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
+  recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
 
 ## Status
 

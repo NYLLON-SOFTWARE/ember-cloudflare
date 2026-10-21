@@ -1,4 +1,5 @@
 import { isHttps } from "./auth";
+import { contentSecurityPolicy } from "./csp";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
 import { versionOf } from "./version";
@@ -50,20 +51,28 @@ export function redirectToHttps(request: Request): Response {
 interface Additions {
   /** X-Version and X-Rev, which ember-rust's before-actions add to every answer but /up's. */
   version: boolean;
+  /**
+   * The Content-Security-Policy (csp.ts), which a room's files go without: nothing served from
+   * /files/ can run script, as HTML and SVG go as downloads, and Chrome's PDF viewer is particular
+   * about a policy on what it shows.
+   */
+  policy?: boolean;
 }
 
 /**
  * `response` with the headers ember-rust's answers carry: Rails' defaults, where it hasn't set its
- * own; the version, if asked; and HSTS, wherever HTTPS is required. A socket's upgrade goes as it is,
- * as ember-rust's live connection carries none of them.
+ * own; the version, if asked; and HSTS, wherever HTTPS is required; and, beyond ember-rust's, the
+ * policy, where it hasn't set its own. A socket's upgrade goes as it is, as ember-rust's live
+ * connection carries none of them.
  */
-export function withHeaders(response: Response, request: Request, env: Env, { version }: Additions): Response {
+export function withHeaders(response: Response, request: Request, env: Env, { version, policy = true }: Additions): Response {
   if (response.webSocket) return response;
   // The assets' and Durable Objects' answers can't be changed, so this is a copy.
   const answer = new Response(response.body, response);
   for (const [name, value] of Object.entries(DEFAULT_HEADERS)) {
     if (!answer.headers.has(name)) answer.headers.set(name, value);
   }
+  if (policy && !answer.headers.has("Content-Security-Policy")) answer.headers.set("Content-Security-Policy", contentSecurityPolicy(request));
   if (version) {
     answer.headers.set("X-Version", versionOf(env));
     // Rails leaves out a header that's nil, but sends one that's blank.

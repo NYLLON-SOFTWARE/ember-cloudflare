@@ -2,7 +2,8 @@ import { createServer, type IncomingHttpHeaders, type ServerResponse } from "nod
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { feature } from "@ember/parity";
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import type { APIResponse, Page } from "@playwright/test";
+import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 

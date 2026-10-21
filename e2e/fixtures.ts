@@ -346,7 +346,25 @@ export interface AppFixtures {
   participant: (name: string) => Promise<Participant>;
 }
 
+/** What Chromium logs when a page's Content-Security-Policy blocks something, which is all a browser does about it. */
+const CSP_VIOLATION = /Content Security Policy/;
+/** The annotation a test that means to see the policy refuse something carries, naming the directive. */
+const EXPECTED_VIOLATION = "policy-violation";
+
+/** Says the test means to see the policy refuse something under `directive`, which otherwise fails it. */
+export const expectsPolicyViolation = (directive: string) => test.info().annotations.push({ type: EXPECTED_VIOLATION, description: directive });
+
 export const test = base.extend<AppFixtures>({
+  // The Worker's policy applies to every page a test opens in its context, and a test fails if the
+  // policy got in the way of anything on them, which the browser only logs, unless it said it would.
+  context: async ({ context }, use, testInfo) => {
+    const blocked: string[] = [];
+    context.on("page", (page) => page.on("console", (message) => void (CSP_VIOLATION.test(message.text()) && blocked.push(message.text()))));
+    await use(context);
+    const expected = testInfo.annotations.filter((annotation) => annotation.type === EXPECTED_VIOLATION).map((annotation) => annotation.description);
+    const unexpected = blocked.filter((message) => !expected.some((directive) => message.includes(`directive: "${directive}`)));
+    expect(unexpected, "The Content-Security-Policy blocked something on the page").toEqual([]);
+  },
   session: async ({ request }, use) => {
     await use(await createSession(request, "Test Person"));
   },

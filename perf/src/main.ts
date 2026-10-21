@@ -15,7 +15,8 @@ const USAGE = `Usage: pnpm perf [backend] [web] [options]
   --quick              Smaller rooms and fewer runs: a smoke test in a few minutes.
   --storage <list>     do-sqlite, d1, or both (the default). Backend only.
   --scenario <list>    ${SCENARIOS.join(", ")}. Backend only.
-  --url <url>          Test a server that's already running instead of starting wrangler dev. Backend only.
+  --url <url>          Test a server that's already running instead of starting wrangler dev. Backend only; --storage names
+                       its backend, or EMBER_RECOVERY_TOKEN in the environment lets /api/health tell it.
   --out <dir>          Where to write results.json and report.md (default perf/results/<time>).
   --threshold <pct>    For compare: how much worse a metric may get before it counts (default 10).`;
 
@@ -59,8 +60,10 @@ async function run(): Promise<Results> {
   const results: Results = { environment: environment(profileName, target), backend: {}, web: null };
 
   if (suites.includes("backend")) {
-    // A running server has one storage backend, whatever --storage says.
-    const storages = values.url ? [(await existingServer(values.url)).storage] : pick<Storage>(values.storage, STORAGES, "storage");
+    // A running server has one storage backend: the one --storage names, else the one /api/health tells.
+    const named = values.url && values.storage ? pick<Storage>(values.storage, STORAGES, "storage") : [];
+    if (named.length > 1) throw new Error("--url tests one server, so --storage names one backend.");
+    const storages = values.url ? [(await existingServer(values.url, named[0])).storage] : pick<Storage>(values.storage, STORAGES, "storage");
     const scenarios = pick<Scenario>(values.scenario, SCENARIOS, "scenario");
     for (const storage of storages) {
       results.backend[storage] = await runBackend({ storage, url: values.url }, profile, scenarios, log);

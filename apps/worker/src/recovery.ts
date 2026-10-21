@@ -26,7 +26,7 @@ const problem = (status: number, message: string) => Response.json({ error: mess
  * takes the same time whatever it carries. Never while the secret is unset, or set to something that
  * can't be a token.
  */
-async function carriesRecoveryToken(request: Request, env: Env): Promise<boolean> {
+export async function carriesRecoveryToken(request: Request, env: Env): Promise<boolean> {
   const token = env.EMBER_RECOVERY_TOKEN;
   if (token === undefined) return false;
   if (!RECOVERY_TOKEN.test(token)) {

@@ -96,9 +96,11 @@ order" means writes finished in a different order than they started.
   replicates each write before confirming it, and D1 is a network round trip to its primary.
 - Local D1 is simulated inside the same `workerd` process. Local D1 numbers are therefore a floor:
   in production every D1 read and write also pays that round trip, which can cross regions.
-- `pnpm perf backend --url https://<worker>` runs the backend scenarios against a deployed Worker
-  to get real network numbers. It creates users and messages there and generates real load, so use
-  a staging deployment, never production. CPU and memory aren't available remotely.
+- `pnpm perf backend --url https://<worker> --storage do-sqlite` runs the backend scenarios against
+  a deployed Worker to get real network numbers; `--storage` names its backend, or `/api/health`
+  tells it when `EMBER_RECOVERY_TOKEN` in the environment is the Worker's. It creates users and
+  messages there and generates real load, so use a staging deployment, never production. CPU and
+  memory aren't available remotely.
 
 ## Layout
 

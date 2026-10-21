@@ -1,4 +1,5 @@
 import { TRANSLATIONS } from "@ember/protocol";
+import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
 import { isAppleMessages, isUnsupportedBrowser } from "./user-agent";
@@ -188,6 +189,9 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 export const isFromUnsupportedBrowser = (request: Request) =>
   request.headers.get("Upgrade") !== "websocket" && isUnsupportedBrowser(request.headers.get("User-Agent"));
 
+/** The hashes of the page's two inline scripts, which its policy names, worked out once. */
+let scriptHashes: Promise<string[]> | undefined;
+
 /**
  * The upgrade page, titled "Ember" for Apple Messages' link previews rather than with a warning, with the
  * globe once the workspace shows translation buttons.
@@ -195,5 +199,8 @@ export const isFromUnsupportedBrowser = (request: Request) =>
 export async function unsupportedBrowserPage(request: Request, env: Env): Promise<Response> {
   const title = isAppleMessages(request.headers.get("User-Agent")) ? "Ember" : "Unsupported browser";
   const account = await workspace(env).account();
-  return new Response(page(title, account?.hideTranslationButtons === false), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const policy = contentSecurityPolicy(request, await (scriptHashes ??= inlineScriptHashes(page("", true))));
+  return new Response(page(title, account?.hideTranslationButtons === false), {
+    headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": policy },
+  });
 }

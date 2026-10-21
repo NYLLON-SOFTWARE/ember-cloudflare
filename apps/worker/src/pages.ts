@@ -1,5 +1,6 @@
 import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, workspacePageOf } from "@ember/protocol";
 import { sessionToken } from "./auth";
+import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
 
@@ -8,14 +9,31 @@ import { notFound } from "./error-pages";
 
 /**
  * One of the built app's pages, from its static assets, with headers this response can change. The
- * request's own headers go along, so a browser that has the page already hears it's unchanged.
+ * request's own headers go along, so a browser that has the page already hears it's unchanged. Its
+ * policy names the page's inline script, which applies the saved appearance before first paint.
  */
 export async function appPage(request: Request, env: Env, path: string): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method, headers: request.headers }));
   const response = new Response(page.body, page);
   response.headers.set("Link", preloadsFor(request));
   response.headers.append("Vary", "Cookie");
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy(request, await appScriptHashes(request, env, page.headers.get("ETag"))));
   return response;
+}
+
+/** The hashes of the app page's inline scripts, and the ETag of the page they were read from. */
+let appScripts: { etag: string | null; hashes: Promise<string[]> } | undefined;
+
+/**
+ * The hashes the app page's policy names, read from the built page once per build of it: the page
+ * changes only with a deploy, which its ETag tells, so one read serves every page this isolate answers.
+ */
+function appScriptHashes(request: Request, env: Env, etag: string | null): Promise<string[]> {
+  if (!appScripts || appScripts.etag !== etag) {
+    const hashes = env.ASSETS.fetch(new URL("/", request.url)).then((page) => page.text()).then(inlineScriptHashes);
+    appScripts = { etag, hashes };
+  }
+  return appScripts.hashes;
 }
 
 /**

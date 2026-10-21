@@ -66,6 +66,7 @@ import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
+import { CSP_REPORT_PATH, cspReport } from "./csp";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -784,10 +785,13 @@ const tooManyRequests = () => new Response(null, { status: 429, headers: { "Cont
 /** What the app's routes answer, before the headers every answer gets. */
 async function route(request: Request, env: Env, pathname: string): Promise<Response> {
   // The deploy check isn't a browser's, any more than /up is.
-  if (pathname === "/api/health") return health(env);
+  if (pathname === "/api/health") return health(request, env);
   // Nor is password recovery's script, whose token another site's page can't send, since its header
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
+  // A browser's report of what a page's policy blocked comes without the page's cookies or origin,
+  // and from any browser the page reached.
+  if (pathname === CSP_REPORT_PATH) return cspReport(request);
   const write = request.method !== "GET" && request.method !== "HEAD";
   // Nor are a room's files, which ember-rust serves from Active Storage's controllers rather than
   // Campfire's, to whoever has the address, whatever their browser.
@@ -809,7 +813,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === TRANSFER_PATH) return transferPage(request, env);
   const manifestFormat = manifestFormatOf(pathname);
   if (manifestFormat !== null && !write) return manifest(env, manifestFormat);
-  if (pathname.startsWith("/qr_code/")) return showQrCode(request);
+  if (pathname.startsWith("/qr_code/")) return showQrCode(request, env);
   const avatarToken = avatarTokenOf(pathname);
   if (avatarToken !== null) return showAvatar(request, env, avatarToken);
   if (isAccountLogoPath(pathname)) return showAccountLogo(request, env);
@@ -842,7 +846,8 @@ export default {
     // /up skips ember-rust's before-actions, so it's never checked and carries no version, and
     // Active Storage's files, which Campfire's controllers don't serve, carry none either.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
+    const isFile = fileAddressOf(pathname) !== null;
     const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, pathname, error));
-    return withHeaders(response, request, env, { version: !isUp && !fileAddressOf(pathname) });
+    return withHeaders(response, request, env, { version: !isUp && !isFile, policy: !isFile });
   },
 } satisfies ExportedHandler<Env>;

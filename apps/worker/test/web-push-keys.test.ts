@@ -30,9 +30,12 @@ const SMALLEST = {
 /** Neither key, where this suite's Worker has a pair. */
 const UNSET: Keys = { VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined };
 
+/** A recovery token, which /api/health describes the deployment to whoever sends. */
+const TOKEN = "ab".repeat(32);
+
 /** What /api/health says of push from a Worker with `keys`. */
 async function healthWith(keys: Keys): Promise<unknown> {
-  const response = await apiWith(keys, "/api/health");
+  const response = await apiWith({ ...keys, EMBER_RECOVERY_TOKEN: TOKEN }, "/api/health", { headers: { Authorization: `Bearer ${TOKEN}` } });
   expect(response.status).toBe(200);
   return ((await response.json()) as { push: unknown }).push;
 }

@@ -169,10 +169,23 @@ export async function startServer(storage: Storage, assetsDir?: string): Promise
   return { url, storage, usage: () => processTreeUsage(child.pid!), stop };
 }
 
-/** Points at a server someone else started, such as `pnpm dev` or a deployed Worker. */
-export async function existingServer(url: string): Promise<Server> {
-  const health = (await (await fetch(new URL("/api/health", url))).json()) as { storage: Storage };
-  return { url, storage: health.storage, usage: async () => null, stop: async () => {} };
+/**
+ * Points at a server someone else started, such as `pnpm dev` or a deployed Worker, which uses
+ * `storage`, or whichever /api/health says it does.
+ */
+export async function existingServer(url: string, storage?: Storage): Promise<Server> {
+  return { url, storage: storage ?? (await storageOf(url)), usage: async () => null, stop: async () => {} };
+}
+
+/** Which storage the server at `url` uses, which /api/health tells only an administrator or whoever sends EMBER_RECOVERY_TOKEN. */
+async function storageOf(url: string): Promise<Storage> {
+  const token = process.env.EMBER_RECOVERY_TOKEN;
+  const response = await fetch(new URL("/api/health", url), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const health = (await response.json()) as { storage?: Storage };
+  if (!health.storage) {
+    throw new Error("/api/health tells only an administrator, or whoever sends EMBER_RECOVERY_TOKEN, which storage the server uses: set it in the environment, or pass --storage.");
+  }
+  return health.storage;
 }
 
 const CLOCK_TICKS = 100; // USER_HZ, which is 100 on every Linux we'd run this on.
