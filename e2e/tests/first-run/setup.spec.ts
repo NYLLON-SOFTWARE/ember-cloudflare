@@ -2,20 +2,39 @@ import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, shownPicture } from "../../fixtures";
+import { SETUP_TOKEN } from "../../projects/first-run";
 
 // Each test server starts empty, so this sets it up through the Set up Ember page before any other
 // suite runs; they then find the workspace, its general and random rooms, and its administrator there.
+// The server has a setup token, as a deployed Worker has, so the page takes the setup link that
+// carries it (`auth.protected-setup`), which `wrangler dev` on localhost without one wouldn't ask for.
 
 test.describe(feature("auth.first-run"), () => {
-  test("the first visitor sets up Ember and lands in general as its administrator", async ({ page, request }) => {
-    const { setup } = (await (await request.get("/api/bootstrap")).json()) as Bootstrap;
+  test("whoever has the setup link sets up Ember and lands in general as its administrator", async ({ page, request }) => {
+    const { setup, setupAccess } = (await (await request.get("/api/bootstrap")).json()) as Bootstrap;
     test.skip(setup === "complete", "The test server was set up by an earlier run, which reuseExistingServer kept");
+    expect(setupAccess).toBe("link");
 
+    // Without the link, the page says to open it, and the form's post is refused before it's read.
     await page.goto("/");
     await expect(page).toHaveURL(/\/first_run$/);
     await expect(page).toHaveTitle("Set up Ember");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Set up Ember");
+    await expect(page.getByText("Ember is waiting for its administrator.")).toBeVisible();
+    await expect(page.getByText(`${new URL(page.url()).origin}/first_run#token=…`)).toBeVisible();
+    await expect(page.getByLabel("Name")).toHaveCount(0);
+    // Sent as the app's own page would send it, since over HTTPS a write that doesn't say so is refused as cross-site.
+    const withoutLink = await request.post("/api/first_run", {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+      data: { name: "Mallory", emailAddress: "mallory@example.com", password: "12345678" },
+    });
+    expect(withoutLink.status()).toBe(403);
+    expect(await withoutLink.json()).toEqual({ error: "Open the setup link the deploy printed to set up Ember" });
+
+    // The link's token leaves the address as the page opens, and goes with the form instead.
+    await page.goto(`/first_run#token=${SETUP_TOKEN}`);
     await expect(page.getByLabel("Name")).toBeFocused();
+    await expect(page).toHaveURL(/\/first_run$/);
     // The test server names no placeholders of its own, so the form suggests the defaults.
     await expect(page.getByLabel("Name")).toHaveAttribute("placeholder", "Kevin Rose");
     await expect(page.getByLabel("Email address")).toHaveAttribute("placeholder", "kevin@kevinrose.com");
@@ -46,6 +65,7 @@ test.describe(feature("auth.first-run"), () => {
     await password.fill(ADMINISTRATOR.password);
     await page.getByRole("button", { name: "Show password" }).click();
     await expect(password).toHaveAttribute("type", "text");
+    const length = await page.evaluate(() => history.length);
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
@@ -61,7 +81,7 @@ test.describe(feature("auth.first-run"), () => {
     await expect(page.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(/\/join\/[A-Za-z\d]{4}-[A-Za-z\d]{4}-[A-Za-z\d]{4}$/);
     // Setup took the page's place, so Back doesn't return to it.
-    expect(await page.evaluate(() => history.length)).toBe(2);
+    expect(await page.evaluate(() => history.length)).toBe(length);
 
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
@@ -69,11 +89,16 @@ test.describe(feature("auth.first-run"), () => {
     await page.goto("/first_run");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
     expect(new URL(page.url()).pathname).not.toBe("/first_run");
-    // Sent as the app's own page would send it, since over HTTPS a write that doesn't say so is refused as cross-site.
+    // The link is spent: with its token the form is told Ember is set up, and without it nothing more.
     const again = await request.post("/api/first_run", {
-      headers: { "Sec-Fetch-Site": "same-origin" },
+      headers: { "Sec-Fetch-Site": "same-origin", Authorization: `Bearer ${SETUP_TOKEN}` },
       data: { name: "Mallory", emailAddress: "mallory@example.com", password: "12345678" },
     });
     expect(again.status()).toBe(409);
+    const withoutLinkAgain = await request.post("/api/first_run", {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+      data: { name: "Mallory", emailAddress: "mallory@example.com", password: "12345678" },
+    });
+    expect(withoutLinkAgain.status()).toBe(403);
   });
 });

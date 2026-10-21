@@ -90,6 +90,24 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
+describe(feature("auth.protected-setup"), () => {
+  it("sends the setup link's token as a bearer token, with a photo or without, and none without a link", async () => {
+    const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({}, { status: 201 }));
+    const sentHeaders = (call: number) => new Headers(fetch.mock.calls[call]![1]!.headers);
+    await setUpWorkspace(ada, null, "e2e1".repeat(16));
+    expect(sentHeaders(0).get("Authorization")).toBe(`Bearer ${"e2e1".repeat(16)}`);
+    expect(sentHeaders(0).get("Content-Type")).toBe("application/json");
+
+    await setUpWorkspace(ada, { file: new File(["ada"], "ada.jpg", { type: "image/jpeg" }), variant: null }, "e2e1".repeat(16));
+    expect(sentHeaders(1).get("Authorization")).toBe(`Bearer ${"e2e1".repeat(16)}`);
+    expect(sentHeaders(1).has("Content-Type")).toBe(false);
+
+    await setUpWorkspace(ada);
+    expect(sentHeaders(2).has("Authorization")).toBe(false);
+  });
+});
+
 describe(feature("users.avatar-upload"), () => {
   it("changes your avatar with a form of the photo and its variant, and removes it", async () => {
     const answer = { profile: { name: "Ada", emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true }, transferId: "u1.t" } satisfies ProfileAnswer;

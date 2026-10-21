@@ -1,6 +1,7 @@
 import { isPasswordTooLong, isPasswordTooShort, parsePasswordReset } from "@ember/protocol";
 import type { Env } from "./env";
 import { passwordHasher } from "./passwords";
+import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
 import { workspace } from "./workspace";
 
 // Password recovery, which ember-rust does with `ember reset-password <email>` beside its database
@@ -11,32 +12,24 @@ import { workspace } from "./workspace";
 /** The recovery endpoint's address. */
 export const RECOVERY_PATH = "/api/recovery/reset-password";
 
-/** EMBER_RECOVERY_TOKEN's shape: 32 random bytes as hex, from `openssl rand -hex 32`. */
-const RECOVERY_TOKEN = /^[0-9a-f]{64}$/;
-
 /** What emberctl says once it's done, since the endpoint closes the person's live connections as emberctl's restart does. */
 const PASSWORD_RESET = "Password updated; existing sessions and live connections for this user were revoked.";
 
-const encoder = new TextEncoder();
-const sha256 = (text: string) => crypto.subtle.digest("SHA-256", encoder.encode(text));
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
 /**
- * Whether the request's bearer token is EMBER_RECOVERY_TOKEN, compared by SHA-256 so the comparison
- * takes the same time whatever it carries. Never while the secret is unset, or set to something that
- * can't be a token.
+ * Whether the request's bearer token is EMBER_RECOVERY_TOKEN, compared in constant time (secrets.ts).
+ * Never while the secret is unset, or set to something that can't be a token.
  */
 export async function carriesRecoveryToken(request: Request, env: Env): Promise<boolean> {
   const token = env.EMBER_RECOVERY_TOKEN;
   if (token === undefined) return false;
-  if (!RECOVERY_TOKEN.test(token)) {
+  if (!isSecretToken(token)) {
     // Never the value, which may be most of a real token.
     console.error("EMBER_RECOVERY_TOKEN must be 64 lowercase hex characters (openssl rand -hex 32), so password recovery is refused");
     return false;
   }
-  const given = request.headers.get("Authorization")?.match(/^Bearer (.+)$/i)?.[1] ?? "";
-  const [expected, actual] = await Promise.all([sha256(token), sha256(given)]);
-  return crypto.subtle.timingSafeEqual(expected, actual);
+  return isToken(bearerTokenOf(request), token);
 }
 
 /**

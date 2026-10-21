@@ -79,7 +79,7 @@ import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
-import { firstRun, isSetupPath, setupPage, setupPlaceholdersOf } from "./setup";
+import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
 import { unfurlLink } from "./unfurl";
@@ -166,6 +166,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
   ]);
   const body: Bootstrap = {
     setup: account ? "complete" : "pending",
+    setupAccess: setupAccessOf(request, env),
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env),
     account: account ?? ACCOUNT_BEFORE_SETUP,

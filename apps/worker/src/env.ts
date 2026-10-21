@@ -35,6 +35,12 @@ export interface Env {
   /** What the Set up Ember form suggests for their email address in place of "kevin@kevinrose.com". */
   EMBER_SETUP_EMAIL_PLACEHOLDER?: string;
   /**
+   * 64 lowercase hex characters (`openssl rand -hex 32`) that the deploy's setup link carries, which
+   * is what lets its holder set Ember up (setup.ts). `pnpm run deploy` makes one for a Worker that has
+   * none. Unset, setup is closed, except over loopback, where `wrangler dev` serves.
+   */
+  EMBER_SETUP_TOKEN?: string;
+  /**
    * 64 lowercase hex characters (`openssl rand -hex 32`) that let apps/worker/scripts/reset-password.ts
    * reset anyone's password. Unset, nothing can, so set it only while it's needed.
    */

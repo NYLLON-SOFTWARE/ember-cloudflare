@@ -1,17 +1,39 @@
-import { isPasswordTooLong, isPasswordTooShort, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type NewWorkspace, type SetupPlaceholders } from "@ember/protocol";
+import {
+  isPasswordTooLong,
+  isPasswordTooShort,
+  parseSignUp,
+  PASSWORD_TOO_LONG,
+  PASSWORD_TOO_SHORT,
+  type NewWorkspace,
+  type SetupAccess,
+  type SetupPlaceholders,
+} from "@ember/protocol";
 import { clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
+import { isLoopbackHost } from "./headers";
 import { appPage, empty, formAnswer, home, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
+import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
 import { workspace } from "./workspace";
 
 // First run, which creates the workspace and its first administrator. Ported from ember-rust's
 // crates/ember/src/controllers/first_runs.rs, path for path, except that the form posts to
-// /api/first_run. Setup is open to whoever opens it first, as in Campfire and as ember-rust's is
-// without a setup token: Ember leaves out ember-rust's private setup link (first_runs/access.rs),
-// whose lock got in the way of setting a deployment up.
+// /api/first_run. Whoever has the deploy's setup link sets Ember up, and nobody else: the link ends in
+// the EMBER_SETUP_TOKEN secret that `pnpm run deploy` makes for a Worker (apps/worker/scripts/deploy.ts),
+// which the Set up Ember page reads off the address's fragment and sends as the form's bearer token, so
+// the first stranger to find a new deployment can't make themselves its administrator. Unlike
+// ember-rust's private setup link (first_runs/access.rs), there's no cookie, lock or expiry: setup
+// closes once an administrator exists, which is all the link needs. Over loopback, where `wrangler dev`
+// serves and nobody on the Internet can reach, a deployment without a token is open, as Campfire is.
+
+/** What `POST /api/first_run` answers without the setup link's token. */
+export const SETUP_LINK_NEEDED = "Open the setup link the deploy printed to set up Ember";
+/** What it answers to a token that isn't this deployment's. */
+export const SETUP_LINK_REFUSED = "This setup link isn't this deployment's. Open the one its latest deploy printed";
+/** What it answers while the deployment has no setup token, which only a deploy, or `wrangler secret put`, gives it. */
+export const NO_SETUP_TOKEN = "This deployment has no setup token, so nobody can set it up until a deploy makes one";
 
 /**
  * What the Set up Ember form suggests, as `/api/bootstrap` tells the app: the deployment's own name and
@@ -22,6 +44,35 @@ export const setupPlaceholdersOf = (env: Env): SetupPlaceholders => ({
   name: env.EMBER_SETUP_NAME_PLACEHOLDER?.trim() || "Kevin Rose",
   emailAddress: env.EMBER_SETUP_EMAIL_PLACEHOLDER?.trim() || "kevin@kevinrose.com",
 });
+
+/** The deployment's setup token, or null where there's none, or it's set to something that can't be one. */
+const setupTokenOf = (env: Env): string | null => (isSecretToken(env.EMBER_SETUP_TOKEN) ? env.EMBER_SETUP_TOKEN : null);
+
+/** Whether EMBER_SETUP_TOKEN is set, but to something that can't be a token, which closes setup as if it were unset. */
+const hasMalformedSetupToken = (env: Env) => !!env.EMBER_SETUP_TOKEN && !isSecretToken(env.EMBER_SETUP_TOKEN);
+
+/**
+ * How setup can be reached from `request`, as `/api/bootstrap` tells the app: with the deploy's setup
+ * link, open to whoever is here (over loopback, with no token set), or closed until a deploy makes one.
+ */
+export function setupAccessOf(request: Request, env: Env): SetupAccess {
+  if (setupTokenOf(env) !== null) return "link";
+  return isLoopbackHost(request) ? "open" : "closed";
+}
+
+/** Why `request` may not set Ember up, or null where it carries the deploy's setup token, or setup is open to it. */
+async function setupRefusal(request: Request, env: Env): Promise<Response | null> {
+  const token = setupTokenOf(env);
+  if (token === null) {
+    if (isLoopbackHost(request)) return null;
+    // Never the value, which may be most of a real token.
+    if (hasMalformedSetupToken(env)) console.error("EMBER_SETUP_TOKEN must be 64 lowercase hex characters (openssl rand -hex 32), so setup is closed");
+    return formAnswer({ error: NO_SETUP_TOKEN }, 403);
+  }
+  const given = bearerTokenOf(request);
+  if (await isToken(given, token)) return null;
+  return formAnswer({ error: given ? SETUP_LINK_REFUSED : SETUP_LINK_NEEDED }, 403);
+}
 
 const isSetUp = async (env: Env) => (await workspace(env).account()) !== null;
 
@@ -52,6 +103,9 @@ export async function setupPage(request: Request, env: Env): Promise<Response> {
  * first administrator, with the photo it brings, and signs this browser in as them.
  */
 export async function firstRun(request: Request, env: Env): Promise<Response> {
+  // Before the form is read, let alone anything hashed or saved: only the deploy's setup link opens setup.
+  const refused = await setupRefusal(request, env);
+  if (refused) return refused;
   const setUp = { error: "Ember is already set up", redirect: "/" };
   if (await isSetUp(env)) return formAnswer(setUp, 409);
 

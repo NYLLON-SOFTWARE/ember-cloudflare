@@ -62,7 +62,7 @@ export function App() {
           if (stopped) return;
           replaceInstallPromptsFor(workspace.platform);
           const atSetup = location.pathname === SETUP_PATH;
-          // Until Ember is set up, every page is setup's, which the Worker serves or keeps locked.
+          // Until Ember is set up, every page is setup's, which says what it takes where it isn't open.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
           // The join page is for someone signed out, as in ember-rust, which sends anyone else home.
@@ -145,7 +145,7 @@ export function App() {
   // As in ember-rust, a sign-in link signs in whoever opens it, even someone signed in as someone else.
   const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atTransfer;
   const page = () => {
-    if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} onSetUp={setUp} />;
+    if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />;
     if (atTransfer) return <TransferPage />;
     // Someone else's workspace starts afresh, with their own rooms and sockets.
     if (showsWorkspace)

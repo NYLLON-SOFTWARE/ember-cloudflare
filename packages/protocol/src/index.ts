@@ -397,10 +397,20 @@ export interface SetupPlaceholders {
   emailAddress: string;
 }
 
+/**
+ * How setup can be reached from where the app runs: with the deploy's setup link, which ends in the
+ * deployment's `EMBER_SETUP_TOKEN` secret; open to whoever is here, over loopback, where `wrangler dev`
+ * serves, while no token is set; or closed until a deploy, or `wrangler secret put EMBER_SETUP_TOKEN`,
+ * gives the deployment a token.
+ */
+export type SetupAccess = "link" | "open" | "closed";
+
 /** What the app asks first (`GET /api/bootstrap`): whether Ember is set up, and who this browser is signed in as. */
 export interface Bootstrap {
   /** "pending" until first run creates the workspace and its first administrator. */
   setup: "pending" | "complete";
+  /** What setting Ember up takes from here, while it's pending. */
+  setupAccess: SetupAccess;
   /**
    * What the Set up Ember form suggests: Kevin Rose's name and email address, unless the deployment names
    * its own with `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`.
