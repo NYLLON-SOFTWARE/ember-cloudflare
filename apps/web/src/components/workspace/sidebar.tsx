@@ -1,7 +1,6 @@
 import { useId, useMemo, useState, type MouseEvent } from "react";
 import type { Favorites, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { MessagesAdd } from "@/components/icons/campfire";
-import { GripVertical } from "@/components/icons/lucide";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
@@ -52,14 +51,15 @@ interface Props {
 /**
  * The conversation list: rooms, then DMs, under the workspace name. The starred rooms come first, then
  * the ones the shared order ranks, in its order, then the rest by name, and a starred room's row ends
- * with a grip and a star, as channel_order_controller.js marks it (`.mb-room-drag-handle`,
- * `.mb-room-favorite-marker`): held, it can be dragged among the other starred rows, or moved with Alt
- * and an arrow (`useStarOrder`). The DMs come latest active first, and a DM's row shows who else is in
- * it, as ember-rust's `_direct.html` does. People suggested for DMs follow, as ember-rust's
- * `_direct_placeholder.html` lists them. A room or DM marked unread is bold with a dot at the end of its
- * row, as ember-rust's `.unread` and `.mb-room-status` are (zz-ember.css). With Activity on, only those
- * rows show, as shell.js's `filterRooms` leaves them, and with none it says everything's read; with it
- * off and nothing to list, it says it found nothing.
+ * with a star, as channel_order_controller.js marks it (`.mb-room-favorite-marker`), without the grip
+ * it shows before the star (`.mb-room-drag-handle`), which the project's owner chose to drop: held, the
+ * row can be dragged among the other starred rows, or moved with Alt and an arrow (`useStarOrder`). The
+ * DMs come latest active first, and a DM's row shows who else is in it, as ember-rust's `_direct.html`
+ * does. People suggested for DMs follow, as ember-rust's `_direct_placeholder.html` lists them. A room
+ * or DM marked unread is bold with a dot at the end of its row, as ember-rust's `.unread` and
+ * `.mb-room-status` are (zz-ember.css). With Activity on, only those rows show, as shell.js's
+ * `filterRooms` leaves them, and with none it says everything's read; with it off and nothing to list,
+ * it says it found nothing.
  */
 export function Sidebar({
   workspaceName,
@@ -153,16 +153,10 @@ export function Sidebar({
               >
                 <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
                 <span className="truncate">{room.name}</span>
-                {/* The grip, dot and star sit together at the row's end. ember-rust's grip and dot each take an auto
-                    margin, which leaves an unread starred row's grip halfway along. */}
+                {/* The dot and star sit together at the row's end, pushed there by one auto margin. */}
+                {unread && <span aria-hidden="true" className="ml-auto size-[7px] shrink-0 rounded-full bg-foreground" />}
                 {star && (
-                  <span aria-hidden="true" className="ml-auto inline-flex shrink-0 text-muted-foreground">
-                    <GripVertical className="size-3.5" />
-                  </span>
-                )}
-                {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !star && "ml-auto")} />}
-                {star && (
-                  <span role="img" aria-label="Favorite" className="shrink-0 text-[14px] text-muted-foreground">
+                  <span role="img" aria-label="Favorite" className={cn("shrink-0 text-[14px] text-muted-foreground", !unread && "ml-auto")}>
                     ★
                   </span>
                 )}

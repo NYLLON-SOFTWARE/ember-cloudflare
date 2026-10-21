@@ -170,24 +170,23 @@ describe(feature("sidebar.shared-order"), () => {
 });
 
 describe(feature("sidebar.favorites"), () => {
-  it("ends a starred room's row with a grip and a star, around its unread dot, which screen readers hear as Favorite", () => {
+  it("ends a starred room's row with a star, after its unread dot, which screen readers hear as Favorite", () => {
     renderSidebar({ rooms: [rooms[0]!, { ...rooms[1]!, unread: true }], favorites: { rooms: ["general", "random"], version: 2 } });
     const [general, random] = rows();
     const star = within(general!).getByRole("img", { name: "Favorite" });
     expect(star).toHaveTextContent("★");
-    expect(star).toHaveClass("text-[14px]", "text-muted-foreground");
+    expect(star).toHaveClass("ml-auto", "text-[14px]", "text-muted-foreground");
     expect(general!.lastElementChild).toBe(star);
-    const grip = star.previousElementSibling!;
-    expect(grip).toHaveAttribute("aria-hidden", "true");
-    expect(grip).toHaveClass("ml-auto", "text-muted-foreground");
-    expect(grip.querySelector("svg")).toHaveClass("size-3.5");
+    // Without the grip ember-rust shows before it.
+    expect(star.previousElementSibling).toHaveTextContent(/^general$/);
+    expect(general!.querySelector("svg")).toBeNull();
 
-    // The grip takes the space before the dot.
-    const [handle, dot, marker] = Array.from(random!.children).slice(-3);
-    expect(handle).toHaveClass("ml-auto");
-    expect(dot).toHaveClass("rounded-full");
-    expect(dot).not.toHaveClass("ml-auto");
+    // The dot takes the space before the star.
+    const [name, dot, marker] = Array.from(random!.children).slice(-3);
+    expect(name).toHaveTextContent(/^random$/);
+    expect(dot).toHaveClass("ml-auto", "rounded-full");
     expect(marker).toHaveAccessibleName("Favorite");
+    expect(marker).not.toHaveClass("ml-auto");
   });
 
   it("leaves the other rows without one", () => {
