@@ -15,6 +15,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const grace = { id: "u2", name: "Grace Hopper" };
 const workspace: Omit<Bootstrap, "user"> = {
   setup: "complete",
+  setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },

@@ -45,7 +45,7 @@ const sent = () => vi.mocked(fetch).mock.calls.at(-1)![1]!.body;
 
 describe(feature("auth.first-run"), () => {
   it("asks for the administrator's name, email address and password", () => {
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     expect(document.title).toBe("Set up Ember");
     expect(screen.getByRole("region", { name: "Set up Ember" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe(feature("auth.first-run"), () => {
   });
 
   it("shows and hides the password", async () => {
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const password = screen.getByLabelText("Password");
     const toggle = screen.getByRole("button", { name: "Show password" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -89,7 +89,7 @@ describe(feature("auth.first-run"), () => {
     const length = history.length;
     const fetch = answer(201, workspace);
     const onSetUp = vi.fn();
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={onSetUp} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={onSetUp} />);
     await fillIn("correct horse");
 
     await waitFor(() => expect(onSetUp).toHaveBeenCalledWith(workspace));
@@ -103,7 +103,7 @@ describe(feature("auth.first-run"), () => {
 
   it("starts the password over when it's too short, keeping the name and email", async () => {
     answer(422, { error: PASSWORD_TOO_SHORT, field: "password" });
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     await fillIn("🔐🔐🔐🔐");
 
     const password = await screen.findByLabelText("Password");
@@ -119,14 +119,14 @@ describe(feature("auth.first-run"), () => {
 
   it("goes home when someone else set Ember up first", async () => {
     answer(409, { error: "Ember is already set up", redirect: "/" });
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     await fillIn("correct horse");
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
   });
 
   it("says so when Ember can't be reached, and lets you try again", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const user = await fillIn("correct horse");
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
 
@@ -137,7 +137,7 @@ describe(feature("auth.first-run"), () => {
   });
 
   it("offers a photo, optional, which shows as it's chosen, as ember-rust's `ui::avatar` does", async () => {
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     expect(preview()).toHaveAttribute("src", avatarPlaceholder);
     expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
     expect(photoField()).toHaveAccessibleDescription("Add a profile photo (optional).");
@@ -150,7 +150,7 @@ describe(feature("auth.first-run"), () => {
   it("sends the photo chosen, and its variant, with the rest of the form", async () => {
     answer(201, workspace);
     const onSetUp = vi.fn();
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={onSetUp} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={onSetUp} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("correct horse");
 
@@ -163,7 +163,7 @@ describe(feature("auth.first-run"), () => {
 
   it("keeps the photo when the password is too short", async () => {
     answer(422, { error: PASSWORD_TOO_SHORT, field: "password" });
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("🔐🔐🔐🔐");
 
@@ -174,7 +174,7 @@ describe(feature("auth.first-run"), () => {
 
   it("keeps the photo it sends until it's answered", async () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     await fillIn("correct horse");
 
@@ -184,7 +184,7 @@ describe(feature("auth.first-run"), () => {
 
   it("refuses a photo over 16 MB at once, saying so in place of its description", async () => {
     answer(201, workspace);
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const huge = moon();
     Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
     await userEvent.upload(photoField(), huge);
@@ -200,7 +200,7 @@ describe(feature("auth.first-run"), () => {
 
   it("lets go of a photo the Worker refuses, saying why, so the form can be sent without it", async () => {
     const fetch = answer(503, { error: "Ember isn't set up to store files", field: "avatar" });
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     await userEvent.upload(photoField(), moon());
     const user = await fillIn("correct horse");
 
@@ -214,9 +214,87 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
+describe(feature("auth.protected-setup"), () => {
+  const token = "e2e1".repeat(16);
+  const link = `/first_run#token=${token}`;
+  /** The link the Worker printed, as the page tells it: this deployment's address with the token's place. */
+  const linkShape = () => screen.getByText(`${location.origin}/first_run#token=…`);
+
+  it("sends the setup link's token with the form, having taken it out of the address as it opened", async () => {
+    history.replaceState(null, "", link);
+    const fetch = answer(201, workspace);
+    const onSetUp = vi.fn();
+    render(<SetupPage placeholders={DEFAULTS} access="link" onSetUp={onSetUp} />);
+    expect(location.hash).toBe("");
+    expect(location.pathname).toBe("/first_run");
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await fillIn("correct horse");
+
+    await waitFor(() => expect(onSetUp).toHaveBeenCalledWith(workspace));
+    expect(new Headers(fetch.mock.calls[0]![1]!.headers).get("Authorization")).toBe(`Bearer ${token}`);
+  });
+
+  it("sends no token where setup is open, as it is on localhost", async () => {
+    const fetch = answer(201, workspace);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
+    await fillIn("correct horse");
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    expect(new Headers(fetch.mock.calls[0]![1]!.headers).has("Authorization")).toBe(false);
+  });
+
+  it("asks for the setup link, saying where it is and what to do without it, in the form's place", () => {
+    history.replaceState(null, "", "/first_run");
+    render(<SetupPage placeholders={DEFAULTS} access="link" onSetUp={() => {}} />);
+    expect(document.title).toBe("Set up Ember");
+    expect(screen.getByRole("heading", { level: 1, name: "Set up Ember" })).toBeInTheDocument();
+    expect(screen.getByText("Ember is waiting for its administrator.")).toBeInTheDocument();
+    expect(linkShape()).toBeInTheDocument();
+    expect(screen.getByText("pnpm run deploy")).toBeInTheDocument();
+    expect(screen.getByText("openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to main content" })).toBeInTheDocument();
+  });
+
+  it("opens the setup link pasted over this page's address", async () => {
+    history.replaceState(null, "", "/first_run");
+    render(<SetupPage placeholders={DEFAULTS} access="link" onSetUp={() => {}} />);
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+
+    history.replaceState(null, "", link);
+    dispatchEvent(new HashChangeEvent("hashchange"));
+    expect(await screen.findByLabelText("Name")).toBeInTheDocument();
+    expect(location.hash).toBe("");
+  });
+
+  it("says nobody can set Ember up while the deployment has no setup token, and how to give it one", () => {
+    render(<SetupPage placeholders={DEFAULTS} access="closed" onSetUp={() => {}} />);
+    expect(screen.getByText("Nobody can set it up yet.")).toBeInTheDocument();
+    expect(screen.getByText("This deployment has no setup token, so there's no setup link to open.")).toBeInTheDocument();
+    expect(screen.getByText(`${location.origin}/first_run#token=<the token>`)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
+
+  it("shows the form even without a token where setup is open, whatever the address says", () => {
+    history.replaceState(null, "", "/first_run");
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
+    expect(screen.getByLabelText("Name")).toBeInTheDocument();
+  });
+
+  it("says so when the link's token isn't this deployment's, keeping what was typed", async () => {
+    history.replaceState(null, "", link);
+    answer(403, { error: "This setup link isn't this deployment's. Open the one its latest deploy printed" });
+    render(<SetupPage placeholders={DEFAULTS} access="link" onSetUp={() => {}} />);
+    await fillIn("correct horse");
+    expect(await screen.findByRole("alert")).toHaveTextContent("This setup link isn't this deployment's. Open the one its latest deploy printed");
+    expect(screen.getByLabelText("Name")).toHaveValue("Ada Lovelace");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+});
+
 describe(feature("ui.accessibility"), () => {
   it("starts with Skip to main content, which focuses the main content, as ember-rust's first run does", async () => {
-    render(<SetupPage placeholders={DEFAULTS} onSetUp={() => {}} />);
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(document.body.querySelector("a[href], button, input")).toBe(skip);
     await userEvent.click(skip);

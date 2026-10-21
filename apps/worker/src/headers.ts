@@ -26,13 +26,16 @@ const HSTS = "max-age=63072000; includeSubDomains";
 /** localhost, its subdomains and the loopback addresses, which browsers count as secure over plain HTTP. */
 const LOOPBACK_HOST = /^(?:(?:.+\.)?localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 
+/** Whether the request came to localhost or a loopback address, where `wrangler dev` serves and nobody on the Internet can reach. */
+export const isLoopbackHost = (request: Request) => LOOPBACK_HOST.test(new URL(request.url).hostname);
+
 /**
  * Whether the request's host has to be reached over HTTPS, as ember-rust's `force_ssl` makes every
  * host unless DISABLE_SSL is set. A loopback host doesn't, wherever it's served: browsers already
  * treat plain HTTP there as secure, and HSTS on it would send every other server on the machine to
  * HTTPS for two years.
  */
-export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.trim() && !LOOPBACK_HOST.test(new URL(request.url).hostname);
+export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.trim() && !isLoopbackHost(request);
 
 /**
  * Sends plain HTTP to the same address over HTTPS, without its port, as ember-rust's TLS front does

@@ -1,7 +1,7 @@
 // Checks a deployed Worker without signing in: /api/health answers once SESSION_SECRET is set and
 // the Workspace and a room's Durable Object both read their storage, the app's page loads through
 // the Worker, an address with no page answers Campfire's 404 page, the API asks for sign-in, and
-// whether Ember is set up yet.
+// whether Ember is set up yet, or waits for the setup link the deploy printed.
 // The Preview workflow runs it after each deploy; it works against `pnpm dev` too:
 //
 //   node apps/worker/scripts/check-deploy.ts http://localhost:8787
@@ -55,12 +55,17 @@ async function checkSignInRequired(baseUrl: string): Promise<void> {
   if (response.status !== 401) throw new Error(`/api/me answered ${response.status} without a session, not 401`);
 }
 
-/** Whether Ember is set up yet. Until it is, whoever opens it first becomes its administrator. */
-async function checkSetup(baseUrl: string): Promise<string> {
+/** Whether Ember is set up yet, and until it is, what setting it up takes: the deploy's setup link, which a Worker without a setup token can't have. */
+async function checkSetup(baseUrl: string): Promise<{ fine: boolean; said: string }> {
   const response = await fetch(new URL("/api/bootstrap", baseUrl), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`/api/bootstrap answered ${response.status}`);
-  const { setup } = (await response.json()) as Bootstrap;
-  return setup === "complete" ? "Ember is set up" : "Setup is waiting: whoever opens it first becomes its administrator";
+  const { setup, setupAccess } = (await response.json()) as Bootstrap;
+  const link = `${new URL("/first_run", baseUrl).href}#token=<the token>`;
+  const newToken = "openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN";
+  if (setup === "complete") return { fine: true, said: "Ember is set up" };
+  if (setupAccess === "link") return { fine: true, said: `Setup is waiting for the setup link the deploy printed (lost it? ${newToken}, then open ${link})` };
+  if (setupAccess === "open") return { fine: true, said: "Setup is waiting, open to whoever is here" };
+  return { fine: false, said: `Setup is waiting, and nobody can do it: the Worker has no EMBER_SETUP_TOKEN. Deploy with pnpm run deploy, or ${newToken}, then open ${link}` };
 }
 
 async function check(baseUrl: string): Promise<void> {
@@ -84,7 +89,8 @@ async function check(baseUrl: string): Promise<void> {
   console.log("✓ An address with no page answers Campfire's 404 page");
   await eventually(() => checkSignInRequired(baseUrl));
   console.log("✓ The API asks for sign-in");
-  console.log(`✓ ${await eventually(() => checkSetup(baseUrl))}`);
+  const { fine, said } = await eventually(() => checkSetup(baseUrl));
+  console.log(`${fine ? "✓" : "!"} ${said}`);
 }
 
 /** An error and its causes, such as fetch's "fetch failed" and the refused connection behind it. */

@@ -12,10 +12,13 @@ import {
   type Room,
   type Sidebar,
 } from "@ember/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
+import worker from "../src/index";
 import { verifyPassword } from "../src/passwords";
-import { api, apiWith, builtPages, cookieOf, freshDeploy, listedRoom, origin, signIn, workspaceSql, workspaceStub } from "./support";
+import { NO_SETUP_TOKEN, SETUP_LINK_NEEDED, SETUP_LINK_REFUSED } from "../src/setup";
+import { api, apiWith, builtPages, cookieOf, freshDeploy, listedRoom, origin, SETUP_TOKEN, signIn, workspaceSql, workspaceStub } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "12345678" };
 
@@ -35,6 +38,8 @@ describe(feature("auth.first-run"), () => {
   it("starts out waiting to be set up, with the setup page open to the first visitor", async () => {
     expect(await bootstrap()).toEqual({
       setup: "pending",
+      // The suite's Worker has a setup token, so setup takes the link that carries it.
+      setupAccess: "link",
       setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
       guestSignIn: true,
       account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
@@ -178,16 +183,6 @@ describe(feature("auth.first-run"), () => {
     }
   });
 
-  it("opens setup to the first visitor even where an earlier deploy left a setup token", async () => {
-    // Setup once took a private link with this token, which a Worker's secrets may still hold.
-    const leftover = { ASSETS: builtPages, EMBER_SETUP_TOKEN: "0123456789abcdef".repeat(4) };
-    const form = await apiWith(leftover, "/first_run");
-    expect([form.status, await form.text()]).toEqual([200, "page /"]);
-    expect((await apiWith(leftover, "/first_run/access")).status).toBe(404);
-    const created = await apiWith(leftover, "/api/first_run", { method: "POST", body: JSON.stringify(ada) });
-    expect(created.status).toBe(201);
-  });
-
   it("creates one workspace however many people submit at once", async () => {
     const responses = await Promise.all(["Ada", "Grace", "Katherine", "Dorothy", "Mary"].map((name) => setUp({ ...ada, name, emailAddress: `${name}@example.com` })));
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409, 409, 409, 409]);
@@ -217,6 +212,97 @@ describe(feature("auth.first-run"), () => {
     expect((await page("/first_run/access")).status).toBe(404);
     // Not setup's, nor a page of the app's: the built app answers it, with Campfire's 404 page.
     expect(await (await page("/first_runs")).text()).toBe("page /first_runs");
+  });
+});
+
+/**
+ * A first-run post as the Set up Ember page sends it to `url`, with `token` as its bearer token, or none,
+ * to a Worker whose EMBER_SETUP_TOKEN is `secret`, or unset.
+ */
+function firstRunAt(url: string, { token, secret, body = JSON.stringify(ada) }: { token?: string; secret: string | undefined; body?: string }) {
+  const headers = new Headers({ "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" });
+  if (token !== undefined) headers.set("Authorization", `Bearer ${token}`);
+  const request = new Request<unknown, IncomingRequestCfProperties>(url, { method: "POST", headers, body });
+  return worker.fetch(request, { ...(env as unknown as Env), EMBER_SETUP_TOKEN: secret });
+}
+
+/** The same, to this suite's Worker, whose setup token is `SETUP_TOKEN` unless `secret` says otherwise. */
+const firstRunWith = (options: { token?: string; secret?: string; body?: string }) => firstRunAt(`${origin}/api/first_run`, { secret: SETUP_TOKEN, ...options });
+
+/** What setting Ember up takes, as `/api/bootstrap` at `url` tells a Worker whose EMBER_SETUP_TOKEN is `secret`. */
+async function setupAccessAt(url: string, secret: string | undefined): Promise<Bootstrap["setupAccess"]> {
+  const response = await worker.fetch(new Request<unknown, IncomingRequestCfProperties>(`${url}/api/bootstrap`), { ...(env as unknown as Env), EMBER_SETUP_TOKEN: secret });
+  return ((await response.json()) as Bootstrap).setupAccess;
+}
+
+const nothingCreated = async () => {
+  for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
+};
+
+describe(feature("auth.protected-setup"), () => {
+  it("sets Ember up only through the deploy's setup link: without its token the form is refused before it's read", async () => {
+    expect(await setupAccessAt(origin, SETUP_TOKEN)).toBe("link");
+    const refused = await firstRunWith({});
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: SETUP_LINK_NEEDED });
+    expect(refused.headers.get("Set-Cookie")).toBeNull();
+    // Before the form is read: one that isn't even JSON is refused the same way, not as a bad request.
+    const unread = await firstRunWith({ body: "not a form" });
+    expect([unread.status, await unread.json()]).toEqual([403, { error: SETUP_LINK_NEEDED }]);
+    await nothingCreated();
+
+    const created = await firstRunWith({ token: SETUP_TOKEN });
+    expect(created.status).toBe(201);
+    expect(cookieOf(created)).toMatch(/^__Host-session_token=/);
+  });
+
+  it("refuses a token that isn't this deployment's, however close, and asks for the link given none", async () => {
+    for (const token of [`${SETUP_TOKEN.slice(0, -1)}f`, SETUP_TOKEN.toUpperCase(), ` ${SETUP_TOKEN}`, "0".repeat(64)]) {
+      const response = await firstRunWith({ token });
+      expect(response.status, token).toBe(403);
+      expect(await response.json()).toEqual({ error: SETUP_LINK_REFUSED });
+    }
+    const blank = await firstRunWith({ token: "" });
+    expect([blank.status, await blank.json()]).toEqual([403, { error: SETUP_LINK_NEEDED }]);
+    await nothingCreated();
+  });
+
+  it("checks the link before whether Ember is set up, so without it setup says nothing more", async () => {
+    expect((await setUp(ada)).status).toBe(201);
+    expect((await firstRunWith({})).status).toBe(403);
+    expect((await firstRunWith({ token: SETUP_TOKEN })).status).toBe(409);
+  });
+
+  it("is closed, and says so, while the deployment has no setup token, or a blank one", async () => {
+    for (const secret of [undefined, ""]) {
+      expect(await setupAccessAt(origin, secret), String(secret)).toBe("closed");
+      const response = await firstRunWith({ secret, token: SETUP_TOKEN });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: NO_SETUP_TOKEN });
+    }
+    await nothingCreated();
+  });
+
+  it("counts a token that can't be one as none, and says so in the log, without repeating it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const secret = "Hunter2".repeat(10);
+    expect(await setupAccessAt(origin, secret)).toBe("closed");
+    expect(error).not.toHaveBeenCalled();
+    const response = await firstRunWith({ secret, token: secret });
+    expect([response.status, await response.json()]).toEqual([403, { error: NO_SETUP_TOKEN }]);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("64 lowercase hex characters"));
+    expect(error.mock.calls.flat().join(" ")).not.toContain(secret);
+    error.mockRestore();
+  });
+
+  it("is open over loopback without a token, where `wrangler dev` serves, and still takes the link there with one", async () => {
+    const local = "http://localhost:8787";
+    expect(await setupAccessAt(local, undefined)).toBe("open");
+    expect(await setupAccessAt(local, SETUP_TOKEN)).toBe("link");
+    expect((await firstRunAt(`${local}/api/first_run`, { secret: SETUP_TOKEN })).status).toBe(403);
+    const created = await firstRunAt(`${local}/api/first_run`, { secret: undefined });
+    expect(created.status).toBe(201);
+    expect(await workspaceSql("SELECT name FROM users")).toEqual([{ name: "Ada Lovelace" }]);
   });
 });
 

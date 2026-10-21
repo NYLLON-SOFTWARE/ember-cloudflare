@@ -49,6 +49,8 @@ optional settings, such as push notifications' keys, go in a `.dev.vars` beside 
 
 Open http://localhost:5173 and set up Ember: the first visitor creates the workspace's administrator
 and its rooms, general and random. Then open a second browser, pick a name, and chat with yourself.
+On localhost setup is open to whoever's there; a deployed Worker takes the setup link its deploy
+prints ([Deploying](#deploying)).
 
 ```sh
 pnpm typecheck
@@ -146,9 +148,21 @@ and a VAPID key pair for push notifications on its first deploy, and later deplo
 a new secret would sign everyone out and a new pair would end every push subscription. They go up
 with the code and never appear in the deploy's output.
 
-Then open `https://<your Worker>` and set up Ember. As in Campfire, setup is open to whoever has
-the address until someone sets Ember up, and they become its administrator, so do it as soon as
-it's deployed. There's no setup link or token to keep: Ember leaves out ember-rust's.
+The first deploy also makes the Worker's setup token, `EMBER_SETUP_TOKEN`, and ends by printing the
+setup link that carries it, `https://<your Worker>/first_run#token=<the token>`: in your terminal,
+or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. Open it to set up
+Ember. Only that link opens the form, so nobody who merely finds the address can make themselves
+the administrator, as ember-rust's installer-printed setup link makes sure, and once Ember is set up
+the link is spent: setup closes for good, as in Campfire. The token rides in the link's fragment,
+which no request or log sees. `/first_run` opened without it says all this, and if the link is lost,
+give the Worker a new token and open the link with that one:
+
+```sh
+openssl rand -hex 32 | pnpm exec wrangler secret put EMBER_SETUP_TOKEN
+```
+
+On localhost, where `wrangler dev` serves, setup is open to whoever's there unless `.dev.vars`
+sets a token.
 
 The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator, where ember-rust's
 suggests Jane Cooper. To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
@@ -206,9 +220,14 @@ Actions tab. It needs two repository secrets, and skips without them:
 - `CLOUDFLARE_API_TOKEN`: a token made from the "Edit Cloudflare Workers" template.
 - `CLOUDFLARE_ACCOUNT_ID`: under Account details on the Workers & Pages overview.
 
-Once it's deployed, open the preview's link to set up Ember, which whoever gets there first does.
 The first deploy makes the Worker's `SESSION_SECRET` and VAPID key pair, and later ones keep them;
-they go up with the deploy, never in its logs.
+they go up with the deploy, never in its logs. A public repository's Actions logs are public too, so
+the workflow prints no setup link and makes no setup token: the Worker takes its token from an
+`EMBER_SETUP_TOKEN` repository secret, if you add one (`openssl rand -hex 32`) before the first
+deploy, and the run's log then says to open `<the preview>/first_run#token=<your token>` to set
+Ember up. Without the secret, the deploy check says nobody can set the preview up until you deploy
+it from a terminal with `pnpm run deploy --name ember-production`, which makes a token and prints
+the link, or give it one with `wrangler secret put EMBER_SETUP_TOKEN --name ember-production`.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
 you add them, become the preview's setup form placeholders.
@@ -218,10 +237,10 @@ Its version, under the sign-in page's help contact, is the commit it deployed. A
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
-and whether Ember is set up yet. `/api/health` tells strangers only whether Ember is up; with the
-Worker's `EMBER_RECOVERY_TOKEN` in its environment, the check hears which storage it uses too, and
-why when it's down. The preview's link is on the run's summary and under the repository's
-Deployments.
+and whether Ember is set up yet, or waits for its setup link. `/api/health` tells strangers only
+whether Ember is up; with the Worker's `EMBER_RECOVERY_TOKEN` in its environment, the check hears
+which storage it uses too, and why when it's down. The preview's link is on the run's summary and
+under the repository's Deployments.
 
 ### Resetting a password
 
@@ -246,7 +265,7 @@ address the API doesn't have does.
 
 ### Security notes
 
-What a self-hoster should know, beyond setting Ember up as soon as it's deployed:
+What a self-hoster should know, beyond keeping the setup link to themselves:
 
 - Every answer carries a `Content-Security-Policy` beside Rails' headers: scripts only from your
   Worker, images from any HTTPS site, since link previews show their page's image, and no page of
@@ -267,6 +286,9 @@ What a self-hoster should know, beyond setting Ember up as soon as it's deployed
   sign in.
 - Sessions last 400 days, refresh on use, and survive the person's own password change; an
   administrator's reset, deactivation or ban ends them within a minute.
+- Until Ember is set up, only the setup link the deploy printed opens the form, so finding a new
+  deployment's address isn't enough to become its administrator; on localhost, and on a Worker
+  without a setup token, setup is open or closed as [Deploying](#deploying) says.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of

@@ -9,15 +9,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const SCRIPT = fileURLToPath(new URL("./deploy.ts", import.meta.url));
 const SECRET = /^[0-9a-f]{64}$/;
 /** The secrets a Worker deployed before has. */
-const EVERY_SECRET = ["SESSION_SECRET", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"];
+const EVERY_SECRET = ["SESSION_SECRET", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "EMBER_SETUP_TOKEN"];
+/** The address wrangler's record of the deploy names, as the fake wrangler below writes it. */
+const WORKER_URL = "https://ember.example.workers.dev";
+/** The setup link the deploy prints, ending in the token `token`, at the Worker's address or where one is unknown. */
+const setupLink = (token: string, url = WORKER_URL) => `Set up Ember at ${url}/first_run#token=${token}`;
 
 /** What `wrangler secret list` finds: the names of the Worker's secrets, no Worker yet, or a failure. */
 type Listing = string[] | "no worker" | "error";
 
 /**
  * Stands in for `pnpm exec wrangler`: `secret list` answers as $LISTING says, and `deploy` keeps
- * what it was given in $OUT (its options, its secrets file's path, mode and contents) and exits
- * with $DEPLOY_STATUS.
+ * what it was given in $OUT (its options, its secrets file's path, mode and contents), records the
+ * Worker's address as wrangler does, in $WRANGLER_OUTPUT_FILE_PATH, unless $NO_URL says it has none,
+ * and exits with $DEPLOY_STATUS.
  */
 const PNPM = `#!/usr/bin/env bash
 [ "$1 $2" = "exec wrangler" ] || { echo "unexpected: $*" >&2; exit 2; }
@@ -36,6 +41,9 @@ elif [ "$1 $2" = "deploy --secrets-file" ]; then
   shift 3
   echo "$*" > "$OUT/deploy-args"
   echo "Deployed ember"
+  if [ -n "$WRANGLER_OUTPUT_FILE_PATH" ] && [ -z "$NO_URL" ]; then
+    echo '{"version":1,"type":"deploy","targets":["https://ember.example.workers.dev"]}' >> "$WRANGLER_OUTPUT_FILE_PATH"
+  fi
   exit "\${DEPLOY_STATUS:-0}"
 else
   echo "unexpected: $*" >&2; exit 2
@@ -53,11 +61,16 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const output = (name: string) => (existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), "utf8").trim() : null);
 
-/** Runs the script with `args` for a Worker whose secrets are `listing`. */
-function deploy(listing: Listing, args: string[] = [], deployStatus = 0) {
+/**
+ * Runs the script with `args` for a Worker whose secrets are `listing`, in a shell like a terminal's
+ * unless `env` says it's CI's, Workers Builds' or GitHub Actions', or brings a setup token.
+ */
+function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env = {} }: { deployStatus?: number; env?: Record<string, string> } = {}) {
   const LISTING = Array.isArray(listing) ? JSON.stringify(listing.map((name) => ({ name, type: "secret_text" }))) : listing;
+  // The suite itself runs under CI, which the script must hear only from the test.
+  const { CI: _ci, GITHUB_ACTIONS: _actions, WORKERS_CI: _workers, EMBER_SETUP_TOKEN: _token, WRANGLER_OUTPUT_FILE_PATH: _output, ...shell } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus) },
+    env: { ...shell, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus), ...env },
     encoding: "utf8",
   });
   const secrets = output("secrets.json");
@@ -77,11 +90,13 @@ describe(feature("platform.deploy-secrets"), () => {
       SESSION_SECRET: expect.stringMatching(SECRET),
       VAPID_PUBLIC_KEY: expect.stringMatching(/^B[\w-]{86}$/),
       VAPID_PRIVATE_KEY: expect.stringMatching(/^[\w-]{43}$/),
+      EMBER_SETUP_TOKEN: expect.stringMatching(SECRET),
     });
     expect(output("secrets-mode")).toBe("600");
-    // Cloudflare's build logs mask nothing, so no secret may appear in them, not even masked.
+    // Cloudflare's build logs mask nothing, so no secret may appear in them, not even masked; the
+    // setup token is the one meant to be read, and goes in its link.
     for (const secret of [secrets!.SESSION_SECRET!, secrets!.VAPID_PRIVATE_KEY!]) expect(logs).not.toContain(secret);
-    expect(logs).toContain("Deploying with new SESSION_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY");
+    expect(logs).toContain("Deploying with new SESSION_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, EMBER_SETUP_TOKEN");
   });
 
   it("removes the secrets file once wrangler has deployed", () => {
@@ -131,21 +146,103 @@ describe(feature("platform.deploy-secrets"), () => {
   });
 
   it("fails when wrangler deploy does", () => {
-    const { status } = deploy(EVERY_SECRET, [], 1);
+    const { status } = deploy(EVERY_SECRET, [], { deployStatus: 1 });
     expect(status).toBe(1);
+  });
+});
+
+describe(feature("auth.protected-setup"), () => {
+  const withoutSetupToken = EVERY_SECRET.filter((name) => name !== "EMBER_SETUP_TOKEN");
+
+  it("makes a setup token for a Worker that has none, and prints the setup link that carries it, once wrangler has deployed", () => {
+    const { status, secrets, logs } = deploy(withoutSetupToken);
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ EMBER_SETUP_TOKEN: expect.stringMatching(SECRET) });
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
+    expect(logs).toContain("printed only now");
+    expect(logs).toContain("openssl rand -hex 32 | pnpm exec wrangler secret put EMBER_SETUP_TOKEN");
+  });
+
+  it("keeps the setup token a Worker has, and says nothing of a link it can't know", () => {
+    const { status, secrets, logs } = deploy(EVERY_SECRET);
+    expect(status).toBe(0);
+    expect(secrets).toEqual({});
+    expect(logs).not.toContain("Set up Ember");
+  });
+
+  it("prints no link when wrangler fails to deploy", () => {
+    const { status, logs } = deploy("no worker", [], { deployStatus: 1 });
+    expect(status).toBe(1);
+    expect(logs).not.toContain("Set up Ember");
+  });
+
+  it("names the Worker where wrangler recorded no address, rather than guessing one", () => {
+    const { secrets, logs } = deploy(withoutSetupToken, [], { env: { NO_URL: "1" } });
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!, "https://<your Worker>"));
+  });
+
+  it("takes the setup token the environment brings, and prints the link's shape without it, since its holder knows it", () => {
+    const token = "ab".repeat(32);
+    const { status, secrets, logs } = deploy(withoutSetupToken, [], { env: { EMBER_SETUP_TOKEN: token } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ EMBER_SETUP_TOKEN: token });
+    expect(logs).toContain(`Set up Ember at ${WORKER_URL}/first_run#token=<your EMBER_SETUP_TOKEN>`);
+    expect(logs).not.toContain(token);
+  });
+
+  it.each(["hunter2", "AB".repeat(32), `${"ab".repeat(32)}\n`])("refuses a setup token from the environment that can't be one (%j), before deploying", (token) => {
+    const { status, deployed, logs } = deploy(withoutSetupToken, [], { env: { EMBER_SETUP_TOKEN: token } });
+    expect(status).toBe(1);
+    expect(deployed).toBe(false);
+    expect(logs).toContain("EMBER_SETUP_TOKEN must be 64 lowercase hex characters");
+  });
+
+  it("ignores a setup token from the environment, whatever its shape, for a Worker that has one", () => {
+    const { status, secrets } = deploy(EVERY_SECRET, [], { env: { EMBER_SETUP_TOKEN: "hunter2" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual({});
+  });
+
+  it("makes no setup token where the log may be public, as a CI's is, and says what to do instead", () => {
+    const { status, secrets, logs } = deploy("no worker", [], { env: { CI: "true" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ SESSION_SECRET: expect.any(String), VAPID_PUBLIC_KEY: expect.any(String), VAPID_PRIVATE_KEY: expect.any(String) });
+    expect(logs).not.toContain("Set up Ember at");
+    expect(logs).toContain("this log may be public, so this deploy made none");
+    expect(logs).toContain(`${WORKER_URL}/first_run#token=<the token>`);
+    expect(logs).not.toContain("::notice::");
+  });
+
+  it("says so as a notice under GitHub Actions, where it shows on the run", () => {
+    const { logs } = deploy("no worker", [], { env: { CI: "true", GITHUB_ACTIONS: "true" } });
+    expect(logs).toMatch(/^::notice::Nobody can set Ember up until the Worker has an EMBER_SETUP_TOKEN secret/m);
+  });
+
+  it("takes the token a CI's environment brings, and keeps it out of the log", () => {
+    const token = "cd".repeat(32);
+    const { secrets, logs } = deploy("no worker", [], { env: { CI: "true", GITHUB_ACTIONS: "true", EMBER_SETUP_TOKEN: token } });
+    expect(secrets!.EMBER_SETUP_TOKEN).toBe(token);
+    expect(logs).toContain(`Set up Ember at ${WORKER_URL}/first_run#token=<your EMBER_SETUP_TOKEN>`);
+    expect(logs).not.toContain(token);
+  });
+
+  it("prints the link under Workers Builds, whose log is the account's own, as Deploy to Cloudflare runs it", () => {
+    const { secrets, logs } = deploy("no worker", [], { env: { CI: "true", WORKERS_CI: "1" } });
+    expect(secrets!.EMBER_SETUP_TOKEN).toMatch(SECRET);
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
   });
 });
 
 describe(feature("notifications.web-push-keys"), () => {
   it("makes a VAPID key pair for a Worker that has neither key, and keeps the private key out of the logs", () => {
-    const { status, secrets, logs } = deploy(["SESSION_SECRET"]);
+    const { status, secrets, logs } = deploy(["SESSION_SECRET", "EMBER_SETUP_TOKEN"]);
     expect(status).toBe(0);
     expect(secrets).toEqual({ VAPID_PUBLIC_KEY: expect.stringMatching(/^B[\w-]{86}$/), VAPID_PRIVATE_KEY: expect.stringMatching(/^[\w-]{43}$/) });
     expect(logs).not.toContain(secrets!.VAPID_PRIVATE_KEY!);
   });
 
   it.each(["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"])("leaves a Worker with only %s as it is, rather than replacing it", (key) => {
-    const { status, secrets } = deploy(["SESSION_SECRET", key]);
+    const { status, secrets } = deploy(["SESSION_SECRET", "EMBER_SETUP_TOKEN", key]);
     expect(status).toBe(0);
     expect(secrets).toEqual({});
   });

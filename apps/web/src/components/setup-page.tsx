@@ -6,6 +6,7 @@ import {
   MIN_PASSWORD_LENGTH,
   PASSWORD_TOO_SHORT,
   type NewWorkspace,
+  type SetupAccess,
   type SetupPlaceholders,
 } from "@ember/protocol";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
@@ -24,16 +25,61 @@ import { loadPage } from "@/lib/page";
 // Entering its fields doesn't select what's in them, since it isn't one of ember-rust's app pages, which
 // do (`useSelectOnEntry`). Its name and email address placeholders come from /api/bootstrap: Kevin
 // Rose's, where ember-rust's are Jane Cooper's, unless the deployment suggests its own.
+//
+// A deployed Worker takes the setup link its deploy printed, `/first_run#token=<its setup token>`,
+// where ember-rust takes `/first_run/access#token=` and a cookie: the token rides in the fragment,
+// which no request or log sees, and goes with the form as a bearer token. Opened without it, or where
+// the Worker has no token to match (`setupAccess` from /api/bootstrap), the page says what to do in
+// the form's place, in ember-rust's "Setup is locked" card's spirit, rather than showing a form that
+// would be refused.
 
 const TITLE = "Set up Ember";
+/** What's in a setup link's fragment, read as ember-rust's setup_access.js reads its link's token. */
+const setupTokenOf = (hash: string) => new URLSearchParams(hash.slice(1)).get("token") || null;
+/** Makes the Worker a new setup token; the link then carries it. */
+const NEW_TOKEN = "openssl rand -hex 32 | wrangler secret put EMBER_SETUP_TOKEN";
 /** basecoat's `.ui-field .input`, over the stock input, and 44px tall for fingers as the app's fields are. */
 const INPUT = "h-10 touch:h-11 rounded-[0.7rem] bg-card pr-3 pl-9 text-base shadow-none md:text-base dark:bg-card focus-visible:border-input focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring";
 const FIELD_ICON = "pointer-events-none absolute top-1/2 left-3 z-[1] size-[1.125rem] -translate-y-1/2 text-muted-foreground";
 /** basecoat's `.ui-skip-link` (theme.css): with no header to show it under, it shows at the top left, clear of a notch. */
 const SKIP_LINK = "focus:top-[calc(0.5rem+env(safe-area-inset-top))] focus:left-[max(0.5rem,env(safe-area-inset-left))] focus:rounded-lg focus:border-0 focus:bg-card focus:px-4 focus:py-3 focus:outline-2 focus:outline-offset-0 focus:outline-ring";
 
-/** Creates the workspace and its first administrator, with the photo they choose, then opens general, its first room. */
-export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceholders; onSetUp: (workspace: NewWorkspace) => void }) {
+/**
+ * Creates the workspace and its first administrator, with the photo they choose, then opens general,
+ * its first room, through the setup link where the deployment takes one (`access`).
+ */
+export function SetupPage(props: { placeholders: SetupPlaceholders; access: SetupAccess; onSetUp: (workspace: NewWorkspace) => void }) {
+  // Pasting the setup link over this page's address only changes the fragment, which loads no new
+  // page, so each link opened starts afresh here, as the sign-in link page's does.
+  const [opened, setOpened] = useState(0);
+  useEffect(() => {
+    const open = () => setOpened((count) => count + 1);
+    addEventListener("hashchange", open);
+    return () => removeEventListener("hashchange", open);
+  }, []);
+  return <Setup key={opened} {...props} />;
+}
+
+function Setup({ placeholders, access, onSetUp }: { placeholders: SetupPlaceholders; access: SetupAccess; onSetUp: (workspace: NewWorkspace) => void }) {
+  const [setupToken] = useState(() => setupTokenOf(location.hash));
+
+  useEffect(() => {
+    const title = document.title;
+    document.title = TITLE;
+    return () => void (document.title = title);
+  }, []);
+  // The token leaves the address bar and this tab's history as the page opens, as ember-rust's
+  // setup_access.js takes it out of its link.
+  useEffect(() => {
+    if (location.hash) history.replaceState(history.state, "", location.pathname + location.search);
+  }, []);
+
+  if (access === "closed") return <SetupClosed />;
+  if (access === "link" && setupToken === null) return <SetupLinkNeeded />;
+  return <SetupForm placeholders={placeholders} setupToken={setupToken} onSetUp={onSetUp} />;
+}
+
+function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupPlaceholders; setupToken: string | null; onSetUp: (workspace: NewWorkspace) => void }) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -43,18 +89,12 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
   const passwordInput = useRef<HTMLInputElement>(null);
   const photo = useChosenPhoto();
 
-  useEffect(() => {
-    const title = document.title;
-    document.title = TITLE;
-    return () => void (document.title = title);
-  }, []);
-
   async function submit() {
     setBusy(true);
     setPasswordTooShort(false);
     setProblem(null);
     try {
-      const workspace = await setUpWorkspace({ name, emailAddress, password }, await photo.photo());
+      const workspace = await setUpWorkspace({ name, emailAddress, password }, await photo.photo(), setupToken);
       navigate(`/rooms/${workspace.room.id}`, { replace: true });
       onSetUp(workspace);
     } catch (error) {
@@ -71,10 +111,97 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
       if (error.field === "avatar") return photo.refuse(error.message);
       // Someone else set it up first.
       if (error.status === 409) return loadPage("/");
+      // A setup link that isn't this deployment's is refused (403) with what to do, said here.
       setProblem(error.message);
     }
   }
 
+  return (
+    <SetupCard problem={problem} subtitle="Create the admin account for your workspace.">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="grid gap-7 px-5 pt-6 pb-7">
+          <AvatarField photo={photo} disabled={busy} />
+          <div className="grid gap-6">
+            <Field id="user_name" label="Name" icon={UserIcon}>
+              <Input
+                id="user_name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder={placeholders.name}
+                maxLength={MAX_USER_NAME_LENGTH}
+                autoComplete="name"
+                autoFocus
+                required
+                data-1p-ignore
+                className={INPUT}
+              />
+            </Field>
+            <Field id="user_email_address" label="Email address" icon={Mail}>
+              <Input
+                id="user_email_address"
+                type="email"
+                value={emailAddress}
+                onChange={(event) => setEmailAddress(event.target.value)}
+                placeholder={placeholders.emailAddress}
+                maxLength={MAX_EMAIL_ADDRESS_LENGTH}
+                autoComplete="username"
+                required
+                className={INPUT}
+              />
+            </Field>
+            <PasswordField ref={passwordInput} value={password} onChange={(event) => setPassword(event.target.value)} tooShort={passwordTooShort} />
+          </div>
+        </div>
+        <footer className="border-t bg-surface p-5">
+          <Button type="submit" disabled={busy} className="h-10 w-full gap-2 rounded-[0.7rem] text-base font-medium touch:h-11">
+            Continue <ArrowRight className="size-[1.125rem]" />
+          </Button>
+        </footer>
+      </form>
+    </SetupCard>
+  );
+}
+
+/** The page without its form: what deploying Ember printed is the way in. */
+function SetupLinkNeeded() {
+  return (
+    <SetupCard subtitle="Ember is waiting for its administrator.">
+      <Notice>
+        <p>
+          Open the setup link that deploying Ember printed. It looks like <Code>{`${location.origin}/first_run#token=…`}</Code> and carries this deployment's
+          setup token, so only whoever deployed it can set it up.
+        </p>
+        <p>
+          The link is in the output of <Code>pnpm run deploy</Code>, or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. If it's lost, give the
+          Worker a new token with <Code>{NEW_TOKEN}</Code> and open the link with that token.
+        </p>
+      </Notice>
+    </SetupCard>
+  );
+}
+
+/** The page without its form: the Worker has no setup token, so there's no link to open yet. */
+function SetupClosed() {
+  return (
+    <SetupCard subtitle="Nobody can set it up yet.">
+      <Notice>
+        <p>This deployment has no setup token, so there's no setup link to open.</p>
+        <p>
+          Deploy it with <Code>pnpm run deploy</Code>, which makes a token and prints the link, or give the Worker one yourself with <Code>{NEW_TOKEN}</Code> and open{" "}
+          <Code>{`${location.origin}/first_run#token=<the token>`}</Code>.
+        </p>
+      </Notice>
+    </SetupCard>
+  );
+}
+
+/** ember-rust's first-run card, with the page's skip link and the alert above it, around the form or what stands in for it. */
+function SetupCard({ subtitle, problem = null, children }: { subtitle: string; problem?: string | null; children: ReactNode }) {
   return (
     <>
       <SkipLink className={SKIP_LINK} />
@@ -91,57 +218,23 @@ export function SetupPage({ placeholders, onSetUp }: { placeholders: SetupPlaceh
           <header className="flex flex-col items-center px-5 pt-5 text-center">
             <img src="/ember-icon.png" alt="Ember" width={48} height={48} className="mb-4 block size-12 object-contain" />
             <h1 className="text-2xl leading-[1.3] font-[550] tracking-[-0.025em] upto-380px:text-[1.375rem]">{TITLE}</h1>
-            <p className="mt-2 text-base leading-normal text-muted-foreground upto-380px:text-sm">Create the admin account for your workspace.</p>
+            <p className="mt-2 text-base leading-normal text-muted-foreground upto-380px:text-sm">{subtitle}</p>
           </header>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
-            <div className="grid gap-7 px-5 pt-6 pb-7">
-              <AvatarField photo={photo} disabled={busy} />
-              <div className="grid gap-6">
-                <Field id="user_name" label="Name" icon={UserIcon}>
-                  <Input
-                    id="user_name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder={placeholders.name}
-                    maxLength={MAX_USER_NAME_LENGTH}
-                    autoComplete="name"
-                    autoFocus
-                    required
-                    data-1p-ignore
-                    className={INPUT}
-                  />
-                </Field>
-                <Field id="user_email_address" label="Email address" icon={Mail}>
-                  <Input
-                    id="user_email_address"
-                    type="email"
-                    value={emailAddress}
-                    onChange={(event) => setEmailAddress(event.target.value)}
-                    placeholder={placeholders.emailAddress}
-                    maxLength={MAX_EMAIL_ADDRESS_LENGTH}
-                    autoComplete="username"
-                    required
-                    className={INPUT}
-                  />
-                </Field>
-                <PasswordField ref={passwordInput} value={password} onChange={(event) => setPassword(event.target.value)} tooShort={passwordTooShort} />
-              </div>
-            </div>
-            <footer className="border-t bg-surface p-5">
-              <Button type="submit" disabled={busy} className="h-10 w-full gap-2 rounded-[0.7rem] text-base font-medium touch:h-11">
-                Continue <ArrowRight className="size-[1.125rem]" />
-              </Button>
-            </footer>
-          </form>
+          {children}
         </section>
       </MainContent>
     </>
   );
+}
+
+/** What to do, in the form's place, as the card's body. */
+function Notice({ children }: { children: ReactNode }) {
+  return <div className="grid gap-4 px-5 pt-6 pb-7 text-base leading-normal upto-380px:text-sm [overflow-wrap:anywhere]">{children}</div>;
+}
+
+/** A command or an address to copy, in the card's text. */
+function Code({ children }: { children: string }) {
+  return <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground">{children}</code>;
 }
 
 /**

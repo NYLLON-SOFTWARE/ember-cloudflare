@@ -32,20 +32,27 @@ import { workspace } from "../src/workspace";
 
 export const origin = "https://ember.test";
 
-/** `init` as the app's own pages send it: writes carry the `Sec-Fetch-Site` browsers add. */
-function fromOwnPages<Cf>(init: RequestInit<Cf>): RequestInit<Cf> {
+/** The deploy's setup token, which the suite's Worker is bound with (vitest.config.ts) and `api` sends to set Ember up. */
+export const SETUP_TOKEN = "fedcba9876543210".repeat(4);
+
+/**
+ * `init` as the app's own pages send it to `path`: writes carry the `Sec-Fetch-Site` browsers add, and
+ * setting Ember up carries the setup link's token, as the Set up Ember page sends it.
+ */
+function fromOwnPages<Cf>(path: string, init: RequestInit<Cf>): RequestInit<Cf> {
   const headers = new Headers(init.headers);
   const write = init.method !== undefined && init.method !== "GET" && init.method !== "HEAD";
   if (write && !headers.has("Sec-Fetch-Site")) headers.set("Sec-Fetch-Site", "same-origin");
+  if (write && new URL(path, origin).pathname === "/api/first_run" && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${SETUP_TOKEN}`);
   return { ...init, headers };
 }
 
 /** A request from the app's own pages. */
-export const api = (path: string, init: RequestInit = {}) => exports.default.fetch(`${origin}${path}`, fromOwnPages(init));
+export const api = (path: string, init: RequestInit = {}) => exports.default.fetch(`${origin}${path}`, fromOwnPages(path, init));
 
 /** The same request, to a Worker whose bindings differ from this suite's by `changes`. `path` may be a whole URL. */
 export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<IncomingRequestCfProperties> = {}) =>
-  worker.fetch(new Request(new URL(path, origin), fromOwnPages(init)), { ...(env as unknown as Env), ...changes });
+  worker.fetch(new Request(new URL(path, origin), fromOwnPages(path, init)), { ...(env as unknown as Env), ...changes });
 
 /** One of the images ember-rust recorded (fixtures/README.md), by its name in fixtures/storage/. */
 export function recordedImage(name: string): Uint8Array {

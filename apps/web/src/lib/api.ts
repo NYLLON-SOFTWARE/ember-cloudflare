@@ -118,8 +118,10 @@ export async function fetchBootstrap(): Promise<Bootstrap> {
  * Sets up the workspace with its first administrator, with the photo they chose, if any, and signs this
  * browser in as them. A photo that's refused fails with an ApiError for the `avatar` field.
  */
-export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null): Promise<NewWorkspace> {
-  return request<NewWorkspace>("/api/first_run", { method: "POST", body: userBody(administrator, photo) });
+export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null, setupToken: string | null = null): Promise<NewWorkspace> {
+  // The setup link's token goes as a bearer token, where ember-rust's goes in a form of its own and a cookie.
+  const headers = setupToken === null ? undefined : { Authorization: `Bearer ${setupToken}` };
+  return request<NewWorkspace>("/api/first_run", { method: "POST", headers, body: userBody(administrator, photo) });
 }
 
 /**
