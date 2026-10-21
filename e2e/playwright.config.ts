@@ -43,7 +43,7 @@ export default defineConfig<MobileOptions>({
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/state', { recursive: true, force: true })"`,
         "pnpm --filter @ember/web build",
-        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --var EMBER_RECOVERY_TOKEN:${RECOVERY_TOKEN} --persist-to ../../e2e/.wrangler/state`,
+        `pnpm --filter @ember/worker exec wrangler dev -c ../../wrangler.jsonc --ip 127.0.0.1 --port ${port} --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_GUEST_SIGN_IN:true --var EMBER_RECOVERY_TOKEN:${RECOVERY_TOKEN} --persist-to ../../e2e/.wrangler/state`,
       ].join(" && "),
       cwd: path.resolve(import.meta.dirname, ".."),
       url: `${baseURL}/api/health`,
@@ -56,7 +56,7 @@ export default defineConfig<MobileOptions>({
     {
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/settings-state', { recursive: true, force: true })"`,
-        `pnpm --filter @ember/worker exec wrangler dev --ip 127.0.0.1 --port ${SETTINGS_SERVER_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --persist-to ../../e2e/.wrangler/settings-state`,
+        `pnpm --filter @ember/worker exec wrangler dev -c ../../wrangler.jsonc --ip 127.0.0.1 --port ${SETTINGS_SERVER_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --persist-to ../../e2e/.wrangler/settings-state`,
       ].join(" && "),
       cwd: path.resolve(import.meta.dirname, ".."),
       url: `https://127.0.0.1:${SETTINGS_SERVER_PORT}/api/health`,

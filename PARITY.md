@@ -1771,7 +1771,7 @@ ember-rust tests: [`crates/cable/tests/protocol.rs`](https://github.com/NYLLON-S
 | App icon badge | `notifications.app-badge` | Campfire | ✅ Ported | Web: [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-app-badge](apps/web/src/hooks/use-app-badge.test.ts)<br>E2E: [notifications](e2e/tests/features/notifications.spec.ts) |
 | Install as an app | `notifications.install-instructions` | Campfire | ✅ Ported | Web: [notification-help](apps/web/src/components/workspace/notification-help.test.tsx), [profile-page](apps/web/src/components/workspace/profile-page.test.tsx), [install-prompt](apps/web/src/lib/install-prompt.test.ts) |
 | Notification setup help | `notifications.setup-help` | Campfire | ✅ Ported | Worker: [user-agent](apps/worker/test/user-agent.test.ts)<br>Web: [notification-help](apps/web/src/components/workspace/notification-help.test.tsx) |
-| Web Push configuration | `notifications.web-push-keys` | Ember | ✅ Ported | Worker: [web-push-keys](apps/worker/test/web-push-keys.test.ts), [web-push](apps/worker/test/web-push.test.ts)<br>Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts), [vapid-keys](apps/worker/scripts/vapid-keys.test.ts) |
+| Web Push configuration | `notifications.web-push-keys` | Ember | ✅ Ported | Worker: [web-push-keys](apps/worker/test/web-push-keys.test.ts), [web-push](apps/worker/test/web-push.test.ts)<br>Scripts: [deploy](apps/worker/scripts/deploy.test.ts), [vapid-keys](apps/worker/scripts/vapid-keys.test.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -2432,7 +2432,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Version | `platform.version` | Ember | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [sign-in](apps/worker/test/sign-in.test.ts)<br>Web: [help-contact](apps/web/src/components/help-contact.test.tsx), [workspace-settings-page](apps/web/src/components/workspace/workspace-settings-page.test.tsx)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Supported browsers | `platform.browser-support` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts), [user-agent](apps/worker/test/user-agent.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
 | Security headers and HTTPS | `platform.security-headers` | Campfire | ✅ Ported | Worker: [platform](apps/worker/test/platform.test.ts)<br>E2E: [server](e2e/tests/features/server.spec.ts) |
-| Deploy secrets | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [preview-secrets](apps/worker/scripts/preview-secrets.test.ts) |
+| Deploy secrets | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [deploy](apps/worker/scripts/deploy.test.ts) |
 | Web app manifest | `platform.manifest` | Ember | ✅ Ported | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts), [manifest](e2e/tests/screenshots/manifest.spec.ts) |
 | Installable page head | `platform.head-tags` | Campfire | ✅ Ported | E2E: [platform](e2e/tests/features/platform.spec.ts) |
 | Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
@@ -2533,7 +2533,7 @@ ember-rust tests: [`crates/kit/tests/http.rs`](https://github.com/NYLLON-SOFTWAR
 - Secrets go live with the code in a single deploy, and none appears in logs or the run summary.
 - The deploy check says whether Ember is set up yet.
 
-Note: The Preview workflow's `scripts/preview-secrets.sh` writes the secrets a deploy adds, which `wrangler deploy --secrets-file` uploads with the code. Setup takes no token (`auth.protected-setup`), so a deploy adds none.
+Note: `pnpm run deploy` (`apps/worker/scripts/deploy.ts`) makes the secrets a Worker is missing and uploads them with the code through `wrangler deploy --secrets-file`, for Deploy to Cloudflare's builds, which ask the deployer for none, and the Preview workflow alike. Cloudflare's build logs mask nothing, so the script never prints a secret. Setup takes no token (`auth.protected-setup`), so a deploy adds none.
 
 Sources: [`deploy/installer/emberctl.py`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/deploy/installer/emberctl.py) · [`crates/ember/src/admin.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/admin.rs)
 

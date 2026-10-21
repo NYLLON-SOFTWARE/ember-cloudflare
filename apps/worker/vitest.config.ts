@@ -16,7 +16,7 @@ const backend = (name: "do-sqlite" | "d1") => ({
   test: { name, include: ["test/**/*.test.ts"], setupFiles: name === "d1" ? ["./test/apply-migrations.ts"] : [] },
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
+      wrangler: { configPath: "../../wrangler.jsonc" },
       miniflare: {
         bindings: {
           SESSION_SECRET: "test-secret",

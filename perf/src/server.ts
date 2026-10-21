@@ -14,7 +14,8 @@ import { experimental_readRawConfig } from "wrangler";
 export type Storage = "do-sqlite" | "d1";
 export const STORAGES: Storage[] = ["do-sqlite", "d1"];
 
-const workerDir = path.resolve(import.meta.dirname, "../../apps/worker");
+const repoRoot = path.resolve(import.meta.dirname, "../..");
+const workerDir = path.join(repoRoot, "apps/worker");
 const wranglerBin = path.join(path.dirname(createRequire(import.meta.url).resolve("wrangler/package.json")), "bin/wrangler.js");
 
 export interface Server {
@@ -42,15 +43,15 @@ process.on("SIGINT", () => process.exit(130));
 process.on("SIGTERM", () => process.exit(143));
 
 /**
- * apps/worker/wrangler.jsonc, switched to `storage` and with its paths made absolute so the copy
+ * The root wrangler.jsonc, switched to `storage` and with its paths made absolute so the copy
  * can live in a scratch directory. D1 gets a local database that only this run uses.
  */
 function configFor(storage: Storage, assetsDir: string) {
-  const { rawConfig } = experimental_readRawConfig({ config: path.join(workerDir, "wrangler.jsonc") });
+  const { rawConfig } = experimental_readRawConfig({ config: path.join(repoRoot, "wrangler.jsonc") });
   const { $schema: _, ...config } = rawConfig as typeof rawConfig & { $schema?: string };
   return {
     ...config,
-    main: path.resolve(workerDir, config.main!),
+    main: path.resolve(repoRoot, config.main!),
     assets: { ...config.assets, directory: assetsDir },
     vars: { ...config.vars, STORAGE_BACKEND: storage },
     d1_databases:
