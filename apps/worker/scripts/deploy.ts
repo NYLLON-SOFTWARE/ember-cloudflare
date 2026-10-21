@@ -27,13 +27,23 @@ function wrangler(args: string[], capture: boolean) {
 }
 
 /** The wrangler options that pick which Worker a command acts on, besides the ones wrangler.jsonc names. */
-const TARGET_OPTIONS = ["--name", "--config", "-c", "--env", "-e"];
+const TARGET_OPTIONS = ["--name", "--config", "-c"];
 
-/** The options among wrangler deploy's that pick its Worker, so `wrangler secret list` looks at the same one. */
+/** Whether `arg` is `option`, alone or with its value after `=`. */
+const isOption = (arg: string, option: string) => arg === option || arg.startsWith(`${option}=`);
+
+/**
+ * The options among wrangler deploy's that pick its Worker, so `wrangler secret list` looks at the
+ * same one. wrangler.jsonc has no environments, and an environment's Worker name depends on how it's
+ * combined with `--name`, so `--env` is refused rather than guessed at.
+ */
 function targetOptions(args: string[]): string[] {
+  if (args.some((arg) => isOption(arg, "--env") || isOption(arg, "-e"))) {
+    throw new Error("wrangler.jsonc has no environments, so the deploy takes no --env.");
+  }
   return args.flatMap((arg, at) => {
     if (TARGET_OPTIONS.includes(arg)) return args.slice(at, at + 2);
-    return TARGET_OPTIONS.some((option) => arg.startsWith(`${option}=`)) ? [arg] : [];
+    return TARGET_OPTIONS.some((option) => isOption(arg, option)) ? [arg] : [];
   });
 }
 

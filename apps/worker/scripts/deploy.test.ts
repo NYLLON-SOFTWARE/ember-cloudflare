@@ -109,12 +109,20 @@ describe(feature("platform.deploy-secrets"), () => {
   });
 
   it.each([
-    [["--config", "wrangler.production.jsonc", "--env", "staging"], "secret list --config wrangler.production.jsonc --env staging"],
-    [["-c=wrangler.production.jsonc", "-e", "staging", "--var", "A:b"], "secret list -c=wrangler.production.jsonc -e staging"],
-  ])("lists the secrets of the Worker another config or environment picks, as it deploys that one (%j)", (args, listed) => {
+    [["--config", "wrangler.production.jsonc"], "secret list --config wrangler.production.jsonc"],
+    [["-c=wrangler.production.jsonc", "--name", "ember-production", "--var", "A:b"], "secret list -c=wrangler.production.jsonc --name ember-production"],
+  ])("lists the secrets of the Worker another config picks, as it deploys that one (%j)", (args, listed) => {
     deploy(EVERY_SECRET, args);
     expect(output("list-args")).toBe(listed);
     expect(output("deploy-args")).toBe(args.join(" "));
+  });
+
+  it.each([["--env", "staging"], ["-e=staging"]])("refuses an environment, which wrangler.jsonc doesn't have, before deploying (%j)", (...args) => {
+    const { status, deployed, logs } = deploy(EVERY_SECRET, args);
+    expect(status).toBe(1);
+    expect(deployed).toBe(false);
+    expect(output("list-args")).toBeNull();
+    expect(logs).toContain("no environments");
   });
 
   it("lists the secrets of the Worker wrangler.jsonc names when it's given no name, as Deploy to Cloudflare runs it", () => {
