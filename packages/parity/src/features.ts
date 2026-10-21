@@ -2236,6 +2236,24 @@ export const features = [
     upstreamTests: ["crates/ember/src/jobs/tests.rs"],
     notes: "A room delivers its new messages in the background once the Workspace has applied them, so neither a message's request nor its pushes wait on a webhook. As ember-rust's job runner does, 2 deliveries run at a time and up to 1,024 more wait their turn, but each room has its own queue, so one room's slow webhooks never hold up another's. Beyond that a delivery is dropped and logged as `dropped: the room's webhook queue is full`. Nothing is retried. The message is read when its turn comes, so an edit made by then is delivered and a message deleted by then fails with nothing sent. Unlike ember-rust, which reads the bot and its webhook then too, they're as they were when the Workspace applied the message: a bot deleted since still gets it, as in ember-rust, but so does a webhook removed since, and a delivery waiting when the bot's key is reset carries the old key. Each delivery logs `Bot::WebhookJob of message <id> to bot <id> performed:` with the webhook's status, or `no answer in time`, once what the bot says back is posted (`bots.webhook-reply`), or `failed:` with its reason, never with the webhook's URL or the bot's key. A deploy resets every room's object, which ends the deliveries waiting or running in it, as a crash ends ember-rust's.",
   },
+  {
+    id: "bots.slack-webhook",
+    title: "Slack-compatible webhooks",
+    origin: "cloudflare",
+    status: "ported",
+    behaviors: [
+      "`POST /rooms/<room id>/<bot key>/slack` posts what a Slack incoming webhook is sent as the bot's message: JSON, whatever the request's type says, or a form's `payload` field, urlencoded or multipart.",
+      "It answers as Slack's webhooks do, as text: 200 `ok`; 400 `invalid_payload` for no JSON object, `no_text` for nothing to show, `too_many_attachments` past 100 and `msg_too_long` past a message's 10,000 characters; 403 `invalid_token` for a key that isn't an active bot's; 404 `channel_not_found` for a room the bot isn't in; and 413 `msg_too_long` for a body past 100,000 characters.",
+      "`text` is mrkdwn: *bold*, _italics_, ~strike-through~, `code`, code blocks between triple backticks, `>` and `>>>` quotes, `<url|label>` links to web and email addresses, emoji by name with skin tones, and the escapes `&amp;`, `&lt;` and `&gt;`. Formatting needs a word's edge, so `node_cpu_seconds_total` keeps its underscores, and `mrkdwn: false` leaves only links, mentions, emoji and escapes.",
+      "Mentions, `<@U…>`, `<#C…|name>`, `<!subteam^…|@handle>`, `<!here>`, `<!channel>` and `<!everyone>`, show as text and notify nobody, and `<!date^…|fallback>` shows its fallback.",
+      "`blocks` show in place of `text`, which shows when they show nothing. Header, section, context, Markdown, rich text and actions blocks post as rich text, and legacy `attachments` as quotes after their pretext, with their blocks inside, formatted only in the fields their `mrkdwn_in` names, or as their fallback when nothing else in them shows.",
+      "`username`, `icon_emoji`, `icon_url`, `channel` and `thread_ts` change nothing: the bot posts as itself, to the room its address names.",
+      "The bots page gives each of a bot's rooms its \"Slack-compatible webhook URL\", with \"Copy Slack-compatible webhook URL\" beside it.",
+      "Logs filter the key out of the address, as they do the bot API's.",
+    ],
+    sources: [],
+    notes: "This port's own, so tools that post to Slack can post to a room, as Mattermost, Rocket.Chat, Discord (at `/slack`) and Zulip let them. Emoji names come from emoji-datasource 16.0.0, which `apps/worker/scripts/emoji-names.ts` turns into `src/bots/emoji-names.ts`. Mentions name Slack's ids, which name nobody here. Until cards draw them, attachments and blocks post as rich text. \"Slack-compatible\" describes the payload: Slack is a trademark of Slack Technologies, LLC, and Ember isn't affiliated with it, as the README says.",
+  },
 
   // Composer
 

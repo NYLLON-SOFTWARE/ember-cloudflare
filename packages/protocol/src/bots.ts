@@ -10,6 +10,9 @@ import { MAX_USER_NAME_LENGTH, type DirectoryUser, type RoomId } from "./index.t
  */
 export const botMessagesPath = (roomId: RoomId, key: string) => `/rooms/${encodeURIComponent(roomId)}/${key}/messages`;
 
+/** Where a bot posts what a Slack incoming webhook is sent to a room, with the bot's key: `/rooms/<room id>/<bot key>/slack`. */
+export const botSlackPath = (roomId: RoomId, key: string) => `/rooms/${encodeURIComponent(roomId)}/${key}/slack`;
+
 /** What the bot pages and their API tell anyone but an administrator. */
 export const BOTS_FORBIDDEN = "Only administrators can manage bots";
 

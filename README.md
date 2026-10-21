@@ -258,8 +258,9 @@ What a self-hoster should know, beyond setting Ember up as soon as it's deployed
 - A file's address is signed and never expires: whoever has it can open the file until its message
   is deleted, as with Active Storage's links.
 - A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Workers
-  Logs record each request's address, which for Campfire's bot API holds the bot's key and for the
-  join link its code; Reset key and Regenerate join link are the remedies if a log is shared, and
+  Logs record each request's address, which for Campfire's bot API and the Slack-compatible webhooks
+  holds the bot's key and for the join link its code; Reset key and Regenerate join link are the
+  remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
   per-request record.
 - Passwords are kept as scrypt digests at OWASP's cost, which takes about a quarter of a second of
@@ -274,6 +275,26 @@ What a self-hoster should know, beyond setting Ember up as soon as it's deployed
   resetting a password, as above.
 - `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
   recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
+
+## Slack-compatible webhooks
+
+Tools that post to Slack, such as Prometheus Alertmanager, Grafana or a CI pipeline, can post to a
+room instead. The Chat bots page gives each of a bot's rooms a Slack-compatible webhook URL,
+`https://<your Worker>/rooms/<room id>/<bot key>/slack`, which takes what a Slack incoming webhook
+takes, as JSON or as a form's `payload` field:
+
+```sh
+curl -H 'Content-Type: application/json' -d '{"text": "Deploy *finished* :tada:"}' <url>
+```
+
+The bot posts the payload's `text`, read as Slack's mrkdwn, with its formatting, links, quotes, code
+and emoji, and Ember answers as Slack does: `ok`, or what's wrong, such as `invalid_payload` or
+`no_text`. Its `blocks` and legacy `attachments` post as rich text for now. Mentions of Slack's
+people and channels show as text and notify nobody, and a payload can't change the bot's name,
+avatar or room.
+
+Slack is a trademark of Slack Technologies, LLC. Ember is not created by, affiliated with, or
+supported by Slack Technologies, LLC.
 
 ## Status
 
