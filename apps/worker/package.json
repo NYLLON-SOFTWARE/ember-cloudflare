@@ -9,7 +9,7 @@
     "typecheck": "tsc -p . && tsc -p scripts && tsc -p scripts/tsconfig.test.json",
     "test": "vitest run",
     "cf-typegen": "wrangler types -c ../../wrangler.jsonc --include-runtime false",
-    "d1:migrate:local": "wrangler d1 migrations apply DB -c ../../wrangler.jsonc --local"
+    "d1:migrate:local": "wrangler d1 migrations apply DB -c ../../wrangler.jsonc --local --persist-to .wrangler/state"
   },
   "dependencies": {
     "@ember/protocol": "workspace:*",
