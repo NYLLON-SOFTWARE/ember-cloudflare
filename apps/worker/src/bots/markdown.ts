@@ -1,4 +1,5 @@
-import { Marked, type Tokens } from "marked";
+import { decodeHTMLStrict } from "entities/decode";
+import { Marked, TextRenderer, type Tokens } from "marked";
 import { anchor, escapeText, linkHref } from "./mrkdwn";
 
 // The Markdown of a Block Kit markdown block (https://docs.slack.dev/reference/block-kit/blocks/markdown-block),
@@ -17,6 +18,14 @@ const LANGUAGE = /^[\w#+.-]+/;
 
 /** A block in a `div`, which the plain text ends a line after. */
 const ownLine = (html: string) => `<div>${html}</div>`;
+
+/** An image's description as text, as marked writes its `alt`, but with a space for each line break rather than nothing. */
+class Description extends TextRenderer {
+  override br() {
+    return " ";
+  }
+}
+const description = new Description();
 
 const markdown = new Marked({
   gfm: true,
@@ -41,14 +50,18 @@ const markdown = new Marked({
       const name = header ? "th" : "td";
       return `<${name}>${this.parser.parseInline(tokens)} </${name}>`;
     },
-    link({ href, tokens }) {
-      const label = this.parser.parseInline(tokens);
-      const url = linkHref(href);
+    link({ href, text, tokens, autolink }) {
+      // As CommonMark reads them, a character reference in a link's address stands for its character, as `&amp;` does
+      // for `&`, but an autolink's address is its text, every `&` in it an ampersand.
+      const label = autolink ? escapeText(text) : this.parser.parseInline(tokens);
+      const url = linkHref(autolink ? href : decodeHTMLStrict(href));
       return url ? anchor(url, label) : label;
     },
-    image({ href, text }) {
-      const url = linkHref(href);
-      return url ? anchor(url, escapeText(text || href)) : escapeText(text);
+    image({ href, tokens }) {
+      const label = decodeHTMLStrict(this.parser.parseInline(tokens, description));
+      const address = decodeHTMLStrict(href);
+      const url = linkHref(address);
+      return url ? anchor(url, escapeText(label || address)) : escapeText(label);
     },
     checkbox({ checked }) {
       return checked ? "☑ " : "☐ ";

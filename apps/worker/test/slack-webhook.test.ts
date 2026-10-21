@@ -694,6 +694,42 @@ describe(feature("bots.cards"), () => {
     );
   });
 
+  it("reads a markdown block's link addresses as CommonMark does, a character reference standing for its character except in an autolink, and an image's description as its text", async () => {
+    const markdown = [
+      "[escaped](https://example.com/?a=1&amp;b=2), [named](https://example.com/f&ouml;&ouml;) and [numeric](https://example.com/?q=a&#38;b)",
+      "",
+      "<https://example.com/?a=1&amp;b=2> and https://example.com/?c=3&amp;d=4",
+      "",
+      "![**Build** & _chart_ &amp; graph](https://example.com/chart.png?a=1&amp;b=2), ![Line",
+      "wrapped](https://example.com/2.png), ![](https://example.com/3.png?x=1&amp;y=2) and ![not linked &lt;3](javascript:alert(1))",
+    ].join("\n");
+    const { message } = await postedCards({ blocks: [{ type: "markdown", text: markdown }] });
+    expect(message.cards).toEqual([
+      {
+        source: "blocks",
+        parts: [
+          {
+            kind: "text",
+            html: [
+              '<p><a href="https://example.com/?a=1&amp;b=2">escaped</a>, <a href="https://example.com/f%C3%B6%C3%B6">named</a> and <a href="https://example.com/?q=a&amp;b">numeric</a></p>',
+              '<p><a href="https://example.com/?a=1&amp;amp;b=2">https://example.com/?a=1&amp;amp;b=2</a> and <a href="https://example.com/?c=3&amp;amp;d=4">https://example.com/?c=3&amp;amp;d=4</a></p>',
+              '<p><a href="https://example.com/chart.png?a=1&amp;b=2">Build &amp; chart &amp; graph</a>, <a href="https://example.com/2.png">Line wrapped</a>, <a href="https://example.com/3.png?x=1&amp;y=2">https://example.com/3.png?x=1&amp;y=2</a> and not linked &lt;3</p>',
+            ].join(""),
+          },
+        ],
+      },
+    ]);
+    expect(message.plainText).toBe(
+      [
+        "escaped, named and numeric",
+        "",
+        "https://example.com/?a=1&amp;b=2 and https://example.com/?c=3&amp;d=4",
+        "",
+        "Build & chart & graph, Line wrapped, https://example.com/3.png?x=1&y=2 and not linked <3",
+      ].join("\n"),
+    );
+  });
+
   it("shows what tools send Slack as Slack shows it: Alertmanager's, Grafana's, GitLab's, Gitea's and Uptime Kuma's alerts, and Block Kit's examples", async () => {
     // Written from each tool's code (fixtures/README.md), with the message the room makes of each.
     const { administrator, bot, general } = await withBot();
