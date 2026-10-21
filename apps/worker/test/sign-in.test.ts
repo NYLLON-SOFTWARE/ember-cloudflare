@@ -154,6 +154,18 @@ describe(feature("auth.sign-in"), () => {
     expect(await sessionCount()).toBe(1);
   });
 
+  it("signs in two sign-ins with the password that arrive together while its digest is from before scrypt, and keeps one new digest", async () => {
+    await setUp();
+    await graceWith(await pbkdf2Digest("compiler"));
+    // Both check the old digest; the first to finish replaces it, and the second finds it gone.
+    const together = await Promise.all([1, 2].map(() => signInWith({ emailAddress: "grace@example.com", password: "compiler" })));
+    expect(together.map((response) => response.status)).toEqual([201, 201]);
+    expect((await graceStored()).password_digest).toMatch(/^\$scrypt\$ln=15,r=8,p=3\$/);
+    expect(await sessionCount()).toBe(3);
+    // A wrong password with it refuses as ever.
+    expect((await signInWith({ emailAddress: "grace@example.com", password: "Compiler" })).status).toBe(401);
+  });
+
   it("signs in someone the administrator didn't create, with the password they chose", async () => {
     await setUp();
     const now = new Date().toISOString();

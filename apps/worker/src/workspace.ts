@@ -557,6 +557,11 @@ export class Workspace extends DurableObject<Env> {
     return emailAddress === null ? null : this.store.passwordFor(emailAddress);
   }
 
+  /** Whose password `emailAddress` signs in with, and its digest as kept now, for a sign-in that found the one it checked replaced. */
+  passwordKept(emailAddress: string): Promise<{ userId: UserId; passwordDigest: string } | null> {
+    return this.store.passwordFor(emailAddress);
+  }
+
   /**
    * Counts a link preview against the limit of the person `credentials` signs in: "limited" past it,
    * null without a valid session.
