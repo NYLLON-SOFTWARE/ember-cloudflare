@@ -1,4 +1,4 @@
-import type { Boost, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
+import type { Boost, Card, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
@@ -9,7 +9,8 @@ import type { IndexedMessage } from "./search-index";
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
 // with the number of its latest change, and the deletions a tab that connects again may yet need to
 // hear of (migrations/0015_numbered_changes.sql). A file message keeps its file (migrations/0029_file_messages.sql),
-// whose addresses are signed as it's read, so they're always signed under the secret Ember has now.
+// whose addresses are signed as it's read, so they're always signed under the secret Ember has now, and a
+// bot's message its cards (migrations/0034_message_cards.sql).
 
 interface MessageRow {
   id: string;
@@ -29,6 +30,8 @@ interface MessageRow {
   edited_at: string | null;
   /** A file message's file, as JSON (`AttachedFile`), or null. */
   attachment: string | null;
+  /** A bot's cards, as a JSON array of `Card`s, or null for a message without any. */
+  cards: string | null;
   /** The message's boosts, a JSON array of `BoostRow`s. */
   boosts: string;
 }
@@ -75,6 +78,7 @@ const toMessage = (row: MessageRow): Message => ({
   editedAt: row.edited_at,
   // json_group_array doesn't promise an order, so sort here rather than in the subquery.
   boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
+  ...(row.cards !== null && { cards: JSON.parse(row.cards) as Card[] }),
 });
 
 /** Signs a file's addresses (files/addresses.ts). */
@@ -95,6 +99,9 @@ async function toMessages(rows: MessageRow[], signer: () => Promise<Signer>): Pr
     }),
   );
 }
+
+/** What a message keeps of what was written: its text, as `prepareBody` keeps it, and a bot's cards, if it has any. */
+export type StoredBody = Pick<PreparedBody, "html" | "plainText" | "mentions"> & { cards?: Card[] };
 
 /** A file message's file, as the batch that stores the message posts it, with what records that its upload has finished as that message. */
 export interface PostedFile {
@@ -292,15 +299,15 @@ export class MessageStore {
     id: string,
     clientMessageId: string,
     creator: User,
-    body: Pick<PreparedBody, "html" | "plainText" | "mentions">,
+    body: StoredBody,
     now: string,
     kind: "message" | "reply" = "message",
     posted?: PostedFile,
   ): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         this.roomId,
         clientMessageId,
@@ -313,6 +320,7 @@ export class MessageStore {
         now,
         seq,
         posted ? JSON.stringify(posted.file) : null,
+        body.cards ? JSON.stringify(body.cards) : null,
       ),
       logEvent(this.roomId, kind, creator.id, now, id),
       logIndexing(this.roomId, id),
@@ -332,6 +340,7 @@ export class MessageStore {
         editedAt: null,
         boosts: [],
         ...(posted && { attachment: await shownFile(posted.file, await this.sign()) }),
+        ...(body.cards && { cards: body.cards }),
       },
       seq,
     };
@@ -359,14 +368,14 @@ export class MessageStore {
   }
 
   /**
-   * Replaces a message's text, which marks it edited, logging it for the search index, and answers the
-   * message as it is now with the change's number, as the methods below that change a message answer
-   * theirs.
+   * Replaces a message's text, which marks it edited, and takes its cards away, since what's sent in its
+   * place is the whole message, logging it for the search index, and answers the message as it is now
+   * with the change's number, as the methods below that change a message answer theirs.
    */
   async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
       statement(
-        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = NULL WHERE room_id = ? AND id = ?`,
         body.html,
         body.plainText,
         JSON.stringify(body.mentions),
@@ -378,17 +387,18 @@ export class MessageStore {
       ),
       logIndexing(this.roomId, message.id),
     ]);
-    return { message: { ...message, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
+    const { cards: _, ...rest } = message;
+    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
   }
 
   /**
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
    * as a bot's edit does (ember-rust's `replace_attachment`), marking it edited, as a change to its text
-   * does, and the file it had deleted, for the room to purge. Its text stays, and so does its plain text,
-   * unless it has no text, when that's its file's name, as a file message's is.
+   * does, and the file it had deleted, for the room to purge. Its text and cards stay, and so does its plain
+   * text, unless it has neither, when that's its file's name, as a file message's is.
    */
   async updateAttachment(message: Message, posted: PostedFile | null, now: string): Promise<{ message: Message; seq: number }> {
-    const plainText = message.body === "" ? (posted?.file.name ?? "") : message.plainText;
+    const plainText = message.body === "" && !message.cards ? (posted?.file.name ?? "") : message.plainText;
     const seq = await this.change((seq) => [
       // First, while the message still names the file it had.
       deletingFilesOf(this.roomId, JSON.stringify([message.id]), now),

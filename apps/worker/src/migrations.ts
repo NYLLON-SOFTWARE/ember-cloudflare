@@ -31,6 +31,7 @@ import filePreviews from "../migrations/0030_file_previews.sql";
 import purgedFiles from "../migrations/0031_purged_files.sql";
 import avatars from "../migrations/0032_avatars.sql";
 import logos from "../migrations/0033_logos.sql";
+import messageCards from "../migrations/0034_message_cards.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
@@ -86,6 +87,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0031_purged_files.sql", scope: "room", sql: purgedFiles },
   { name: "0032_avatars.sql", scope: "workspace", sql: avatars },
   { name: "0033_logos.sql", scope: "workspace", sql: logos },
+  { name: "0034_message_cards.sql", scope: "room", sql: messageCards },
 ];
 
 /**

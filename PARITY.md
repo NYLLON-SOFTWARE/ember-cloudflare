@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 167 ported and 0 partial of 173 features; 0 not started, 6 not applicable.
+**Overall:** 168 ported and 0 partial of 174 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -31,11 +31,11 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Search](#search) | 3 | 0 | 0 | 0 | 3 |
 | [Presence, typing and live updates](#presence-typing-and-live-updates) | 6 | 0 | 0 | 0 | 6 |
 | [Notifications](#notifications) | 13 | 0 | 0 | 0 | 13 |
-| [Bots and webhooks](#bots-and-webhooks) | 16 | 0 | 0 | 0 | 16 |
+| [Bots and webhooks](#bots-and-webhooks) | 17 | 0 | 0 | 0 | 17 |
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 11 | 0 | 0 | 4 | 15 |
-| **Total** | **167** | **0** | **0** | **6** | **173** |
+| **Total** | **168** | **0** | **0** | **6** | **174** |
 
 ## Sign-in and sessions
 
@@ -1975,6 +1975,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 | Bot keys in logs | `bots.log-redaction` | Campfire | ✅ Ported | Worker: [bot-api](apps/worker/test/bot-api.test.ts) |
 | Webhooks run in the background | `bots.webhook-jobs` | Ember | ✅ Ported | Worker: [webhooks](apps/worker/test/webhooks.test.ts) |
 | Slack-compatible webhooks | `bots.slack-webhook` | This port | ✅ Ported | Protocol: [bots](packages/protocol/src/bots.test.ts)<br>Worker: [mrkdwn](apps/worker/test/mrkdwn.test.ts), [slack-webhook](apps/worker/test/slack-webhook.test.ts)<br>Web: [bots-page](apps/web/src/components/workspace/bots-page.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
+| Bot cards | `bots.cards` | This port | ✅ Ported | Protocol: [cards](packages/protocol/src/cards.test.ts)<br>Worker: [slack-webhook](apps/worker/test/slack-webhook.test.ts)<br>Web: [bot-card](apps/web/src/components/workspace/bot-card.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [bots](e2e/tests/workspace-settings/bots.spec.ts) |
 
 <details>
 <summary>Behaviors and sources</summary>
@@ -1988,7 +1989,7 @@ ember-rust tests: [`crates/ember/src/config.rs`](https://github.com/NYLLON-SOFTW
 - `<url>` is absolute, on the host the page was requested from: `<origin>/rooms/<room id>/<bot key>/messages`.
 - "Copy message command" and "Copy attachment command" copy their line to the clipboard and flash the button for a second; if the clipboard refuses, nothing shows.
 
-Note: Administrators open `/account/bots` from the Chat bots button at the top of workspace settings, whose label, like Custom styles', is hidden at 500px wide and below. It lists the active bots from `GET /api/account/bots`, by name ignoring case, as the people directory lists people, each with its avatar linking to its page, its name, a link to its settings and, for each room it's in but its DMs, by name ignoring case, the two curl commands for posting to the room as it, at `<origin>/rooms/<room id>/<bot key>/messages` on the host the page was loaded from, with buttons that copy them and play their success animation. A bot deleted or renamed elsewhere, as by another administrator, leaves the list or takes its new name, and its place by it, as soon as the workspace socket says so, where ember-rust's keeps it as it was until the page loads again. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. Anyone else who opens the page is sent to workspace settings with the alert "Only administrators can manage bots", where ember-rust answers an empty 403 page, as Custom styles does (`accounts.custom-css`). The translation globe sits beside the heading, where ember-rust's sits at the panel's corner over the heading's first letters. Both commands post through the bot API (`bots.api-post`).
+Note: Administrators open `/account/bots` from the Chat bots button at the top of workspace settings, whose label, like Custom styles', is hidden at 500px wide and below. It lists the active bots from `GET /api/account/bots`, by name ignoring case, as the people directory lists people, each with its avatar linking to its page, its name, a link to its settings and, for each room it's in but its DMs, by name ignoring case, the two curl commands for posting to the room as it, at `<origin>/rooms/<room id>/<bot key>/messages` on the host the page was loaded from, with buttons that copy them and play their success animation. A bot deleted or renamed elsewhere, as by another administrator, leaves the list or takes its new name, and its place by it, as soon as the workspace socket says so, where ember-rust's keeps it as it was until the page loads again. Keys are answered with `Cache-Control: no-store`, as secrets no cache should keep. Anyone else who opens the page is sent to workspace settings with the alert "Only administrators can manage bots", where ember-rust answers an empty 403 page, as Custom styles does (`accounts.custom-css`). The translation globe sits beside the heading, where ember-rust's sits at the panel's corner over the heading's first letters. Both commands post through the bot API (`bots.api-post`). Under them, each room also gives its Slack-compatible webhook URL, with a copy button (`bots.slack-webhook`).
 
 Sources: [`crates/views/templates/accounts/bots/index.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/index.html) · [`crates/views/templates/accounts/bots/_bot.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/bots/_bot.html) · [`crates/ember/src/controllers/accounts/bots.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/accounts/bots.rs) · [`crates/views/src/helpers/users.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/src/helpers/users.rs) · [`crates/ember/src/controllers/presenters/accounts.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/presenters/accounts.rs) · [`crates/assets/overrides/controllers/copy_to_clipboard_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/copy_to_clipboard_controller.js) · [`crates/views/templates/accounts/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/accounts/edit.html) · [`reference/app/views/accounts/bots/index.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/index.html.erb) · [`reference/app/views/accounts/bots/_bot.html.erb`](https://github.com/basecamp/once-campfire/blob/90b330024dec3e757c79b6a7e6568f93da8e3148/app/views/accounts/bots/_bot.html.erb)
 
@@ -2198,12 +2199,25 @@ ember-rust tests: [`crates/ember/src/jobs/tests.rs`](https://github.com/NYLLON-S
 - It answers as Slack's webhooks do, as text: 200 `ok`; 400 `invalid_payload` for no JSON object, `no_text` for nothing to show, `too_many_attachments` past 100 and `msg_too_long` past a message's 10,000 characters; 403 `invalid_token` for a key that isn't an active bot's; 404 `channel_not_found` for a room the bot isn't in; and 413 `msg_too_long` for a body past 100,000 characters.
 - `text` is mrkdwn: *bold*, _italics_, ~strike-through~, `code`, code blocks between triple backticks, `>` and `>>>` quotes, `<url|label>` links to web and email addresses, emoji by name with skin tones, and the escapes `&amp;`, `&lt;` and `&gt;`. Formatting needs a word's edge, so `node_cpu_seconds_total` keeps its underscores, and `mrkdwn: false` leaves only links, mentions, emoji and escapes.
 - Mentions, `<@U…>`, `<#C…|name>`, `<!subteam^…|@handle>`, `<!here>`, `<!channel>` and `<!everyone>`, show as text and notify nobody, and `<!date^…|fallback>` shows its fallback.
-- `blocks` show in place of `text`, which shows when they show nothing. Header, section, context, Markdown, rich text and actions blocks post as rich text, and legacy `attachments` as quotes after their pretext, with their blocks inside, formatted only in the fields their `mrkdwn_in` names, or as their fallback when nothing else in them shows.
+- `blocks` show in place of `text`, which shows when they show nothing. Header, section, context, Markdown, rich text and actions blocks post as rich text, and legacy `attachments` as cards under it (`bots.cards`), with their blocks inside as rich text, or as their fallback when nothing else in them shows.
 - `username`, `icon_emoji`, `icon_url`, `channel` and `thread_ts` change nothing: the bot posts as itself, to the room its address names.
 - The bots page gives each of a bot's rooms its "Slack-compatible webhook URL", with "Copy Slack-compatible webhook URL" beside it.
 - Logs filter the key out of the address, as they do the bot API's.
 
-Note: This port's own, so tools that post to Slack can post to a room, as Mattermost, Rocket.Chat, Discord (at `/slack`) and Zulip let them. Emoji names come from emoji-datasource 16.0.0, which `apps/worker/scripts/emoji-names.ts` turns into `src/bots/emoji-names.ts`. Mentions name Slack's ids, which name nobody here. Until cards draw them, attachments and blocks post as rich text. "Slack-compatible" describes the payload: Slack is a trademark of Slack Technologies, LLC, and Ember isn't affiliated with it, as the README says.
+Note: This port's own, so tools that post to Slack can post to a room, as Mattermost, Rocket.Chat, Discord (at `/slack`) and Zulip let them. Emoji names come from emoji-datasource 16.0.0, which `apps/worker/scripts/emoji-names.ts` turns into `src/bots/emoji-names.ts`. Mentions name Slack's ids, which name nobody here. Until cards draw them, blocks post as rich text. "Slack-compatible" describes the payload: Slack is a trademark of Slack Technologies, LLC, and Ember isn't affiliated with it, as the README says.
+
+**Bot cards** (`bots.cards`) ✅
+
+- A Slack-compatible webhook's legacy `attachments` show as cards under its message's text, one each, in order: framed, with a bar down the left side in the attachment's `color`, where `good`, `warning` and `danger` take Ember's positive, warning and negative colors, `#rrggbb` shows as given, and no color the border's.
+- A card shows the attachment's `pretext` above its frame, then its author (`author_name`, linked to `author_link`, with `author_icon`), title (linked to `title_link`), text, fields (`short` ones two to a row, the rest full width, and one column in a card under 400px wide), image (at most 360 by 500px), link buttons (`actions` with a `url`, filled for `primary` and red for `danger`) and footer (`footer_icon`, `footer` and `ts`, a date and time in the reader's time zone), with `thumb_url` as a 75px thumbnail at the right, and its `blocks` as rich text above the footer; when none of those shows anything, its `fallback`.
+- Text, pretext and field values are mrkdwn only where `mrkdwn_in` names them, and titles, names, field titles, buttons and footers are plain text, with links shown by their labels and emoji by name.
+- A card's text past 700 characters or 5 line breaks folds behind Show more.
+- Links, images and icons have to be absolute http or https addresses on a named host other than the page's, as link previews' do, or they're left out. Links open in a new tab.
+- A message may have cards and no text. Its plain text, which search, pushes, outgoing webhooks and the bot API read, is its text, then each card's, a line for each part, with field titles before their values. A message with cards never shows as emoji only.
+- A message with cards has no editor for its text: Edit opens it as it shows, with Delete, as a file message's does, and the room refuses to change its text. A bot that replaces its text through the bot API takes its cards away.
+- Each card is an article named by its title.
+
+Note: This port's own, beside `bots.slack-webhook`. A message keeps its cards as JSON in `messages.cards` (room migration 0034), as a file message keeps its file, rather than in its body as Action Text attachments, which the rich text pipeline would sanitize as markup, the editor would drop as an administrator edits, and outgoing webhooks would hand to bots. A card's text is rich text in the stored form, kept by `prepareBody` and drawn through `displayBody`. The warning color is Slack's own, `#daa038`, since ember-rust's only orange, Campfire's `--lch-orange`, is too near the negative red for a bar to tell them apart. Images load from the sender's host, as link previews' do. Block Kit blocks still post as rich text.
 
 </details>
 

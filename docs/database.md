@@ -418,6 +418,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   and an image's width and height. A page of messages reads no other table for it, and its addresses
   are signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
   and, once the room posts it, the message's, so a part sent again answers with the same message.
+- **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
+  Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
+  migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich
+  text pipeline would sanitize as markup, an administrator's edit would drop and outgoing webhooks
+  would hand to bots. Their text is rich text in the stored form, and their plain text follows the
+  body's in `plain_text`, so search, pushes and webhooks read it with no other column. A page of
+  messages reads no other table for them.
 
 ## Writing SQL here
 

@@ -168,7 +168,7 @@ async function postSlackMessage(request: Request, env: Env, roomId: RoomId, key:
   // Again now the body has arrived, as `createMessage` checks text.
   const arrived = await slackBotIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
-  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, message.markup);
+  const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, message.markup, message.cards);
   if (!created) return slackAnswer(404, "channel_not_found");
   if (typeof created === "string") return slackAnswer(400, slackReason(created));
   return slackAnswer(200, "ok");

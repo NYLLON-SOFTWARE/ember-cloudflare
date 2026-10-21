@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId, type SearchResults } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
@@ -251,8 +251,9 @@ describe(feature("bots.slack-webhook"), () => {
     expect(await bodiesIn(general)).toEqual(["<p>Deployed👋</p>", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
   });
 
-  it("posts each legacy attachment as a quote after its pretext, formatted only where mrkdwn_in says, with its blocks, or as its fallback", async () => {
-    const { bot, general } = await withBot();
+  it("posts each legacy attachment as a card under the text, formatted only where mrkdwn_in says, with its blocks, or as its fallback", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
     // As Prometheus Alertmanager's Slack notifier sends an alert, by default.
     const alertmanager = {
       channel: "#alerts",
@@ -277,19 +278,24 @@ describe(feature("bots.slack-webhook"), () => {
       text: "Nightly *report*",
       attachments: [
         {
-          pretext: "Before the quote, *formatted*",
+          pretext: "Before the card, *formatted*",
           author_name: "Ada & Grace",
           author_link: "https://example.com/ada",
+          author_icon: "https://example.com/ada.png",
           text: "*Not formatted* without mrkdwn_in, but <https://example.com|linked> :tada:",
           fields: [
             { title: "Status", value: "*Passed*", short: true },
             { title: "Took", value: "42s", short: true },
+            { title: "", value: "" },
           ],
-          footer: "CI &amp; CD",
-          ts: 1392734382,
+          thumb_url: "https://example.com/thumb.png",
+          footer: "CI &amp; CD <https://ci.example.com|:gear: CI>",
+          footer_icon: "https://example.com/ci.png",
+          ts: "1392734382.000200",
           mrkdwn_in: ["pretext", "fields"],
         },
-        { fallback: "Only a fallback, *plain*", image_url: "https://example.com/chart.png" },
+        { fallback: "Not shown beside an image", image_url: "https://example.com/chart.png" },
+        { fallback: "Only a fallback, *plain*" },
       ],
     };
     expect(await answerTo(bot.key, general, formattedHere)).toEqual(OK);
@@ -309,24 +315,59 @@ describe(feature("bots.slack-webhook"), () => {
     };
     expect(await answerTo(bot.key, general, blocksInside)).toEqual(OK);
 
-    expect(await bodiesIn(general)).toEqual([
-      "<blockquote>" +
-        '<p><strong><a href="https://alertmanager.example.com/#/alerts?receiver=slack">[FIRING:1] InstanceDown (node-exporter prod)</a></strong></p>' +
-        "<p><strong>Alert:</strong> Instance down - <code>critical</code><br><strong>Description:</strong> node_1:9100 has been down for 5 minutes.</p>" +
-        '<p><a href="https://runbooks.example.com/instance-down">Runbook 📓</a></p>' +
-        "</blockquote>",
-      "<p>Nightly <strong>report</strong></p>" +
-        "<p>Before the quote, <strong>formatted</strong></p>" +
-        "<blockquote>" +
-        '<p><a href="https://example.com/ada">Ada &amp; Grace</a></p>' +
-        '<p>*Not formatted* without mrkdwn_in, but <a href="https://example.com/">linked</a> 🎉</p>' +
-        "<p><strong>Status</strong></p><p><strong>Passed</strong></p>" +
-        "<p><strong>Took</strong></p><p>42s</p>" +
-        "<p>CI &amp; CD</p>" +
-        "</blockquote>" +
-        "<blockquote><p>Only a fallback, *plain*</p></blockquote>",
-      "<blockquote><p><strong>Deployed</strong> to production</p><p>by @U1</p></blockquote><blockquote><p>A chart, which doesn't show yet</p></blockquote>",
+    const shown = await Promise.all([1, 2, 3].map(async () => (await inRoom.next("message.created")).message));
+    expect(shown.map(({ body, plainText, cards }) => ({ body, plainText, cards }))).toEqual([
+      {
+        body: "",
+        plainText: "[FIRING:1] InstanceDown (node-exporter prod)\nAlert: Instance down - critical\nDescription: node_1:9100 has been down for 5 minutes.\nRunbook 📓",
+        cards: [
+          {
+            source: "attachment",
+            color: "danger",
+            parts: [
+              { kind: "title", text: "[FIRING:1] InstanceDown (node-exporter prod)", href: "https://alertmanager.example.com/#/alerts?receiver=slack" },
+              { kind: "text", html: "<p><strong>Alert:</strong> Instance down - <code>critical</code><br><strong>Description:</strong> node_1:9100 has been down for 5 minutes.</p>" },
+              { kind: "buttons", buttons: [{ text: "Runbook 📓", href: "https://runbooks.example.com/instance-down", style: "danger" }] },
+            ],
+          },
+        ],
+      },
+      {
+        body: "<p>Nightly <strong>report</strong></p>",
+        plainText: "Nightly report\nBefore the card, formatted\nAda & Grace\n*Not formatted* without mrkdwn_in, but linked 🎉\nStatus\nPassed\nTook\n42s\nCI & CD ⚙️ CI\nOnly a fallback, *plain*",
+        cards: [
+          {
+            source: "attachment",
+            pretext: "<p>Before the card, <strong>formatted</strong></p>",
+            thumb: { url: "https://example.com/thumb.png", alt: "" },
+            parts: [
+              { kind: "author", name: "Ada & Grace", href: "https://example.com/ada", icon: "https://example.com/ada.png" },
+              { kind: "text", html: '<p>*Not formatted* without mrkdwn_in, but <a href="https://example.com/">linked</a> 🎉</p>' },
+              {
+                kind: "fields",
+                fields: [
+                  { title: "Status", html: "<p><strong>Passed</strong></p>", short: true },
+                  { title: "Took", html: "<p>42s</p>", short: true },
+                ],
+              },
+              { kind: "footer", text: "CI & CD ⚙️ CI", icon: "https://example.com/ci.png", at: 1392734382.0002 },
+            ],
+          },
+          { source: "attachment", parts: [{ kind: "image", image: { url: "https://example.com/chart.png", alt: "" } }] },
+          { source: "attachment", parts: [{ kind: "text", html: "<p>Only a fallback, *plain*</p>" }] },
+        ],
+      },
+      {
+        body: "",
+        plainText: "Deployed to production\n\nby @U1\nA chart, which doesn't show yet",
+        cards: [
+          { source: "attachment", color: "good", parts: [{ kind: "text", html: "<p><strong>Deployed</strong> to production</p><p>by @U1</p>" }] },
+          { source: "attachment", parts: [{ kind: "text", html: "<p>A chart, which doesn't show yet</p>" }] },
+        ],
+      },
     ]);
+    const later = await connect(general, administrator);
+    expect(later.welcome.messages.map(({ id, cards }) => ({ id, cards }))).toEqual(shown.map(({ id, cards }) => ({ id, cards })));
   });
 
   it("filters the key out of its address in logs, as the bot API's, answering a failure with 500 JSON", async () => {
@@ -340,5 +381,115 @@ describe(feature("bots.slack-webhook"), () => {
     expect([response.status, await response.json()]).toEqual([500, { status: 500, error: "Internal Server Error" }]);
     expect(errors).toHaveBeenCalledWith(`POST /rooms/${general}/[FILTERED]/slack failed:`, expect.any(Error));
     expect(JSON.stringify(errors.mock.calls)).not.toContain(bot.key.split("-")[1]);
+  });
+});
+
+describe(feature("bots.cards"), () => {
+  /** Posts `payload` to general's webhook as its bot, answering the message it made, as the room sent it to `session`. */
+  async function postedCards(payload: unknown) {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    expect(await answerTo(bot.key, general, payload)).toEqual(OK);
+    const { message } = await inRoom.next("message.created");
+    return { administrator, bot, general, inRoom, message };
+  }
+
+  /** Message `id`'s address in `room` for the bot whose key is `key`. */
+  const messagePath = (room: RoomId, key: string, id: string) => `/rooms/${room}/${key}/messages/${id}`;
+
+  it("finds a message by its cards' text, which its plain text holds, carrying its cards to the search", async () => {
+    const { administrator, general, message } = await postedCards({ attachments: [{ title: "Nightly deploy", fields: [{ title: "Region", value: "aardvark-east" }] }] });
+    expect(message).toMatchObject({ body: "", plainText: "Nightly deploy\nRegion\naardvark-east" });
+
+    await vi.waitFor(async () => expect(await roomSql(general, "SELECT seq FROM unindexed_messages WHERE room_id = ?", general)).toEqual([]));
+    const found = (await (await api("/api/searches?q=aardvark", { headers: { Cookie: administrator.cookie } })).json()) as SearchResults;
+    expect(found.messages.map(({ id, cards }) => ({ id, cards }))).toEqual([{ id: message.id, cards: message.cards }]);
+  });
+
+  it("leaves out links, images and icons that aren't web addresses on a named host, keeping the rest of the card, and email links in its text", async () => {
+    const { message } = await postedCards({
+      attachments: [
+        {
+          author_name: "Ada",
+          author_link: "javascript:alert(1)",
+          author_icon: "http://127.0.0.1/ada.png",
+          title: "Deploy",
+          title_link: "//example.com/deploy",
+          text: "Ask <mailto:ada@example.com|Ada>",
+          image_url: "data:image/png;base64,AAAA",
+          thumb_url: "ftp://example.com/thumb.png",
+          actions: [
+            { type: "button", text: "Mail", url: "mailto:ada@example.com" },
+            { type: "button", text: "Open", url: "https://example.com/open" },
+          ],
+          footer: "CI",
+          footer_icon: "file:///etc/passwd",
+        },
+      ],
+    });
+    expect(message.cards).toEqual([
+      {
+        source: "attachment",
+        parts: [
+          { kind: "author", name: "Ada" },
+          { kind: "title", text: "Deploy" },
+          { kind: "text", html: '<p>Ask <a href="mailto:ada@example.com">Ada</a></p>' },
+          { kind: "buttons", buttons: [{ text: "Open", href: "https://example.com/open" }] },
+          { kind: "footer", text: "CI" },
+        ],
+      },
+    ]);
+  });
+
+  it("shows an attachment's fallback in place of parts the room doesn't keep, such as an image whose address is too long", async () => {
+    const { message } = await postedCards({
+      attachments: [
+        { fallback: "A chart", image_url: `https://example.com/${"x".repeat(3000)}.png` },
+        { fallback: "A long title", title: "x".repeat(3001) },
+      ],
+    });
+    expect(message.cards).toEqual([
+      { source: "attachment", parts: [{ kind: "text", html: "<p>A chart</p>" }] },
+      { source: "attachment", parts: [{ kind: "text", html: "<p>A long title</p>" }] },
+    ]);
+  });
+
+  it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be, or text and cards longer than a message", async () => {
+    const { bot, general } = await withBot();
+    expect(await answerTo(bot.key, general, { attachments: [{ color: "good" }, { fallback: " ", footer: " " }] })).toEqual(refused(400, "no_text"));
+    // Each escaped ampersand takes five characters.
+    const attachments = Array.from({ length: 25 }, () => ({ text: "&".repeat(900) }));
+    expect(await answerTo(bot.key, general, { attachments })).toEqual(refused(400, "msg_too_long"));
+    const long = [{ text: "x".repeat(6000) }, { text: "y".repeat(6000) }];
+    expect(await answerTo(bot.key, general, { attachments: long })).toEqual(refused(400, "msg_too_long"));
+    expect(await answerTo(bot.key, general, { text: "Hi", attachments: long })).toEqual(refused(400, "msg_too_long"));
+    expect(await bodiesIn(general)).toEqual([]);
+  });
+
+  it("refuses to change a message with cards from the room, which its editor offers only to delete", async () => {
+    const { general, inRoom, message } = await postedCards({ text: "Deploying", attachments: [{ title: "web" }] });
+    inRoom.send({ type: "message.update", messageId: message.id, body: "<p>Changed</p>" });
+    expect(await inRoom.next("error")).toEqual({ type: "error", message: "Messages with cards can't be edited.", failed: "message.update" });
+    expect(await bodiesIn(general)).toEqual(["<p>Deploying</p>"]);
+  });
+
+  it("takes a message's cards away when its bot replaces its text through the bot API", async () => {
+    const { bot, general, inRoom, message } = await postedCards({ text: "Deploying", attachments: [{ title: "web" }] });
+    const response = await api(messagePath(general, bot.key, message.id), { method: "PUT", body: "Deployed", headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const { message: updated } = await inRoom.next("message.updated");
+    expect(updated).toMatchObject({ id: message.id, body: "Deployed", plainText: "Deployed" });
+    expect(updated.cards).toBeUndefined();
+    expect(await roomSql(general, "SELECT cards FROM messages WHERE id = ?", message.id)).toEqual([{ cards: null }]);
+  });
+
+  it("keeps a message's cards and its plain text when its bot gives it a file", async () => {
+    const { bot, general, inRoom, message } = await postedCards({ attachments: [{ title: "Build 42", text: "Passed" }] });
+    const form = new FormData();
+    form.set("attachment", new File(["Build passed"], "build.log", { type: "text/plain" }));
+    const response = await api(messagePath(general, bot.key, message.id), { method: "PUT", body: form });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const { message: updated } = await inRoom.next("message.updated");
+    expect(updated).toMatchObject({ id: message.id, plainText: "Build 42\nPassed", cards: message.cards, attachment: { name: "build.log" } });
   });
 });

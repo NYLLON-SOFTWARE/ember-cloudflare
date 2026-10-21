@@ -1,11 +1,12 @@
-import { MAX_MESSAGE_HTML_LENGTH } from "@ember/protocol";
-import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnLine, plainTextHtml, plainTextLine, utcTime, type Formatting } from "./mrkdwn";
+import { MAX_CARDS, MAX_MESSAGE_HTML_LENGTH, parseParts, type Card, type CardButton, type CardField, type CardImage, type CardPart } from "@ember/protocol";
+import { cardAddress } from "@ember/richtext";
+import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainTextHtml, plainTextLine, utcTime, type Formatting } from "./mrkdwn";
 
 // What a Slack incoming webhook is sent (https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks),
 // read into the message a bot posts: its `text`, or its Block Kit `blocks`, which Slack shows in place of the text,
-// then its legacy `attachments`, which alerting tools still send. What Slack lets a payload change about who posts
-// and where (`username`, `icon_emoji`, `icon_url`, `channel`, `thread_ts`) is left out: the bot posts as itself,
-// to the room whose address the payload was sent to.
+// and its legacy `attachments`, which alerting tools still send, as cards under it (packages/protocol/src/cards.ts).
+// What Slack lets a payload change about who posts and where (`username`, `icon_emoji`, `icon_url`, `channel`,
+// `thread_ts`) is left out: the bot posts as itself, to the room whose address the payload was sent to.
 
 /** Why Slack's webhooks post nothing, in their words. */
 export type SlackError = "invalid_payload" | "no_text" | "too_many_attachments" | "msg_too_long";
@@ -13,13 +14,11 @@ export type SlackError = "invalid_payload" | "no_text" | "too_many_attachments" 
 /** A payload, as JSON decodes an object. */
 export type SlackPayload = Record<string, unknown>;
 
-/** What a payload posts: the message's markup. */
+/** What a payload posts: the message's markup, and its cards. */
 export interface SlackMessage {
   markup: string;
+  cards: Card[];
 }
-
-/** The most attachments Slack takes in a message. */
-const MAX_ATTACHMENTS = 100;
 
 /**
  * The payload in the text of a webhook's request: JSON, whatever the request's type says, as tools send it
@@ -42,54 +41,115 @@ export function payloadOf(json: string | null): SlackPayload | null {
 
 /**
  * The message `payload` posts, as Slack shows it: its blocks in place of its text, as rich text until cards draw
- * them, or its text when they show nothing yet, then its attachments; or why it posts nothing.
+ * them, or its text when they show nothing yet, with a card for each of its attachments; or why it posts nothing.
  */
 export function slackMessage(payload: SlackPayload): SlackMessage | SlackError {
   const attachments = listOf(payload.attachments);
-  if (attachments.length > MAX_ATTACHMENTS) return "too_many_attachments";
+  // Slack takes as many attachments as a message keeps cards.
+  if (attachments.length > MAX_CARDS) return "too_many_attachments";
   const formatting: Formatting = payload.mrkdwn === false ? "plain" : "mrkdwn";
   const blocks = listOf(payload.blocks).map(blockHtml).join("");
-  const markup = (shows(blocks) ? blocks : mrkdwnHtml(stringOf(payload.text), formatting)) + attachments.map(attachmentHtml).join("");
-  if (!shows(markup)) return "no_text";
-  return markup.length > MAX_MESSAGE_HTML_LENGTH ? "msg_too_long" : { markup };
+  const markup = shows(blocks) ? blocks : mrkdwnHtml(stringOf(payload.text), formatting);
+  const cards = attachments.flatMap((attachment) => attachmentCard(attachment) ?? []);
+  if (!shows(markup) && cards.length === 0) return "no_text";
+  const tooLong = markup.length > MAX_MESSAGE_HTML_LENGTH || JSON.stringify(cards).length > MAX_MESSAGE_HTML_LENGTH;
+  return tooLong ? "msg_too_long" : { markup, cards };
 }
 
 /**
- * A legacy attachment, until cards draw it, as a quote, whose bar stands in for its color: its author, linked
- * title, text, fields, buttons, blocks and footer, after its pretext, or, when those show nothing, its fallback.
- * Slack formats only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them.
+ * A legacy attachment as a card, in its color: its author, linked title, text, fields, image, buttons, blocks
+ * and footer, under its pretext and beside its thumbnail, or, when those show nothing, its fallback. Slack formats
+ * only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them, and its blocks
+ * are rich text until cards draw them. It keeps only the parts and addresses the room keeps (`parseParts`), so one
+ * the room would leave out, such as an image whose address is too long, can't hide the fallback.
  */
-function attachmentHtml(attachment: unknown): string {
-  if (!isObject(attachment)) return "";
+function attachmentCard(attachment: unknown): Card | null {
+  if (!isObject(attachment)) return null;
   const formatted = new Set(listOf(attachment.mrkdwn_in));
-  const textOf = (field: string) => mrkdwnHtml(stringOf(attachment[field]), formatted.has(field) ? "mrkdwn" : "plain");
-  const quoted = [
-    linkedParagraph(attachment.author_name, attachment.author_link),
-    linkedParagraph(attachment.title, attachment.title_link, "strong"),
-    textOf("text"),
-    ...listOf(attachment.fields).map((field) => fieldHtml(field, formatted.has("fields") ? "mrkdwn" : "plain")),
-    buttonsHtml(listOf(attachment.actions)),
-    ...listOf(attachment.blocks).map(blockHtml),
-    mrkdwnHtml(stringOf(attachment.footer), "plain"),
-  ].join("");
-  const shown = shows(quoted) ? quoted : mrkdwnHtml(stringOf(attachment.fallback), "plain");
-  return textOf("pretext") + (shown && `<blockquote>${shown}</blockquote>`);
+  const formattingOf = (field: string): Formatting => (formatted.has(field) ? "mrkdwn" : "plain");
+  const candidates = [
+    authorPart(attachment),
+    titlePart(attachment),
+    textPart(mrkdwnHtml(stringOf(attachment.text), formattingOf("text"))),
+    fieldsPart(listOf(attachment.fields), formattingOf("fields")),
+    imagePart(attachment.image_url),
+    buttonsPart(listOf(attachment.actions)),
+    textPart(listOf(attachment.blocks).map(blockHtml).join("")),
+    footerPart(attachment),
+  ].filter((part) => part !== null);
+  const parts = parseParts(candidates, addressOf);
+  const fallback = textPart(mrkdwnHtml(stringOf(attachment.fallback), "plain"));
+  const shown = parts.length > 0 ? parts : fallback ? [fallback] : [];
+  const pretext = mrkdwnHtml(stringOf(attachment.pretext), formattingOf("pretext"));
+  if (shown.length === 0 && !shows(pretext)) return null;
+  const color = stringOf(attachment.color);
+  const thumb = imageOf(attachment.thumb_url);
+  return { source: "attachment", ...(color && { color }), ...(shows(pretext) && { pretext }), ...(thumb && { thumb }), parts: shown };
 }
 
-/** An attachment's author or title, linked to `link` if it's a web address, and in `tag` if it's given. */
-function linkedParagraph(text: unknown, link: unknown, tag?: string): string {
-  const html = mrkdwnLine(stringOf(text));
-  if (html === "") return "";
-  const href = typeof link === "string" ? linkHref(link) : null;
-  const linked = href ? anchor(href, html) : html;
-  return `<p>${tag ? `<${tag}>${linked}</${tag}>` : linked}</p>`;
+function authorPart(attachment: SlackPayload): CardPart | null {
+  const name = mrkdwnText(stringOf(attachment.author_name));
+  return name === "" ? null : { kind: "author", name, ...linkOf("href", attachment.author_link), ...linkOf("icon", attachment.author_icon) };
 }
 
-/** An attachment's field: its title in bold, which Slack never formats, then its value. */
-function fieldHtml(field: unknown, formatting: Formatting): string {
-  if (!isObject(field)) return "";
-  const title = mrkdwnLine(stringOf(field.title));
-  return (title && `<p><strong>${title}</strong></p>`) + mrkdwnHtml(stringOf(field.value), formatting);
+function titlePart(attachment: SlackPayload): CardPart | null {
+  const text = mrkdwnText(stringOf(attachment.title));
+  return text === "" ? null : { kind: "title", text, ...linkOf("href", attachment.title_link) };
+}
+
+const textPart = (html: string): CardPart | null => (shows(html) ? { kind: "text", html } : null);
+
+function imagePart(url: unknown): CardPart | null {
+  const image = imageOf(url);
+  return image ? { kind: "image", image } : null;
+}
+
+/** An attachment's fields: each one's title, which Slack never formats, and its value. */
+function fieldsPart(fields: unknown[], formatting: Formatting): CardPart | null {
+  const shown = fields.flatMap((field): CardField[] => {
+    if (!isObject(field)) return [];
+    const title = mrkdwnText(stringOf(field.title));
+    const value = mrkdwnHtml(stringOf(field.value), formatting);
+    const html = shows(value) ? value : "";
+    return title === "" && html === "" ? [] : [{ ...(title && { title }), html, short: field.short === true }];
+  });
+  return shown.length === 0 ? null : { kind: "fields", fields: shown };
+}
+
+/** An attachment's buttons that link somewhere, each in its style. */
+function buttonsPart(actions: unknown[]): CardPart | null {
+  const buttons = actions.flatMap((action): CardButton[] => {
+    if (!isObject(action)) return [];
+    const text = mrkdwnText(stringOf(action.text));
+    const href = addressOf(action.url);
+    const style = action.style === "primary" || action.style === "danger" ? action.style : undefined;
+    return text === "" || href === undefined ? [] : [{ text, href, ...(style && { style }) }];
+  });
+  return buttons.length === 0 ? null : { kind: "buttons", buttons };
+}
+
+/** An attachment's footer: its text, its icon and its time, `ts`, in seconds. */
+function footerPart(attachment: SlackPayload): CardPart | null {
+  const text = mrkdwnText(stringOf(attachment.footer));
+  const at = numberOf(attachment.ts);
+  const known = !Number.isNaN(new Date(at * 1000).getTime());
+  if (text === "" && !known) return null;
+  return { kind: "footer", ...(text && { text }), ...linkOf("icon", attachment.footer_icon), ...(known && { at }) };
+}
+
+/** An address in a payload that a card can show, a web address on a named host, or undefined. */
+const addressOf = (url: unknown) => (typeof url === "string" ? cardAddress(url, "") : undefined);
+
+/** An image in a payload, which Slack describes with no text, or undefined. */
+function imageOf(url: unknown): CardImage | undefined {
+  const address = addressOf(url);
+  return address === undefined ? undefined : { url: address, alt: "" };
+}
+
+/** `{ [key]: address }` for an address in a payload that a card can show, to spread into a part, or nothing. */
+function linkOf<Key extends string>(key: Key, link: unknown): { [key in Key]?: string } {
+  const address = addressOf(link);
+  return address === undefined ? {} : ({ [key]: address } as { [key in Key]?: string });
 }
 
 /** The buttons that link somewhere, an attachment's `actions` or an actions block's `elements`, as links on a line. */

@@ -2,9 +2,10 @@ import { createServer, type IncomingHttpHeaders, type ServerResponse } from "nod
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { feature } from "@ember/parity";
-import type { APIResponse, Page } from "@playwright/test";
+import { devices, type APIResponse, type Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { auditScreen } from "../mobile/audits";
 import { join } from "./fixtures";
 
 /** A command that posts to a room as a bot: its room's address on this server, then the bot's key. */
@@ -237,6 +238,85 @@ test.describe(feature("bots.slack-webhook"), () => {
     await expect(content).toHaveText(`Deploy finished 🎉 Build ${build}`);
     await expect(content.locator("strong")).toHaveText("finished");
     await expect(content.getByRole("link", { name: `Build ${build}` })).toHaveAttribute("href", `https://ci.example.com/builds/${build}`);
+  });
+});
+
+test.describe(feature("bots.cards"), () => {
+  test("an attachment sent to a bot's Slack-compatible webhook shows as a card under its text, on a computer and a phone, in light and dark", async ({ page, browser, baseURL }) => {
+    await openBots(page);
+    // A room of its own, so the phone's screen holds no other test's messages, which the audit would check too. It's
+    // made as the app's own page would make it, since over HTTPS a write that doesn't say so is refused as cross-site.
+    const roomName = `Alerts ${crypto.randomUUID().slice(0, 8)}`;
+    const created = await page.request.post("/api/rooms", { headers: { "Sec-Fetch-Site": "same-origin" }, data: { kind: "open", name: roomName } });
+    expect(created.status(), await created.text()).toBe(201);
+    const name = `Alert Bot ${crypto.randomUUID().slice(0, 8)}`;
+    await addBot(page, name);
+    const webhook = botNamed(page, name).getByRole("group", { name: roomName, exact: true }).getByRole("textbox", { name: "Slack-compatible webhook URL" });
+    const url = await webhook.inputValue();
+    const room = new URL(url).pathname.replace(/\/[^/]+\/slack$/, "");
+    await page.goto(room);
+    await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+
+    // As Prometheus Alertmanager sends an alert, with fields, a runbook and a footer.
+    const alert = crypto.randomUUID().slice(0, 8);
+    const title = `[FIRING:1] HighErrorRate ${alert}`;
+    const at = 1792612211;
+    const posted = await page.request.post(url, {
+      data: {
+        text: `Alert ${alert}`,
+        attachments: [
+          {
+            color: "danger",
+            title,
+            title_link: "https://alertmanager.example.com/#/alerts",
+            text: "5xx responses on api-gateway are at *7.2%*, above the 5% threshold.",
+            mrkdwn_in: ["text"],
+            fields: [
+              { title: "Severity", value: "critical", short: true },
+              { title: "Service", value: "api-gateway", short: true },
+            ],
+            actions: [{ type: "button", text: "Runbook", url: "https://runbooks.example.com/high-error-rate", style: "danger" }],
+            footer: "Prometheus",
+            ts: at,
+          },
+        ],
+      },
+    });
+    expect([posted.status(), await posted.text()]).toEqual([200, "ok"]);
+
+    const card = page.getByRole("article", { name: title });
+    const message = page.getByRole("article").filter({ has: card });
+    await expect(message).toContainText(name);
+    await expect(message.locator("[data-body-content] > .message-content")).toHaveText(`Alert ${alert}`);
+    await expect(card.getByRole("link", { name: title })).toHaveAttribute("href", "https://alertmanager.example.com/#/alerts");
+    await expect(card.locator("strong")).toHaveText("7.2%");
+    await expect(card.getByText("Severity")).toBeVisible();
+    await expect(card.getByRole("link", { name: "Runbook" })).toHaveAttribute("target", "_blank");
+    await expect(card.locator("time")).toHaveAttribute("datetime", new Date(at * 1000).toISOString());
+
+    // The bar is the negative red, which dark mode lightens.
+    const bar = card.locator(":scope > span[aria-hidden]");
+    await expect(bar).toHaveClass(/\bbg-negative\b/);
+    const red = await bar.evaluate((element) => getComputedStyle(element).backgroundColor);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect.poll(() => bar.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(red);
+
+    // On a phone, the card fits the screen and its button is a finger's size.
+    const phone = await browser.newContext({ ...devices["Galaxy S24"], baseURL, ignoreHTTPSErrors: true });
+    try {
+      const onPhone = await phone.newPage();
+      await useOwnAddress(onPhone);
+      await onPhone.goto(room);
+      await signInAsAdministrator(onPhone);
+      const cardOnPhone = onPhone.getByRole("article", { name: title });
+      await cardOnPhone.scrollIntoViewIfNeeded();
+      await expect(cardOnPhone.getByRole("link", { name: "Runbook" })).toBeVisible();
+      const results = await auditScreen(onPhone, { top: 0, right: 0, bottom: 0, left: 0 });
+      expect(results.overflow, "Nothing is cut off or pushed off the side of the screen").toEqual([]);
+      expect(results.touchTargets, "Every control is easy to tap").toEqual([]);
+    } finally {
+      await phone.close();
+    }
   });
 });
 

@@ -130,7 +130,7 @@ function holdsOnlyAList(item: DisplayElement): boolean {
  * A link in a message, which ember-rust's `reply_controller.js` targets: an address on this site
  * opens in place, without a page load for one of the app's pages, and any other in a new tab.
  */
-function MessageLink({ href, ...props }: ComponentProps<"a">) {
+export function MessageLink({ href, ...props }: ComponentProps<"a">) {
   if (href === undefined) return <a {...props} />;
   const url = urlOf(href);
   if (url?.origin !== location.origin) return <a href={href} target="_blank" rel="noopener" {...props} />;
