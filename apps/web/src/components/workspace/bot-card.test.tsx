@@ -111,6 +111,35 @@ describe(feature("bots.cards"), () => {
     expect(frame).toHaveTextContent("AdaDeployCI");
   });
 
+  it("loads every image as it nears the screen, and without a referrer, so the site serving it doesn't learn which Ember shows it", () => {
+    const image = (name: string) => ({ url: `https://example.com/${name}.png`, alt: "" });
+    show(
+      card(
+        [
+          { kind: "author", name: "Ada", icon: image("author").url },
+          { kind: "image", image: image("image") },
+          { kind: "footer", text: "CI", icon: image("footer").url },
+        ],
+        { thumb: image("thumb") },
+      ),
+      {
+        source: "blocks",
+        parts: [
+          { kind: "section", html: "<p>Deployed</p>", thumb: image("section") },
+          { kind: "context", items: [{ image: image("context") }] },
+          { kind: "image", image: image("block") },
+          { kind: "tiles", tiles: [{ hero: image("hero"), icon: image("icon"), title: "Lovelace" }] },
+        ],
+      },
+    );
+    const images = [...document.querySelectorAll("img")];
+    expect(images).toHaveLength(9);
+    for (const shown of images) {
+      expect(shown, shown.src).toHaveAttribute("loading", "lazy");
+      expect(shown, shown.src).toHaveAttribute("referrerpolicy", "no-referrer");
+    }
+  });
+
   it("frames a message's blocks without a bar, named by their header, with sections, a context row, a rule and an image under its title", () => {
     const [frame] = show({
       source: "blocks",

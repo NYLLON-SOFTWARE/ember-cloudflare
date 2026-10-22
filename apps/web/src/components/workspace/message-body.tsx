@@ -84,7 +84,8 @@ function Mention({ userId, mentions, inLink }: { userId: UserId; mentions: User[
  * A link preview, as Campfire's _opengraph_embed.html.erb lays one out and its embeds.css styles it: a card
  * with the page's title in semibold, linking to it, and its description, cut at six lines, then its image,
  * 16:9 under the text, or beside it at 100ch wide and up. An X avatar is small and round, beside the text at
- * any width. Unlike Campfire's, the image loads as it nears the screen, as a room can hold a lot of them.
+ * any width. Unlike Campfire's, the image loads as it nears the screen, as a room can hold a lot of them,
+ * and without a referrer (`RemoteImage`).
  * In a link, the title is only text, as a link can't hold another.
  */
 function LinkPreview({ preview, mentions, inLink }: { preview: DisplayPreview; mentions: User[]; inLink: boolean }) {
@@ -108,12 +109,7 @@ function LinkPreview({ preview, mentions, inLink }: { preview: DisplayPreview; m
             preview.avatar ? "aspect-square size-[2lh] rounded-full" : "aspect-video min-[100ch]:w-[15dvw]",
           )}
         >
-          <img
-            src={preview.image}
-            alt=""
-            loading="lazy"
-            className="h-auto w-full rounded-none object-contain object-right-top max-[100ch]:object-left-top"
-          />
+          <RemoteImage src={preview.image} alt="" className="h-auto w-full rounded-none object-contain object-right-top max-[100ch]:object-left-top" />
         </div>
       )}
     </div>
@@ -124,6 +120,17 @@ function LinkPreview({ preview, mentions, inLink }: { preview: DisplayPreview; m
 function holdsOnlyAList(item: DisplayElement): boolean {
   const children = item.children.filter((child) => child.kind !== "text" || child.value.trim() !== "");
   return children.length === 1 && children[0]!.kind === "element" && ["ul", "ol"].includes(children[0]!.name);
+}
+
+/**
+ * An image another site serves, as a link preview's or a bot card's is: loaded once it's near the
+ * screen, and without a referrer, so the site doesn't learn which Ember shows it, as ember-rust's
+ * previews tell it (crates/richtext/src/attachables.rs, under a strict-origin-when-cross-origin
+ * Referrer-Policy). The site still sees the reader's IP address, which only serving the image through
+ * the Worker would hide.
+ */
+export function RemoteImage(props: Omit<ComponentProps<"img">, "referrerPolicy">) {
+  return <img loading="lazy" {...props} referrerPolicy="no-referrer" />;
 }
 
 /**
