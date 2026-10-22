@@ -22,7 +22,7 @@ import {
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
 import { JobQueue } from "./at-once";
-import { postWebhook, WebhookError, webhookPayload } from "./bots/webhooks";
+import { postWebhook, WebhookError, webhookPayload, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
 import { openDb, type Db } from "./db";
@@ -39,7 +39,7 @@ import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type PageCursor, type PostedFile, type StoredBody } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
-import { workspace, type BotAccess } from "./workspace";
+import { workspace, type BotAccess, type WebhookAccess } from "./workspace";
 import type { MessagePush, MessageWebhook } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
@@ -111,6 +111,11 @@ const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
  */
 const WEBHOOKS_AT_ONCE = 2;
 const WEBHOOKS_WAITING = 1024;
+
+/** Why a delivery sends nothing: the Workspace finds no webhook for its bot in the room now. */
+const NO_WEBHOOK = "the bot has been deleted, has left the room or has no webhook";
+/** Why the room posts nothing of what a bot says back: it was deleted or left the room, or its webhook changed, while the delivery ran. */
+const WEBHOOK_CHANGED = "the bot has been deleted, has left the room or its webhook has changed";
 
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
@@ -917,19 +922,24 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Delivers a new message to a bot's webhook in its turn, as ember-rust's `Bot::WebhookJob` does
-   * (integrations/jobs.rs): the message as it is by then, and nothing once it's gone, to the bot and
-   * webhook the Workspace found for it, and posts what the bot says back, text or a file. Each delivery
-   * is logged, without its URL or the bot's key, and one the queue has no room for is dropped.
+   * (integrations/jobs.rs): the message as it is by then, to the bot's webhook as the Workspace finds it
+   * then, and nothing once either is gone, and posts what the bot says back, text or a file. Unlike
+   * ember-rust, which delivers to a bot deleted or taken out of the room since, the Workspace finds no
+   * webhook for one, so deleting a bot, taking it out of a room or removing its webhook stops what was
+   * on its way to it, and a new URL or key takes effect at once. Each delivery is logged, without its URL
+   * or the bot's key, and one the queue has no room for is dropped.
    */
-  private async deliver(roomId: RoomId, webhook: MessageWebhook): Promise<void> {
-    const job = `Bot::WebhookJob of message ${webhook.messageId} to bot ${webhook.bot.id}`;
+  private async deliver(roomId: RoomId, delivery: MessageWebhook): Promise<void> {
+    const job = `Bot::WebhookJob of message ${delivery.messageId} to bot ${delivery.botId}`;
     const ran = await this.webhooks.run(async () => {
       try {
-        const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(webhook.messageId);
+        const message = (await this.isDeleted()) ? null : await this.storeFor(roomId).find(delivery.messageId);
         if (!message) throw new WebhookError("the message is gone");
+        const webhook = await workspace(this.env).botWebhook(roomId, delivery.botId);
+        if (!webhook) throw new WebhookError(NO_WEBHOOK);
         const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
-        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, webhook, message), keep);
-        const refused = reply && ("text" in reply ? await this.reply(roomId, webhook.bot, reply.text) : await this.replyWithFile(roomId, webhook.bot, reply.kept));
+        const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep);
+        const refused = reply && (await this.postReply(roomId, webhook, reply));
         if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
         console.log(`${job} performed: ${status ?? "no answer in time"}`);
       } catch (error) {
@@ -940,16 +950,36 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `text` as the bot `bot`'s reply to a delivery, as Campfire's `receive_text_reply_to` does: as
-   * the bot's message, even once it has left the room, which reaches the room as any message does but is
-   * delivered to no webhook. Answers why the room keeps nothing of it, if it doesn't.
+   * Posts what a bot says back to a delivery to `webhook`, text or a file, as the bot by its name then,
+   * once the Workspace has found it still in the room, delivering to the same URL: one deleted, taken
+   * out of the room or sent elsewhere while the delivery ran posts nothing, where Campfire posts it
+   * (`Webhook#deliver`). Answers why the room keeps nothing of it, if it doesn't, and has R2 delete a file
+   * it couldn't ask the Workspace about, as `replyWithFile` has it delete one it refuses.
    */
-  private async reply(roomId: RoomId, bot: User, text: string): Promise<string | null> {
+  private async postReply(roomId: RoomId, webhook: WebhookAccess, reply: Reply<KeptFile>): Promise<string | null> {
+    const found = await workspace(this.env)
+      .botWebhook(roomId, webhook.bot.id)
+      .catch(async (error: unknown) => {
+        if ("kept" in reply) await this.env.FILES?.delete(objectKey(reply.kept.key));
+        throw error;
+      });
+    const access = found?.url === webhook.url ? found : null;
+    return "text" in reply ? this.reply(roomId, access, reply.text) : this.replyWithFile(roomId, access, reply.kept);
+  }
+
+  /**
+   * Posts `text` as the bot's reply to a delivery, as Campfire's `receive_text_reply_to` does: as the
+   * bot's message, which reaches the room as any message does but is delivered to no webhook. Answers why
+   * the room keeps nothing of it, if it doesn't: as `createBotMessage` refuses a bot's post, it refuses
+   * one without `access`, or that the room has heard was taken out since the Workspace checked.
+   */
+  private async reply(roomId: RoomId, access: BotAccess | null, text: string): Promise<string | null> {
     return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
       const body = await this.prepare(text);
       if (typeof body === "string") return body;
-      await this.create(this.storeFor(roomId), bot, crypto.randomUUID(), body, new Date().toISOString(), "reply");
+      await this.create(this.storeFor(roomId), access.bot, crypto.randomUUID(), body, new Date().toISOString(), "reply");
       return null;
     });
   }
@@ -972,21 +1002,22 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts the file `kept` as the bot `bot`'s reply to a delivery, as Campfire's `receive_attachment_reply_to`
-   * does, as `reply` posts text. Answers why the room keeps nothing of it, if it doesn't, having R2 delete
-   * it, since the room deleted it while it arrived, and nothing else would.
+   * Posts the file `kept` as the bot's reply to a delivery, as Campfire's `receive_attachment_reply_to`
+   * does, as `reply` posts text, refusing it as `reply` does. Answers why the room keeps nothing of it, if
+   * it doesn't, having R2 delete it at once: nothing else would once the room is deleted, and otherwise it
+   * would wait for the alarm to find it unfinished.
    */
-  private async replyWithFile(roomId: RoomId, bot: User, { key, file }: KeptFile): Promise<string | null> {
-    const posted = await this.serially(async () => {
+  private async replyWithFile(roomId: RoomId, access: BotAccess | null, { key, file }: KeptFile): Promise<string | null> {
+    const refused = await this.serially(async () => {
       const now = new Date().toISOString();
       const blob = (await this.isDeleted()) ? null : await this.blobsFor(roomId).find(key);
-      if (!blob) return false;
-      await this.postFile(this.storeFor(roomId), bot, blob, this.streamed(roomId, blob, file, now), now, "reply");
-      return true;
+      if (!blob) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
+      await this.postFile(this.storeFor(roomId), access.bot, blob, this.streamed(roomId, blob, file, now), now, "reply");
+      return null;
     });
-    if (posted) return null;
-    await this.env.FILES?.delete(objectKey(key));
-    return "the room is gone";
+    if (refused) await this.env.FILES?.delete(objectKey(key));
+    return refused;
   }
 
   /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */

@@ -212,14 +212,20 @@ export interface PushDelivery {
 }
 
 /**
- * A bot's webhook a new message is delivered to, with the bot's token, which the address it can answer
- * at is made from, and who wrote the message and where, as the delivery names them.
+ * A new message's delivery to a bot's webhook, as its room queues it: who wrote the message and where,
+ * as the delivery names them, and the bot, whose webhook is found again once the delivery's turn comes
+ * (`BotWebhook`), as ember-rust's job finds it then.
  */
 export interface MessageWebhook {
   messageId: string;
   author: User;
   /** The room's name, or null for a DM. */
   roomName: string | null;
+  botId: UserId;
+}
+
+/** A bot's webhook as a delivery to it finds it: the bot, by its name now, with its token, which the address it can answer at is made from. */
+export interface BotWebhook {
   bot: User;
   /** Null for a bot from before bots had tokens, which no key works for. */
   token: string | null;
@@ -667,11 +673,12 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
  * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to, as ember-rust's
  * `deliver_webhooks_to_bots` finds them (messages.rs): in a DM, those of the active bots in it, and in
  * any other room, those of the active bots in it whom the message mentions, a JSON list ?3; never its
- * author's. Each comes with the room's name, but a DM's, and the author's. Nothing once the Workspace
- * has applied the message's event. Webhooks are few, so they're read first, and each one's bot and
- * membership found by their keys.
+ * author's. Each comes with the room's name, but a DM's, and the author's, and its bot's id, whose
+ * webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the Workspace has applied
+ * the message's event. Webhooks are few, so they're read first, and each one's bot and membership found
+ * by their keys.
  */
-export const MESSAGE_WEBHOOKS = `SELECT users.id, users.name, users.bot_token, webhooks.url,
+export const MESSAGE_WEBHOOKS = `SELECT users.id,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM webhooks CROSS JOIN users ON users.id = webhooks.user_id
   WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
@@ -680,26 +687,27 @@ export const MESSAGE_WEBHOOKS = `SELECT users.id, users.name, users.bot_token, w
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
 
-/** A bot's webhook a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
+/** A bot a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
 interface WebhookRow {
   id: UserId;
-  name: string;
-  bot_token: string | null;
-  url: string;
   room_name: string | null;
   author_name: string;
 }
 
 /** A new message's deliveries to bots' webhooks, from the rows `MESSAGE_WEBHOOKS` found for it. */
 const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): MessageWebhook[] =>
-  rows.map((row) => ({
-    messageId: message!.id,
-    author: { id: userId, name: row.author_name },
-    roomName: row.room_name,
-    bot: { id: row.id, name: row.name },
-    token: row.bot_token,
-    url: row.url,
-  }));
+  rows.map((row) => ({ messageId: message!.id, author: { id: userId, name: row.author_name }, roomName: row.room_name, botId: row.id }));
+
+/**
+ * Bot ?2's webhook, with its name and token now, as a delivery to it in room ?1 finds it when its turn
+ * comes and again before what the bot says back is posted, as ember-rust's `Bot::WebhookJob` reads the
+ * bot and its webhook then (integrations/jobs.rs): nothing once the bot isn't an active one in the room
+ * with a webhook, as `MESSAGE_WEBHOOKS` would find none for it then. ember-rust still delivers to a bot
+ * deleted or taken out of the room since, and posts its reply.
+ */
+export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url FROM users JOIN webhooks ON webhooks.user_id = users.id
+  WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
 
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
@@ -1775,6 +1783,12 @@ export class WorkspaceStore {
   async activeBotKey(botId: UserId, roomId: RoomId): Promise<{ bot: User; token: string | null; member: boolean } | null> {
     const [row] = await this.db.all<User & { bot_token: string | null; member: number }>(ACTIVE_BOT_KEY, roomId, botId);
     return row ? { bot: { id: row.id, name: row.name }, token: row.bot_token, member: row.member === 1 } : null;
+  }
+
+  /** Bot `botId`'s webhook as a delivery to it in room `roomId` finds it now, or null unless it's an active bot in the room with one. */
+  async botWebhook(roomId: RoomId, botId: UserId): Promise<BotWebhook | null> {
+    const [row] = await this.db.all<{ name: string; bot_token: string | null; url: string }>(BOT_WEBHOOK, roomId, botId);
+    return row ? { bot: { id: botId, name: row.name }, token: row.bot_token, url: row.url } : null;
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
