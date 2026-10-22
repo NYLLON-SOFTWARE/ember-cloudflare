@@ -189,10 +189,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
   through its cable server, once the change that ends their access is saved
   (`crates/ember/src/channels/revocation.rs`). Ours are spread over rooms' Durable Objects, which the
   Workspace has to call, and any call can fail. So the change also writes a `pending_revocations` row
-  for each room, in the same batch, and the Workspace's alarm sends each room its own: up to 40 rows
-  a run, six rooms at a time, putting a failed row off for 1 second, then 2, 4 and so on up to 5
-  minutes, and giving it up after 10 tries, unless it deletes a room, which would leave the room's
-  messages stored. Its index on `due_at` finds the rows that are due. The change sets the alarm
+  for each room, in the same batch, and sends each room its own before it answers: the rows queued
+  and not yet tried, the rooms queued last first and every row of each, in up to 40 rooms. The alarm
+  sends what's due, up to 40 rows a run, six rooms at a time, and never alongside a change's
+  delivery: one delivery at a time, since each settles the rows it read by id, and a deleted row's
+  id can go to the next row queued. The change waits up to two seconds for the rooms, and leaves
+  one that takes longer to the alarm, set as the rows were queued, which puts
+  a failed row off for 1 second, then 2, 4 and so on up to 5 minutes, and never gives it up: a
+  revocation given up would leave the sockets it closes open, and able to write, and a room's
+  deletion its messages stored. Its index on `due_at` finds the rows that are due. The change sets the alarm
   even when D1's answer to it is lost, since it may have been saved anyway, and a Workspace that
   starts sets it for any rows waiting, which one that stopped in between leaves. A room keeps the
   time of each revocation it has had in `revocations` for five minutes. It turns away a socket the
@@ -222,7 +227,7 @@ search index. On top of that schema it adds indexes and query changes for speed.
   each room to delete 100 of their messages at a time, each deletion a change of its own that tabs
   catch up on, and asks again at once while the room has more, so a big room never holds the room's
   object for long. It delivers revocations first, and 40 rows a run in all, and puts off a room it
-  can't reach as it does a revocation, but never gives up, which would leave the messages up. Nor does
+  can't reach as it does a revocation, never giving up, which would leave the messages up. Nor does
   it ask a room while that room has sockets left to close, so a banned person can't write through one
   after their purge there is done; the room's purges wait for its revocations, and are due no sooner.
   Deleting a room drops its purges, since its messages all go anyway, so their ids are

@@ -42,6 +42,7 @@ import {
   settle,
   shown,
   signIn,
+  standInForRooms,
   upgrade,
   upload,
   workspaceSql,
@@ -475,11 +476,15 @@ describe(feature("accounts.ban"), () => {
     const lobby = await freshRoom("lobby");
     const graceInLobby = await connect(lobby, member);
     await post(graceInLobby, "Before the ban");
-    // A year on, so the alarm the ban sets waits for the test, as the outbox does for a room it can't reach.
+    // A year on, so the alarm the ban sets waits for the test, as the outbox does for a room it can't reach;
+    // and the lobby can't be reached as she's banned, so the ban answers with her socket still open.
     vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const giveBack = await standInForRooms({ revoke: () => Promise.reject(new Error("Unreachable")) });
     expect((await ban(administrator, member.user.id)).status).toBe(200);
+    await giveBack();
     vi.setSystemTime(LATER + 1_000);
-    // Through the socket she had, before the room has closed it.
+    // Through the socket she had, which the lobby hasn't closed.
     await post(graceInLobby, "While banned");
     vi.setSystemTime(LATER + 2_000);
     expect((await unban(administrator, member.user.id)).status).toBe(200);
@@ -992,8 +997,9 @@ describe(feature("accounts.ban-enforcement"), () => {
     halInLobby.send({ type: "boost.create", messageId: adas.id, content: "🔥" });
     const { boost } = await halInLobby.next("boost.created");
     await adaInLobby.next("boost.created");
+    const closed = closeOf(halInLobby.ws);
     await ban(administrator, member.user.id);
-    await closeOf(halInLobby.ws);
+    await closed;
 
     const readOnly = await connect(lobby, hal);
     expect(readOnly.welcome.messages.map(({ id }) => id)).toEqual([adas.id, hals.id]);

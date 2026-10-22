@@ -28,7 +28,7 @@ import { toBase64, toBase64url, urlsafeDecode64 } from "../src/encoding";
 import type { Env } from "../src/env";
 import worker from "../src/index";
 import { searchIndex } from "../src/search-index";
-import { workspace } from "../src/workspace";
+import { workspace, type Workspace } from "../src/workspace";
 
 export const origin = "https://ember.test";
 
@@ -190,6 +190,25 @@ export const workspaceStub = () => workspace(env as unknown as Env);
 
 /** The search index's Durable Object. */
 export const searchIndexStub = () => searchIndex(env as unknown as Env);
+
+/** The calls the Workspace makes on a room, as a test answers them in every room's stead. */
+export type RoomStandIn = Partial<Pick<ChatRoom, "revoke" | "removeMessagesBy" | "reindex" | "authors">>;
+
+/** Has `rooms` answer the Workspace's calls to rooms until the function it answers with is called, which gives the rooms back. */
+export async function standInForRooms(rooms: RoomStandIn): Promise<() => Promise<void>> {
+  type Swappable = { env: Env; envBefore?: Env };
+  await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+    const object = workspace as unknown as Swappable;
+    object.envBefore ??= object.env;
+    object.env = { ...object.env, CHAT_ROOM: { getByName: () => rooms } as unknown as Env["CHAT_ROOM"] };
+  });
+  return () =>
+    runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const object = workspace as unknown as Swappable;
+      if (object.envBefore) object.env = object.envBefore;
+      delete object.envBefore;
+    });
+}
 
 /** Runs SQL against a Durable Object's own SQLite storage, whichever backend this suite is using. */
 export function objectSql(stub: DurableObjectStub, query: string, ...params: Array<string | number>): Promise<unknown[]> {

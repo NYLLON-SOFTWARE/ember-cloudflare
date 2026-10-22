@@ -6,7 +6,7 @@ import type { Env } from "../src/env";
 import { AUTHORIZATION_TTL_MS, EVERYONE, REVOCATIONS_KEPT_MS, sessionTag, type Revocation } from "../src/revocations";
 import type { Workspace } from "../src/workspace";
 import { DUE_REVOCATIONS, type WorkspaceStore } from "../src/workspace-store";
-import { closeOf, connect, freshDeploy, freshRoom, outcome, post, roomSql, roomStub, settle, signIn, workspaceSql, workspaceStub } from "./support";
+import { api, closeOf, connect, createRoom, freshDeploy, freshRoom, outcome, post, roomSql, roomStub, settle, signIn, standInForRooms, workspaceSql, workspaceStub } from "./support";
 
 /** A time so far ahead that the runtime never runs an alarm set for it during a test. */
 const LATER = Date.now() + 365 * 24 * 60 * 60 * 1000;
@@ -41,6 +41,10 @@ async function runAlarm(rooms: Rooms): Promise<void> {
     }
   });
 }
+
+/** Takes Grace out of a private room as Ada, who stays in it. */
+const takeOut = (roomId: RoomId, ada: { cookie: string; user: { id: string } }) =>
+  api(`/api/rooms/${roomId}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ kind: "closed", memberIds: [ada.user.id] }) });
 
 beforeEach(freshDeploy);
 afterEach(() => {
@@ -166,23 +170,24 @@ describe(feature("realtime.connection"), () => {
     expect(await alarm()).toBe(LATER + 1);
   });
 
-  it("tries a room it can't reach again, waiting twice as long each time, and gives up after ten tries", async () => {
+  it("tries a room it can't reach again, waiting twice as long each time up to five minutes, and never gives up", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: LATER });
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     await queue("lobby", "u1", CloseCode.Revoked, LATER);
     await queue("annex", "u1", CloseCode.Revoked, LATER);
+    let reachable = false;
     const calls: RoomId[] = [];
     const rooms: Rooms = {
       revoke: async (roomId) => {
         calls.push(roomId);
-        if (roomId === "lobby") throw new Error("The lobby isn't answering");
+        if (roomId === "lobby" && !reachable) throw new Error("The lobby isn't answering");
       },
     };
 
     let now = LATER;
-    for (let tries = 1; tries < 10; tries++) {
+    for (let tries = 1; tries <= 12; tries++) {
       await runAlarm(rooms);
-      const wait = 1000 * 2 ** (tries - 1);
+      const wait = Math.min(1000 * 2 ** (tries - 1), 5 * 60 * 1000);
       expect(await waiting()).toEqual([{ room_id: "lobby", tag: "u1", attempts: tries, due_at: now + wait }]);
       expect(await alarm()).toBe(now + wait);
       // Not before then.
@@ -190,11 +195,173 @@ describe(feature("realtime.connection"), () => {
       await runAlarm(rooms);
       vi.setSystemTime(now);
     }
+    // However often it has failed: a socket left open would keep its access.
+    await workspaceSql("UPDATE pending_revocations SET attempts = 100");
     await runAlarm(rooms);
-    expect(calls).toEqual(["lobby", "annex", ...Array<RoomId>(9).fill("lobby")]);
+    expect(await waiting()).toEqual([{ room_id: "lobby", tag: "u1", attempts: 101, due_at: now + 5 * 60 * 1000 }]);
+    vi.setSystemTime((now += 5 * 60 * 1000));
+
+    reachable = true;
+    await runAlarm(rooms);
+    expect(calls).toEqual(["lobby", "annex", ...Array<RoomId>(13).fill("lobby")]);
     expect(await waiting()).toEqual([]);
-    expect(errors).toHaveBeenCalledTimes(11);
-    expect(errors).toHaveBeenLastCalledWith("Gave up closing the sockets tagged u1 in room lobby");
+    expect(errors).toHaveBeenCalledTimes(13);
+    expect(errors).not.toHaveBeenCalledWith(expect.stringMatching(/^Gave up/));
+  });
+
+  it("closes the sockets a change queues before the change answers, leaving the alarm nothing to deliver", async () => {
+    // The alarm, set as the sockets are queued, would close them a moment later; set for LATER, it never
+    // runs, so whatever is closed by the time the change answers, the change closed.
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+
+    expect((await takeOut(room.id, ada)).status).toBe(200);
+    expect(await waiting()).toEqual([]);
+    expect(await alarm()).toBe(LATER);
+    expect(await closed).toMatchObject(reconnect);
+  });
+
+  it("closes a session's room sockets before signing out answers", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const ada = await signIn("Ada");
+    const lobby = await freshRoom("lobby");
+    const closed = closeOf((await connect(lobby, ada)).ws);
+
+    expect((await api("/api/session", { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
+    expect(await waiting()).toEqual([]);
+    expect(await alarm()).toBe(LATER);
+    expect(await closed).toMatchObject(reconnect);
+  });
+
+  it("answers a change after waiting two seconds for a room, and leaves that room's sockets to the alarm", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    let isClosed = false;
+    void closed.then(() => (isClosed = true));
+    // The room answers once the test lets it, closing the sockets as it would have.
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        await held;
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
+
+    const changing = takeOut(room.id, ada);
+    expect(await Promise.race([changing.then(() => "answered"), scheduler.wait(1_500).then(() => "waiting")])).toBe("waiting");
+    expect((await changing).status).toBe(200);
+    expect(isClosed).toBe(false);
+    expect(await waiting()).toEqual([{ room_id: room.id, tag: grace.user.id, attempts: 0, due_at: LATER }]);
+    expect(await alarm()).toBe(LATER);
+
+    // The call that was waiting goes on, and closes them once the room answers; the alarm would have found nothing left.
+    letGo();
+    expect(await closed).toMatchObject(reconnect);
+    await vi.waitFor(async () => expect(await waiting()).toEqual([]));
+    await giveBack();
+  });
+
+  it("closes every socket a change ends in a room with one call, however many rows it queued there", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    // As many rows in the room as the alarm delivers a run, queued and not yet tried, as a change
+    // taking that many people out of it leaves.
+    const tags = Array.from({ length: 40 }, (_, i) => `u-${String(i).padStart(2, "0")}`);
+    await workspaceSql("INSERT INTO pending_revocations (room_id, tag, code, due_at) SELECT ?, value, ?, ? FROM json_each(?)", room.id, CloseCode.Revoked, LATER - 1, JSON.stringify(tags));
+    const calls: Array<{ roomId: RoomId; tags: string[] }> = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push({ roomId: call[0], tags: call[1].map(({ tag }) => tag) });
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
+
+    expect((await takeOut(room.id, ada)).status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.roomId).toBe(room.id);
+    expect(calls[0]!.tags).toHaveLength(41);
+    expect(calls[0]!.tags).toContain(grace.user.id);
+    expect(await waiting()).toEqual([]);
+    expect(await closed).toMatchObject(reconnect);
+    await giveBack();
+  });
+
+  it("calls the rooms a change queued last first, up to 40 of them, leaving older ones to the alarm", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    // A backlog as many rooms long as a run delivers, queued before the change and not yet tried.
+    const backlog = Array.from({ length: 40 }, (_, i) => `room-${String(i).padStart(2, "0")}`);
+    await workspaceSql("INSERT INTO pending_revocations (room_id, tag, code, due_at) SELECT value, 'u1', ?, ? FROM json_each(?)", CloseCode.Revoked, LATER - 1, JSON.stringify(backlog));
+    const calls: RoomId[] = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push(call[0]);
+        if (call[0] === room.id) await roomStub(call[0]).revoke(...call);
+      },
+    });
+
+    expect((await takeOut(room.id, ada)).status).toBe(200);
+    expect(calls[0]).toBe(room.id);
+    expect(calls).toHaveLength(40);
+    expect(calls).not.toContain("room-00");
+    expect(await waiting()).toEqual([{ room_id: "room-00", tag: "u1", attempts: 0, due_at: LATER - 1 }]);
+    expect(await alarm()).toBe(LATER);
+    expect(await closed).toMatchObject(reconnect);
+    await giveBack();
+  });
+
+  it("delivers a change's revocations after a delivery under way, never alongside it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    let isClosed = false;
+    void closed.then(() => (isClosed = true));
+    // The alarm is delivering to a room that's slow to answer as the change comes. Were the two to run
+    // at once, each would settle the rows it read by id, and a deleted row's id can go to the next row
+    // queued, which the other would then settle undelivered.
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const calls: RoomId[] = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push(call[0]);
+        if (call[0] === "annex") return held;
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
+    await queue("annex", "u1", CloseCode.Revoked, LATER - 1);
+    const alarmRun = runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.alarm());
+    await vi.waitFor(() => expect(calls).toEqual(["annex"]));
+
+    // Waiting moved the clock on.
+    const now = Date.now();
+    const changing = takeOut(room.id, ada);
+    expect(await Promise.race([changing.then(() => "answered"), scheduler.wait(1_500).then(() => "waiting")])).toBe("waiting");
+    expect((await changing).status).toBe(200);
+    expect(calls).toEqual(["annex"]);
+    expect(isClosed).toBe(false);
+    expect(await waiting()).toEqual([
+      { room_id: "annex", tag: "u1", attempts: 0, due_at: LATER - 1 },
+      { room_id: room.id, tag: grace.user.id, attempts: 0, due_at: now },
+    ]);
+
+    // Its turn comes once the annex answers.
+    letGo();
+    await alarmRun;
+    expect(await closed).toMatchObject(reconnect);
+    await vi.waitFor(async () => expect(await waiting()).toEqual([]));
+    expect(calls).toEqual(["annex", room.id]);
+    await giveBack();
   });
 
   it("delivers 40 revocations a run, calling six rooms at once, and sets its alarm for the rest", async () => {
