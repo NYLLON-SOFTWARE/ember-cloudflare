@@ -123,6 +123,15 @@ describe(feature("unfurl.render"), () => {
       expect(() => webUrl("mailto:nobody", "")).toThrow(RenderError);
       expect(() => webUrl("https://.../x", "")).toThrow(RenderError);
     });
+
+    it("reads a host of many dots in a moment", () => {
+      const host = `a${".".repeat(300_000)}b`;
+      const started = Date.now();
+      expect(webUrl(`https://${host}/`, "")).toBe(`https://${host}/`);
+      expect(webUrl(`https://${host}.../`, "")).toBe(`https://${host}.../`);
+      // A pattern for the dots at the host's end would try to end each run of them inside it there: half a minute each for these.
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
   });
 
   describe("compares a message with its preview's link as Campfire does", () => {

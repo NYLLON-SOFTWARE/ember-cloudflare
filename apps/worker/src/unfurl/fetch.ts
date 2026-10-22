@@ -1,3 +1,4 @@
+import { strip } from "@ember/richtext";
 import { checkHost, type Resolve } from "./guard";
 import { parseHttpUri, requestTarget, type HttpUri } from "./uri";
 
@@ -190,7 +191,7 @@ function mediaType(headers: Headers): string | null {
   const header = headers.get("Content-Type");
   if (header === null) return null;
   const [type = "", subtype] = header.split(";")[0]!.split("/");
-  return subtype === undefined ? rubyStrip(type) : `${rubyStrip(type)}/${rubyStrip(subtype)}`;
+  return subtype === undefined ? strip(type) : `${strip(type)}/${strip(subtype)}`;
 }
 
 /** `Net::HTTPHeader#content_length`: the first run of digits, which a header without any is an error for. */
@@ -201,9 +202,6 @@ function contentLength(headers: Headers): number | null {
   if (!digits) throw new Error("wrong Content-Length format");
   return Number(digits[0]);
 }
-
-/** `String#strip`: whitespace and NULs at either end. */
-const rubyStrip = (text: string) => text.replace(/^[\0\t\n\v\f\r ]+|[\0\t\n\v\f\r ]+$/g, "");
 
 /** Stops reading a response nobody needs, so its connection is let go. */
 const discard = (response: Response) => void response.body?.cancel().catch(() => {});

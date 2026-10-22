@@ -1,3 +1,4 @@
+import { trimmed } from "../trim";
 import { EMOJI, TONED } from "./emoji-names";
 
 // Slack's mrkdwn (https://docs.slack.dev/messaging/formatting-message-text), the markup of the text a Slack
@@ -134,12 +135,12 @@ function blocksOf(text: string): Block[] {
   let rest: Block[] | undefined;
   for (const [index, piece] of pieces.entries()) {
     if (index % 2 === 1) {
-      const code = piece.replace(/^\n+|\n+$/g, "");
+      const code = trimmed(piece, (c) => c === "\n");
       if (code.trim() !== "") (rest ?? blocks).push({ tag: "pre", text: code });
       continue;
     }
     // The spaces beside a fence are its line's, which the code block ends.
-    const lines = piece.replace(/^[ \t]+|[ \t]+$/g, "").split("\n");
+    const lines = trimmed(piece, (c) => c === " " || c === "\t").split("\n");
     if (rest) {
       rest.push({ tag: "p", lines });
       continue;

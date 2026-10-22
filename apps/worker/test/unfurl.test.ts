@@ -160,6 +160,16 @@ describe(feature("unfurl.guard"), () => {
     expect(await unfurl("http://www.example.com/", page(MAX_BODY_SIZE))).toEqual(PREVIEW);
   });
 
+  it("reads a page's Content-Type in a moment, however long a run of spaces it holds", async () => {
+    const spaces = " ".repeat(300_000);
+    const page = (type: string) => internetOf((request) => (request.method === "HEAD" ? image() : html(PAGE, { "Content-Type": type }))).network;
+    const started = Date.now();
+    expect(await unfurl("http://www.example.com/", page(`text/ht${spaces}ml`))).toBeNull();
+    expect(await unfurl("http://www.example.com/", page(`text/${spaces}html${spaces}`))).toEqual(PREVIEW);
+    // A pattern for the spaces at a part's end would try to end each run inside it there: some 12 seconds for the first.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   // ember-rust's stops_reading_a_gzip_bomb_at_the_limit: a Worker's fetch decompresses as it's read.
   it("stops reading a page once it's past 5 MiB", async () => {
     let page: ReturnType<typeof streamedPage> | undefined;

@@ -315,6 +315,17 @@ describe(feature("bots.webhook-delivery"), () => {
     expect(plain("@Deploy Bot ship it", [{ id: "b1", name: "Deploy Bot" }])).toBe("ship it");
   });
 
+  it("trims the plain text in a moment, however long a run of whitespace it holds", () => {
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const webhook: BotWebhook = { bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
+    const plainText = `a${" ".repeat(300_000)}b`;
+    const started = Date.now();
+    const payload = JSON.parse(webhookPayload("r1", delivery, webhook, { id: "m1", body: "", plainText, mentions: [] })) as { message: { body: { plain: string } } };
+    expect(payload.message.body.plain).toBe(plainText);
+    // A pattern for the whitespace at the text's end would try to end each run inside it there: some 18 seconds for this.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("writes the payload as Campfire does, with HTML's characters escaped, and a DM's name null", () => {
     const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1" };
     const webhook: BotWebhook = { bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };

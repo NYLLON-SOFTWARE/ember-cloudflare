@@ -152,7 +152,9 @@ export function cardAddress(value: string, host: string): string | undefined {
  */
 function namedHost(host: string): boolean {
   if (isBlank(host) || host.includes("%") || !host.includes(".")) return false;
-  const label = host.replace(/\.+$/, "").split(".").at(-1);
+  const labels = host.split(".");
+  while (labels.at(-1) === "") labels.pop();
+  const label = labels.at(-1);
   if (!label) throw new RenderError("NoMethodError: undefined method 'match?' for nil");
   return /[a-z]/i.test(label) && !/^0x/i.test(label);
 }

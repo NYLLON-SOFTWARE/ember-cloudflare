@@ -1,6 +1,7 @@
 import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
 import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
+import { trimmed } from "../trim";
 import type { BotWebhook, MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";
 import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
@@ -68,8 +69,11 @@ export function webhookPayload(
  */
 const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentions.find(({ id }) => id === bot.id)?.name || bot.name;
 
+/** Rust's `char::is_whitespace`: Unicode's White_Space, which ember-rust's `without_recipient_mentions` trims. */
+const WHITE_SPACE = /\p{White_Space}/u;
+
 /** `without_recipient_mentions`: `text` without its @mentions of `name`, matched case for case, nor whitespace at either end. */
-const withoutMentionsOf = (name: string, text: string) => text.replaceAll(`@${name}`, "").replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
+const withoutMentionsOf = (name: string, text: string) => trimmed(text.replaceAll(`@${name}`, ""), (c) => WHITE_SPACE.test(c));
 
 /** What a bot says back: text, which it posts as its message, or a file, with what keeping it as it arrived came to. */
 export type Reply<K> = { text: string } | { file: ReplyFile; kept: K };

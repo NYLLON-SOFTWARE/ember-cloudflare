@@ -3,18 +3,19 @@
 // Rails sends a file with (crates/rails_compat/src/content_disposition.rs), and the escaping its routes give
 // a name in an address (crates/storage/src/disposition.rs).
 
+import { strip } from "@ember/richtext";
+
 /** What `sanitized` makes "-": the right-to-left override, path separators, and shell and HTML metacharacters. */
 const UNSAFE = /[‮%$|:;/<>?*"\t\r\n\\]/g;
 
-/** `String#strip`: NUL and ASCII whitespace off both ends, but not Unicode spaces. */
-const rubyStrip = (text: string) => text.replace(/^[\0\t\n\v\f\r ]+|[\0\t\n\v\f\r ]+$/g, "");
-
 /** `ActiveStorage::Filename#sanitized`, which Active Storage names and identifies a file by. */
-export const sanitizedFilename = (name: string) => rubyStrip(name).replace(UNSAFE, "-");
+export const sanitizedFilename = (name: string) => strip(name).replace(UNSAFE, "-");
 
 /** `File.basename(path)`: the last component, ignoring trailing slashes. */
 export function basename(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end--;
+  const trimmed = path.slice(0, end);
   if (trimmed === "") return path === "" ? "" : "/";
   return trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }

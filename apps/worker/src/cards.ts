@@ -108,8 +108,16 @@ function keptTable(rows: string[][], columns: Extract<CardPart, { kind: "table" 
   if (!kept.some((row) => row.some((cell) => cell !== undefined))) return null;
   return {
     part: { kind: "table", rows: kept.map((row) => row.map((cell) => cell?.html ?? "")), columns },
-    plainText: kept.map((row) => row.map((cell) => cell?.plainText.replace(/\s*\n\s*/g, " ") ?? "").join(" | ")),
+    plainText: kept.map((row) => row.map((cell) => (cell ? onOneLine(cell.plainText) : "")).join(" | ")),
   };
+}
+
+/**
+ * `text` on one line, each run of whitespace that breaks a line made a space. Each run is matched whole:
+ * a pattern for the whitespace on either side of a break would backtrack along a long run without one.
+ */
+function onOneLine(text: string): string {
+  return text.replace(/\s+/g, (space) => (space.includes("\n") ? " " : space));
 }
 
 /** Small cards with their body and subtext kept, leaving out one left with nothing, and their lines of plain text. */

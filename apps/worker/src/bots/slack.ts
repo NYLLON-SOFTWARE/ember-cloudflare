@@ -415,10 +415,11 @@ function listsHtml(lists: SlackPayload[]): string {
 
 /** A rich text section's elements as markup, its line breaks `<br>`, without one at its end. */
 function inlineHtml(elements: unknown[]): string {
-  return elements
-    .map(inlineElementHtml)
-    .join("")
-    .replace(/(?:<br>)+$/, "");
+  const html = elements.map(inlineElementHtml).join("");
+  // Counted off the end: `/(?:<br>)+$/` would try to end each run of breaks inside the markup at its end.
+  let end = html.length;
+  while (html.endsWith("<br>", end)) end -= "<br>".length;
+  return html.slice(0, end);
 }
 
 /** One of a rich text section's elements: text, a link, an emoji, a mention, a date or a color. */
