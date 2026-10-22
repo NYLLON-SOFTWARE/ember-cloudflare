@@ -79,6 +79,7 @@ import { webPush } from "./push/keys";
 import { deletePushSubscription, listPushSubscriptions, savePushSubscription, sendTestNotification } from "./push/subscriptions";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
+import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
@@ -500,7 +501,7 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const params = new URL(request.url).searchParams;
+  const params = urlOf(request).searchParams;
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
@@ -863,7 +864,7 @@ export default {
   // included, so each answer gets ember-rust's headers.
   async fetch(request, env): Promise<Response> {
     if (!isHttps(request) && requiresHttps(request, env)) return redirectToHttps(request);
-    const { pathname } = new URL(request.url);
+    const { pathname } = urlOf(request);
     // /up skips ember-rust's before-actions, so it's never checked and carries no version, and
     // Active Storage's files, which Campfire's controllers don't serve, carry none either.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");

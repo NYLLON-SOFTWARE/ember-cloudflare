@@ -4,6 +4,7 @@ import { credentialsOf } from "./auth";
 import { jsonBodyOf } from "./bodies";
 import { sharedDb } from "./db";
 import type { Env } from "./env";
+import { urlOf } from "./request-url";
 import { searchIndex, type SearchHit } from "./search-index";
 import { messagesAnywhereWithIds } from "./store";
 import { workspace, type Searcher } from "./workspace";
@@ -24,7 +25,7 @@ export async function searchMessages(request: Request, env: Env): Promise<Respon
   const credentials = await credentialsOf(request, env);
   const searcher = credentials && (await workspace(env).searcher(credentials, null));
   if (!searcher) return problem(401, NOT_SIGNED_IN);
-  const q = new URL(request.url).searchParams.get("q") ?? "";
+  const q = urlOf(request).searchParams.get("q") ?? "";
   if (q.length > MAX_SEARCH_LENGTH) return problem(422, SEARCH_TOO_LONG);
   return answer(env, sanitizeSearch(q), searcher);
 }

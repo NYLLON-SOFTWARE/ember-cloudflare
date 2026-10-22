@@ -4,6 +4,7 @@ import { notFound } from "./error-pages";
 import { etagOf, isFresh } from "./etag";
 import { logoOf, newLogoKey, storePicture, variantKey, type PictureRefusal, type StoredPicture } from "./files/pictures";
 import { hasBody } from "./files/serving";
+import { urlOf } from "./request-url";
 import { workspace } from "./workspace";
 
 // The workspace's logo, ported from ember-rust's crates/ember/src/controllers/accounts/logos.rs: a PNG
@@ -24,7 +25,7 @@ export const isAccountLogoPath = (pathname: string) => /^\/account\/logo(?:\.[^/
  */
 export async function showAccountLogo(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return notFound(request);
-  const small = new URL(request.url).searchParams.get("size") === "small";
+  const small = urlOf(request).searchParams.get("size") === "small";
   // Without R2 there's no logo to serve, and no need to ask the Workspace.
   const logo = env.FILES ? await workspace(env).logo() : null;
   const uploaded = logo?.variant ? await variant(request, env, logo, small ? LOGO_BOXES.small : LOGO_BOXES.large) : null;

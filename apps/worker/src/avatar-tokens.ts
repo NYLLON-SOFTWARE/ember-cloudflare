@@ -1,5 +1,6 @@
 import type { UserId } from "@ember/protocol";
 import { toBase64url } from "./encoding";
+import { hmacKey } from "./hmac";
 import type { DirectoryEntry } from "./workspace-store";
 
 // The addresses of people's avatars, /users/<token>/avatar?v=<version>, which the people directory and
@@ -17,7 +18,7 @@ const SIGNATURE_BYTES = 16;
  * `SECRET_KEY_BASE` does.
  */
 async function avatarTokens(secret: string): Promise<(userId: UserId) => Promise<string>> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await hmacKey(secret);
   return async (userId) => {
     const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(`avatar:${userId}`));
     return `${userId}.${toBase64url(new Uint8Array(signature, 0, SIGNATURE_BYTES))}`;

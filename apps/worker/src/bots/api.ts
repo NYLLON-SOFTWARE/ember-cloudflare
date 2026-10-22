@@ -19,6 +19,7 @@ import { objectKey } from "../files/blobs";
 import { FormError, formBoundaryOf, FormReader, isFormType } from "../files/form-parts";
 import { storeArriving } from "../files/streamed";
 import { NO_STORAGE } from "../files/uploads";
+import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotAccess } from "../workspace";
 import { botKeyParts } from "./keys";
@@ -217,7 +218,7 @@ const slackAnswer = (status: number, text: string) => new Response(text, { statu
 
 /** What posting `message` answers: 201 with where it is. */
 const createdAt = (request: Request, message: Message) =>
-  new Response(null, { status: 201, headers: { Location: permalink(new URL(request.url).origin, message), "Content-Type": JSON_TYPE } });
+  new Response(null, { status: 201, headers: { Location: permalink(urlOf(request).origin, message), "Content-Type": JSON_TYPE } });
 
 /**
  * Posts the file `form` sends as `attachment` as the bot's message, as ember-rust's `create` does when it's
@@ -271,7 +272,7 @@ async function updateFileMessage(request: Request, env: Env, roomId: RoomId, key
 
 /** `message` as the list writes it, answered as `render :show` does. */
 async function renderedMessage(request: Request, env: Env, message: Message): Promise<Response> {
-  const [json] = await messagesJson(env, new URL(request.url).origin, [message]);
+  const [json] = await messagesJson(env, urlOf(request).origin, [message]);
   return rendered(json, 200);
 }
 
@@ -302,7 +303,7 @@ async function createBoost(request: Request, env: Env, roomId: RoomId, key: stri
   // `raw_request_body.blank?`, checked once the message is found.
   if (boost === BLANK) return head(422);
   if (typeof boost === "string") return unprocessable(boost);
-  return rendered(await boostJson(env, new URL(request.url).origin, roomId, boost), 201);
+  return rendered(await boostJson(env, urlOf(request).origin, roomId, boost), 201);
 }
 
 /**
@@ -416,7 +417,7 @@ async function bodyText(request: Request): Promise<string | null> {
 async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
   const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  const url = new URL(request.url);
+  const url = urlOf(request);
   const cursor = { before: present(url.searchParams.get("before")), after: present(url.searchParams.get("after")) };
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, cursor);
   if (!page) return exception(404);

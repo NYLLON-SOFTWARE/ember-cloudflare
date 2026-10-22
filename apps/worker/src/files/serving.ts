@@ -1,5 +1,6 @@
 import { toHex } from "../encoding";
 import type { Env } from "../env";
+import { urlOf } from "../request-url";
 import { isFileSignature } from "./addresses";
 import { objectKey, previewKey } from "./blobs";
 import { forcedDisposition, typeForServing } from "./content-types";
@@ -58,7 +59,7 @@ const notFound = () => new Response(null, { status: 404, headers: { "Content-Typ
 export const hasBody = (object: R2Object): object is R2ObjectBody => "body" in object;
 
 /** What `?disposition=` asks for, the last one if there are several, as Rack reads the query. */
-const dispositionOf = (request: Request) => new URL(request.url).searchParams.getAll("disposition").at(-1) ?? "inline";
+const dispositionOf = (request: Request) => urlOf(request).searchParams.getAll("disposition").at(-1) ?? "inline";
 
 /**
  * What a GET or HEAD of a file's address answers. An address Ember didn't make, a file R2 doesn't

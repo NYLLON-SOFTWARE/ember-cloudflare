@@ -33,6 +33,7 @@ import { storeArriving, type ArrivingFile, type StreamedFile } from "./files/str
 import { NO_STORAGE, type Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
+import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
@@ -167,7 +168,7 @@ export class ChatRoom extends DurableObject<Env> {
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
     const address = request.headers.get(ADDRESS_HEADER);
     const banned = request.headers.get(BANNED_HEADER) === "true";
-    const { visible, since, around, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
+    const { visible, since, around, protocol } = parseRoomSocketParams(urlOf(request).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId), ...(address ? [addressTag(address)] : [])];

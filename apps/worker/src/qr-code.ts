@@ -4,6 +4,7 @@ import { urlsafeDecode64 } from "./encoding";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
 import { signInFirst } from "./pages";
+import { urlOf } from "./request-url";
 
 // ember-rust's QR codes (crates/ember/src/controllers/qr_code.rs), drawn as rqrcode draws them
 // (packages/protocol/src/qr-code.ts).
@@ -23,7 +24,7 @@ const ROUTE = /^\/qr_code\/([^/.?]+)(?:\.[^/.?]+)?$/;
  * largest QR code answers 422, as there.
  */
 export async function showQrCode(request: Request, env: Env): Promise<Response> {
-  const id = new URL(request.url).pathname.match(ROUTE)?.[1];
+  const id = urlOf(request).pathname.match(ROUTE)?.[1];
   if (!id || (request.method !== "GET" && request.method !== "HEAD")) return notFound(request);
   if (!(await authenticate(request, env))) return signInFirst(request);
   const segment = percentDecoded(id);
