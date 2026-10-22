@@ -4,7 +4,7 @@ import { Minus, NotificationBellEverything } from "@/components/icons/campfire";
 import { useMounted } from "@/hooks/use-mounted";
 import { useTitle } from "@/hooks/use-title";
 import { deletePushSubscription, fetchPushSubscriptions, isSignedOut, sendTestNotification } from "@/lib/api";
-import { endPushSubscriptionAt } from "@/lib/push";
+import { endPushSubscriptionAt, savedAgain } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { Panel, SettingsPage } from "./settings-page";
 
@@ -74,7 +74,11 @@ function SubscriptionRow({ subscription: { id, browser, version, platform, endpo
   const [deleting, setDeleting] = useState(false);
   const mounted = useMounted();
 
-  const remove = (id: number) => deletePushSubscription(id).then(() => endPushSubscriptionAt(endpoint));
+  // After the save of this browser's subscription as the workspace opened, which would otherwise bring it back.
+  const remove = (id: number) =>
+    savedAgain()
+      .then(() => deletePushSubscription(id))
+      .then(() => endPushSubscriptionAt(endpoint));
 
   // Each button is its own form there, which Turbo disables until its answer comes.
   const send = (request: (id: number) => Promise<void>, setSending: (sending: boolean) => void, sent?: () => void) => {

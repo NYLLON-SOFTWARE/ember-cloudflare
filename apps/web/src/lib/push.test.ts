@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { endPushSubscriptionAt, isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import { endPushSubscriptionAt, isPushOn, savedAgain, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -308,5 +308,20 @@ describe(feature("notifications.enable"), () => {
     serviceWorker.getRegistration.mockRejectedValue(new DOMException("No", "SecurityError"));
     await expect(savePushAgain()).resolves.toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("says when the save it last started has settled, so deleting the subscription can wait for it", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    let answer!: (response: Response) => void;
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    void savePushAgain();
+    const settled = vi.fn();
+    void savedAgain().then(settled);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).not.toHaveBeenCalled();
+
+    answer(new Response(null, { status: 204 }));
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
   });
 });
