@@ -1,11 +1,12 @@
 import type { UserId } from "@ember/protocol";
-import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, type BotAnswer, type Bots, type BotSettings } from "@ember/protocol/bots";
+import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, WEBHOOK_URL_REFUSED, type BotAnswer, type Bots, type BotSettings } from "@ember/protocol/bots";
 import { credentialsOf } from "../auth";
 import { userFormOf, userFormPhoto } from "../avatars";
 import type { Env } from "../env";
 import { notFound } from "../error-pages";
 import { anyOtherPage } from "../pages";
 import { workspace } from "../workspace";
+import { isWebhookUrl } from "./webhooks";
 
 // Chat bots, as administrators add, change and delete them, as ember-rust's `accounts/bots` and
 // `accounts/bots/keys` controllers do (crates/ember/src/controllers/accounts/bots.rs). They answer JSON
@@ -114,11 +115,11 @@ function botAnswer(bot: BotSettings | "forbidden" | "not found" | null): Respons
 }
 
 /**
- * Refuses a webhook URL that isn't an http or https URL with a host, which a webhook couldn't deliver
- * to, where ember-rust saves whatever the form sends.
+ * Refuses a webhook URL that a webhook may not be delivered to (`isWebhookUrl`), anything but an https
+ * URL with a host or an http one on localhost, where ember-rust saves whatever the form sends.
  */
 function withWebAddress<T extends { webhookUrl?: string }>(changes: T | string): T | string {
   if (typeof changes === "string" || !changes.webhookUrl) return changes;
   const url = URL.parse(changes.webhookUrl);
-  return (url?.protocol === "http:" || url?.protocol === "https:") && url.hostname ? changes : "Webhook URL must be an http or https URL";
+  return url && isWebhookUrl(url) ? changes : WEBHOOK_URL_REFUSED;
 }

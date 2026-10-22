@@ -283,10 +283,13 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   address's fragment, which no log sees.
 - A file's address is signed and never expires: whoever has it can open the file until its message
   is deleted, as with Active Storage's links.
-- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Workers
-  Logs record each request's address, which for Campfire's bot API and the Slack-compatible webhooks
-  holds the bot's key and for the join link its code; Reset key and Regenerate join link are the
-  remedies if a log is shared, and
+- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Webhooks
+  go only to https, or to http on localhost, so nobody on the way reads the key; a bot saved with an
+  http URL elsewhere before gets no deliveries until its URL is changed, and the Worker's log says
+  why.
+- Workers Logs record each request's address, which for Campfire's bot API and the Slack-compatible
+  webhooks holds the bot's key and for the join link its code; Reset key and Regenerate join link are
+  the remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
   per-request record.
 - Passwords are kept as scrypt digests at OWASP's cost, which takes about a quarter of a second of

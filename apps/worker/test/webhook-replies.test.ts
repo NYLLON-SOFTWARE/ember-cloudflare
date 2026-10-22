@@ -154,7 +154,7 @@ describe(feature("bots.webhook-reply"), () => {
     // Late answers wait on the clock, which the test moves on.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const webhook = webhookAnswering(recorded);
-    const delivered = postWebhook(recorded.url ?? `http://bots.example.com/${recorded.name}`, PAYLOAD, keepBytes, { send: webhook.send });
+    const delivered = postWebhook(recorded.url ?? `https://bots.example.com/${recorded.name}`, PAYLOAD, keepBytes, { send: webhook.send });
 
     if (answer.error) {
       await expect(delivered).rejects.toThrow(FAILURES[answer.error]!(recorded));

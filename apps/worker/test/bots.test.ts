@@ -17,6 +17,7 @@ import type {
   Sidebar,
   UserId,
 } from "@ember/protocol";
+import { WEBHOOK_URL_REFUSED } from "@ember/protocol/bots";
 import { beforeEach, describe, expect, it } from "vitest";
 import notFoundPage from "../../web/public/404.html";
 import { DEFAULT_BOT_AVATAR } from "../src/default-bot-avatar";
@@ -179,6 +180,12 @@ describe(feature("bots.create-edit"), () => {
     expect(padded.webhookUrl).toBe("https://example.com/hook");
   });
 
+  it("takes an http webhook URL only on localhost, as a bot run beside `wrangler dev` has", async () => {
+    const administrator = await setUp();
+    const local = ["http://localhost:4567/hook", "http://bots.localhost/hook", "http://127.0.0.1:4567/hook", "http://127.1.2.3/hook", "http://[::1]:4567/hook"];
+    for (const [n, webhookUrl] of local.entries()) expect((await added(administrator, { name: `Local Bot ${n}`, webhookUrl })).webhookUrl).toBe(webhookUrl);
+  });
+
   it("changes a bot's webhook first, then its name: a URL adds or replaces the webhook, a blank one removes it, and what's left out stays", async () => {
     const administrator = await setUp();
     const bot = await added(administrator, { name: "Build Bot" });
@@ -229,7 +236,7 @@ describe(feature("bots.create-edit"), () => {
     expect(await inDirectory(member, bot.id)).toMatchObject({ name: "Deploy Bot", avatarUrl: renamed.avatarUrl });
   });
 
-  it("refuses a blank name, and a webhook URL that isn't an http or https URL, saving nothing", async () => {
+  it("refuses a blank name, and a webhook URL that isn't https, or http on localhost, saving nothing", async () => {
     const administrator = await setUp();
     const refusals: Array<[unknown, string]> = [
       [{}, "Name can't be blank"],
@@ -237,10 +244,15 @@ describe(feature("bots.create-edit"), () => {
       [{ name: " \t" }, "Name can't be blank"],
       [{ name: 7 }, "Name must be text"],
       [{ name: "Bot", webhookUrl: 7 }, "Webhook URL must be text"],
-      [{ name: "Bot", webhookUrl: "ftp://files.example.com/inbox" }, "Webhook URL must be an http or https URL"],
-      [{ name: "Bot", webhookUrl: "javascript:alert(1)" }, "Webhook URL must be an http or https URL"],
-      [{ name: "Bot", webhookUrl: "example.com/hook" }, "Webhook URL must be an http or https URL"],
-      [{ name: "Bot", webhookUrl: "https://" }, "Webhook URL must be an http or https URL"],
+      [{ name: "Bot", webhookUrl: "ftp://files.example.com/inbox" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "javascript:alert(1)" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "example.com/hook" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "https://" }, WEBHOOK_URL_REFUSED],
+      // Plain http, which would show anyone on the way the bot's key, where ember-rust takes it.
+      [{ name: "Bot", webhookUrl: "http://ci.example.com/hooks/ember" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "http://127.0.0.1.example.com/hook" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "http://localhost.example.com/hook" }, WEBHOOK_URL_REFUSED],
+      [{ name: "Bot", webhookUrl: "http://10.0.0.7:8080/hook" }, WEBHOOK_URL_REFUSED],
       [{ name: "Bot", webhookUrl: `https://example.com/${"a".repeat(2029)}` }, "Webhook URL can't be longer than 2048 characters"],
       [null, "Expected a JSON object"],
       [["Bot"], "Expected a JSON object"],
