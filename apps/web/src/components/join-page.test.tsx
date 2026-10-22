@@ -222,3 +222,13 @@ describe(feature("accounts.logo"), () => {
     expect(screen.queryByRole("img", { name: "Ember" })).toBeNull();
   });
 });
+
+describe(feature("accounts.custom-css"), () => {
+  it("keeps the password typed out of its field's value attribute, where custom CSS could read it", async () => {
+    render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    const password = screen.getByLabelText("Password");
+    await userEvent.type(password, "compiler");
+    expect(password).toHaveValue("compiler");
+    expect(password).not.toHaveAttribute("value");
+  });
+});

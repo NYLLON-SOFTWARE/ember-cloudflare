@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type Ref } from "react";
 import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
@@ -84,7 +84,6 @@ function Setup({ placeholders, access, onSetUp }: { placeholders: SetupPlacehold
 function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupPlaceholders; setupToken: string | null; onSetUp: (workspace: NewWorkspace) => void }) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
-  const [password, setPassword] = useState("");
   const [passwordTooShort, setPasswordTooShort] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,7 +95,7 @@ function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupP
     setPasswordTooShort(false);
     setProblem(null);
     try {
-      const workspace = await setUpWorkspace({ name, emailAddress, password }, await photo.photo(), setupToken);
+      const workspace = await setUpWorkspace({ name, emailAddress, password: passwordInput.current?.value ?? "" }, await photo.photo(), setupToken);
       navigate(`/rooms/${workspace.room.id}`, { replace: true });
       onSetUp(workspace);
     } catch (error) {
@@ -105,7 +104,7 @@ function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupP
       // As ember-rust re-renders the form: the name and email stay, and the password starts over. The
       // photo stays too, where ember-rust's form comes back without it.
       if (error.field === "password") {
-        setPassword("");
+        if (passwordInput.current) passwordInput.current.value = "";
         setPasswordTooShort(true);
         return passwordInput.current?.focus();
       }
@@ -156,7 +155,7 @@ function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupP
                 className={INPUT}
               />
             </Field>
-            <PasswordField ref={passwordInput} value={password} onChange={(event) => setPassword(event.target.value)} tooShort={passwordTooShort} />
+            <PasswordField ref={passwordInput} tooShort={passwordTooShort} />
           </div>
         </div>
         <footer className="border-t bg-surface p-5">
@@ -296,7 +295,7 @@ function Field({ id, label, icon: Icon, children }: { id: string; label: string;
 }
 
 /** ember-rust's `ui::password`, with its show and hide toggle (basecoat/src/password.js). */
-function PasswordField({ tooShort, ...props }: ComponentProps<"input"> & { tooShort: boolean }) {
+function PasswordField({ ref, tooShort }: { ref: Ref<HTMLInputElement>; tooShort: boolean }) {
   const [visible, setVisible] = useState(false);
   return (
     <div className="grid min-w-0 gap-2">
@@ -305,8 +304,9 @@ function PasswordField({ tooShort, ...props }: ComponentProps<"input"> & { tooSh
       </label>
       <div className="relative min-w-0">
         <Lock className={FIELD_ICON} />
+        {/* Uncontrolled, so what's typed never reaches its `value` attribute, where custom CSS could read it. */}
         <Input
-          {...props}
+          ref={ref}
           id="user_password"
           type={visible ? "text" : "password"}
           placeholder="••••••••"

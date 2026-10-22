@@ -18,7 +18,6 @@ import { ApiError, signIn } from "@/lib/api";
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const [asGuest, setAsGuest] = useState(false);
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -31,11 +30,11 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     setBusy(true);
     setProblem(null);
     try {
-      onSignedIn(await signIn({ emailAddress, password }));
+      onSignedIn(await signIn({ emailAddress, password: passwordInput.current?.value ?? "" }));
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
-      setPassword("");
+      if (passwordInput.current) passwordInput.current.value = "";
       flash("alert", SIGN_IN_REFUSED);
       setShaking(true);
       passwordInput.current?.focus();
@@ -72,6 +71,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 />
               </Field>
               <Field id="password" label="Password" translation="password">
+                {/* Uncontrolled, so what's typed never reaches its `value` attribute, where custom CSS could read it. */}
                 <Input
                   ref={passwordInput}
                   id="password"
@@ -80,8 +80,6 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                   autoComplete="current-password"
                   placeholder="Enter your password"
                   maxLength={MAX_PASSWORD_LENGTH}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
                   className={FIELD_INPUT}
                 />
               </Field>

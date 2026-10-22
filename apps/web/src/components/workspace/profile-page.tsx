@@ -46,7 +46,7 @@ interface Props {
   onFailed: (error: unknown) => void;
 }
 
-const FIELDS = ["name", "emailAddress", "password", "bio"] as const;
+const FIELDS = ["name", "emailAddress", "bio"] as const;
 
 /** What ember-rust's profile says once it has saved a new avatar. */
 export const AVATAR_CHANGED = "It may take up to 30 minutes to change everywhere.";
@@ -54,27 +54,26 @@ export const AVATAR_CHANGED = "It may take up to 30 minutes to change everywhere
 /** Your avatar as the page shows it: its address, and whether you've uploaded one, which Remove avatar takes away. */
 type Picture = Pick<Profile, "avatarUrl" | "avatar">;
 
-/** The form's fields as typed. */
+/** The form's fields as typed, but for the new password, which only its field holds. */
 type Fields = Record<(typeof FIELDS)[number], string>;
 
-/** A profile in the form, with no new password typed. */
-const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emailAddress: emailAddress ?? "", password: "", bio: bio ?? "" });
+/** A profile in the form. */
+const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emailAddress: emailAddress ?? "", bio: bio ?? "" });
 
 /**
- * The fields `typed` differently from `saved`, the profile as the page last loaded or saved it. Only
- * they're sent, where ember-rust's form sends every field, so a save doesn't put back what another
- * tab has saved since.
+ * The fields `typed` differently from `saved`, the profile as the page last loaded or saved it, and
+ * `password` if one's typed. Only they're sent, where ember-rust's form sends every field, so a save
+ * doesn't put back what another tab has saved since.
  */
-function changesOf(saved: Fields, typed: Fields): ProfileChanges {
-  const changes: ProfileChanges = {};
+function changesOf(saved: Fields, typed: Fields, password: string): ProfileChanges {
+  const changes: ProfileChanges = password ? { password } : {};
   for (const field of FIELDS) if (typed[field] !== saved[field]) changes[field] = typed[field];
   return changes;
 }
 
 /**
  * The form once `sent` is saved as `saved`: each field still as it was sent shows what's saved, which
- * may hold another tab's change, and the new password leaves its field, as ember-rust's page comes
- * back without it. Whatever was typed meanwhile stays.
+ * may hold another tab's change. Whatever was typed meanwhile stays.
  */
 function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
   const fields = { ...typed };
@@ -102,6 +101,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [savingPicture, setSavingPicture] = useState(false);
   const [transferId, setTransferId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const passwordInput = useRef<HTMLInputElement>(null);
   const people = useContext(PeopleContext);
   const back = useBackPath();
   const flash = useFlash();
@@ -174,13 +174,16 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     if (!fields || !saved.current || saving) return;
     setSaving(true);
     const sent = fields;
-    changeProfile(changesOf(saved.current, sent)).then(
+    const password = passwordInput.current?.value ?? "";
+    changeProfile(changesOf(saved.current, sent, password)).then(
       (answer) => {
         if (!mounted.current) return;
         setSaving(false);
         const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
+        // The new password leaves its field, as ember-rust's page comes back without it, unless another was typed meanwhile.
+        if (passwordInput.current?.value === password) passwordInput.current.value = "";
         showAnswer(answer);
         flash("notice", "✓");
       },
@@ -248,7 +251,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
             />
           </Field>
           <Field id="user_password" label="New password" translation="update_password">
+            {/* Uncontrolled, so what's typed never reaches its `value` attribute, where custom CSS could read it. */}
             <Input
+              ref={passwordInput}
               id="user_password"
               type="password"
               autoComplete="new-password"
@@ -256,8 +261,6 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               maxLength={MAX_PASSWORD_LENGTH}
               aria-describedby="profile-password-help"
               disabled={!fields}
-              value={fields?.password ?? ""}
-              onChange={change("password")}
               className={FIELD_INPUT}
             />
             <p id="profile-password-help" className="text-[0.8em] text-muted-foreground">

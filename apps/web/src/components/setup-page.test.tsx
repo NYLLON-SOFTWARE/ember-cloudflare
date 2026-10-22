@@ -304,3 +304,15 @@ describe(feature("ui.accessibility"), () => {
     expect(screen.getByRole("main")).toHaveFocus();
   });
 });
+
+describe(feature("accounts.custom-css"), () => {
+  it("keeps the password typed out of its field's value attribute, shown or hidden, where custom CSS could read it", async () => {
+    render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
+    const password = screen.getByLabelText("Password");
+    await userEvent.type(password, "correct horse");
+    expect(password).not.toHaveAttribute("value");
+    await userEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(password).toHaveValue("correct horse");
+    expect(password).not.toHaveAttribute("value");
+  });
+});
