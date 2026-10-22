@@ -220,6 +220,17 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await workspaceSql("SELECT id FROM push_subscriptions")).toEqual([]);
   });
 
+  it("answers 401 and saves nothing when your session ends after it's checked, as a password reset can end it on D1", async () => {
+    const ada = await signIn("Ada");
+    // Behind the Workspace's back, so it still remembers the session, as when a reset lands between its check and the save.
+    await workspaceSql("DELETE FROM sessions WHERE user_id = ?", ada.user.id);
+
+    const response = await save(ada, subscription());
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Not signed in" });
+    expect(await idsOf(ada.user.id)).toEqual([]);
+  });
+
   it("deletes only your own subscriptions, and does nothing for anyone else's", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
