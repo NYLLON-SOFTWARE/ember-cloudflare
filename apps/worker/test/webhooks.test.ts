@@ -104,6 +104,26 @@ function bots(answer: (delivery: Delivery) => Promise<Response> = async () => ne
   return delivered;
 }
 
+/**
+ * Stands in for every webhook, answering with an image it sends only once `send` is called, waiting in
+ * the room's own I/O context. `reading` says whether the room has begun reading it.
+ */
+function sendingFileWhenLet(): { reading: () => boolean; send: () => void } {
+  let [reading, sending] = [false, false];
+  bots(async () => {
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        reading = true;
+        while (!sending) await new Promise((resolve) => setTimeout(resolve, 10));
+        controller.enqueue(recordedImage("moon-thumb.jpg"));
+        controller.close();
+      },
+    });
+    return new Response(body, { headers: { "Content-Type": "image/jpeg" } });
+  });
+  return { reading: () => reading, send: () => (sending = true) };
+}
+
 /** The R2 bucket that keeps files. */
 const files = () => (env as unknown as Env).FILES!;
 
@@ -489,28 +509,16 @@ describe(feature("bots.webhook-reply"), () => {
     const { ada } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
     const room = await createRoom("Launch", { as: ada });
-    // The webhook sends its file once the test lets it, waiting in the room's own I/O context.
-    let [reading, answering] = [false, false];
-    bots(async () => {
-      const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          reading = true;
-          while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
-          controller.enqueue(recordedImage("moon-thumb.jpg"));
-          controller.close();
-        },
-      });
-      return new Response(body, { headers: { "Content-Type": "image/jpeg" } });
-    });
+    const file = sendingFileWhenLet();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const client = await connect(room.id, ada);
 
     const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
-    await vi.waitFor(() => expect(reading).toBe(true));
+    await vi.waitFor(() => expect(file.reading()).toBe(true));
     expect((await api(`/api/rooms/${room.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
     // Once the room has heard.
     await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
-    answering = true;
+    file.send();
     await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
   });
@@ -518,30 +526,39 @@ describe(feature("bots.webhook-reply"), () => {
   it("keeps none of a file a bot says back once the bot is deleted while it arrives", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
-    // The webhook sends its file once the test lets it, waiting in the room's own I/O context.
-    let [reading, answering] = [false, false];
-    bots(async () => {
-      const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          reading = true;
-          while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
-          controller.enqueue(recordedImage("moon-thumb.jpg"));
-          controller.close();
-        },
-      });
-      return new Response(body, { headers: { "Content-Type": "image/jpeg" } });
-    });
+    const file = sendingFileWhenLet();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const client = await connect(general, ada);
 
     const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
-    await vi.waitFor(() => expect(reading).toBe(true));
+    await vi.waitFor(() => expect(file.reading()).toBe(true));
     await deleteBot(ada, bot);
-    answering = true;
+    file.send();
     await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, REPLY_REFUSED));
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
     await settle(client);
     expect(client.pending("message.created")).toEqual([]);
+    client.close();
+  });
+
+  it("keeps none of a file a bot says back when the Workspace can't be asked about the bot once it has arrived", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    const file = sendingFileWhenLet();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(file.reading()).toBe(true));
+    const unreachable = new Error("The Workspace can't be reached");
+    await runInDurableObject(roomStub(general), (room: ChatRoom) => {
+      const object = room as unknown as { env: Env };
+      const workspace = { getByName: () => ({ botWebhook: () => Promise.reject(unreachable) }) };
+      object.env = { ...object.env, WORKSPACE: workspace as unknown as Env["WORKSPACE"] };
+    });
+    file.send();
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, unreachable));
+    expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
     client.close();
   });
 });

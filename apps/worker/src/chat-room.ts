@@ -953,10 +953,16 @@ export class ChatRoom extends DurableObject<Env> {
    * Posts what a bot says back to a delivery to `webhook`, text or a file, as the bot by its name then,
    * once the Workspace has found it still in the room, delivering to the same URL: one deleted, taken
    * out of the room or sent elsewhere while the delivery ran posts nothing, where Campfire posts it
-   * (`Webhook#deliver`). Answers why the room keeps nothing of it, if it doesn't.
+   * (`Webhook#deliver`). Answers why the room keeps nothing of it, if it doesn't, and has R2 delete a file
+   * it couldn't ask the Workspace about, as `replyWithFile` has it delete one it refuses.
    */
   private async postReply(roomId: RoomId, webhook: WebhookAccess, reply: Reply<KeptFile>): Promise<string | null> {
-    const found = await workspace(this.env).botWebhook(roomId, webhook.bot.id);
+    const found = await workspace(this.env)
+      .botWebhook(roomId, webhook.bot.id)
+      .catch(async (error: unknown) => {
+        if ("kept" in reply) await this.env.FILES?.delete(objectKey(reply.kept.key));
+        throw error;
+      });
     const access = found?.url === webhook.url ? found : null;
     return "text" in reply ? this.reply(roomId, access, reply.text) : this.replyWithFile(roomId, access, reply.kept);
   }
