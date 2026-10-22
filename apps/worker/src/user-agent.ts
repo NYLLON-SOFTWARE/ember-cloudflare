@@ -1,4 +1,5 @@
 import type { Platform } from "@ember/protocol";
+import { strip } from "@ember/richtext";
 
 /**
  * Whether Campfire turns a browser away as too old, whether a request is Apple Messages fetching a
@@ -298,7 +299,7 @@ const PRODUCT_WITHOUT_COMMENT = /^['"]*([^/ \t\n\v\f\r]+)\/?([^ \t\n\v\f\r,]*)/;
 
 /** `UserAgent.parse`, which reads a header that strips to nothing as "Mozilla/4.0 (compatible)". */
 function parse(userAgent: string): Agent {
-  let rest = rubyStrip(userAgent) === "" ? DEFAULT_USER_AGENT : userAgent;
+  let rest = strip(userAgent) === "" ? DEFAULT_USER_AGENT : userAgent;
   // A comment's "(" sends `PRODUCT` looking for its ")" as far as the end of the header, which takes
   // quadratic time on a header of many "(" and no ")". Once no ")" is left, no comment is looked for.
   let closers = countOf(rest, ")");
@@ -307,7 +308,7 @@ function parse(userAgent: string): Agent {
     const [matched, product = "", version = "", , comment] = match;
     products.push({ product, version, comment: comment === undefined ? null : rubySplit(comment, "; ") });
     closers -= countOf(matched, ")");
-    rest = rubyStrip(rest.slice(matched.length));
+    rest = strip(rest.slice(matched.length));
   }
   const kind = BROWSERS.find(([, recognizes]) => recognizes(products))?.[0] ?? "Base";
   return { kind, products };
@@ -669,16 +670,6 @@ function detectProduct(products: Product[], name: string): Product | undefined {
 
 /** ActiveSupport's `blank?`: nothing but Unicode whitespace. */
 const isBlank = (text: string) => /^\p{White_Space}*$/u.test(text);
-
-const STRIPPED = new Set(["\0", " ", "\t", "\n", "\v", "\f", "\r"]);
-
-/** `String#strip`, which takes NUL and ASCII whitespace off both ends, where `trim` takes Unicode spaces. */
-function rubyStrip(text: string): string {
-  let [start, end] = [0, text.length];
-  while (start < end && STRIPPED.has(text[start]!)) start++;
-  while (end > start && STRIPPED.has(text[end - 1]!)) end--;
-  return text.slice(start, end);
-}
 
 /** How many times `character` appears in `text`. */
 function countOf(text: string, character: string): number {

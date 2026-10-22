@@ -116,6 +116,15 @@ describe(feature("attachments.serving"), () => {
     }
   });
 
+  it("names a file in a moment, however long a run of spaces or slashes its name holds", () => {
+    const [spaces, slashes] = [" ".repeat(300_000), "/".repeat(300_000)];
+    const started = Date.now();
+    expect(sanitizedFilename(`a${spaces}b.png`)).toBe(`a${spaces}b.png`);
+    expect(basename(`a${slashes}b.png`)).toBe("b.png");
+    // Patterns for the run at the name's end would try to end each run inside it there: some 6 seconds each for these.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("reads each recorded Range header as Rack did", () => {
     expect(rubyCore.byte_ranges).toHaveLength(200);
     for (const { header, size, ranges } of rubyCore.byte_ranges) expect(byteRanges(header, size), `${JSON.stringify(header)} of ${size} bytes`).toEqual(ranges);

@@ -1,6 +1,8 @@
 // What a bot's reply is, by its content type, as Campfire's `Webhook#deliver` reads it with Net::HTTP
 // and Rails' `Mime::Type.lookup`, and ember-rust's integrations/webhook.rs ports them.
 
+import { strip } from "@ember/richtext";
+
 /** A file a bot replies with: its name and type, as Campfire uploads it. */
 export interface ReplyFile {
   /** `"attachment.#{mime_type.symbol}"`: "attachment." for a type Rails hasn't registered. */
@@ -18,9 +20,6 @@ export function contentTypeOf(header: string | null): string | null {
   const [main = "", sub] = header.split(";")[0]!.split("/");
   return sub === undefined ? strip(main) : `${strip(main)}/${strip(sub)}`;
 }
-
-/** Ruby's `String#strip`, whose whitespace is fewer characters than `String#trim`'s. */
-const strip = (text: string) => text.replace(/^[\0\t\n\v\f\r ]+|[\0\t\n\v\f\r ]+$/g, "");
 
 /**
  * The file a reply of media type `type` becomes, as Rails' `Mime::Type.lookup` names it: a registered

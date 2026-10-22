@@ -1243,7 +1243,7 @@ export const features = [
     ],
     sources: ["reference/lib/rails_ext/string.rb", "reference/app/helpers/messages_helper.rb", "crates/assets/overrides/models/client_message.js"],
     upstreamTests: ["reference/test/models/message_test.rb", "reference/test/system/sending_messages_test.rb"],
-    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji are larger too, as ember-rust's are (`boosts.add`).",
+    notes: "`packages/richtext` tells whether a message's plain text is only emoji, as Ruby's regexp does, though with its three kinds of character in one class: a browser's regular expressions backtrack, and their alternation took time that doubled with each emoji to refuse a run of them before other text. Such a message shows at 2.4em of the text around it, 33.6px, as Campfire's rule makes it. ember-rust shows it at 15px, as its own size for message text comes after that rule and overrides it. Reactions that are all emoji are larger too, as ember-rust's are (`boosts.add`).",
   },
   {
     id: "messages.sounds",
