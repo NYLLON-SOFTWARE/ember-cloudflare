@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { endPushSubscriptionAt, isPushOn, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import { endPushSubscriptionAt, isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -282,5 +282,31 @@ describe(feature("notifications.enable"), () => {
     expect(await isPushOn(KEY)).toBe(false);
     vi.stubGlobal("isSecureContext", false);
     expect(await isPushOn(KEY)).toBe(false);
+  });
+
+  it("saves the browser's subscription again, so the server keeps it among the ones you saved most recently", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    const fetch = saving();
+    await savePushAgain();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/push-subscriptions",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ endpoint: ENDPOINT, p256dhKey: "BNcRdreA", authKey: "tBHItJI5" }) }),
+    );
+  });
+
+  it("saves nothing for a browser without a subscription, and settles when saving fails", async () => {
+    const { serviceWorker } = pushable({ permission: "granted", registered: registration() });
+    const fetch = saving();
+    await savePushAgain();
+    expect(fetch).not.toHaveBeenCalled();
+
+    serviceWorker.getRegistration.mockResolvedValue(registration({ existing: subscription() }));
+    fetch.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    fetch.mockResolvedValue(Response.json({ error: "Endpoint is not a permitted push service" }, { status: 422 }));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    serviceWorker.getRegistration.mockRejectedValue(new DOMException("No", "SecurityError"));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

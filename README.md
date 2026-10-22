@@ -195,11 +195,12 @@ on again. A pair from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` wo
 
 A new message is pushed from its room's Durable Object as the room tells the Workspace of it, to the
 subscriptions of the members who aren't viewing the room and want to hear of it: each person keeps
-one for each browser they turned notifications on in, and only the 10 saved most recently. Push
-services may contact whoever `VAPID_SUBJECT` names, a `mailto:` or `https:` address, about your
-pushes; without it they see this project's address. Each push is an outgoing request, of which the
-Workers Free plan allows 50 per invocation, so there the pushes past that, for a message with more
-subscribers or a run of messages sent together, fail and are logged; the Paid plan allows 10,000.
+one for each browser they turned notifications on in, which saves it again each time Ember opens
+there, and only the 10 saved most recently. Push services may contact whoever `VAPID_SUBJECT` names,
+a `mailto:` or `https:` address, about your pushes; without it they see this project's address. Each
+push is an outgoing request, of which the Workers Free plan allows 50 per invocation, so there the
+pushes past that, for a message with more subscribers or a run of messages sent together, fail and
+are logged; the Paid plan allows 10,000.
 
 ### Files
 

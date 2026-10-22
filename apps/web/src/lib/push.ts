@@ -50,6 +50,21 @@ export async function isPushOn(vapidPublicKey: string | null): Promise<boolean> 
 }
 
 /**
+ * Saves this browser's push subscription for you again, if it has one, as the workspace opens with
+ * notifications on, where ember-rust's bell doesn't. The server keeps the `MAX_PUSH_SUBSCRIPTIONS` you
+ * saved most recently, so this keeps the browsers you open among them, and brings this one's back once
+ * newer ones have pushed it out, which the bell can't, showing your level. Settles whether or not it could.
+ */
+export async function savePushAgain(): Promise<void> {
+  try {
+    const subscription = await pushSubscription();
+    if (subscription) await savePushSubscription(keysOf(subscription));
+  } catch {
+    // Notifications stay on, as the bell found them, and the workspace tries again the next time it opens.
+  }
+}
+
+/**
  * Turns notifications on as ember-rust's bell does, settling with why they aren't on, or null once
  * they are: it asks for permission, registers the service worker unless it's registered already, waits
  * for it to be active, subscribes, or keeps the subscription the browser already has, and saves that.

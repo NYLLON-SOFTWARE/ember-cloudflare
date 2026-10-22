@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { PushSubscriptions } from "@ember/protocol";
+import { MAX_PUSH_SUBSCRIPTIONS, type PushSubscriptions } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { administratorOn, allowNotifications, logOut, PUSH_KEYS, uniqueEndpoint, VAPID_PUBLIC_KEY } from "../../fixtures";
 import { expect, startDirect, test, unique } from "./fixtures";
@@ -218,6 +218,31 @@ test.describe(feature("notifications.subscriptions"), () => {
     } finally {
       await Promise.all([laptop.context().close(), phone.context().close()]);
     }
+  });
+
+  test("saves this browser's subscription again as the workspace opens, bringing it back after other browsers' newer ones pushed it out", async ({ members }) => {
+    const endpoint = uniqueEndpoint();
+    const grace = await members.signIn(unique("Grace"), { beforeOpen: (page) => allowNotifications(page.context(), { endpoint }) });
+    const endpoints = async () => {
+      const { subscriptions } = (await (await grace.page.request.get("/api/push-subscriptions")).json()) as PushSubscriptions;
+      return subscriptions.map((subscription) => subscription.endpoint);
+    };
+    await expect.poll(endpoints).toEqual([endpoint]);
+
+    // As many other browsers turn notifications on as Grace keeps, the newest last.
+    const others = Array.from({ length: MAX_PUSH_SUBSCRIPTIONS }, () => uniqueEndpoint());
+    for (const other of others) {
+      const response = await grace.page.request.post("/api/push-subscriptions", { data: { endpoint: other, p256dhKey: PUSH_KEYS.p256dh, authKey: PUSH_KEYS.auth } });
+      expect(response.status(), await response.text()).toBe(204);
+    }
+    expect(await endpoints()).toEqual(others);
+
+    const saved = grace.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/push-subscriptions");
+    await grace.page.reload();
+    expect((await saved).request().postDataJSON()).toEqual({ endpoint, p256dhKey: PUSH_KEYS.p256dh, authKey: PUSH_KEYS.auth });
+    expect((await saved).status()).toBe(204);
+    await expect(headerBell(grace.page)).toHaveAccessibleName(MENTIONS);
+    await expect.poll(endpoints).toEqual([...others.slice(1), endpoint]);
   });
 });
 

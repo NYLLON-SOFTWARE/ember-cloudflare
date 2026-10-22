@@ -384,7 +384,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   browser's keys, and the same index, led by the person, lists someone's subscriptions and finds the
   one a browser names as it signs out. The batch that saves one forgets the person's past the ten they
   saved most recently (`MAX_PUSH_SUBSCRIPTIONS`), so no message is pushed to anyone more often than
-  that, however many they save. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
+  that, however many they save. The web app saves a browser's again each time the workspace opens
+  there with notifications on, so the ten are the browsers opened most recently, and one pushed out
+  comes back when it's next opened. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
   migration 0026), since a push service answers that a subscription is gone only after the push to it
   went out, and the Workspace then forgets it by its number, which SQLite would otherwise give the
   next subscription saved once the newest is deleted.
