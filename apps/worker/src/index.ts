@@ -45,7 +45,6 @@ import {
   credentialsFor,
   credentialsOf,
   expiredSessionCookie,
-  guestSignIn,
   isCrossSite,
   isHttps,
   isSameOriginUpgrade,
@@ -62,7 +61,7 @@ import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
-import type { Env } from "./env";
+import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
@@ -370,8 +369,8 @@ async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<
  * pages has (users/profiles/_transfer.html). No cache should keep it, since it holds your email address
  * and the link.
  */
-async function profileAnswer({ userId, profile }: YourProfile, env: Env): Promise<Response> {
-  const transferId = await newTransferId(userId, env.SESSION_SECRET, Date.now());
+async function profileAnswer({ transfer, profile }: YourProfile, env: Env): Promise<Response> {
+  const transferId = await newTransferId(transfer, env.SESSION_SECRET, Date.now());
   return json({ profile, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -478,7 +477,7 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
   if (!found) return problem(401, "Not signed in");
   if (found === "not found") return problem(404, "Not found");
   const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
-  const transferId = found.transferable ? await newTransferId(found.person.id, env.SESSION_SECRET, Date.now()) : undefined;
+  const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET, Date.now()) : undefined;
   return json({ person: shown!, transferId } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 

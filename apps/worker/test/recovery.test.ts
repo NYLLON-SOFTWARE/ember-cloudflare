@@ -9,7 +9,7 @@ import worker from "../src/index";
 import { verifyPassword } from "../src/passwords";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
-import { api, closeOf, connect, cookieOf, freshDeploy, freshRoom, openWorkspaceSocket, origin, settle, shown, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, closeOf, connect, cookieOf, freshDeploy, freshRoom, openWorkspaceSocket, origin, pushBrowser, settle, shown, upgrade, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler design" };
@@ -65,6 +65,13 @@ const storedPerson = async (emailAddress: string) =>
     updated_at: string;
   }>)[0]!;
 
+/** Saves a push subscription for `session` at Chrome's push service, at `/fcm/send/<label>`. */
+async function subscribe(session: Session, label: string): Promise<void> {
+  const { p256dh, auth } = await pushBrowser();
+  const body = JSON.stringify({ endpoint: `https://fcm.googleapis.com/fcm/send/${label}`, p256dhKey: p256dh, authKey: auth });
+  expect((await api("/api/push-subscriptions", { method: "POST", headers: { Cookie: session.cookie }, body })).status).toBe(204);
+}
+
 const sessionsOf = async (userId: string) => ((await workspaceSql("SELECT count(*) AS n FROM sessions WHERE user_id = ?", userId)) as Array<{ n: number }>)[0]!.n;
 
 beforeEach(freshDeploy);
@@ -113,6 +120,16 @@ describe(feature("accounts.reset-password"), () => {
     expect(await adasWorkspace.answers()).toBe(true);
     // And Grace gets back in with her new password.
     expect((await connect(lobby, await signInAsGrace("new password"))).me).toEqual(laptop.user);
+  });
+
+  it("forgets their push subscriptions and nobody else's, where ember-rust keeps them, so a browser no longer signed in as them gets none of their pushes", async () => {
+    const administrator = await setUp();
+    const laptop = await joinAsGrace();
+    const phone = await signInAsGrace();
+    for (const [session, label] of [[laptop, "laptop"], [phone, "phone"], [administrator, "ada"]] as const) await subscribe(session, label);
+
+    expect((await recover({ emailAddress: grace.emailAddress, password: "new password" })).status).toBe(200);
+    expect(await workspaceSql("SELECT user_id, endpoint FROM push_subscriptions")).toEqual([{ user_id: administrator.user.id, endpoint: "https://fcm.googleapis.com/fcm/send/ada" }]);
   });
 
   it("queues closing each ended session's sockets in each of their rooms, so a delivery tried again later spares a session begun since", async () => {

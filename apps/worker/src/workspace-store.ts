@@ -272,10 +272,13 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
- * while the last value says guests can't stay signed in.
+ * while the value after their id says guests can't stay signed in, or the session the last value names,
+ * which showed the link, has ended or is neither theirs nor an active administrator's.
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND (guest = 0 OR ? = 1)`;
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND (guest = 0 OR ? = 1)
+    AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
+      WHERE showing.id = ? AND shower.status = ${ACTIVE} AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
@@ -638,9 +641,10 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * Where a new message, numbered ?5, by ?2 in room ?1 is pushed, as ember-rust's `MessagePusher` finds it
  * (push_subscription.rs): to the subscriptions of the room's active members other than its author and
  * the people a JSON list ?3 names, who are viewing it, at all messages, then of those at @mentions whom
- * it mentions, a JSON list ?4, each in the order they were saved. Each comes with the room, its author's
- * name and the count its push sets the badge to: how many of its owner's conversations are marked
- * unread, as ember-rust's `badge` counts them. Nothing once the Workspace has applied the message's event.
+ * it mentions, a JSON list ?4, each in the order they were saved. Guests are left out unless ?6 says
+ * they can stay signed in. Each comes with the room, its author's name and the count its push sets the
+ * badge to: how many of its owner's conversations are marked unread, as ember-rust's `badge` counts
+ * them. Nothing once the Workspace has applied the message's event.
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -649,7 +653,7 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
+  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
     AND (memberships.involvement = 'everything' OR (memberships.involvement = 'mentions' AND memberships.user_id IN (SELECT value FROM json_each(?4))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
@@ -1293,12 +1297,21 @@ export class WorkspaceStore {
   }
 
   /**
-   * Starts a session for someone who opened a sign-in link for them, unless they're no longer active,
-   * or are a guest while `guests` says guests can't stay signed in.
+   * Starts a session for someone who opened a sign-in link for them that the session `shownBy` showed,
+   * unless they're no longer active, or are a guest while `guests` says guests can't stay signed in, or
+   * that session has ended or is neither theirs nor an active administrator's.
    */
-  async startTransferredSession(userId: UserId, guests: boolean, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+  async startTransferredSession(
+    userId: UserId,
+    shownBy: string,
+    guests: boolean,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, guests ? 1 : 0),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, guests ? 1 : 0, shownBy),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -1353,15 +1366,17 @@ export class WorkspaceStore {
 
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
-   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs). In the
-   * same transaction it queues closing each session's sockets with `code` in every room they're in, due
-   * at `dueAt`, as signing out does. Answers whether it queued any.
+   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs), and
+   * forgets their push subscriptions, which ember-rust keeps. In the same transaction it queues closing
+   * each session's sockets with `code` in every room they're in, due at `dueAt`, as signing out does.
+   * Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
       statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
   }
@@ -1709,10 +1724,11 @@ export class WorkspaceStore {
    * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
    * when a message has come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`,
    * it answers each new message's pushes too, found just after its marks, so that a push's badge counts
-   * them and none of the events after it. It answers the bots' webhooks each new message is delivered to,
-   * but for a bot's reply to one, which reaches the room as any message does but goes to no webhook.
+   * them and none of the events after it, and to guests only if `guests` says they can stay signed in.
+   * It answers the bots' webhooks each new message is delivered to, but for a bot's reply to one, which
+   * reaches the room as any message does but goes to no webhook.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast(isNewMessage);
@@ -1723,7 +1739,7 @@ export class WorkspaceStore {
       const { seq, kind, userId, at } = event;
       const marks = statements.push(isNewMessage(event) ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1 : null;
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq, guests ? 1 : 0)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it.
       const webhooks = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1 : null;
       return { event, marks, pushes, webhooks };

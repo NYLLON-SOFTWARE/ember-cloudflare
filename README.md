@@ -262,7 +262,8 @@ pnpm exec wrangler secret delete EMBER_RECOVERY_TOKEN
 ```
 
 The script asks for the new password twice without showing it, or reads one line from stdin. All
-the person's sessions end, and their open tabs go to sign in. Their role and status stay as they
+the person's sessions end, with the sign-in links they showed, and their open tabs go to sign in.
+Their browsers get no pushes until they sign in again. Their role and status stay as they
 were, so someone deactivated or banned still can't sign in. Whoever has the token can take over any
 account, so delete the secret once you're done; without it, the endpoint answers 404, as any
 address the API doesn't have does.
@@ -276,8 +277,9 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   Ember's in a frame elsewhere. When the policy gets in the way of something in a browser, the
   browser reports it to `/csp-report` and the Worker logs it, so look there if a page misbehaves.
 - An administrator can make a sign-in link for anyone, administrators included, which signs in as
-  that person for 4 hours, more than once. Its id travels in the address's fragment, which no log
-  sees.
+  that person for 4 hours, more than once, while the session that showed it is still signed in as an
+  administrator. Your own link works only while the session that showed it does, so signing out or
+  a password reset ends it. Its id travels in the address's fragment, which no log sees.
 - A file's address is signed and never expires: whoever has it can open the file until its message
   is deleted, as with Active Storage's links.
 - A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Workers
