@@ -373,13 +373,18 @@ search index. On top of that schema it adds indexes and query changes for speed.
   two searches can't tie, as two in the same instant could by time. The batch that records it also
   forgets all but the newest 10 and reads them back with the rooms the search needs, so searching
   takes the Workspace one round trip, as it did before searches were recorded.
-- **Each browser's subscription is saved once, in one statement.** ember-rust's `push_subscriptions`
-  looks a subscription up by its endpoint and keys before adding it or touching it, with an index on
-  those three and another on the person (`crates/db/src/models/push_subscription.rs`), so two saves
-  at once can add it twice. Ours requires the endpoint and keys, which its columns don't, and has one
-  unique index on the person, the endpoint and the keys (workspace migration 0024), so saving is one
-  upsert, and the same index, led by the person, lists someone's subscriptions and finds the one a
-  browser names as it signs out. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
+- **Each browser's subscription is saved once, in one batch, and each person keeps ten.** ember-rust's
+  `push_subscriptions` looks a subscription up by its endpoint and keys before adding it or touching
+  it, with an index on those three and another on the person (`crates/db/src/models/push_subscription.rs`),
+  so two saves at once can add it twice, a browser saving other keys adds another, and a person can
+  keep any number, each of which every message that notifies them is pushed to. Ours requires the
+  endpoint and keys, which its columns don't, and has one unique index on the person and the endpoint
+  (workspace migration 0035, which replaced 0024's on the person, the endpoint and the keys), since a
+  push service's endpoint names one browser's subscription: saving is one upsert that replaces a
+  browser's keys, and the same index, led by the person, lists someone's subscriptions and finds the
+  one a browser names as it signs out. The batch that saves one forgets the person's past the ten they
+  saved most recently (`MAX_PUSH_SUBSCRIPTIONS`), so no message is pushed to anyone more often than
+  that, however many they save. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
   migration 0026), since a push service answers that a subscription is gone only after the push to it
   went out, and the Workspace then forgets it by its number, which SQLite would otherwise give the
   next subscription saved once the newest is deleted.

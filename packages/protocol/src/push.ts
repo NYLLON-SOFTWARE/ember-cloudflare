@@ -6,6 +6,12 @@
 export const MAX_PUSH_ENDPOINT_LENGTH = 2048;
 /** The longest key saved. A browser's P-256 key is 87 characters of Base64, and its auth secret 22. */
 export const MAX_PUSH_KEY_LENGTH = 256;
+/**
+ * How many browsers' subscriptions one person keeps: the ones they saved most recently. ember-rust keeps
+ * any number and pushes each message to every one, so one person saving thousands could have every
+ * message that notifies them pushed thousands of times.
+ */
+export const MAX_PUSH_SUBSCRIPTIONS = 10;
 
 /** A browser's push subscription, as `POST /api/push-subscriptions` takes it from `PushSubscription.toJSON()`. */
 export interface PushSubscriptionKeys {

@@ -32,6 +32,7 @@ import purgedFiles from "../migrations/0031_purged_files.sql";
 import avatars from "../migrations/0032_avatars.sql";
 import logos from "../migrations/0033_logos.sql";
 import messageCards from "../migrations/0034_message_cards.sql";
+import pushSubscriptionsPerBrowser from "../migrations/0035_push_subscriptions_per_browser.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 
 /**
@@ -88,6 +89,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0032_avatars.sql", scope: "workspace", sql: avatars },
   { name: "0033_logos.sql", scope: "workspace", sql: logos },
   { name: "0034_message_cards.sql", scope: "room", sql: messageCards },
+  { name: "0035_push_subscriptions_per_browser.sql", scope: "workspace", sql: pushSubscriptionsPerBrowser },
 ];
 
 /**

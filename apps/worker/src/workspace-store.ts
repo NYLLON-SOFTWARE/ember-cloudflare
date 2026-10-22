@@ -1,5 +1,6 @@
 import {
   MAX_FAVORITES,
+  MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
@@ -931,12 +932,21 @@ const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? O
 
 /**
  * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
- * with its user agent, or, when they've saved the same endpoint and keys before, records that it was
- * saved again, as ember-rust touches it.
+ * with its user agent, or, when they've saved one at the same endpoint before, records that it was
+ * saved again, as ember-rust touches it, with the keys and user agent it has now. ember-rust adds
+ * another for keys that differ, which each message then pushes to as well.
  */
 const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-  ON CONFLICT (user_id, endpoint, p256dh_key, auth_key) DO UPDATE SET updated_at = excluded.updated_at`;
+  ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh_key = excluded.p256dh_key, auth_key = excluded.auth_key,
+    user_agent = excluded.user_agent, updated_at = excluded.updated_at`;
+
+/**
+ * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
+ * does, so that saving many can't have a message that notifies them pushed as many times.
+ */
+const TRIM_PUSH_SUBSCRIPTIONS = `DELETE FROM push_subscriptions WHERE user_id = ?1
+  AND id NOT IN (SELECT id FROM push_subscriptions WHERE user_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2)`;
 
 /**
  * Forgets the subscriptions with endpoint ?2 of whoever's session has the token digest ?1, as signing out
@@ -1527,9 +1537,15 @@ export class WorkspaceStore {
     await this.db.run(`DELETE FROM searches WHERE user_id = ?`, userId);
   }
 
-  /** Saves a browser's push subscription for someone, with its user agent, or records that they saved it again. */
+  /**
+   * Saves a browser's push subscription for someone, with its user agent, or records that they saved it
+   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently.
+   */
   async savePushSubscription(userId: UserId, { endpoint, p256dhKey, authKey }: PushSubscriptionKeys, userAgent: string | null, now: string): Promise<void> {
-    await this.db.run(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now);
+    await this.db.batch([
+      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now),
+      statement(TRIM_PUSH_SUBSCRIPTIONS, userId, MAX_PUSH_SUBSCRIPTIONS),
+    ]);
   }
 
   /** Someone's push subscriptions, oldest first. */

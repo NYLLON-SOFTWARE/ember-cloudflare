@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Involvement, NewWorkspace, RoomId } from "@ember/protocol";
+import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -195,6 +195,30 @@ describe(feature("notifications.push"), () => {
     expect(await pushesFor(room, events.slice(1))).toEqual([]);
   });
 
+  it("pushes a message once to a browser that saved its subscription again with other keys, for those keys, where ember-rust pushes to each", async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace] = await people("Ada", "Grace");
+    await involve(grace, room, "everything");
+    const browser = await pushBrowser();
+    const laptop = await subscribe(grace, "laptop");
+    await subscribe(grace, "laptop", browser);
+
+    const [push] = await pushesFor(room, [message(ada, "Hi")]);
+    expect(push!.deliveries).toEqual([expect.objectContaining({ endpoint: laptop, p256dhKey: browser.p256dh, authKey: browser.auth })]);
+  });
+
+  it(`pushes a message to the ${MAX_PUSH_SUBSCRIPTIONS} browsers each person saved most recently, and no more, where ember-rust pushes to every one`, async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace] = await people("Ada", "Grace");
+    await involve(grace, room, "everything");
+    const browser = await pushBrowser();
+    const labels = Array.from({ length: MAX_PUSH_SUBSCRIPTIONS + 1 }, (_, i) => `browser-${i}`);
+    for (const label of labels) await subscribe(grace, label, browser);
+
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hi")]))).toEqual(labels.slice(1));
+    expect(await subscriptionsOf(grace)).toBe(MAX_PUSH_SUBSCRIPTIONS);
+  });
+
   it("pushes nothing while Web Push is off, though messages still mark rooms unread", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace] = await people("Ada", "Grace");
@@ -223,7 +247,7 @@ describe(feature("notifications.push"), () => {
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
     const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1));
-    expect(pushes).toContain("index_push_subscriptions_on_user_id_and_keys (user_id=?)");
+    expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
     const undelivered = await details(roomSql(room, `EXPLAIN QUERY PLAN ${UNDELIVERED_EVENTS}`, room, 50));
