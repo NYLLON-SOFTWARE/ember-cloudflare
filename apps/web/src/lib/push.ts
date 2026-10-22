@@ -165,6 +165,14 @@ export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
   sayEnded();
 }
 
+/**
+ * The endpoint of this browser's push subscription, which a new password keeps on the server while it
+ * forgets your other browsers'. Null when there's none, or the browser can't say.
+ */
+export async function pushEndpoint(): Promise<string | null> {
+  return (await pushSubscription().catch(() => null))?.endpoint ?? null;
+}
+
 async function pushSubscription(): Promise<PushSubscription | null> {
   // Only secure pages have service workers, and only some browsers' have push.
   if (!("serviceWorker" in navigator)) return null;

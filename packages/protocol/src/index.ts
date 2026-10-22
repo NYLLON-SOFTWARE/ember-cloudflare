@@ -5,6 +5,7 @@
 import type { Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
+import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
 
 export { ROOM_ICON_NAMES };
@@ -380,6 +381,8 @@ export interface Profile {
   avatarUrl: string;
   /** Whether you've uploaded an avatar, which Remove avatar takes away, though one that can't be resized shows your initials. */
   avatar: boolean;
+  /** Whether you have a password, which changing your email address or password then asks for (`currentPassword`). */
+  password: boolean;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -398,6 +401,13 @@ export interface ProfileChanges {
   emailAddress?: string;
   password?: string;
   bio?: string;
+  /** The password you have, which changing your email address or password needs while you have one. */
+  currentPassword?: string;
+  /**
+   * The endpoint of this browser's push subscription, which a new password keeps while it forgets your
+   * others, as signing out names the one it forgets (`SignOut`).
+   */
+  pushSubscriptionEndpoint?: string;
 }
 
 /** Whom the sign-in page offers to email for help: the workspace's first administrator. */
@@ -553,6 +563,10 @@ export const MIN_PASSWORD_LENGTH = 8;
 export const MAX_PASSWORD_LENGTH = 72;
 export const PASSWORD_TOO_SHORT = "Password must be at least 8 characters.";
 export const PASSWORD_TOO_LONG = "Password must be at most 72 characters.";
+/** Why a change to your email address or password is refused without your current password. */
+export const CURRENT_PASSWORD_NEEDED = "Enter your current password to change your email address or password.";
+/** Why it's refused with a current password that isn't yours. */
+export const CURRENT_PASSWORD_WRONG = "That isn't your current password.";
 
 export interface Boost {
   id: string;
@@ -1077,7 +1091,14 @@ export function parseInvolvementChange(data: unknown): Involvement | null {
   return isInvolvement(involvement) ? involvement : null;
 }
 
-const PROFILE_FIELDS = { name: "Name", emailAddress: "Email address", password: "Password", bio: "Bio" } as const satisfies Record<keyof ProfileChanges, string>;
+const PROFILE_FIELDS = {
+  name: "Name",
+  emailAddress: "Email address",
+  password: "Password",
+  bio: "Bio",
+  currentPassword: "Current password",
+  pushSubscriptionEndpoint: "Push subscription endpoint",
+} as const satisfies Record<keyof ProfileChanges, string>;
 
 /**
  * Parses an untrusted change to your profile. Returns why it's refused instead. As in ember-rust
@@ -1097,6 +1118,9 @@ export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (changes.emailAddress !== undefined && changes.emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   if (changes.password !== undefined && isPasswordTooLong(changes.password)) return PASSWORD_TOO_LONG;
   if (changes.bio !== undefined && changes.bio.length > MAX_BIO_LENGTH) return `Bio must be at most ${MAX_BIO_LENGTH} characters`;
+  if (changes.pushSubscriptionEndpoint !== undefined && changes.pushSubscriptionEndpoint.length > MAX_PUSH_ENDPOINT_LENGTH) {
+    return `Endpoint can't be longer than ${MAX_PUSH_ENDPOINT_LENGTH} characters`;
+  }
   return changes;
 }
 

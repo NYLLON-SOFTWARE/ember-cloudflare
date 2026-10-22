@@ -56,6 +56,32 @@ test.describe(feature("users.profile"), () => {
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", newName);
   });
 
+  test("asks for your current password to change your email address or password once you have one", async ({ members }) => {
+    const { page } = await members.signIn(unique("Ada"));
+    // Checking a password counts against sign-in's limit for the address it comes from.
+    await useOwnAddress(page);
+    await openYourProfile(page);
+    const current = page.getByLabel("Current password");
+    const save = page.getByRole("button", { name: "Save changes" });
+    // Someone who joined with just a name has none to ask for, until they save one.
+    await expect(current).toHaveCount(0);
+    await page.getByLabel("New password").fill("difference engine");
+    await save.click();
+    await expect(page.getByRole("alert")).toHaveText("Changes saved");
+    await expect(current).toBeVisible();
+
+    await page.getByLabel("Email address").fill(`ada-${crypto.randomUUID()}@example.com`);
+    await save.click();
+    await expect(page.getByRole("alert")).toHaveText("Enter your current password to change your email address or password.");
+    await current.fill("analytical engine");
+    await save.click();
+    await expect(page.getByRole("alert")).toHaveText("That isn't your current password.");
+    await current.fill("difference engine");
+    await save.click();
+    await expect(page.getByRole("alert")).toHaveText("Changes saved");
+    await expect(current).toHaveValue("");
+  });
+
   test("says when someone else has the email address, saving nothing", async ({ members }) => {
     const { page } = await members.signIn("Grace");
     await openYourProfile(page);

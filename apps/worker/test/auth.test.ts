@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SESSION_REFRESH_MS } from "../src/workspace";
+import { SESSION_IDLE_MS, SESSION_REFRESH_MS } from "../src/workspace";
 import { api, apiWith, origin, signIn, upgrade, workspaceSql } from "./support";
 
 const withCookie = (cookie: string) => ({ headers: { Cookie: cookie } });
@@ -88,6 +88,22 @@ describe(feature("auth.sessions"), () => {
       const response = await api("/api/me", withCookie(cookie));
       expect(response.headers.get("Set-Cookie")).toBe(`${cookie}; Path=/; Max-Age=34560000; HttpOnly; SameSite=Lax; Secure`);
     }
+  });
+
+  it("ends a session unused for as long as its cookie lasts, where ember-rust's last forever, so a token kept from a browser long gone stops working too", async () => {
+    const { user, cookie } = await signIn("Ada");
+    const [signedIn] = await sessionsOf(user.id);
+    const signedInAt = Date.parse(signedIn!.last_active_at);
+
+    vi.useFakeTimers({ toFake: ["Date"], now: signedInAt + SESSION_IDLE_MS - 1 });
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
+    // Used, it lasts as long again from then.
+    vi.setSystemTime(signedInAt + 2 * SESSION_IDLE_MS - 2);
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
+
+    vi.setSystemTime(signedInAt + 3 * SESSION_IDLE_MS - 2);
+    expect((await api("/api/me", withCookie(cookie))).status).toBe(401);
+    expect((await api("/api/socket", upgrade(cookie))).status).toBe(401);
   });
 
   it("signs everyone out when SESSION_SECRET changes", async () => {
