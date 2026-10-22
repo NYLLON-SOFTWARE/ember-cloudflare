@@ -11,6 +11,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { directoryOf } from "../avatar-tokens";
+import { bodyUpTo } from "../bodies";
 import { BLANK, EMPTY, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
@@ -402,27 +403,8 @@ async function removeFile(env: Env, roomId: RoomId, key: string, messageId: stri
  * when it's longer than a message's markup can be.
  */
 async function bodyText(request: Request): Promise<string | null> {
-  if (Number(request.headers.get("Content-Length")) > MAX_BODY_BYTES) return null;
-  const chunks = request.body ? await readAtMost(request.body, MAX_BODY_BYTES) : [];
-  const text = chunks && (await new Blob(chunks).text());
+  const text = await bodyUpTo(request, MAX_BODY_BYTES);
   return text !== null && text.length <= MAX_MESSAGE_HTML_LENGTH ? text : null;
-}
-
-/** A stream's chunks, or null once they come to more than `limit` bytes, when it's read no further. */
-async function readAtMost(stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array[] | null> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return chunks;
-    size += value.byteLength;
-    if (size > limit) {
-      reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
 }
 
 /**

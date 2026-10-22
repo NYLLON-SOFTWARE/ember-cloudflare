@@ -1,4 +1,5 @@
 import { isHttps } from "./auth";
+import { bodyUpTo } from "./bodies";
 
 // A Content-Security-Policy on everything the Worker answers, which Campfire and ember-rust go
 // without: the backstop should markup ever get past the sanitizer, Lexxy or a dependency. Scripts
@@ -85,31 +86,6 @@ export async function cspReport(request: Request): Promise<Response> {
     column: violation["column-number"],
   });
   return new Response(null, { status: 204 });
-}
-
-/** The request's body as text, or null if it holds more than `max` bytes, which it stops reading at. */
-async function bodyUpTo(request: Request, max: number): Promise<string | null> {
-  if (Number(request.headers.get("Content-Length")) > max) return null;
-  if (!request.body) return "";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    for (let read = await reader.read(); !read.done; read = await reader.read()) {
-      length += read.value.byteLength;
-      if (length > max) return null;
-      chunks.push(read.value);
-    }
-  } finally {
-    await reader.cancel();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
 }
 
 /** The report in `body`, if it's a browser's. */

@@ -1,5 +1,6 @@
 import type { Me, UserId } from "@ember/protocol";
 import { clientOf, guestSignIn, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import { jsonBodyOf } from "./bodies";
 import { toBase64url } from "./encoding";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
@@ -68,7 +69,7 @@ export async function transferPage(request: Request, env: Env): Promise<Response
  */
 export async function transferSession(request: Request, env: Env): Promise<Response> {
   // Any JSON value parses, null and numbers included, so don't assume an object.
-  const body: unknown = await request.json().catch(() => null);
+  const body: unknown = await jsonBodyOf(request);
   const transferId = typeof body === "object" && body !== null ? (body as Record<string, unknown>).transferId : undefined;
   const userId = typeof transferId === "string" ? await transferredUser(transferId, env.SESSION_SECRET, Date.now()) : null;
   if (!userId) return empty(400);

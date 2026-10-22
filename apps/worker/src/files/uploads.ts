@@ -10,6 +10,7 @@ import {
   type User,
 } from "@ember/protocol";
 import { credentialsOf } from "../auth";
+import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { addressTag, MAX_ADDRESS_LENGTH, sessionTag } from "../revocations";
 import { workspace, type Credentials } from "../workspace";
@@ -114,7 +115,7 @@ export async function startUpload(request: Request, env: Env, roomId: RoomId): P
   if (!env.FILES) return problem(503, NO_STORAGE);
   const uploader = await uploaderIn(env, credentials, roomId);
   if (uploader instanceof Response) return uploader;
-  const file = parseNewUpload(await request.json().catch(() => null));
+  const file = parseNewUpload(await jsonBodyOf(request));
   if (typeof file === "string") return problem(file === FILE_TOO_LARGE ? 413 : 422, file);
   const key = await env.CHAT_ROOM.getByName(roomId).startUpload(roomId, uploader, file);
   if (!key) return problem(404, ROOM_NOT_FOUND);

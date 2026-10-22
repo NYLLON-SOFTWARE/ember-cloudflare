@@ -2672,14 +2672,14 @@ export const features = [
     id: "platform.limits",
     title: "Request and connection limits",
     origin: "campfire",
-    status: "n/a",
+    status: "partial",
     behaviors: [
       "Request bodies are capped at 16 MiB and files at 250 MB, and a form may carry at most 128 files or 4,096 parts.",
       "Each live connection may hold 64 subscriptions, 4 KiB identifiers and 1 MiB messages, and is dropped if it stops reading for 30 seconds.",
     ],
     sources: ["crates/kit/src/body.rs", "README.md"],
     upstreamTests: ["crates/kit/tests/http.rs"],
-    notes: "Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 40 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.",
+    notes: "JSON bodies are read no further than 1 MiB, and refused with 413 by their Content-Length or as soon as that much has arrived: tighter than ember-rust's 16 MiB, yet more than the largest the app sends, custom CSS at some 600 KB. Files are capped at 250 MB, as there, but forms aren't counted in parts or files: a photo's form is capped by its length, and a bot's is read a part at a time. The connection limits don't carry over, since Cloudflare sets its own WebSocket and Durable Object limits. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 40 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.",
   },
   {
     id: "platform.install-commands",

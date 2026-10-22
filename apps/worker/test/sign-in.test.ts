@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
+import { CloseCode, MAX_EMAIL_ADDRESS_LENGTH, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +36,10 @@ const sessionCount = async () => ((await workspaceSql("SELECT count(*) AS n FROM
 const bootstrap = async (changes = {}) => (await (await apiWith(changes, "/api/bootstrap")).json()) as Bootstrap;
 
 beforeEach(freshDeploy);
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe(feature("auth.sign-in"), () => {
   it("signs in an active person with their email address and password, in a session of its own", async () => {
@@ -77,6 +80,19 @@ describe(feature("auth.sign-in"), () => {
     expect(await response.json()).toEqual({ error: SIGN_IN_REFUSED });
     expect(response.headers.has("Set-Cookie")).toBe(false);
     expect(await sessionCount()).toBe(1);
+  });
+
+  it("doesn't look for an email address longer than any account's can be", async () => {
+    await setUp();
+    const lookups = await runInDurableObject(workspaceStub(), (workspace: Workspace) => vi.spyOn((workspace as unknown as { store: WorkspaceStore }).store, "passwordFor"));
+    const addressOf = (length: number) => `${"a".repeat(length - "@example.com".length)}@example.com`;
+    const tooLong = await signInWith({ emailAddress: addressOf(MAX_EMAIL_ADDRESS_LENGTH + 1), password: ada.password });
+    expect(tooLong.status).toBe(401);
+    expect(await tooLong.json()).toEqual({ error: SIGN_IN_REFUSED });
+    expect(lookups).not.toHaveBeenCalled();
+    // One as long as an account's can be is looked for, as any other is.
+    expect((await signInWith({ emailAddress: addressOf(MAX_EMAIL_ADDRESS_LENGTH), password: ada.password })).status).toBe(401);
+    expect(lookups).toHaveBeenCalledWith(addressOf(MAX_EMAIL_ADDRESS_LENGTH));
   });
 
   it.each([

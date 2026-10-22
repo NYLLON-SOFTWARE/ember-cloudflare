@@ -1,6 +1,7 @@
 import { isSearchable, MAX_SEARCH_LENGTH, parseSearch, sanitizeSearch, SEARCH_TOO_LONG, searchTerms, type Message, type Room, type SearchResults } from "@ember/protocol";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { credentialsOf } from "./auth";
+import { jsonBodyOf } from "./bodies";
 import { sharedDb } from "./db";
 import type { Env } from "./env";
 import { searchIndex, type SearchHit } from "./search-index";
@@ -36,7 +37,7 @@ export async function searchMessages(request: Request, env: Env): Promise<Respon
  */
 export async function recordSearch(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const search = parseSearch(await request.json().catch(() => null));
+  const search = parseSearch(await jsonBodyOf(request));
   const query = typeof search === "string" ? "" : sanitizeSearch(search.q);
   // Asked even for a search that's refused, so that someone signed out hears that first.
   const searcher = credentials && (await workspace(env).searcher(credentials, isSearchable(query) ? query : null));
