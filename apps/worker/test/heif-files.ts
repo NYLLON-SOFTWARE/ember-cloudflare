@@ -125,14 +125,33 @@ export interface HeifFile {
   handler?: string | null;
   /** The `meta` box's children to leave out. */
   without?: string[];
+  /** How many empty `free` boxes end the `meta` box and the `iprp` box. */
+  free?: { meta?: number; iprp?: number };
+  /** Items the `ipma` box gives properties to, though the `iinf` box doesn't list them. */
+  unlisted?: Item[];
   /** Whether ids take 32 bits, as with more than 65,535 items, and the places of properties 15. */
   wide?: boolean;
   /** Whether the `mdat` box comes before the `meta` box. */
   dataFirst?: boolean;
 }
 
+/** `count` empty `free` boxes. */
+const freeBoxes = (count = 0) => Array.from({ length: count }, () => box("free"));
+
 /** An AVIF unless its brands say otherwise, whose primary item is the first. */
-export function heifFile({ brand = "avif", compatible = ["avif", "mif1", "miaf"], items, primary = items[0]!.id, references = [], handler = "pict", without = [], wide = false, dataFirst = false }: HeifFile): Uint8Array {
+export function heifFile({
+  brand = "avif",
+  compatible = ["avif", "mif1", "miaf"],
+  items,
+  primary = items[0]!.id,
+  references = [],
+  handler = "pict",
+  without = [],
+  free = {},
+  unlisted = [],
+  wide = false,
+  dataFirst = false,
+}: HeifFile): Uint8Array {
   const id = (...ids: number[]) => numbers(wide ? 4 : 2, ...ids);
   const version = wide ? 1 : 0;
   const ftyp = box("ftyp", encoder.encode(brand), numbers(4, 0), ...compatible.map((name) => encoder.encode(name)));
@@ -143,7 +162,7 @@ export function heifFile({ brand = "avif", compatible = ["avif", "mif1", "miaf"]
   /** `property`'s place in the `ipco` box, after its bit saying whether it's essential. */
   const placeOf = (property: Property) =>
     property instanceof Uint8Array ? properties.push(property) : properties.push(property.essential) | (wide ? 0x8000 : 0x80);
-  const entries = items
+  const entries = [...items, ...unlisted]
     .filter(({ properties }) => properties)
     .map(({ id: item, properties: own }) => concat(id(item), numbers(1, own!.length), numbers(wide ? 2 : 1, ...own!.map(placeOf))));
   /** The `meta` box, with each located item's data at `offsets`. */
@@ -170,9 +189,9 @@ export function heifFile({ brand = "avif", compatible = ["avif", "mif1", "miaf"]
         ),
       ),
       iref: references.length ? fullBox("iref", version, 0, ...references.map(({ type, from, to }) => box(type, id(from), numbers(2, to.length), id(...to)))) : null,
-      iprp: box("iprp", box("ipco", ...properties), fullBox("ipma", version, wide ? 1 : 0, numbers(4, entries.length), ...entries)),
+      iprp: box("iprp", box("ipco", ...properties), fullBox("ipma", version, wide ? 1 : 0, numbers(4, entries.length), ...entries), ...freeBoxes(free.iprp)),
     };
-    return fullBox("meta", 0, 0, ...Object.entries(children).flatMap(([type, child]) => (child && !without.includes(type) ? [child] : [])));
+    return fullBox("meta", 0, 0, ...Object.entries(children).flatMap(([type, child]) => (child && !without.includes(type) ? [child] : [])), ...freeBoxes(free.meta));
   };
   // Each located item's data starts where the ones before it end, in the `mdat` box, wherever that is.
   const dataStart = ftyp.length + (dataFirst ? 0 : meta(located.map(() => 0)).length) + 8;
