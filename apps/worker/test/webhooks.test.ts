@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { BotAnswer, BotSettings, NewWorkspace, RoomId, User } from "@ember/protocol";
+import type { BotAnswer, BotSettings, NewWorkspace, RoomId, User, UserId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobQueue } from "../src/at-once";
 import { postWebhook, WebhookError, webhookPayload, type Keep } from "../src/bots/webhooks";
 import type { ChatRoom } from "../src/chat-room";
+import type { WebhookAccess } from "../src/workspace";
 import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
 import type { RoomEvent } from "../src/room-log";
-import { MESSAGE_WEBHOOKS, type MessageWebhook } from "../src/workspace-store";
+import { BOT_WEBHOOK, MESSAGE_WEBHOOKS, type BotWebhook, type MessageWebhook } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -51,9 +52,9 @@ async function addBot(administrator: Session, name: string, webhookUrl?: string)
   return ((await response.json()) as BotAnswer).bot;
 }
 
-/** Renames `bot` as `administrator`. */
-async function renameBot(administrator: Session, bot: BotSettings, name: string): Promise<void> {
-  const response = await api(`/api/account/bots/${bot.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ name }) });
+/** Renames `bot`, or has its webhook deliver elsewhere, or nowhere with "", as `administrator`. */
+async function changeBot(administrator: Session, bot: BotSettings, changes: { name?: string; webhookUrl?: string }): Promise<void> {
+  const response = await api(`/api/account/bots/${bot.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify(changes) });
   expect(response.status, await response.clone().text()).toBe(200);
 }
 
@@ -61,6 +62,13 @@ async function renameBot(administrator: Session, bot: BotSettings, name: string)
 async function deleteBot(administrator: Session, bot: BotSettings): Promise<void> {
   const response = await api(`/api/account/bots/${bot.id}`, { method: "DELETE", headers: { Cookie: administrator.cookie } });
   expect(response.status).toBe(204);
+}
+
+/** Leaves just `memberIds` in the private room `room`, as `administrator`, taking everyone else out, and waits for the room to hear. */
+async function keepOnly(administrator: Session, room: RoomId, memberIds: UserId[]): Promise<void> {
+  const response = await api(`/api/rooms/${room}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ kind: "closed", memberIds }) });
+  expect(response.status).toBe(200);
+  await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
 }
 
 /** `bot` as `direct` takes the people it starts a DM with. */
@@ -109,6 +117,12 @@ const payloadOf = (delivery: Delivery) =>
 /** `text` as ActiveSupport::JSON escapes it: `<`, `>` and `&` as JSON's escapes for them. */
 const escaped = (text: string) => text.replace(/[<>&]/g, (c) => `${"\\"}u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
+/** What a delivery logs when the Workspace finds no webhook for its bot as its turn comes. */
+const NO_WEBHOOK = "the bot has been deleted, has left the room or has no webhook";
+
+/** What a delivery logs when the room posts nothing of what its bot says back, which changed while it ran. */
+const REPLY_REFUSED = "its reply wasn't posted: the bot has been deleted, has left the room or its webhook has changed";
+
 /** Each room's events are numbered from where the Workspace has applied them, which starts at 0. */
 let seq = 0;
 
@@ -127,8 +141,8 @@ const reply = (bot: Pick<User, "id">, ...mentioned: Array<Pick<User, "id">>): Ro
 /** What the Workspace answers room `room` sending it `events`: the bots' webhooks to deliver to. */
 const webhooksFor = async (room: RoomId, events: RoomEvent[]): Promise<MessageWebhook[]> => (await workspaceStub().applyRoomEvents(room, events, [])).webhooks;
 
-/** The names of the bots `webhooks` go to, in order. */
-const botsOf = (webhooks: MessageWebhook[]) => webhooks.map(({ bot }) => bot.name);
+/** The ids of the bots `webhooks` go to, in order. */
+const botsOf = (webhooks: MessageWebhook[]) => webhooks.map(({ botId }) => botId);
 
 beforeEach(async () => {
   seq = 0;
@@ -173,10 +187,13 @@ describe(feature("bots.webhook-delivery"), () => {
     const [builder, deployer] = [await addBot(ada, "Build Bot", "https://bots.example.com/build"), await addBot(ada, "Deploy Bot", "https://bots.example.com/deploy")];
     const room = await direct(ada, asSession(builder), asSession(deployer));
 
-    expect(botsOf(await webhooksFor(room.id, [message(ada.user)]))).toEqual(["Build Bot", "Deploy Bot"]);
-    expect(botsOf(await webhooksFor(room.id, [message(builder, builder)]))).toEqual(["Deploy Bot"]);
-    const [webhook] = await webhooksFor(room.id, [message(ada.user)]);
-    expect(webhook).toMatchObject({ author: { id: ada.user.id, name: "Ada Lovelace" }, roomName: null, bot: { id: builder.id, name: "Build Bot" }, url: "https://bots.example.com/build" });
+    expect(botsOf(await webhooksFor(room.id, [message(ada.user)]))).toEqual([builder.id, deployer.id]);
+    expect(botsOf(await webhooksFor(room.id, [message(builder, builder)]))).toEqual([deployer.id]);
+    const [delivery] = await webhooksFor(room.id, [message(ada.user)]);
+    expect(delivery).toMatchObject({ author: { id: ada.user.id, name: "Ada Lovelace" }, roomName: null, botId: builder.id });
+    // The bot's webhook is read as the delivery runs.
+    const webhook = await workspaceStub().botWebhook(room.id, builder.id);
+    expect(webhook).toMatchObject({ bot: { id: builder.id, name: "Build Bot" }, url: "https://bots.example.com/build" });
     expect(`${webhook!.bot.id}-${webhook!.token}`).toBe(builder.key);
   });
 
@@ -205,7 +222,7 @@ describe(feature("bots.webhook-delivery"), () => {
     const outside = await addBot(ada, "Outside Bot", "https://bots.example.com/outside");
     await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", general, outside.id);
 
-    expect(botsOf(await webhooksFor(general, [message(grace.user, mentioned, grace.user, quiet, deleted, outside, ada.user)]))).toEqual(["Build Bot"]);
+    expect(botsOf(await webhooksFor(general, [message(grace.user, mentioned, grace.user, quiet, deleted, outside, ada.user)]))).toEqual([mentioned.id]);
     expect(botsOf(await webhooksFor(board.id, [message(grace.user, mentioned, unmentioned)]))).toEqual([]);
     expect(botsOf(await webhooksFor(general, [message(grace.user)]))).toEqual([]);
     expect(unmentioned.webhookUrl).not.toBeNull();
@@ -267,9 +284,10 @@ describe(feature("bots.webhook-delivery"), () => {
 
   it("takes only the bot's own @mentions out of the plain text, case for case, then whitespace at either end", () => {
     const space = String.fromCodePoint(0xa0, 0x2003, 0x3000);
-    const webhook: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada" }, roomName: "general", botId: "b1" };
+    const webhook: BotWebhook = { bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
     const plain = (plainText: string, mentions: User[] = []) =>
-      (JSON.parse(webhookPayload("r1", webhook, { id: "m1", body: "", plainText, mentions })) as { message: { body: { plain: string } } }).message.body.plain;
+      (JSON.parse(webhookPayload("r1", delivery, webhook, { id: "m1", body: "", plainText, mentions })) as { message: { body: { plain: string } } }).message.body.plain;
 
     expect(plain(`${space}@Build Bot deploy @build bot and @Build Botty${space}`)).toBe("deploy @build bot and ty");
     expect(plain("@Build Bot")).toBe("");
@@ -278,8 +296,9 @@ describe(feature("bots.webhook-delivery"), () => {
   });
 
   it("writes the payload as Campfire does, with HTML's characters escaped, and a DM's name null", () => {
-    const webhook: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
-    const payload = webhookPayload("r1", webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B", mentions: [] });
+    const delivery: MessageWebhook = { messageId: "m1", author: { id: "u1", name: "Ada <3" }, roomName: null, botId: "b1" };
+    const webhook: BotWebhook = { bot: { id: "b1", name: "Build Bot" }, token: "AbC123", url: "https://bots.example.com" };
+    const payload = webhookPayload("r1", delivery, webhook, { id: "m1", body: "<p>A &amp; B</p>", plainText: "A & B", mentions: [] });
 
     expect(payload).toBe(
       escaped('{"user":{"id":"u1","name":"Ada <3"},"room":{"id":"r1","name":null,"path":"/rooms/r1/b1-AbC123/messages"},"message":{"id":"m1","body":{"html":"<p>A &amp; B</p>","plain":"A & B"},"path":"/rooms/r1/@m1"}}'),
@@ -347,7 +366,7 @@ describe(feature("bots.webhook-reply"), () => {
     expect(marked).not.toContainEqual({ user_id: builder.id });
   });
 
-  it("posts a bot's reply though the bot has been deleted since, which took it out of the room", async () => {
+  it("posts nothing a bot says back once it's deleted while its delivery runs, where Campfire posts it", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
     // The webhook answers once the test lets it, waiting in the room's own I/O context.
@@ -356,14 +375,58 @@ describe(feature("bots.webhook-reply"), () => {
       while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
       return new Response("Still here", { headers: { "Content-Type": "text/plain" } });
     });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const client = await connect(general, ada);
 
-    await post(client, `<p>Hey ${mention(bot)}</p>`);
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
     await vi.waitFor(() => expect(delivered).toHaveLength(1));
     await deleteBot(ada, bot);
-    expect(await workspaceSql("SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?", general, bot.id)).toEqual([]);
     answering = true;
-    expect((await client.next("message.created")).message).toMatchObject({ creator: { id: bot.id, name: "Build Bot" }, plainText: "Still here" });
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, REPLY_REFUSED));
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    client.close();
+  });
+
+  it("posts nothing a bot says back once it's taken out of the room, or its webhook delivers elsewhere, while its delivery runs", async () => {
+    const { ada } = await setUp();
+    const [builder, deployer] = [await addBot(ada, "Build Bot", "https://bots.example.com/build"), await addBot(ada, "Deploy Bot", "https://bots.example.com/deploy")];
+    const room = await createRoom("Launch", { closedTo: [ada.user.id, builder.id, deployer.id], as: ada });
+    let answering = false;
+    const delivered = bots(async () => {
+      while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response("Done", { headers: { "Content-Type": "text/plain" } });
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(room.id, ada);
+
+    const sent = await post(client, `<p>Ship it, ${mention(builder)} and ${mention(deployer)}</p>`);
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await keepOnly(ada, room.id, [ada.user.id, deployer.id]);
+    await changeBot(ada, deployer, { webhookUrl: "https://bots.example.com/deploy-v2" });
+    answering = true;
+    for (const bot of [builder, deployer]) {
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, REPLY_REFUSED));
+    }
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    client.close();
+  });
+
+  it("posts nothing a bot says back once the room has heard it was taken out after the Workspace found its webhook, as it refuses the bot's posts then", async () => {
+    const { ada } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    const room = await createRoom("Launch", { closedTo: [ada.user.id, bot.id], as: ada });
+    const found = (await workspaceStub().botWebhook(room.id, bot.id))!;
+    await keepOnly(ada, room.id, [ada.user.id]);
+    const client = await connect(room.id, ada);
+
+    const refused = await runInDurableObject(roomStub(room.id), (chatRoom: ChatRoom) =>
+      (chatRoom as unknown as { reply(roomId: RoomId, access: WebhookAccess, text: string): Promise<string | null> }).reply(room.id, found, "Too late"),
+    );
+    expect(`its reply wasn't posted: ${refused}`).toBe(REPLY_REFUSED);
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
     client.close();
   });
 
@@ -451,6 +514,36 @@ describe(feature("bots.webhook-reply"), () => {
     await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
   });
+
+  it("keeps none of a file a bot says back once the bot is deleted while it arrives", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    // The webhook sends its file once the test lets it, waiting in the room's own I/O context.
+    let [reading, answering] = [false, false];
+    bots(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          reading = true;
+          while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+          controller.enqueue(recordedImage("moon-thumb.jpg"));
+          controller.close();
+        },
+      });
+      return new Response(body, { headers: { "Content-Type": "image/jpeg" } });
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(reading).toBe(true));
+    await deleteBot(ada, bot);
+    answering = true;
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, REPLY_REFUSED));
+    expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    client.close();
+  });
 });
 
 describe(feature("bots.reset-key"), () => {
@@ -471,7 +564,7 @@ describe(feature("bots.reset-key"), () => {
 });
 
 describe(feature("bots.webhook-jobs"), () => {
-  it("runs a room's deliveries two at a time, in turn, reading each message as it is when its turn comes, even for a bot deleted since", async () => {
+  it("runs a room's deliveries two at a time, in turn, reading each message as it is when its turn comes", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
     // The webhooks answer once the test lets them, in the order they were asked. They wait for it
@@ -494,13 +587,11 @@ describe(feature("bots.webhook-jobs"), () => {
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
     // The third and fourth wait their turn, by which time the bot is renamed, the third edited, which
     // mentions it by its new name, and the fourth deleted.
-    await renameBot(ada, bot, "Deploy Bot");
+    await changeBot(ada, bot, { name: "Deploy Bot" });
     client.send({ type: "message.update", messageId: third!.id, body: `<p>Three, edited ${mention(bot)}</p>` });
     await client.next("message.updated");
     client.send({ type: "message.delete", messageId: fourth!.id });
     await client.next("message.deleted");
-    // A bot deleted after a message keeps its webhook, so what's on its way to it still goes.
-    await deleteBot(ada, bot);
     expect(delivered).toHaveLength(2);
 
     answered = 1;
@@ -513,6 +604,68 @@ describe(feature("bots.webhook-jobs"), () => {
     expect(payloadOf(delivered[2]!).message.body.plain).toBe("Three, edited");
     // The second and third are answered together, so either may finish first.
     expect(performed().sort()).toEqual([first, second, third].map((sent) => `Bot::WebhookJob of message ${sent!.id} to bot ${bot.id} performed: 204`).sort());
+    client.close();
+  });
+
+  it("sends nothing waiting its turn to a bot deleted, taken out of the room or left without a webhook by then, logging why, where ember-rust delivers to the first two", async () => {
+    const { ada } = await setUp();
+    const [busy, deleted, removed, unhooked] = [
+      await addBot(ada, "Busy Bot", "https://bots.example.com/busy"),
+      await addBot(ada, "Old Bot", "https://bots.example.com/old"),
+      await addBot(ada, "Lint Bot", "https://bots.example.com/lint"),
+      await addBot(ada, "Quiet Bot", "https://bots.example.com/quiet"),
+    ];
+    const room = await createRoom("Launch", { closedTo: [ada.user.id, busy.id, deleted.id, removed.id, unhooked.id], as: ada });
+    // Busy Bot's webhook holds both the room's places until the test lets it answer.
+    let answering = false;
+    const delivered = bots(async () => {
+      while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response(null, { status: 204 });
+    });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(room.id, ada);
+
+    await post(client, `<p>One ${mention(busy)}</p>`);
+    await post(client, `<p>Two ${mention(busy)}</p>`);
+    const sent = await post(client, `<p>Three ${mention(deleted)} ${mention(removed)} ${mention(unhooked)}</p>`);
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await deleteBot(ada, deleted);
+    await keepOnly(ada, room.id, [ada.user.id, busy.id, unhooked.id]);
+    await changeBot(ada, unhooked, { webhookUrl: "" });
+
+    answering = true;
+    for (const bot of [deleted, removed, unhooked]) {
+      await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, NO_WEBHOOK));
+    }
+    expect(delivered.map(({ url }) => url)).toEqual(["https://bots.example.com/busy", "https://bots.example.com/busy"]);
+    client.close();
+  });
+
+  it("delivers what waits its turn to the bot's webhook as it is then, at its new URL with its new key, and posts its reply by its new name", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    // The webhooks answer once the test lets them, in the order they were asked, and only the third says anything.
+    let answered = 0;
+    const delivered = bots(async (delivery) => {
+      const index = delivered.indexOf(delivery);
+      while (answered <= index) await new Promise((resolve) => setTimeout(resolve, 10));
+      return index < 2 ? new Response(null, { status: 204 }) : new Response("On it", { headers: { "Content-Type": "text/plain" } });
+    });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    for (const n of ["One", "Two", "Three"]) await post(client, `<p>${n} ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    // The third waits its turn, by which time the bot has a new name, URL and key.
+    await changeBot(ada, bot, { name: "Deploy Bot", webhookUrl: "https://bots.example.com/deploy" });
+    const reset = await api(`/api/account/bots/${bot.id}/key`, { method: "PUT", headers: { Cookie: ada.cookie } });
+    const { key } = ((await reset.json()) as BotAnswer).bot;
+
+    answered = 3;
+    expect((await client.next("message.created")).message).toMatchObject({ creator: { id: bot.id, name: "Deploy Bot" }, plainText: "On it" });
+    expect(delivered.map(({ url }) => url)).toEqual(["https://bots.example.com/build", "https://bots.example.com/build", "https://bots.example.com/deploy"]);
+    expect(payloadOf(delivered[2]!).room.path).toBe(`/rooms/${general}/${key}/messages`);
     client.close();
   });
 
@@ -531,10 +684,12 @@ describe(feature("bots.webhook-jobs"), () => {
     client.close();
   });
 
-  it("queries webhooks first, finding each one's bot and membership by their keys", async () => {
+  it("queries webhooks first, finding each one's bot and membership by their keys, and a delivery's webhook by its bot's", async () => {
     const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_WEBHOOKS}`, "room", "user", "[]", 1)).map((row) => (row as { detail: string }).detail);
-    expect(plan).toContain("SCAN webhooks");
+    expect(plan).toContainEqual(expect.stringMatching(/^SCAN webhooks\b/));
     expect(plan.filter((step) => /^SCAN (users|memberships|rooms)\b/.test(step))).toEqual([]);
+    const found = (await workspaceSql(`EXPLAIN QUERY PLAN ${BOT_WEBHOOK}`, "room", "bot")).map((row) => (row as { detail: string }).detail);
+    expect(found.filter((step) => /^SCAN\b/.test(step))).toEqual([]);
   });
 
   it("runs jobs a few at a time as they come, keeps some more waiting, and drops any beyond", async () => {

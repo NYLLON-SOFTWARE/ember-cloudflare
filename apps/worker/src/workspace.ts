@@ -54,6 +54,7 @@ import {
   WorkspaceStore,
   type AccountChange,
   type AvatarOwner,
+  type BotWebhook,
   type Client,
   type DirectoryEntry,
   type JoinableAccount,
@@ -170,6 +171,9 @@ export interface BotAccess {
   /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
   authorizedAt: number;
 }
+
+/** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
+export interface WebhookAccess extends BotAccess, BotWebhook {}
 
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
@@ -1508,6 +1512,19 @@ export class Workspace extends DurableObject<Env> {
     const found = await this.store.activeBotKey(botId, roomId);
     if (!found || !isBotToken(token, found.token)) return null;
     return found.member ? { bot: found.bot, authorizedAt } : "not found";
+  }
+
+  /**
+   * The webhook of the bot `botId` in room `roomId` as a delivery to it finds it, when its turn comes and
+   * again before what the bot says back is posted, with when this checked: null once it isn't an active
+   * bot in the room with a webhook, so that deleting a bot, taking it out of the room or removing its
+   * webhook stops what's on its way to it, and a new URL or key takes effect at once.
+   */
+  async botWebhook(roomId: RoomId, botId: UserId): Promise<WebhookAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const webhook = await this.store.botWebhook(roomId, botId);
+    return webhook && { ...webhook, authorizedAt };
   }
 
   /**
