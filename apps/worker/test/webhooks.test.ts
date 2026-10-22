@@ -343,16 +343,32 @@ describe(feature("bots.webhook-delivery"), () => {
       return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.com/" } });
     }) as typeof fetch;
 
-    expect(await postWebhook("http://bots.example.com:8080/hook?x=1#here", "{}", noFile, { send })).toEqual({ status: 302, reply: null });
-    expect(sent).toEqual(["POST http://bots.example.com:8080/hook?x=1#here manual"]);
+    expect(await postWebhook("https://bots.example.com:8443/hook?x=1#here", "{}", noFile, { send })).toEqual({ status: 302, reply: null });
+    expect(sent).toEqual(["POST https://bots.example.com:8443/hook?x=1#here manual"]);
   });
 
   it("sends nothing to a URL that isn't an http or https URL with a host", async () => {
     const send = vi.fn() as unknown as typeof fetch;
-    for (const url of ["", "ftp://bots.example.com/hook", "bots.example.com/hook", "http://", "mailto:bots@example.com", "http://bots.example.com:99999/"]) {
+    for (const url of ["", "ftp://bots.example.com/hook", "bots.example.com/hook", "http://", "mailto:bots@example.com", "https://bots.example.com:99999/"]) {
       await expect(postWebhook(url, "{}", noFile, { send })).rejects.toThrow(new WebhookError("bad URI"));
     }
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing over plain http but to localhost, where Campfire sends to any http URL, since the payload holds the bot's key", async () => {
+    const sent: string[] = [];
+    const send = (async (input: URL | string) => {
+      sent.push(String(input));
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    for (const url of ["http://bots.example.com/hook", "http://10.0.0.7:8080/hook", "http://127.0.0.1.example.com/hook"]) {
+      await expect(postWebhook(url, "{}", noFile, { send })).rejects.toThrow(new WebhookError("its URL is http, which only a webhook on localhost may use"));
+    }
+    expect(sent).toEqual([]);
+
+    const local = ["http://localhost:4567/hook", "http://bots.localhost/hook", "http://127.0.0.1:4567/hook", "http://[::1]:4567/hook"];
+    for (const url of local) expect(await postWebhook(url, "{}", noFile, { send })).toEqual({ status: 204, reply: null });
+    expect(sent).toEqual(local);
   });
 
   it("fails without the URL in its reason when the request does", async () => {
@@ -694,6 +710,23 @@ describe(feature("bots.webhook-jobs"), () => {
     expect((await client.next("message.created")).message).toMatchObject({ creator: { id: bot.id, name: "Deploy Bot" }, plainText: "On it" });
     expect(delivered.map(({ url }) => url)).toEqual(["https://bots.example.com/build", "https://bots.example.com/build", "https://bots.example.com/deploy"]);
     expect(payloadOf(delivered[2]!).room.path).toBe(`/rooms/${general}/${key}/messages`);
+    client.close();
+  });
+
+  it("stops delivering to a webhook saved before with an http URL elsewhere than localhost, saying why in its log", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    // As ember-rust saves it, and Ember did.
+    await workspaceSql("UPDATE webhooks SET url = 'http://bots.example.com/build' WHERE user_id = ?", bot.id);
+    const delivered = bots();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    const why = "its URL is http, which only a webhook on localhost may use";
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, why));
+    expect(delivered).toEqual([]);
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("bots.example.com");
     client.close();
   });
 
