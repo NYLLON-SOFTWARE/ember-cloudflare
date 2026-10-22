@@ -35,8 +35,10 @@ function durableObjectDb(storage: DurableObjectStorage): Db {
       sql.exec(query, ...params);
     },
     async batch(statements: Statement[]) {
-      // `sql.exec` can't run BEGIN, so the transaction comes from the storage API instead.
-      return storage.transactionSync(() => statements.map(({ query, params }) => rowsOf(sql.exec(query, ...params))));
+      // `sql.exec` can't run BEGIN, so the transaction comes from the storage API instead. Its
+      // statements return few rows or none, where `rowsOf` costs more than `toArray`: with it,
+      // profiles showed posting a message slower.
+      return storage.transactionSync(() => statements.map(({ query, params }) => sql.exec(query, ...params).toArray()));
     },
   };
 }
