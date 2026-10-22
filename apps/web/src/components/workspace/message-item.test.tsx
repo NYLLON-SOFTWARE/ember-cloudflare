@@ -1090,6 +1090,18 @@ describe(feature("bots.cards"), () => {
     expect(article.querySelector(".text-\\[2\\.4em\\]")).toBeNull();
   });
 
+  it("quotes a bot's cards' plain text in a reply where they're all the message shows, and otherwise its text", async () => {
+    const { editors, user } = show(cardMessage(), { me: grace });
+    await pressAction(user, "Reply", "Ada");
+    const cite = `<cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`;
+    expect(editors.reply).toHaveBeenCalledWith(`<blockquote><p>Deployed 🚀<br>web is live</p></blockquote>${cite}`);
+    cleanup();
+
+    const withText = show(message({ plainText: "Nightly report", cards: [deployCard] }), { me: grace });
+    await pressAction(withText.user, "Reply", "Nightly report");
+    expect(withText.editors.reply).toHaveBeenCalledWith(`<blockquote><p>Nightly report</p></blockquote>${cite}`);
+  });
+
   it("edits a message with cards as it shows, with Delete message alone, as a file message's editor does", async () => {
     const { actions, user, article } = show(message({ plainText: "Nightly report", cards: [deployCard] }));
     vi.spyOn(window, "confirm").mockReturnValue(true);

@@ -1,10 +1,23 @@
-import { MAX_CARDS, MAX_MESSAGE_HTML_LENGTH, parseParts, type Card, type CardButton, type CardField, type CardImage, type CardPart } from "@ember/protocol";
+import {
+  MAX_MESSAGE_HTML_LENGTH,
+  parseParts,
+  showsAnything,
+  type Card,
+  type CardButton,
+  type CardColumn,
+  type CardContextItem,
+  type CardField,
+  type CardImage,
+  type CardPart,
+  type CardTile,
+} from "@ember/protocol";
 import { cardAddress } from "@ember/richtext";
-import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainTextHtml, plainTextLine, utcTime, type Formatting } from "./mrkdwn";
+import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
+import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainText, plainTextHtml, utcTime, type Formatting } from "./mrkdwn";
 
 // What a Slack incoming webhook is sent (https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks),
-// read into the message a bot posts: its `text`, or its Block Kit `blocks`, which Slack shows in place of the text,
-// and its legacy `attachments`, which alerting tools still send, as cards under it (packages/protocol/src/cards.ts).
+// read into the message a bot posts: its `text`, or, in its place, as Slack shows them, its Block Kit `blocks` as a
+// card, and its legacy `attachments`, which alerting tools still send, as cards under it (packages/protocol/src/cards.ts).
 // What Slack lets a payload change about who posts and where (`username`, `icon_emoji`, `icon_url`, `channel`,
 // `thread_ts`) is left out: the bot posts as itself, to the room whose address the payload was sent to.
 
@@ -19,6 +32,9 @@ export interface SlackMessage {
   markup: string;
   cards: Card[];
 }
+
+/** The most attachments Slack takes. */
+const MAX_ATTACHMENTS = 100;
 
 /**
  * The payload in the text of a webhook's request: JSON, whatever the request's type says, as tools send it
@@ -40,28 +56,41 @@ export function payloadOf(json: string | null): SlackPayload | null {
 }
 
 /**
- * The message `payload` posts, as Slack shows it: its blocks in place of its text, as rich text until cards draw
- * them, or its text when they show nothing yet, with a card for each of its attachments; or why it posts nothing.
+ * The message `payload` posts, as Slack shows it: a card of its blocks in place of its text, which Slack shows
+ * beside them only in notifications, or its text when they show nothing here, with a card for each of its
+ * attachments; or why it posts nothing.
  */
 export function slackMessage(payload: SlackPayload): SlackMessage | SlackError {
   const attachments = listOf(payload.attachments);
-  // Slack takes as many attachments as a message keeps cards.
-  if (attachments.length > MAX_CARDS) return "too_many_attachments";
+  if (attachments.length > MAX_ATTACHMENTS) return "too_many_attachments";
+  const attachmentBlocks = attachments.flatMap((attachment) => (isObject(attachment) ? listOf(attachment.blocks) : []));
+  if (markdownLength([...listOf(payload.blocks), ...attachmentBlocks]) > MAX_MARKDOWN_LENGTH) return "msg_too_long";
+  const blocks = blocksCard(listOf(payload.blocks));
   const formatting: Formatting = payload.mrkdwn === false ? "plain" : "mrkdwn";
-  const blocks = listOf(payload.blocks).map(blockHtml).join("");
-  const markup = shows(blocks) ? blocks : mrkdwnHtml(stringOf(payload.text), formatting);
-  const cards = attachments.flatMap((attachment) => attachmentCard(attachment) ?? []);
+  const markup = blocks ? "" : mrkdwnHtml(stringOf(payload.text), formatting);
+  const cards = [...(blocks ? [blocks] : []), ...attachments.flatMap((attachment) => attachmentCard(attachment) ?? [])];
   if (!shows(markup) && cards.length === 0) return "no_text";
   const tooLong = markup.length > MAX_MESSAGE_HTML_LENGTH || JSON.stringify(cards).length > MAX_MESSAGE_HTML_LENGTH;
   return tooLong ? "msg_too_long" : { markup, cards };
 }
 
+/** How much Markdown `blocks` hold in their markdown blocks, which Slack limits across a payload. */
+function markdownLength(blocks: unknown[]): number {
+  return blocks.reduce((length: number, block) => length + (isObject(block) && block.type === "markdown" ? stringOf(block.text).length : 0), 0);
+}
+
+/** A payload's blocks as a card of the parts the room keeps (`parseParts`), or null when they show nothing here but rules. */
+function blocksCard(blocks: unknown[]): Card | null {
+  const parts = parseParts(blocks.map(blockPart).filter((part) => part !== null), addressOf);
+  return showsAnything(parts) ? { source: "blocks", parts } : null;
+}
+
 /**
  * A legacy attachment as a card, in its color: its author, linked title, text, fields, image, buttons, blocks
  * and footer, under its pretext and beside its thumbnail, or, when those show nothing, its fallback. Slack formats
- * only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them, and its blocks
- * are rich text until cards draw them. It keeps only the parts and addresses the room keeps (`parseParts`), so one
- * the room would leave out, such as an image whose address is too long, can't hide the fallback.
+ * only the fields its `mrkdwn_in` names, but shows links, mentions, emoji and escapes in all of them. It keeps only
+ * the parts and addresses the room keeps (`parseParts`), so one the room would leave out, such as an image whose
+ * address is too long, can't hide the fallback.
  */
 function attachmentCard(attachment: unknown): Card | null {
   if (!isObject(attachment)) return null;
@@ -74,17 +103,23 @@ function attachmentCard(attachment: unknown): Card | null {
     fieldsPart(listOf(attachment.fields), formattingOf("fields")),
     imagePart(attachment.image_url),
     buttonsPart(listOf(attachment.actions)),
-    textPart(listOf(attachment.blocks).map(blockHtml).join("")),
+    ...listOf(attachment.blocks).map(blockPart),
     footerPart(attachment),
   ].filter((part) => part !== null);
   const parts = parseParts(candidates, addressOf);
   const fallback = textPart(mrkdwnHtml(stringOf(attachment.fallback), "plain"));
-  const shown = parts.length > 0 ? parts : fallback ? [fallback] : [];
+  const shown = showsAnything(parts) ? parts : fallback ? [fallback] : [];
   const pretext = mrkdwnHtml(stringOf(attachment.pretext), formattingOf("pretext"));
   if (shown.length === 0 && !shows(pretext)) return null;
-  const color = stringOf(attachment.color);
+  const color = colorOf(attachment.color);
   const thumb = imageOf(attachment.thumb_url);
   return { source: "attachment", ...(color && { color }), ...(shows(pretext) && { pretext }), ...(thumb && { thumb }), parts: shown };
+}
+
+/** An attachment's color: one of Slack's names, or a hex color, which Gitea, for one, writes without its `#`. */
+function colorOf(value: unknown): string {
+  const color = stringOf(value);
+  return /^[0-9a-f]{6}$/i.test(color) ? `#${color}` : color;
 }
 
 function authorPart(attachment: SlackPayload): CardPart | null {
@@ -116,16 +151,22 @@ function fieldsPart(fields: unknown[], formatting: Formatting): CardPart | null 
   return shown.length === 0 ? null : { kind: "fields", fields: shown };
 }
 
-/** An attachment's buttons that link somewhere, each in its style. */
-function buttonsPart(actions: unknown[]): CardPart | null {
-  const buttons = actions.flatMap((action): CardButton[] => {
-    if (!isObject(action)) return [];
-    const text = mrkdwnText(stringOf(action.text));
-    const href = addressOf(action.url);
-    const style = action.style === "primary" || action.style === "danger" ? action.style : undefined;
-    return text === "" || href === undefined ? [] : [{ text, href, ...(style && { style }) }];
-  });
-  return buttons.length === 0 ? null : { kind: "buttons", buttons };
+/** The buttons that link somewhere, an attachment's `actions` or an actions block's `elements`, each in its style. */
+function buttonsPart(buttons: unknown[]): CardPart | null {
+  const shown = buttons.flatMap((button) => buttonOf(button) ?? []);
+  return shown.length === 0 ? null : { kind: "buttons", buttons: shown };
+}
+
+/**
+ * A button that links somewhere, an attachment's action, whose text is plain text, or a Block Kit button, whose
+ * text is a text object; or null for any other element, or a button only an app could answer.
+ */
+function buttonOf(button: unknown): CardButton | null {
+  if (!isObject(button) || (button.type !== undefined && button.type !== "button")) return null;
+  const text = isObject(button.text) ? textOf(button.text) : mrkdwnText(stringOf(button.text));
+  const href = addressOf(button.url);
+  const style = button.style === "primary" || button.style === "danger" ? button.style : undefined;
+  return text === "" || href === undefined ? null : { text, href, ...(style && { style }) };
 }
 
 /** An attachment's footer: its text, its icon and its time, `ts`, in seconds. */
@@ -137,10 +178,157 @@ function footerPart(attachment: SlackPayload): CardPart | null {
   return { kind: "footer", ...(text && { text }), ...linkOf("icon", attachment.footer_icon), ...(known && { at }) };
 }
 
+/**
+ * A Block Kit block (https://docs.slack.dev/reference/block-kit/blocks) as a card's part, or null when it shows
+ * nothing here. A block Ember doesn't know keeps the text it carries, and what only an app could answer, such as
+ * a menu, or a button without an address, goes.
+ */
+function blockPart(block: unknown): CardPart | null {
+  if (!isObject(block)) return null;
+  switch (block.type) {
+    case "header": {
+      const text = textOf(block.text);
+      return text === "" ? null : { kind: "header", text };
+    }
+    case "section":
+      return sectionPart(block);
+    case "context":
+      return contextPart(listOf(block.elements));
+    case "divider":
+      return { kind: "divider" };
+    case "image":
+      return imageBlockPart(block);
+    case "actions":
+      return buttonsPart(listOf(block.elements));
+    case "rich_text":
+      return textPart(richTextHtml(listOf(block.elements)));
+    case "markdown":
+      return textPart(markdownHtml(stringOf(block.text)));
+    case "table":
+      return tablePart(block);
+    case "card":
+      return tilesPart([block]);
+    case "carousel":
+      return tilesPart(listOf(block.elements));
+    case "video":
+      return videoPart(block);
+    default:
+      return textPart(textHtml(block.text));
+  }
+}
+
+/** A section block: its text and its fields, two to a row, beside an image, or a button that links somewhere. */
+function sectionPart(section: SlackPayload): CardPart | null {
+  const html = textHtml(section.text);
+  const fields = listOf(section.fields).flatMap((field): CardField[] => {
+    const value = textHtml(field);
+    return shows(value) ? [{ html: value, short: true }] : [];
+  });
+  if (!shows(html) && fields.length === 0) return null;
+  const accessory = isObject(section.accessory) ? section.accessory : undefined;
+  const thumb = accessory?.type === "image" ? imageElementOf(accessory) : undefined;
+  const button = accessory?.type === "button" ? buttonOf(accessory) : null;
+  return { kind: "section", ...(shows(html) && { html }), ...(fields.length > 0 && { fields }), ...(thumb && { thumb }), ...(button && { button }) };
+}
+
+/** A context block's small row of text and images. */
+function contextPart(elements: unknown[]): CardPart | null {
+  const items = elements.flatMap((element): CardContextItem[] => {
+    if (isObject(element) && element.type === "image") {
+      const image = imageElementOf(element);
+      return image ? [{ image }] : [];
+    }
+    const html = textHtml(element);
+    return shows(html) ? [{ html }] : [];
+  });
+  return items.length === 0 ? null : { kind: "context", items };
+}
+
+/** An image block: its image, described by its alt text, under its title. */
+function imageBlockPart(block: SlackPayload): CardPart | null {
+  const image = imageElementOf(block);
+  const title = textOf(block.title);
+  return image ? { kind: "image", image, ...(title && { title }) } : null;
+}
+
+/** A table block: its rows of cells, and how each column lines its cells up and whether their text wraps. */
+function tablePart(table: SlackPayload): CardPart | null {
+  const rows = listOf(table.rows).flatMap((row) => {
+    const cells = listOf(row);
+    return cells.length === 0 ? [] : [cells.map(cellHtml)];
+  });
+  if (!rows.some((row) => row.some(shows))) return null;
+  const columns = listOf(table.column_settings).map((setting): CardColumn => {
+    const align = isObject(setting) && (setting.align === "center" || setting.align === "right") ? setting.align : "left";
+    return { align, wrap: isObject(setting) && setting.is_wrapped === true };
+  });
+  return { kind: "table", rows, columns };
+}
+
+/** A table's cell as markup: raw text as it's written, a number as its text, and rich text as a rich text block's. */
+function cellHtml(cell: unknown): string {
+  if (!isObject(cell)) return "";
+  switch (cell.type) {
+    case "raw_text":
+      return plainTextHtml(stringOf(cell.text), false);
+    case "raw_number":
+      return plainTextHtml(stringOf(cell.text) || (typeof cell.value === "number" && Number.isFinite(cell.value) ? String(cell.value) : ""), false);
+    case "rich_text":
+      return richTextHtml(listOf(cell.elements));
+    default:
+      return "";
+  }
+}
+
+/** Card blocks, one or a carousel's, as small cards in a row. */
+function tilesPart(cards: unknown[]): CardPart | null {
+  const tiles = cards.flatMap((card) => tileOf(card) ?? []);
+  return tiles.length === 0 ? null : { kind: "tiles", tiles };
+}
+
+/**
+ * A card block: its hero image, its icon, title and subtitle, its body and subtext, and its buttons that link
+ * somewhere, which it lists, or holds in an actions block.
+ */
+function tileOf(card: unknown): CardTile | null {
+  if (!isObject(card) || card.type !== "card") return null;
+  const hero = isObject(card.hero_image) ? imageElementOf(card.hero_image) : undefined;
+  const icon = isObject(card.icon) ? imageElementOf(card.icon) : undefined;
+  const title = textOf(card.title);
+  const subtitle = textOf(card.subtitle);
+  const body = textHtml(card.body);
+  const subtext = textHtml(card.subtext);
+  const actions = isObject(card.actions) ? listOf(card.actions.elements) : listOf(card.actions);
+  const buttons = actions.flatMap((button) => buttonOf(button) ?? []);
+  if (!hero && title === "" && subtitle === "" && !shows(body) && !shows(subtext) && buttons.length === 0) return null;
+  return {
+    ...(hero && { hero }),
+    ...(icon && { icon }),
+    ...(title && { title }),
+    ...(subtitle && { subtitle }),
+    ...(shows(body) && { body }),
+    ...(shows(subtext) && { subtext }),
+    ...(buttons.length > 0 && { buttons }),
+  };
+}
+
+/** A video block, which can't play here: its title, linked to its page or its video, over its description. */
+function videoPart(video: SlackPayload): CardPart | null {
+  const title = escapeText(textOf(video.title));
+  const href = linkHref(stringOf(video.title_url)) ?? linkHref(stringOf(video.video_url));
+  return textPart((title && `<p>${href ? anchor(href, title) : title}</p>`) + textHtml(video.description));
+}
+
+/** An image element, or an image block: its address, if a card can show it, and its alt text. */
+function imageElementOf(element: SlackPayload): CardImage | undefined {
+  const url = addressOf(element.image_url);
+  return url === undefined ? undefined : { url, alt: stringOf(element.alt_text).trim() };
+}
+
 /** An address in a payload that a card can show, a web address on a named host, or undefined. */
 const addressOf = (url: unknown) => (typeof url === "string" ? cardAddress(url, "") : undefined);
 
-/** An image in a payload, which Slack describes with no text, or undefined. */
+/** An attachment's image, which Slack describes with no text, or undefined. */
 function imageOf(url: unknown): CardImage | undefined {
   const address = addressOf(url);
   return address === undefined ? undefined : { url: address, alt: "" };
@@ -152,44 +340,6 @@ function linkOf<Key extends string>(key: Key, link: unknown): { [key in Key]?: s
   return address === undefined ? {} : ({ [key]: address } as { [key in Key]?: string });
 }
 
-/** The buttons that link somewhere, an attachment's `actions` or an actions block's `elements`, as links on a line. */
-function buttonsHtml(buttons: unknown[]): string {
-  const links = buttons.flatMap((button) => {
-    if (!isObject(button)) return [];
-    const href = typeof button.url === "string" ? linkHref(button.url) : null;
-    const text = isObject(button.text) ? textLine(button.text) : plainTextLine(stringOf(button.text));
-    return href && text ? [anchor(href, text)] : [];
-  });
-  return links.length === 0 ? "" : `<p>${links.join(" · ")}</p>`;
-}
-
-/**
- * A Block Kit block, until cards draw it, as rich text: a header in bold, a section's text and fields, a
- * context's text, a Markdown block's text as it's written, a rich text block, and an actions block's links.
- * Other blocks, and images, show nothing yet.
- */
-function blockHtml(block: unknown): string {
-  if (!isObject(block)) return "";
-  switch (block.type) {
-    case "header": {
-      const text = isObject(block.text) ? textLine(block.text) : "";
-      return text && `<p><strong>${text}</strong></p>`;
-    }
-    case "section":
-      return [block.text, ...listOf(block.fields)].map(textHtml).join("");
-    case "context":
-      return listOf(block.elements).map(textHtml).join("");
-    case "markdown":
-      return plainTextHtml(stringOf(block.text), false);
-    case "rich_text":
-      return listOf(block.elements).map(richTextHtml).join("");
-    case "actions":
-      return buttonsHtml(listOf(block.elements));
-    default:
-      return "";
-  }
-}
-
 /** A text object, as markup: `mrkdwn` formatted, and `plain_text` as it is, with emoji by name unless it says not to. */
 function textHtml(text: unknown): string {
   if (!isObject(text)) return "";
@@ -197,11 +347,30 @@ function textHtml(text: unknown): string {
   return text.type === "plain_text" ? plainTextHtml(stringOf(text.text), text.emoji !== false) : "";
 }
 
-/** A header's or a button's text, a `plain_text` object, as a line of markup. */
-const textLine = (text: SlackPayload) => plainTextLine(stringOf(text.text), text.emoji !== false);
+/** A text object as plain text, as Slack shows a header or a button: `mrkdwn` without its formatting, and `plain_text` as it is. */
+function textOf(text: unknown): string {
+  if (!isObject(text)) return "";
+  if (text.type === "mrkdwn") return mrkdwnText(stringOf(text.text), "mrkdwn");
+  return text.type === "plain_text" ? plainText(stringOf(text.text), text.emoji !== false) : "";
+}
 
-/** One of a rich text block's elements: a section, a list of them, a quote, or preformatted text. */
-function richTextHtml(element: unknown): string {
+/** A rich text block's elements: sections, quotes, preformatted text, and lists, each nested as deep as its indent. */
+function richTextHtml(elements: unknown[]): string {
+  let html = "";
+  let lists: SlackPayload[] = [];
+  for (const element of elements) {
+    if (isObject(element) && element.type === "rich_text_list") {
+      lists.push(element);
+      continue;
+    }
+    html += listsHtml(lists) + richTextElementHtml(element);
+    lists = [];
+  }
+  return html + listsHtml(lists);
+}
+
+/** One of a rich text block's elements other than a list: a section, a quote, or preformatted text. */
+function richTextElementHtml(element: unknown): string {
   if (!isObject(element)) return "";
   const inline = inlineHtml(listOf(element.elements));
   switch (element.type) {
@@ -211,16 +380,37 @@ function richTextHtml(element: unknown): string {
       return inline && `<blockquote><p>${inline}</p></blockquote>`;
     case "rich_text_preformatted":
       return inline && `<pre>${inline.replace(/<br>/g, "\n")}</pre>`;
-    case "rich_text_list": {
-      const tag = element.style === "ordered" ? "ol" : "ul";
-      const items = listOf(element.elements)
-        .map((item) => (isObject(item) ? `<li>${inlineHtml(listOf(item.elements))}</li>` : ""))
-        .join("");
-      return shows(items) ? `<${tag}>${items}</${tag}>` : "";
-    }
     default:
       return "";
   }
+}
+
+/**
+ * A run of rich text lists, as Slack sends a nested list: one a level deeper than the last nests in its last
+ * item, and one back out continues the list at its level, or starts one when its style differs.
+ */
+function listsHtml(lists: SlackPayload[]): string {
+  let html = "";
+  const open: { tag: "ul" | "ol"; indent: number }[] = [];
+  for (const list of lists) {
+    const items = listOf(list.elements).flatMap((item) => {
+      const inline = isObject(item) ? inlineHtml(listOf(item.elements)) : "";
+      return shows(inline) ? [inline] : [];
+    });
+    if (items.length === 0) continue;
+    const tag = list.style === "ordered" ? "ol" : "ul";
+    const indent = typeof list.indent === "number" ? list.indent : 0;
+    while (open.length > 0 && (open.at(-1)!.indent > indent || (open.at(-1)!.indent === indent && open.at(-1)!.tag !== tag))) {
+      html += `</li></${open.pop()!.tag}>`;
+    }
+    if (open.at(-1)?.indent === indent) {
+      html += items.map((item) => `</li><li>${item}`).join("");
+    } else {
+      open.push({ tag, indent });
+      html += `<${tag}><li>${items.join("</li><li>")}`;
+    }
+  }
+  return html + open.reverse().map(({ tag }) => `</li></${tag}>`).join("");
 }
 
 /** A rich text section's elements as markup, its line breaks `<br>`, without one at its end. */
@@ -265,12 +455,13 @@ function inlineElementHtml(element: unknown): string {
   }
 }
 
-/** Rich text's `html` in the styles `style` turns on: code, struck through, in italics and in bold. */
+/** Rich text's `html` in the styles `style` turns on: code, struck through, underlined, in italics and in bold. */
 function styled(html: string, style: unknown): string {
   if (!isObject(style) || html === "") return html;
   let styledHtml = html;
   if (style.code === true) styledHtml = `<code>${styledHtml}</code>`;
   if (style.strike === true) styledHtml = `<s>${styledHtml}</s>`;
+  if (style.underline === true) styledHtml = `<u>${styledHtml}</u>`;
   if (style.italic === true) styledHtml = `<em>${styledHtml}</em>`;
   if (style.bold === true) styledHtml = `<strong>${styledHtml}</strong>`;
   return styledHtml;

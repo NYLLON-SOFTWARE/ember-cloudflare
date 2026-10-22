@@ -1,16 +1,16 @@
 import { useId, useMemo, useState } from "react";
-import type { Card, CardButton, CardField, CardImage, CardPart } from "@ember/protocol";
-import { cardAddress, displayBody, type DisplayNode } from "@ember/richtext/dom";
+import type { Card, CardButton, CardColumn, CardContextItem, CardField, CardImage, CardPart, CardTile } from "@ember/protocol";
+import { cardAddress, displayBody, type DisplayElement, type DisplayNode } from "@ember/richtext/dom";
 import { Button } from "@/components/ui/button";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { MessageBody, MessageLink } from "./message-body";
 
-// A bot's cards (packages/protocol/src/cards.ts), which a Slack-compatible webhook's legacy attachments show
-// under its message. ember-rust has no cards, so they're Ember's own: framed as a link preview is
-// (message-body.tsx) and laid out as Slack lays out an attachment. The room kept only addresses on named
-// hosts, and each is checked again here against the page's own host, which a card can't aim at, as a link
-// preview can't, since every reader's browser would fetch it signed in.
+// A bot's cards (packages/protocol/src/cards.ts), which a Slack-compatible webhook's legacy attachments and
+// Block Kit blocks show under its message. ember-rust has no cards, so they're Ember's own: framed as a link
+// preview is (message-body.tsx) and laid out as Slack lays out an attachment and its blocks. The room kept only
+// addresses on named hosts, and each is checked again here against the page's own host, which a card can't aim
+// at, as a link preview can't, since every reader's browser would fetch it signed in.
 
 /** The bars of Slack's named colors, in Ember's: a notice's green, the warning amber and an alert's red. */
 const BARS = new Map([
@@ -26,6 +26,9 @@ const FOLD_LINE_BREAKS = 5;
 /** Elements that start a line of their own. */
 const BLOCKS = new Set(["p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"]);
 
+/** How a table's column lines up its cells. */
+const ALIGNS = { left: "text-start", center: "text-center", right: "text-end" } as const;
+
 /** A message's cards, one under another. */
 export function BotCards({ cards, className }: { cards: Card[]; className?: string }) {
   return (
@@ -38,35 +41,39 @@ export function BotCards({ cards, className }: { cards: Card[]; className?: stri
 }
 
 /**
- * A card, 38rem wide or as wide as there's room for: its pretext, then a frame with a 4px bar down its left
- * side in its color, holding its parts and its thumbnail at the right. Its fields take one column in a frame
- * under 400px wide. It's an article named by its title.
+ * A card, 38rem wide or as wide as there's room for: an attachment's pretext, then a frame, with a 4px bar down
+ * its left side in an attachment's color, holding its parts and an attachment's thumbnail at the right. Its
+ * fields take one column in a frame under 400px wide. It's an article named by its title or header.
  */
 function BotCard({ card }: { card: Card }) {
   const titleId = useId();
-  const title = card.parts.find((part) => part.kind === "title");
+  const title = card.parts.find((part) => part.kind === "title" || part.kind === "header");
   const thumb = card.thumb && shownImage(card.thumb);
+  const barred = card.source === "attachment";
   const bar = card.color === undefined ? "bg-border" : BARS.get(card.color);
   return (
     <div className="w-[38rem] max-w-full">
       {card.pretext !== undefined && <CardText html={card.pretext} className="pb-1" />}
       <article
         aria-labelledby={title && titleId}
-        className="@container relative flex gap-[1.5ch] overflow-clip rounded-[0.5em] border bg-background py-3 ps-[calc(1.5ch+4px)] pe-[1.5ch]"
+        className={cn(
+          "@container relative flex gap-[1.5ch] overflow-clip rounded-[0.5em] border bg-background py-3 pe-[1.5ch]",
+          barred ? "ps-[calc(1.5ch+4px)]" : "ps-[1.5ch]",
+        )}
       >
-        <span aria-hidden className={cn("absolute inset-y-0 start-0 w-1", bar)} style={bar ? undefined : { backgroundColor: card.color }} />
+        {barred && <span aria-hidden className={cn("absolute inset-y-0 start-0 w-1", bar)} style={bar ? undefined : { backgroundColor: card.color }} />}
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {card.parts.map((part, index) => (
             <Part key={index} part={part} titleId={part === title ? titleId : undefined} />
           ))}
         </div>
-        {thumb && <img src={thumb.url} alt={thumb.alt} loading="lazy" className="size-[75px] shrink-0 rounded-[6px] object-cover" />}
+        {thumb && <Thumb image={thumb} />}
       </article>
     </div>
   );
 }
 
-/** One of a card's parts, as Slack shows an attachment's: the first title gets `titleId`, which names the card. */
+/** One of a card's parts, as Slack shows an attachment's or a block: the first title or header gets `titleId`, which names the card. */
 function Part({ part, titleId }: { part: CardPart; titleId?: string }) {
   switch (part.kind) {
     case "author":
@@ -86,31 +93,47 @@ function Part({ part, titleId }: { part: CardPart; titleId?: string }) {
           </Linked>
         </h4>
       );
+    case "header":
+      return (
+        <h4 id={titleId} className="text-[18px] leading-[24px] font-bold wrap-anywhere text-message-ink">
+          {part.text}
+        </h4>
+      );
     case "text":
       return <CardText html={part.html} folds />;
+    case "section":
+      return <Section html={part.html} fields={part.fields} thumb={part.thumb} button={part.button} />;
     case "fields":
       return <Fields fields={part.fields} />;
     case "image":
-      return <Image image={part.image} />;
+      return <Image image={part.image} title={part.title} />;
+    case "context":
+      return <Context items={part.items} />;
+    case "divider":
+      return <hr className="my-1 border-border" />;
     case "buttons":
       return <Buttons buttons={part.buttons} />;
+    case "table":
+      return <Table rows={part.rows} columns={part.columns} />;
+    case "tiles":
+      return <Tiles tiles={part.tiles} />;
     case "footer":
       return <Footer text={part.text} icon={part.icon} at={part.at} />;
   }
 }
 
 /**
- * Rich text in a card, as a message's text shows. Where it `folds`, text past 700 characters or 5 line breaks
- * folds behind Show more, as Slack folds an attachment's.
+ * Rich text in a card, as a message's text shows, or in small gray type where it's `small`. Where it `folds`,
+ * text past 700 characters or 5 line breaks folds behind Show more, as Slack folds an attachment's.
  */
-function CardText({ html, folds = false, className }: { html: string; folds?: boolean; className?: string }) {
+function CardText({ html, folds = false, small = false, className }: { html: string; folds?: boolean; small?: boolean; className?: string }) {
   const nodes = useMemo(() => shownText(html), [html]);
   const [open, setOpen] = useState(false);
   if (nodes === null) return null;
   const long = folds && isLong(nodes);
   return (
     <div className={className}>
-      <MessageBody nodes={nodes} mentions={[]} className={cn(long && !open && "max-h-[5lh] overflow-hidden")} />
+      <MessageBody nodes={nodes} mentions={[]} className={cn(small && "text-xs leading-[18px] text-message-muted", long && !open && "max-h-[5lh] overflow-hidden")} />
       {long && (
         <button
           type="button"
@@ -121,6 +144,24 @@ function CardText({ html, folds = false, className }: { html: string; folds?: bo
           {open ? "Show less" : "Show more"}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * A section: its text over its fields, with a thumbnail, or a link button, at their right, as Slack shows a
+ * section's accessory. In a card under 400px wide, the button goes under them, leaving the text room.
+ */
+function Section({ html, fields, thumb, button }: { html?: string; fields?: CardField[]; thumb?: CardImage; button?: CardButton }) {
+  const shownThumb = thumb && shownImage(thumb);
+  return (
+    <div className={cn("flex min-w-0 gap-[1.5ch]", button && "@max-[400px]:flex-col @max-[400px]:gap-1.5")}>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {html !== undefined && <CardText html={html} folds />}
+        {fields && <Fields fields={fields} />}
+      </div>
+      {shownThumb && <Thumb image={shownThumb} />}
+      {button && <Buttons buttons={[button]} className="max-w-[50%] shrink-0 self-start pt-0" />}
     </div>
   );
 }
@@ -140,28 +181,134 @@ function Fields({ fields }: { fields: CardField[] }) {
 }
 
 /**
- * A card's image, at most 360px wide and 500px tall, loading as it nears the screen, linked to itself: the link
- * is named by what the image shows, or by its host where the payload doesn't say, as an attachment's never does.
+ * A card's image, under its title, at most 360px wide and 500px tall, loading as it nears the screen, linked to
+ * itself: the link is named by what the image shows, or by its host where the payload doesn't say, as an
+ * attachment's never does.
  */
-function Image({ image }: { image: CardImage }) {
+function Image({ image, title }: { image: CardImage; title?: string }) {
   const shown = shownImage(image);
   if (!shown) return null;
   return (
-    <MessageLink href={shown.url} aria-label={shown.alt === "" ? `Image from ${new URL(shown.url).hostname}` : undefined} className="block w-fit max-w-full pt-1">
-      <img src={shown.url} alt={shown.alt} loading="lazy" className="max-h-[500px] max-w-[min(100%,360px)] rounded-[6px] object-contain" />
-    </MessageLink>
+    <figure className="flex min-w-0 flex-col gap-1 pt-1">
+      {title !== undefined && <figcaption className="text-[13px] leading-[18px] wrap-anywhere text-message-muted">{title}</figcaption>}
+      <MessageLink href={shown.url} aria-label={shown.alt === "" ? `Image from ${new URL(shown.url).hostname}` : undefined} className="block w-fit max-w-full">
+        <img src={shown.url} alt={shown.alt} loading="lazy" className="max-h-[500px] max-w-[min(100%,360px)] rounded-[6px] object-contain" />
+      </MessageLink>
+    </figure>
+  );
+}
+
+/** A 75px thumbnail at the right of a card or a section. */
+function Thumb({ image }: { image: CardImage }) {
+  return <img src={image.url} alt={image.alt} loading="lazy" className="size-[75px] shrink-0 rounded-[6px] object-cover" />;
+}
+
+/** A context row: small gray text and 20px images, side by side, wrapping where they need to. */
+function Context({ items }: { items: CardContextItem[] }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-[1ch] gap-y-1">
+      {items.map((item, index) => ("image" in item ? <ContextImage key={index} image={item.image} /> : <CardText key={index} html={item.html} small className="min-w-0" />))}
+    </div>
+  );
+}
+
+function ContextImage({ image }: { image: CardImage }) {
+  const shown = shownImage(image);
+  return shown ? <img src={shown.url} alt={shown.alt} loading="lazy" className="size-5 shrink-0 rounded-[4px] object-cover" /> : null;
+}
+
+/**
+ * A table, ruled as a message's is, which scrolls sideways when it's wider than the card: each column lines up
+ * as it says, and its cells are cut short at 20rem unless it wraps.
+ */
+function Table({ rows, columns }: { rows: string[][]; columns: CardColumn[] }) {
+  return (
+    <div role="region" aria-label="Table" tabIndex={0} className="max-w-full overflow-x-auto pt-1">
+      <table className="border-collapse">
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, index) => (
+                <td key={index} className={cn("border px-[1ch] py-1 align-top", ALIGNS[columns[index]?.align ?? "left"])}>
+                  {cell !== "" && <CardText html={cell} className={cn("max-w-[20rem]", !columns[index]?.wrap && "[&_p]:truncate")} />}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Small cards in a list, a row that scrolls sideways when there are more than fit, as Slack shows a carousel.
+ * A row of several is a region a keyboard can scroll, where the next card shows at the edge of a narrow one;
+ * one card shrinks to fit.
+ */
+function Tiles({ tiles }: { tiles: CardTile[] }) {
+  const several = tiles.length > 1;
+  return (
+    <div
+      role={several ? "region" : undefined}
+      aria-label={several ? "Cards" : undefined}
+      tabIndex={several ? 0 : undefined}
+      className="max-w-full snap-x snap-mandatory overflow-x-auto pt-1"
+    >
+      <ul className="flex gap-2">
+        {tiles.map((tile, index) => (
+          <Tile key={index} tile={tile} inRow={several} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A small card, 17.5rem wide, so two fit side by side in a card: its hero image across its top, its icon beside
+ * its title and subtitle, its body and subtext, and its buttons, a danger one at the left and the rest at the
+ * right, a primary one furthest right, as Slack lays out a card block's. In a row, it leaves room for the next.
+ */
+function Tile({ tile, inRow }: { tile: CardTile; inRow: boolean }) {
+  const hero = tile.hero && shownImage(tile.hero);
+  const icon = tile.icon && shownImage(tile.icon);
+  const danger = tile.buttons?.filter(({ style }) => style === "danger") ?? [];
+  const rest = (tile.buttons ?? []).filter(({ style }) => style !== "danger").sort((a, b) => Number(a.style === "primary") - Number(b.style === "primary"));
+  return (
+    <li className={cn("flex w-[17.5rem] shrink-0 snap-start flex-col overflow-clip rounded-[0.5em] border", inRow ? "max-w-[85%]" : "max-w-full")}>
+      {hero && <img src={hero.url} alt={hero.alt} loading="lazy" className="aspect-[2/1] w-full object-cover" />}
+      <div className="flex flex-1 flex-col gap-1.5 p-[1.5ch]">
+        {(tile.title !== undefined || tile.subtitle !== undefined) && (
+          <div className="flex min-w-0 items-center gap-[1ch]">
+            {icon && <img src={icon.url} alt={icon.alt} loading="lazy" className="size-8 shrink-0 rounded-[6px] object-cover" />}
+            <div className="min-w-0">
+              {tile.title !== undefined && <div className="text-[15px] leading-[22px] font-semibold wrap-anywhere text-message-ink">{tile.title}</div>}
+              {tile.subtitle !== undefined && <div className="text-[13px] leading-[18px] wrap-anywhere text-message-muted">{tile.subtitle}</div>}
+            </div>
+          </div>
+        )}
+        {tile.body !== undefined && <CardText html={tile.body} />}
+        {tile.subtext !== undefined && <CardText html={tile.subtext} small />}
+        {tile.buttons && (
+          <div className="mt-auto flex justify-between gap-2">
+            <Buttons buttons={danger} />
+            <Buttons buttons={rest} className="ms-auto justify-end" />
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
 /** A card's link buttons, bordered, filled for `primary`, and red for `danger`, as Delete is in both modes. */
-function Buttons({ buttons }: { buttons: CardButton[] }) {
+function Buttons({ buttons, className }: { buttons: CardButton[]; className?: string }) {
   const shown = buttons.flatMap((button) => {
     const href = shownAddress(button.href);
     return href ? [{ ...button, href }] : [];
   });
   if (shown.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2 pt-1">
+    <div className={cn("flex flex-wrap gap-2 pt-1", className)}>
       {shown.map(({ text, href, style }, index) => (
         <Button
           key={index}
@@ -220,6 +367,12 @@ function shownText(html: string): DisplayNode[] | null {
   }
 }
 
+/** Whether a block's first child is a block, which starts the same line, as Markdown's headings in a `div` do. */
+const startsWithBlock = (block: DisplayElement) => {
+  const first = block.children[0];
+  return first?.kind === "element" && BLOCKS.has(first.name);
+};
+
 /** Whether text runs past 700 characters or 5 line breaks. */
 function isLong(nodes: DisplayNode[]): boolean {
   let characters = 0;
@@ -230,7 +383,7 @@ function isLong(nodes: DisplayNode[]): boolean {
       characters += node.value.length;
       lineBreaks += node.value.split("\n").length - 1;
     } else if (node.kind === "element") {
-      if (node.name === "br" || BLOCKS.has(node.name)) lineBreaks++;
+      if (node.name === "br" || (BLOCKS.has(node.name) && !startsWithBlock(node))) lineBreaks++;
       node.children.forEach(count);
     }
   };

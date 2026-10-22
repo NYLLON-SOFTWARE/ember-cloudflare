@@ -4,7 +4,7 @@ import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
 import { messagePath } from "@/hooks/use-route";
-import { dateTimeLabel, timeLabel } from "@/lib/messages";
+import { cardsQuote, dateTimeLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { Attachment } from "./attachment";
@@ -120,6 +120,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
   // for an avatar address that mentions don't have, so ember-rust never does.
   const mentioned = message.mentions.some((person) => person.id === me.id);
   const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
+  // Reply quotes what the message shows, or the plain text of a bot's cards where they're all it shows.
+  const quoted = useMemo(
+    () => (message.body === "" && message.cards ? cardsQuote(message.plainText) : (shown ?? [])),
+    [message.body, message.cards, message.plainText, shown],
+  );
   // A message's plain text holds its cards', which never show large.
   const allEmoji = !message.cards && isAllEmoji(message.plainText);
   // ember-rust doesn't mark edited messages. Ember does, like Slack, so readers can tell a message changed.
@@ -259,7 +264,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
         <MessageActionsMenu
           ref={menu}
           message={message}
-          nodes={shown}
+          nodes={quoted}
           row={article}
           editable={mine || me.administrator}
           onReact={(emoji) => actions.boost(message.id, emoji)}

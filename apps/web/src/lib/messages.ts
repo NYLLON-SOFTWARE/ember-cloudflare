@@ -74,6 +74,17 @@ export function replyQuote(nodes: DisplayNode[], author: string, link: string, n
 }
 
 /**
+ * What Reply quotes of a bot's message that shows only cards: their plain text, its lines broken as they are, since
+ * what a card lays out has no place in a quote.
+ */
+export function cardsQuote(plainText: string): DisplayNode[] {
+  const lines = plainText.split("\n").flatMap((line, index): DisplayNode[] => [...(index > 0 ? [LINE_BREAK] : []), { kind: "text", value: line }]);
+  return [{ kind: "element", name: "p", attrs: {}, children: lines }];
+}
+
+const LINE_BREAK: DisplayElement = { kind: "element", name: "br", attrs: {}, children: [] };
+
+/**
  * `#stripUnfurledAttachments`: what a message shows, or, when that's only link previews, the address of the
  * first link in them, as a message of only a link shows only its preview.
  */
