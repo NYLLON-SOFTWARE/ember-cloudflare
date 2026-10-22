@@ -1,5 +1,6 @@
 import { parsePushSubscription, PUSH_SUBSCRIPTIONS_PATH, type PushSubscriptions } from "@ember/protocol";
 import { credentialsOf } from "../auth";
+import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { browserNamesOf } from "../user-agent";
 import { workspace } from "../workspace";
@@ -37,7 +38,7 @@ export async function listPushSubscriptions(request: Request, env: Env): Promise
 export async function savePushSubscription(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, NOT_SIGNED_IN);
-  const subscription = parsePushSubscription(await request.json().catch(() => null));
+  const subscription = parsePushSubscription(await jsonBodyOf(request));
   const refused = typeof subscription === "string" ? subscription : refusal(endpointErrors(subscription.endpoint));
   // Asked even for a subscription that's refused, so that someone signed out hears that first.
   const saved = await workspace(env).savePushSubscription(credentials, typeof subscription === "string" || refused ? null : subscription);

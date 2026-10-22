@@ -213,14 +213,20 @@ export interface PushDelivery {
 }
 
 /**
- * A bot's webhook a new message is delivered to, with the bot's token, which the address it can answer
- * at is made from, and who wrote the message and where, as the delivery names them.
+ * A new message's delivery to a bot's webhook, as its room queues it: who wrote the message and where,
+ * as the delivery names them, and the bot, whose webhook is found again once the delivery's turn comes
+ * (`BotWebhook`), as ember-rust's job finds it then.
  */
 export interface MessageWebhook {
   messageId: string;
   author: User;
   /** The room's name, or null for a DM. */
   roomName: string | null;
+  botId: UserId;
+}
+
+/** A bot's webhook as a delivery to it finds it: the bot, by its name now, with its token, which the address it can answer at is made from. */
+export interface BotWebhook {
   bot: User;
   /** Null for a bot from before bots had tokens, which no key works for. */
   token: string | null;
@@ -536,6 +542,19 @@ const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
 /**
+ * The revocations due by a time that no delivery has tried yet, which a change has just queued: those
+ * of the rooms queued last, up to a number of rooms (a call each), every row of each in the order they
+ * were queued, since a socket closes with the first that names it. What a change delivers before it
+ * answers (workspace.ts `closeQueuedSockets`).
+ */
+export const QUEUED_REVOCATIONS = `SELECT revocations.id, revocations.room_id AS roomId, revocations.tag, revocations.code
+  FROM pending_revocations AS revocations
+  JOIN (SELECT room_id, max(id) AS last FROM pending_revocations WHERE attempts = 0 AND due_at <= ?1 GROUP BY room_id ORDER BY last DESC LIMIT ?2) AS rooms
+    ON rooms.room_id = revocations.room_id
+  WHERE revocations.attempts = 0 AND revocations.due_at <= ?1
+  ORDER BY rooms.last DESC, revocations.id`;
+
+/**
  * Queues deleting someone's messages in every room they can have written in, answering a row for
  * each: every room but the DMs they aren't in, whose people never change.
  */
@@ -569,15 +588,17 @@ export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId, lift
 /** When the next purge a room can take is due. One waiting on its room's revocations is due once they've gone. */
 export const NEXT_PURGE_DUE = `SELECT due_at FROM pending_purges WHERE ${PURGEABLE} ORDER BY due_at LIMIT 1`;
 
-/** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
+/** How long the outbox waits to deliver a row again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
 /**
- * How many times the outbox tries to deliver a revocation before giving up: over 8 minutes of tries.
- * It never gives up on a room's deletion, whose messages would otherwise stay stored with nothing left
- * to delete them, but tries it at the longest wait until it's delivered.
+ * How many times a failed row's wait doubles before it stays at the longest: doubled this often, it's
+ * past the longest already, and shifting the first wait by every failure would soon overflow. The outbox
+ * never gives a row up. A revocation given up would leave the sockets it closes open, and able to write;
+ * a room's deletion would leave its messages stored, with nothing left to delete them; a purge would
+ * leave a banned person's messages up.
  */
-const DELIVERY_ATTEMPTS = 10;
+const RETRY_DOUBLINGS = 10;
 
 /** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
@@ -668,11 +689,12 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
  * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to, as ember-rust's
  * `deliver_webhooks_to_bots` finds them (messages.rs): in a DM, those of the active bots in it, and in
  * any other room, those of the active bots in it whom the message mentions, a JSON list ?3; never its
- * author's. Each comes with the room's name, but a DM's, and the author's. Nothing once the Workspace
- * has applied the message's event. Webhooks are few, so they're read first, and each one's bot and
- * membership found by their keys.
+ * author's. Each comes with the room's name, but a DM's, and the author's, and its bot's id, whose
+ * webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the Workspace has applied
+ * the message's event. Webhooks are few, so they're read first, and each one's bot and membership found
+ * by their keys.
  */
-export const MESSAGE_WEBHOOKS = `SELECT users.id, users.name, users.bot_token, webhooks.url,
+export const MESSAGE_WEBHOOKS = `SELECT users.id,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM webhooks CROSS JOIN users ON users.id = webhooks.user_id
   WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
@@ -681,26 +703,27 @@ export const MESSAGE_WEBHOOKS = `SELECT users.id, users.name, users.bot_token, w
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
 
-/** A bot's webhook a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
+/** A bot a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
 interface WebhookRow {
   id: UserId;
-  name: string;
-  bot_token: string | null;
-  url: string;
   room_name: string | null;
   author_name: string;
 }
 
 /** A new message's deliveries to bots' webhooks, from the rows `MESSAGE_WEBHOOKS` found for it. */
 const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): MessageWebhook[] =>
-  rows.map((row) => ({
-    messageId: message!.id,
-    author: { id: userId, name: row.author_name },
-    roomName: row.room_name,
-    bot: { id: row.id, name: row.name },
-    token: row.bot_token,
-    url: row.url,
-  }));
+  rows.map((row) => ({ messageId: message!.id, author: { id: userId, name: row.author_name }, roomName: row.room_name, botId: row.id }));
+
+/**
+ * Bot ?2's webhook, with its name and token now, as a delivery to it in room ?1 finds it when its turn
+ * comes and again before what the bot says back is posted, as ember-rust's `Bot::WebhookJob` reads the
+ * bot and its webhook then (integrations/jobs.rs): nothing once the bot isn't an active one in the room
+ * with a webhook, as `MESSAGE_WEBHOOKS` would find none for it then. ember-rust still delivers to a bot
+ * deleted or taken out of the room since, and posts its reply.
+ */
+export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url FROM users JOIN webhooks ON webhooks.user_id = users.id
+  WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
 
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
@@ -1430,13 +1453,13 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`DELETE FROM pending_purges WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(finished)),
       statement(`UPDATE pending_purges SET attempts = 0, due_at = ? WHERE id IN (SELECT value FROM json_each(?))`, now, JSON.stringify(unfinished)),
-      // As a revocation's wait, which has stopped doubling by its last try.
+      // As a revocation's wait.
       statement(
         `UPDATE pending_purges SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);
@@ -1448,31 +1471,30 @@ export class WorkspaceStore {
   }
 
   /**
-   * Forgets the revocations `delivered` names, and puts off the ones `failed` names, each for twice as
-   * long as the time before, up to the longest wait. Gives up on any that have failed too often, except
-   * a room's deletion, and answers the ones it gave up.
+   * The revocations due by `now` that no delivery has tried yet, in up to `limit` rooms, those queued
+   * last first and every row of each: what a change has just queued.
    */
-  async settleRevocations(delivered: number[], failed: number[], now: number): Promise<PendingRevocation[]> {
-    const [, abandoned] = (await this.db.batch([
+  async queuedRevocations(now: number, limit: number): Promise<PendingRevocation[]> {
+    return this.db.all<PendingRevocation>(QUEUED_REVOCATIONS, now, limit);
+  }
+
+  /**
+   * Forgets the revocations `delivered` names, and puts off the ones `failed` names, each for twice as
+   * long as the time before, up to the longest wait, for as long as it takes: it never gives one up,
+   * which would leave the sockets it closes open, or a deleted room's messages stored.
+   */
+  async settleRevocations(delivered: number[], failed: number[], now: number): Promise<void> {
+    await this.db.batch([
       statement(`DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(delivered)),
-      statement(
-        `DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?)) AND attempts + 1 >= ? AND tag <> ? RETURNING id, room_id AS roomId, tag, code`,
-        JSON.stringify(failed),
-        DELIVERY_ATTEMPTS,
-        EVERYONE,
-      ),
-      // The wait has stopped doubling by the time the others give up. A deletion goes on failing, and
-      // shifting the first wait by all its failures would soon overflow, making the wait negative.
       statement(
         `UPDATE pending_revocations SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
-    ])) as [unknown[], PendingRevocation[], unknown[]];
-    return abandoned;
+    ]);
   }
 
   /** Up to `limit` of the rooms due by `now` to have the search index take all their messages, those due longest first. */
@@ -1495,7 +1517,7 @@ export class WorkspaceStore {
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);
@@ -1793,6 +1815,12 @@ export class WorkspaceStore {
     return row ? { bot: { id: row.id, name: row.name }, token: row.bot_token, member: row.member === 1 } : null;
   }
 
+  /** Bot `botId`'s webhook as a delivery to it in room `roomId` finds it now, or null unless it's an active bot in the room with one. */
+  async botWebhook(roomId: RoomId, botId: UserId): Promise<BotWebhook | null> {
+    const [row] = await this.db.all<{ name: string; bot_token: string | null; url: string }>(BOT_WEBHOOK, roomId, botId);
+    return row ? { bot: { id: botId, name: row.name }, token: row.bot_token, url: row.url } : null;
+  }
+
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
   async activeBot(botId: UserId): Promise<StoredBotSettings | null> {
     const [[row], rooms] = (await this.db.batch([statement(ACTIVE_BOT, botId), statement(BOT_ROOMS, botId)])) as [
@@ -1907,7 +1935,7 @@ export class WorkspaceStore {
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);

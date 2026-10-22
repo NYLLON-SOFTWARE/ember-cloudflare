@@ -22,6 +22,7 @@ import {
   roomStub,
   settle,
   signIn,
+  standInForRooms,
   upgrade,
   upload,
   workspaceSql,
@@ -232,35 +233,39 @@ describe(feature("rooms.delete"), () => {
     const adaInRoom = await connect(room.id, ada);
     await post(adaInRoom, "Gone soon");
     const graceInRoom = await connect(room.id, grace);
-    // Holds the Workspace's delivery of Grace's revocation, the newest in its outbox, between reading
-    // it and delivering it, until the room is deleted, or for a second.
-    const race = { alarmHasRead: false, roomIsDeleted: false };
-    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
-      const store = (workspace as unknown as { store: WorkspaceStore }).store;
-      const dueRevocations = store.dueRevocations.bind(store);
-      store.dueRevocations = async (...args) => {
-        const due = await dueRevocations(...args);
-        if (race.alarmHasRead || !due.some(({ tag }) => tag === grace.user.id)) return due;
-        race.alarmHasRead = true;
-        for (let waited = 0; !race.roomIsDeleted && waited < 1_000; waited += 10) await scheduler.wait(10);
-        return due;
-      };
-    });
     const closed = [closeOf(adaInRoom.ws), closeOf(graceInRoom.ws)];
+    // Holds the room's taking of Grace's revocation, which the change that takes her out delivers
+    // before it answers, until the room is deleted, or for a second; the deletion's own delivery waits
+    // its turn behind it.
+    const race = { roomIsCalled: false, roomIsDeleted: false };
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        if (call[1].some(({ tag }) => tag === grace.user.id)) {
+          race.roomIsCalled = true;
+          for (let waited = 0; !race.roomIsDeleted && waited < 1_000; waited += 10) await scheduler.wait(10);
+        }
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
 
     const takeGraceOut = { kind: "closed", memberIds: [ada.user.id] };
-    const changed = await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify(takeGraceOut) });
-    expect(changed.status).toBe(200);
-    await vi.waitFor(() => expect(race.alarmHasRead).toBe(true));
-    expect((await remove(room.id, ada)).status).toBe(204);
+    const changing = api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify(takeGraceOut) });
+    await vi.waitFor(() => expect(race.roomIsCalled).toBe(true));
+    const removing = remove(room.id, ada);
+    // Saved, with its delivery still waiting.
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT id FROM deleted_rooms WHERE id = ?", room.id)).toEqual([{ id: room.id }]));
     race.roomIsDeleted = true;
+    expect((await removing).status).toBe(204);
+    expect((await changing).status).toBe(200);
 
-    // Settling Grace's delivery leaves the deletion queued, to be delivered in turn.
+    // Grace's revocation reached a room deleted since it was read, closing her socket to reconnect,
+    // and settled none of what the deletion had queued; the deletion's own then closed the rest.
     await delivered();
     expect(await countIn(room.id, "messages")).toBe(0);
     const [adaClosed, graceClosed] = await Promise.all(closed);
     expect(adaClosed).toMatchObject({ code: CloseCode.NotFound });
     expect(graceClosed).toMatchObject({ code: CloseCode.Reconnect });
+    await giveBack();
   });
 
   it("turns away a socket let through at or before the room was deleted, telling it to reconnect", async () => {

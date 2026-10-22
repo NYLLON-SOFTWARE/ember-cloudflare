@@ -1,7 +1,7 @@
 import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
 import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
-import type { MessageWebhook } from "../workspace-store";
+import type { BotWebhook, MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";
 import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
 import { railsJson } from "./rails-json";
@@ -41,13 +41,18 @@ export const MAX_FILE_REPLY_BYTES = 100 * 1024 * 1024;
 const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent": "Ruby" };
 
 /**
- * `Webhook#payload`: who wrote `message`, where, and what it says, for `webhook`'s bot. The room's
- * address is the one the bot posts to there, with its key, and the message's is its permalink, both
- * without an origin, as Rails' path helpers write them. A file message has no rich text, so its `html`
- * is null, as Campfire's `message.body.body` is, and its plain text is its file's name.
+ * `Webhook#payload`: who wrote `message` and where, as `delivery` names them, and what it says, for
+ * `webhook`'s bot. The room's address is the one the bot posts to there, with its key, and the message's
+ * is its permalink, both without an origin, as Rails' path helpers write them. A file message has no
+ * rich text, so its `html` is null, as Campfire's `message.body.body` is, and its plain text is its
+ * file's name.
  */
-export function webhookPayload(roomId: RoomId, webhook: MessageWebhook, message: Pick<Message, "id" | "body" | "plainText" | "mentions">): string {
-  const { author, roomName, bot, token } = webhook;
+export function webhookPayload(
+  roomId: RoomId,
+  { author, roomName }: Pick<MessageWebhook, "author" | "roomName">,
+  { bot, token }: Pick<BotWebhook, "bot" | "token">,
+  message: Pick<Message, "id" | "body" | "plainText" | "mentions">,
+): string {
   const plain = withoutMentionsOf(nameIn(message, bot), message.plainText);
   return railsJson({
     user: { id: author.id, name: author.name },
@@ -58,9 +63,8 @@ export function webhookPayload(roomId: RoomId, webhook: MessageWebhook, message:
 
 /**
  * The name `message`'s plain text gives `bot`: the one its mentions of it have, from when the text was
- * last written, which an edit since a rename the delivery hasn't heard of makes the new name, or where
- * it isn't mentioned by name, the one the delivery has. Campfire reads both as the delivery runs, so
- * they always agree.
+ * last written, which a rename since leaves older than the bot's name now, or where it isn't mentioned
+ * by name, the bot's name now. Campfire reads both as the delivery runs, so they always agree.
  */
 const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentions.find(({ id }) => id === bot.id)?.name || bot.name;
 
