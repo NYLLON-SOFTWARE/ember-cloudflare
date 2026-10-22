@@ -276,6 +276,8 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   Worker, images from any HTTPS site, since link previews show their page's image, and no page of
   Ember's in a frame elsewhere. When the policy gets in the way of something in a browser, the
   browser reports it to `/csp-report` and the Worker logs it, so look there if a page misbehaves.
+- Link previews and bot cards show images from other sites, which load without a referrer: a site
+  sees the reader's IP address, but not which Ember shows its image.
 - An administrator can make a sign-in link for anyone, administrators included, which signs in as
   that person for 4 hours, more than once, while the session that showed it is still signed in as an
   administrator. Your own link works only while the session that showed it does, so signing out, a

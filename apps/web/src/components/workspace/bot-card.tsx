@@ -4,7 +4,7 @@ import { cardAddress, displayBody, type DisplayElement, type DisplayNode } from 
 import { Button } from "@/components/ui/button";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import { MessageBody, MessageLink } from "./message-body";
+import { MessageBody, MessageLink, RemoteImage } from "./message-body";
 
 // A bot's cards (packages/protocol/src/cards.ts), which a Slack-compatible webhook's legacy attachments and
 // Block Kit blocks show under its message. ember-rust has no cards, so they're Ember's own: framed as a link
@@ -192,7 +192,7 @@ function Image({ image, title }: { image: CardImage; title?: string }) {
     <figure className="flex min-w-0 flex-col gap-1 pt-1">
       {title !== undefined && <figcaption className="text-[13px] leading-[18px] wrap-anywhere text-message-muted">{title}</figcaption>}
       <MessageLink href={shown.url} aria-label={shown.alt === "" ? `Image from ${new URL(shown.url).hostname}` : undefined} className="block w-fit max-w-full">
-        <img src={shown.url} alt={shown.alt} loading="lazy" className="max-h-[500px] max-w-[min(100%,360px)] rounded-[6px] object-contain" />
+        <RemoteImage src={shown.url} alt={shown.alt} className="max-h-[500px] max-w-[min(100%,360px)] rounded-[6px] object-contain" />
       </MessageLink>
     </figure>
   );
@@ -200,7 +200,7 @@ function Image({ image, title }: { image: CardImage; title?: string }) {
 
 /** A 75px thumbnail at the right of a card or a section. */
 function Thumb({ image }: { image: CardImage }) {
-  return <img src={image.url} alt={image.alt} loading="lazy" className="size-[75px] shrink-0 rounded-[6px] object-cover" />;
+  return <RemoteImage src={image.url} alt={image.alt} className="size-[75px] shrink-0 rounded-[6px] object-cover" />;
 }
 
 /** A context row: small gray text and 20px images, side by side, wrapping where they need to. */
@@ -214,7 +214,7 @@ function Context({ items }: { items: CardContextItem[] }) {
 
 function ContextImage({ image }: { image: CardImage }) {
   const shown = shownImage(image);
-  return shown ? <img src={shown.url} alt={shown.alt} loading="lazy" className="size-5 shrink-0 rounded-[4px] object-cover" /> : null;
+  return shown ? <RemoteImage src={shown.url} alt={shown.alt} className="size-5 shrink-0 rounded-[4px] object-cover" /> : null;
 }
 
 /**
@@ -276,11 +276,11 @@ function Tile({ tile, inRow }: { tile: CardTile; inRow: boolean }) {
   const rest = (tile.buttons ?? []).filter(({ style }) => style !== "danger").sort((a, b) => Number(a.style === "primary") - Number(b.style === "primary"));
   return (
     <li className={cn("flex w-[17.5rem] shrink-0 snap-start flex-col overflow-clip rounded-[0.5em] border", inRow ? "max-w-[85%]" : "max-w-full")}>
-      {hero && <img src={hero.url} alt={hero.alt} loading="lazy" className="aspect-[2/1] w-full object-cover" />}
+      {hero && <RemoteImage src={hero.url} alt={hero.alt} className="aspect-[2/1] w-full object-cover" />}
       <div className="flex flex-1 flex-col gap-1.5 p-[1.5ch]">
         {(tile.title !== undefined || tile.subtitle !== undefined) && (
           <div className="flex min-w-0 items-center gap-[1ch]">
-            {icon && <img src={icon.url} alt={icon.alt} loading="lazy" className="size-8 shrink-0 rounded-[6px] object-cover" />}
+            {icon && <RemoteImage src={icon.url} alt={icon.alt} className="size-8 shrink-0 rounded-[6px] object-cover" />}
             <div className="min-w-0">
               {tile.title !== undefined && <div className="text-[15px] leading-[22px] font-semibold wrap-anywhere text-message-ink">{tile.title}</div>}
               {tile.subtitle !== undefined && <div className="text-[13px] leading-[18px] wrap-anywhere text-message-muted">{tile.subtitle}</div>}
@@ -342,7 +342,7 @@ function Footer({ text, icon, at }: { text?: string; icon?: string; at?: number 
 /** An author's or a footer's 16px icon, which says nothing its text doesn't. */
 function Icon({ url }: { url?: string }) {
   const src = url && shownAddress(url);
-  return src ? <img src={src} alt="" loading="lazy" className="size-4 shrink-0 rounded-[4px]" /> : null;
+  return src ? <RemoteImage src={src} alt="" className="size-4 shrink-0 rounded-[4px]" /> : null;
 }
 
 /** `children`, linked to `href` when the card may link there. */

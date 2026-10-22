@@ -200,7 +200,7 @@ function preview(details: Parameters<typeof previewContent>[0]): string {
 describe(feature("unfurl.render"), () => {
   const basecamp = { href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm, at https://basecamp.com/calm" };
 
-  it("shows a preview as a card: its title linking to the page in a new tab, its description, and its image", () => {
+  it("shows a preview as a card: its title linking to the page in a new tab, its description, and its image, loaded without a referrer", () => {
     const content = show(`<p>Look</p>${preview(basecamp)}`);
     const title = within(content).getByRole("link", { name: "Basecamp" });
     expect(title).toHaveAttribute("href", "https://basecamp.com/");
@@ -210,6 +210,8 @@ describe(feature("unfurl.render"), () => {
     expect(image).toHaveAttribute("src", "https://basecamp.com/og.png");
     expect(image).toHaveAttribute("alt", "");
     expect(image).toHaveAttribute("loading", "lazy");
+    // So the page's site doesn't learn which Ember shows it.
+    expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
   });
 
   it("shows an X avatar small and round", () => {
