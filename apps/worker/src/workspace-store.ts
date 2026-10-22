@@ -568,15 +568,17 @@ export const DUE_PURGES = `SELECT id, room_id AS roomId, user_id AS userId, lift
 /** When the next purge a room can take is due. One waiting on its room's revocations is due once they've gone. */
 export const NEXT_PURGE_DUE = `SELECT due_at FROM pending_purges WHERE ${PURGEABLE} ORDER BY due_at LIMIT 1`;
 
-/** How long the outbox waits to deliver a revocation again after it fails, doubling each time up to the longest wait. */
+/** How long the outbox waits to deliver a row again after it fails, doubling each time up to the longest wait. */
 const FIRST_RETRY_MS = 1_000;
 const LONGEST_RETRY_MS = 5 * 60 * 1000;
 /**
- * How many times the outbox tries to deliver a revocation before giving up: over 8 minutes of tries.
- * It never gives up on a room's deletion, whose messages would otherwise stay stored with nothing left
- * to delete them, but tries it at the longest wait until it's delivered.
+ * How many times a failed row's wait doubles before it stays at the longest: doubled this often, it's
+ * past the longest already, and shifting the first wait by every failure would soon overflow. The outbox
+ * never gives a row up. A revocation given up would leave the sockets it closes open, and able to write;
+ * a room's deletion would leave its messages stored, with nothing left to delete them; a purge would
+ * leave a banned person's messages up.
  */
-const DELIVERY_ATTEMPTS = 10;
+const RETRY_DOUBLINGS = 10;
 
 /** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
@@ -1420,13 +1422,13 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`DELETE FROM pending_purges WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(finished)),
       statement(`UPDATE pending_purges SET attempts = 0, due_at = ? WHERE id IN (SELECT value FROM json_each(?))`, now, JSON.stringify(unfinished)),
-      // As a revocation's wait, which has stopped doubling by its last try.
+      // As a revocation's wait.
       statement(
         `UPDATE pending_purges SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);
@@ -1439,30 +1441,21 @@ export class WorkspaceStore {
 
   /**
    * Forgets the revocations `delivered` names, and puts off the ones `failed` names, each for twice as
-   * long as the time before, up to the longest wait. Gives up on any that have failed too often, except
-   * a room's deletion, and answers the ones it gave up.
+   * long as the time before, up to the longest wait, for as long as it takes: it never gives one up,
+   * which would leave the sockets it closes open, or a deleted room's messages stored.
    */
-  async settleRevocations(delivered: number[], failed: number[], now: number): Promise<PendingRevocation[]> {
-    const [, abandoned] = (await this.db.batch([
+  async settleRevocations(delivered: number[], failed: number[], now: number): Promise<void> {
+    await this.db.batch([
       statement(`DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(delivered)),
-      statement(
-        `DELETE FROM pending_revocations WHERE id IN (SELECT value FROM json_each(?)) AND attempts + 1 >= ? AND tag <> ? RETURNING id, room_id AS roomId, tag, code`,
-        JSON.stringify(failed),
-        DELIVERY_ATTEMPTS,
-        EVERYONE,
-      ),
-      // The wait has stopped doubling by the time the others give up. A deletion goes on failing, and
-      // shifting the first wait by all its failures would soon overflow, making the wait negative.
       statement(
         `UPDATE pending_revocations SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE id IN (SELECT value FROM json_each(?))`,
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
-    ])) as [unknown[], PendingRevocation[], unknown[]];
-    return abandoned;
+    ]);
   }
 
   /** Up to `limit` of the rooms due by `now` to have the search index take all their messages, those due longest first. */
@@ -1485,7 +1478,7 @@ export class WorkspaceStore {
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);
@@ -1891,7 +1884,7 @@ export class WorkspaceStore {
         now,
         LONGEST_RETRY_MS,
         FIRST_RETRY_MS,
-        DELIVERY_ATTEMPTS,
+        RETRY_DOUBLINGS,
         JSON.stringify(failed),
       ),
     ]);

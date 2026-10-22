@@ -88,6 +88,11 @@ const UNFURL_WINDOW_MS = 60 * 1000;
  * invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
+/**
+ * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
+ * to a room that takes longer.
+ */
+const CLOSING_SOCKETS_MS = 2_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
 
@@ -242,6 +247,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
+  /** How many changes have queued revocations, which `afterQueuing` compares to see whether its change did. */
+  private queuedRevocations = 0;
   /**
    * When each ban lifted since the outbox last read its purges was first lifted, so the rooms it goes on
    * to ask delete only what was written before, which the purges it read can't say.
@@ -633,24 +640,26 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Ends the session `tokenDigest` names, and closes the sockets it opened, telling them to reconnect,
    * as ember-rust's sign-out does (concerns.rs): its workspace sockets here at once, and the rest by
-   * having every room its person is in close the session's sockets there. It forgets its person's push
-   * subscriptions with the endpoint `pushEndpoint`, the browser's signing out, as ember-rust does
-   * (sessions.rs).
+   * having every room its person is in close the session's sockets there, before it answers. It forgets
+   * its person's push subscriptions with the endpoint `pushEndpoint`, the browser's signing out, as
+   * ember-rust does (sessions.rs).
    */
   async signOut(tokenDigest: string, pushEndpoint: string | null = null): Promise<void> {
-    const now = Date.now();
-    // Found first: on D1 a change can be saved, its revocations with it, and its answer lost on the
-    // way back, and then nothing would say which sockets were the session's.
-    const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
-    // Until the database says it queued nothing.
-    let queued = true;
-    try {
-      queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now, pushEndpoint));
-    } finally {
-      // Whether or not it ended: the sockets of a session that didn't are let in again.
-      if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
-      if (queued) await this.wakeAt(now);
-    }
+    await this.afterQueuing(async () => {
+      const now = Date.now();
+      // Found first: on D1 a change can be saved, its revocations with it, and its answer lost on the
+      // way back, and then nothing would say which sockets were the session's.
+      const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
+      // Until the database says it queued nothing.
+      let queued = true;
+      try {
+        queued = await this.sessions.end(tokenDigest, () => this.store.endSession(tokenDigest, CloseCode.Reconnect, now, pushEndpoint));
+      } finally {
+        // Whether or not it ended: the sockets of a session that didn't are let in again.
+        if (session) this.closeSockets(sessionTag(session.id), CloseCode.Reconnect);
+        if (queued) await this.revocationsQueued(now);
+      }
+    });
   }
 
   /**
@@ -661,7 +670,7 @@ export class Workspace extends DurableObject<Env> {
    * once, and in every room they're in through the outbox, where ember-rust's wait for a restart.
    */
   async resetPassword(emailAddress: string, passwordDigest: string): Promise<"reset" | "not found" | "bot"> {
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       const person = await this.store.personWithEmailAddress(emailAddress);
       if (!person) return "not found";
       if (person.bot) return "bot";
@@ -676,7 +685,7 @@ export class Workspace extends DurableObject<Env> {
       } finally {
         // Whether or not it saved: sockets whose sessions didn't end are let in again.
         this.closeSockets(person.id, CloseCode.Reconnect);
-        if (queued) await this.wakeAt(now);
+        if (queued) await this.revocationsQueued(now);
       }
       return "reset";
     });
@@ -941,7 +950,7 @@ export class Workspace extends DurableObject<Env> {
   async removePerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | "yourself" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const person = await this.store.activePerson(userId);
       if (!person) return "not found";
@@ -973,7 +982,7 @@ export class Workspace extends DurableObject<Env> {
       this.knownHelpContact = undefined;
       // Whether or not it saved: the app connects them again if they're still signed in.
       this.closeSockets(id, CloseCode.Revoked);
-      if (queued) await this.wakeAt(now);
+      if (queued) await this.revocationsQueued(now);
     }
     this.broadcast({ type: "user.updated", user: removed });
     return removed;
@@ -1059,7 +1068,7 @@ export class Workspace extends DurableObject<Env> {
   async deleteBot(credentials: Credentials, botId: UserId): Promise<"deleted" | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const bot = await this.store.activeBot(botId);
       if (!bot) return "not found";
@@ -1119,7 +1128,7 @@ export class Workspace extends DurableObject<Env> {
   ): Promise<DirectoryUser | BanProblem | "your address" | "forbidden" | "not found" | "yourself" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const person = await this.store.person(userId);
       if (!person) return "not found";
@@ -1147,7 +1156,7 @@ export class Workspace extends DurableObject<Env> {
         this.banChanges++;
         this.knownBannedAddresses = null;
         this.closeSockets(userId, CloseCode.Revoked);
-        if (queued) await this.wakeAt(now);
+        if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(banned ?? person);
       if (banned) this.broadcast({ type: "user.updated", user: listed });
@@ -1165,7 +1174,7 @@ export class Workspace extends DurableObject<Env> {
   async unbanPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const person = await this.store.person(userId);
       if (!person) return "not found";
@@ -1185,7 +1194,7 @@ export class Workspace extends DurableObject<Env> {
       } finally {
         this.banChanges++;
         this.knownBannedAddresses = null;
-        if (queued) await this.wakeAt(now);
+        if (queued) await this.revocationsQueued(now);
       }
       const listed = await this.directoryUser(unbanned ?? person);
       if (unbanned) this.broadcast({ type: "user.updated", user: listed });
@@ -1326,7 +1335,7 @@ export class Workspace extends DurableObject<Env> {
   async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       const found = await this.store.roomToChange(roomId, user.id);
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
@@ -1345,7 +1354,7 @@ export class Workspace extends DurableObject<Env> {
         saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
         queued = saved.removedIds.length > 0;
       } finally {
-        if (queued) await this.wakeAt(now);
+        if (queued) await this.revocationsQueued(now);
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
@@ -1380,7 +1389,7 @@ export class Workspace extends DurableObject<Env> {
   async deleteRoom(credentials: Credentials, roomId: RoomId): Promise<"deleted" | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.oneAtATime(async () => {
+    return this.closingSockets(async () => {
       const found = await this.store.roomToDelete(roomId, user.id);
       if (!found) return "not found";
       if (found.kind !== "direct" && !found.canAdminister) return "forbidden";
@@ -1390,7 +1399,7 @@ export class Workspace extends DurableObject<Env> {
         memberIds = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
       } finally {
         // As when signing out: the database may have saved the deletion, and so queued it, though its answer was lost.
-        await this.wakeAt(now);
+        await this.revocationsQueued(now);
       }
       this.tell(memberIds, { type: "room.gone", roomId });
       return "deleted";
@@ -1565,7 +1574,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Sends rooms the revocations due now, up to `limit` of them, each room its own in one call. Those a
-   * room doesn't take are tried again later. Answers how many it read.
+   * room doesn't take are tried again later, for as long as it takes. Answers how many it read.
    */
   private async deliverRevocations(limit: number): Promise<number> {
     const due = await this.store.dueRevocations(Date.now(), limit);
@@ -1584,9 +1593,7 @@ export class Workspace extends DurableObject<Env> {
         failed.push(...ids);
       }
     });
-    for (const { roomId, tag } of await this.store.settleRevocations(delivered, failed, Date.now())) {
-      console.error(`Gave up closing the sockets tagged ${tag} in room ${roomId}`);
-    }
+    await this.store.settleRevocations(delivered, failed, Date.now());
     return due.length;
   }
 
@@ -1668,6 +1675,53 @@ export class Workspace extends DurableObject<Env> {
   private async scheduleDelivery(): Promise<void> {
     const next = await this.store.nextDeliveryDue();
     if (next !== null) await this.wakeAt(next);
+  }
+
+  /**
+   * Makes a change that may end someone's access, one at a time with the other changes (`oneAtATime`),
+   * and if it queued revocations, delivers them before answering (`closeQueuedSockets`): once the next
+   * change can begin, so a room that's slow to answer holds up nothing else.
+   */
+  private closingSockets<T>(change: () => Promise<T>): Promise<T> {
+    return this.afterQueuing(() => this.oneAtATime(change));
+  }
+
+  /** Runs `change`, and if it queued revocations (`revocationsQueued`), delivers them before answering. */
+  private async afterQueuing<T>(change: () => Promise<T>): Promise<T> {
+    const queued = this.queuedRevocations;
+    try {
+      return await change();
+    } finally {
+      // Whether or not the change answered: on D1 it can be saved and its answer lost.
+      if (this.queuedRevocations !== queued) await this.closeQueuedSockets();
+    }
+  }
+
+  /**
+   * Sets the alarm for the revocations a change queued at `now`, so they're delivered even if nothing
+   * else here runs, and notes that it queued them, so `afterQueuing` delivers them at once.
+   */
+  private async revocationsQueued(now: number): Promise<void> {
+    this.queuedRevocations++;
+    await this.wakeAt(now);
+  }
+
+  /**
+   * Delivers the revocations a change has just queued, as the alarm would a moment later: until a room
+   * has them, a socket there whose access has ended can still read and write. Waits at most
+   * CLOSING_SOCKETS_MS, so a room that's slow to answer doesn't hold the change up; the alarm, set as
+   * they were queued, delivers to it, and to one that failed, later. The alarm may be delivering the same
+   * rows meanwhile, harmlessly: a room closes a socket once, and keeps the latest time a tag was revoked.
+   */
+  private async closeQueuedSockets(): Promise<void> {
+    const delivery = this.deliverRevocations(DELIVERIES_PER_RUN).catch((error) => console.error("Could not close sockets at once; the alarm will", error));
+    const waited = new AbortController();
+    try {
+      await Promise.race([delivery, scheduler.wait(CLOSING_SOCKETS_MS, { signal: waited.signal })]);
+    } finally {
+      // Stops the wait once the rooms have answered, rather than leaving it to run out.
+      waited.abort();
+    }
   }
 
   /** Sets the alarm for `time`, unless it's already set for sooner. */

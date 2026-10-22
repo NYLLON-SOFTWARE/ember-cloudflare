@@ -232,8 +232,9 @@ describe(feature("rooms.delete"), () => {
     const adaInRoom = await connect(room.id, ada);
     await post(adaInRoom, "Gone soon");
     const graceInRoom = await connect(room.id, grace);
-    // Holds the Workspace's delivery of Grace's revocation, the newest in its outbox, between reading
-    // it and delivering it, until the room is deleted, or for a second.
+    // Holds the delivery of Grace's revocation, the newest in the Workspace's outbox, between reading
+    // it and delivering it, until the room is deleted, or for a second. The change that takes her out
+    // delivers it before answering, so the change waits too.
     const race = { alarmHasRead: false, roomIsDeleted: false };
     await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
       const store = (workspace as unknown as { store: WorkspaceStore }).store;
@@ -249,13 +250,15 @@ describe(feature("rooms.delete"), () => {
     const closed = [closeOf(adaInRoom.ws), closeOf(graceInRoom.ws)];
 
     const takeGraceOut = { kind: "closed", memberIds: [ada.user.id] };
-    const changed = await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify(takeGraceOut) });
-    expect(changed.status).toBe(200);
+    const changing = api(`/api/rooms/${room.id}`, { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify(takeGraceOut) });
     await vi.waitFor(() => expect(race.alarmHasRead).toBe(true));
     expect((await remove(room.id, ada)).status).toBe(204);
     race.roomIsDeleted = true;
+    expect((await changing).status).toBe(200);
 
-    // Settling Grace's delivery leaves the deletion queued, to be delivered in turn.
+    // The deletion delivered before it answered, finding Grace's revocation still pending and taking it
+    // along, so her socket closed first, to reconnect; the held delivery then settled against a room
+    // that was gone, bringing nothing back.
     await delivered();
     expect(await countIn(room.id, "messages")).toBe(0);
     const [adaClosed, graceClosed] = await Promise.all(closed);
