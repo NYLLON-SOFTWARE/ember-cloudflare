@@ -476,3 +476,13 @@ describe(feature("users.avatar-upload"), () => {
     expect(picker()).toBeEnabled();
   });
 });
+
+describe(feature("accounts.custom-css"), () => {
+  it("keeps the new password typed out of its field's value attribute, where custom CSS could read it", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("New password"), "difference engine");
+    expect(field("New password")).toHaveValue("difference engine");
+    expect(field("New password")).not.toHaveAttribute("value");
+  });
+});

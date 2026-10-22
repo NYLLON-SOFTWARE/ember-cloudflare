@@ -200,3 +200,13 @@ describe(feature("accounts.logo"), () => {
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
   });
 });
+
+describe(feature("accounts.custom-css"), () => {
+  it("keeps the password typed out of its field's value attribute, where custom CSS could read it", async () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    const password = screen.getByLabelText("Password");
+    await userEvent.type(password, "correct horse");
+    expect(password).toHaveValue("correct horse");
+    expect(password).not.toHaveAttribute("value");
+  });
+});
