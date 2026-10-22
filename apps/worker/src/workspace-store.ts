@@ -535,6 +535,19 @@ const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
 /**
+ * The revocations due by a time that no delivery has tried yet, which a change has just queued: those
+ * of the rooms queued last, up to a number of rooms (a call each), every row of each in the order they
+ * were queued, since a socket closes with the first that names it. What a change delivers before it
+ * answers (workspace.ts `closeQueuedSockets`).
+ */
+export const QUEUED_REVOCATIONS = `SELECT revocations.id, revocations.room_id AS roomId, revocations.tag, revocations.code
+  FROM pending_revocations AS revocations
+  JOIN (SELECT room_id, max(id) AS last FROM pending_revocations WHERE attempts = 0 AND due_at <= ?1 GROUP BY room_id ORDER BY last DESC LIMIT ?2) AS rooms
+    ON rooms.room_id = revocations.room_id
+  WHERE revocations.attempts = 0 AND revocations.due_at <= ?1
+  ORDER BY rooms.last DESC, revocations.id`;
+
+/**
  * Queues deleting someone's messages in every room they can have written in, answering a row for
  * each: every room but the DMs they aren't in, whose people never change.
  */
@@ -1437,6 +1450,14 @@ export class WorkspaceStore {
   /** Up to `limit` of the revocations due by `now`, those due longest first. */
   async dueRevocations(now: number, limit: number): Promise<PendingRevocation[]> {
     return this.db.all<PendingRevocation>(DUE_REVOCATIONS, now, limit);
+  }
+
+  /**
+   * The revocations due by `now` that no delivery has tried yet, in up to `limit` rooms, those queued
+   * last first and every row of each: what a change has just queued.
+   */
+  async queuedRevocations(now: number, limit: number): Promise<PendingRevocation[]> {
+    return this.db.all<PendingRevocation>(QUEUED_REVOCATIONS, now, limit);
   }
 
   /**

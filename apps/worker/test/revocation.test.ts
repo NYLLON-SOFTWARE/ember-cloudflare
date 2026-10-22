@@ -266,6 +266,104 @@ describe(feature("realtime.connection"), () => {
     await giveBack();
   });
 
+  it("closes every socket a change ends in a room with one call, however many rows it queued there", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    // As many rows in the room as the alarm delivers a run, queued and not yet tried, as a change
+    // taking that many people out of it leaves.
+    const tags = Array.from({ length: 40 }, (_, i) => `u-${String(i).padStart(2, "0")}`);
+    await workspaceSql("INSERT INTO pending_revocations (room_id, tag, code, due_at) SELECT ?, value, ?, ? FROM json_each(?)", room.id, CloseCode.Revoked, LATER - 1, JSON.stringify(tags));
+    const calls: Array<{ roomId: RoomId; tags: string[] }> = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push({ roomId: call[0], tags: call[1].map(({ tag }) => tag) });
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
+
+    expect((await takeOut(room.id, ada)).status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.roomId).toBe(room.id);
+    expect(calls[0]!.tags).toHaveLength(41);
+    expect(calls[0]!.tags).toContain(grace.user.id);
+    expect(await waiting()).toEqual([]);
+    expect(await closed).toMatchObject(reconnect);
+    await giveBack();
+  });
+
+  it("calls the rooms a change queued last first, up to 40 of them, leaving older ones to the alarm", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    // A backlog as many rooms long as a run delivers, queued before the change and not yet tried.
+    const backlog = Array.from({ length: 40 }, (_, i) => `room-${String(i).padStart(2, "0")}`);
+    await workspaceSql("INSERT INTO pending_revocations (room_id, tag, code, due_at) SELECT value, 'u1', ?, ? FROM json_each(?)", CloseCode.Revoked, LATER - 1, JSON.stringify(backlog));
+    const calls: RoomId[] = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push(call[0]);
+        if (call[0] === room.id) await roomStub(call[0]).revoke(...call);
+      },
+    });
+
+    expect((await takeOut(room.id, ada)).status).toBe(200);
+    expect(calls[0]).toBe(room.id);
+    expect(calls).toHaveLength(40);
+    expect(calls).not.toContain("room-00");
+    expect(await waiting()).toEqual([{ room_id: "room-00", tag: "u1", attempts: 0, due_at: LATER - 1 }]);
+    expect(await alarm()).toBe(LATER);
+    expect(await closed).toMatchObject(reconnect);
+    await giveBack();
+  });
+
+  it("delivers a change's revocations after a delivery under way, never alongside it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: LATER });
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const closed = closeOf((await connect(room.id, grace)).ws);
+    let isClosed = false;
+    void closed.then(() => (isClosed = true));
+    // The alarm is delivering to a room that's slow to answer as the change comes. Were the two to run
+    // at once, each would settle the rows it read by id, and a deleted row's id can go to the next row
+    // queued, which the other would then settle undelivered.
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const calls: RoomId[] = [];
+    const giveBack = await standInForRooms({
+      revoke: async (...call) => {
+        calls.push(call[0]);
+        if (call[0] === "annex") return held;
+        await roomStub(call[0]).revoke(...call);
+      },
+    });
+    await queue("annex", "u1", CloseCode.Revoked, LATER - 1);
+    const alarmRun = runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.alarm());
+    await vi.waitFor(() => expect(calls).toEqual(["annex"]));
+
+    // Waiting moved the clock on.
+    const now = Date.now();
+    const changing = takeOut(room.id, ada);
+    expect(await Promise.race([changing.then(() => "answered"), scheduler.wait(1_500).then(() => "waiting")])).toBe("waiting");
+    expect((await changing).status).toBe(200);
+    expect(calls).toEqual(["annex"]);
+    expect(isClosed).toBe(false);
+    expect(await waiting()).toEqual([
+      { room_id: "annex", tag: "u1", attempts: 0, due_at: LATER - 1 },
+      { room_id: room.id, tag: grace.user.id, attempts: 0, due_at: now },
+    ]);
+
+    // Its turn comes once the annex answers.
+    letGo();
+    await alarmRun;
+    expect(await closed).toMatchObject(reconnect);
+    await vi.waitFor(async () => expect(await waiting()).toEqual([]));
+    expect(calls).toEqual(["annex", room.id]);
+    await giveBack();
+  });
+
   it("delivers 40 revocations a run, calling six rooms at once, and sets its alarm for the rest", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: LATER });
     const ids = Array.from({ length: 45 }, (_, i) => `room-${String(i).padStart(2, "0")}`);

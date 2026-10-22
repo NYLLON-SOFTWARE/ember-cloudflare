@@ -59,6 +59,7 @@ import {
   type JoinableAccount,
   type NewPerson,
   type OwnProfileEntry,
+  type PendingRevocation,
   type ProfileEntry,
   type PushDelivery,
   type RoomEventDeliveries,
@@ -84,8 +85,9 @@ const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
 /**
  * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
- * first, then purges, then reindexes. Each room it calls may count as a subrequest, of which an
- * invocation on the Free plan can make 50, its queries included.
+ * first, then purges, then reindexes, and how many rooms a change calls before it answers
+ * (`closeQueuedSockets`). Each room it calls may count as a subrequest, of which an invocation on the
+ * Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
 /**
@@ -247,6 +249,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
+  /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
+  private lastDelivery: Promise<unknown> = Promise.resolve();
   /** How many changes have queued revocations, which `afterQueuing` compares to see whether its change did. */
   private queuedRevocations = 0;
   /**
@@ -1565,7 +1569,7 @@ export class Workspace extends DurableObject<Env> {
    * the alarm for whatever is due next.
    */
   override async alarm(): Promise<void> {
-    const revocations = await this.deliverRevocations(DELIVERIES_PER_RUN);
+    const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
@@ -1573,11 +1577,21 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Sends rooms the revocations due now, up to `limit` of them, each room its own in one call. Those a
-   * room doesn't take are tried again later, for as long as it takes. Answers how many it read.
+   * Sends rooms the revocations `read` finds, each room its own in one call, once the delivery before
+   * has finished: never two at once, since each settles the rows it read by their ids, and a deleted
+   * row's id can go to the next row queued (SQLite gives a new row the largest id and one), which a
+   * delivery still holding the old id would then settle undelivered. Those a room doesn't take are
+   * tried again later, for as long as it takes. Answers how many it read.
    */
-  private async deliverRevocations(limit: number): Promise<number> {
-    const due = await this.store.dueRevocations(Date.now(), limit);
+  private deliverRevocations(read: (now: number) => Promise<PendingRevocation[]>): Promise<number> {
+    const delivery = this.lastDelivery.then(() => this.sendRevocations(read));
+    this.lastDelivery = delivery.catch(() => undefined);
+    return delivery;
+  }
+
+  /** Delivers the revocations `read` finds now (see `deliverRevocations`). */
+  private async sendRevocations(read: (now: number) => Promise<PendingRevocation[]>): Promise<number> {
+    const due = await read(Date.now());
     // Read after the rows, so it's later than every change that queued them, and so later than any
     // check that saw what came before one of those changes.
     const revokedAt = Date.now();
@@ -1708,13 +1722,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Delivers the revocations a change has just queued, as the alarm would a moment later: until a room
-   * has them, a socket there whose access has ended can still read and write. Waits at most
-   * CLOSING_SOCKETS_MS, so a room that's slow to answer doesn't hold the change up; the alarm, set as
-   * they were queued, delivers to it, and to one that failed, later. The alarm may be delivering the same
-   * rows meanwhile, harmlessly: a room closes a socket once, and keeps the latest time a tag was revoked.
+   * has them, a socket there whose access has ended can still read and write. Delivers what's queued
+   * and not yet tried, the rooms queued last first and every row of each, so a backlog of older rows
+   * doesn't crowd the change's out of the run, and one call closes however many sockets the change
+   * ends in a room. Waits at most CLOSING_SOCKETS_MS, so a room that's slow to answer, or a delivery
+   * under way, doesn't hold the change up; the alarm, set as the rows were queued, delivers whatever
+   * is left later.
    */
   private async closeQueuedSockets(): Promise<void> {
-    const delivery = this.deliverRevocations(DELIVERIES_PER_RUN).catch((error) => console.error("Could not close sockets at once; the alarm will", error));
+    const delivery = this.deliverRevocations((now) => this.store.queuedRevocations(now, DELIVERIES_PER_RUN)).catch((error) =>
+      console.error("Could not close sockets at once; the alarm will", error),
+    );
     const waited = new AbortController();
     try {
       await Promise.race([delivery, scheduler.wait(CLOSING_SOCKETS_MS, { signal: waited.signal })]);
