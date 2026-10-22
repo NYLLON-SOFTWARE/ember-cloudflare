@@ -58,6 +58,9 @@ const exif = (id: number): Item => ({ id, type: "Exif", data: exifOrientation(1)
 /** The size of most images here. */
 const size = { width: 1200, height: 800 };
 
+/** `count` ids, from `first` on. */
+const ids = (first: number, count: number) => Array.from({ length: count }, (_, n) => first + n);
+
 describe(feature("attachments.types"), () => {
   it("records an AVIF's or a HEIC's size from its image's extents, without reading its picture", () => {
     expect(metadataOf(heifFile(avif(1200, 800)), "image/avif")).toBe('{"identified":true,"width":1200,"height":800,"analyzed":true}');
@@ -363,5 +366,29 @@ describe(feature("attachments.types"), () => {
     expect(recordedSize({ ...avif(1200, 800), handler: null })).toEqual({ width: 1200, height: 800 });
     const whole = heifFile(avif(1200, 800));
     expect(recordedSize(whole.subarray(0, whole.length - 30))).toBeNull();
+  });
+
+  it("reads no more boxes in a box, nor items, than libheif's security limits let it", () => {
+    // 101 boxes in the `meta`, `iprp` and `ipco` boxes, which hold five, two and two here.
+    expect(recordedSize({ ...avif(1200, 800), free: { meta: 96 } })).toEqual(size);
+    expect(recordedSize({ ...avif(1200, 800), free: { meta: 97 } })).toBeNull();
+    expect(recordedSize({ ...avif(1200, 800), free: { iprp: 99 } })).toEqual(size);
+    expect(recordedSize({ ...avif(1200, 800), free: { iprp: 100 } })).toBeNull();
+    expect(recordedSize(avif(1200, 800, ...Array.from({ length: 99 }, unknownBox)))).toEqual(size);
+    expect(recordedSize(avif(1200, 800, ...Array.from({ length: 100 }, unknownBox)))).toBeNull();
+    // 1,000 entries in an `ipma` box, here mostly for items the `iinf` box doesn't list, and 1,000 items in a reference.
+    expect(recordedSize({ ...avif(1200, 800), unlisted: ids(2, 999).map((id) => ({ id, properties: [] })) })).toEqual(size);
+    expect(recordedSize({ ...avif(1200, 800), unlisted: ids(2, 1000).map((id) => ({ id, properties: [] })) })).toBeNull();
+    expect(recordedSize({ ...avif(1200, 800), references: [{ type: "zzzz", from: 1, to: ids(2, 1000) }] })).toEqual(size);
+    expect(recordedSize({ ...avif(1200, 800), references: [{ type: "zzzz", from: 1, to: ids(2, 1001) }] })).toBeNull();
+  });
+
+  it("reads no more than 1,000 items or references, where libheif reads any number, so that no file keeps it long", () => {
+    const items = (count: number): Item[] => [{ id: 1, properties: image(1200, 800) }, ...ids(2, count - 1).map((id) => ({ id, type: "zzzz" }))];
+    expect(recordedSize({ items: items(1000) })).toEqual(size);
+    expect(recordedSize({ items: items(1001) })).toBeNull();
+    const references = (count: number): Reference[] => Array.from({ length: count }, () => ({ type: "zzzz", from: 1, to: [1] }));
+    expect(recordedSize({ ...avif(1200, 800), references: references(1000) })).toEqual(size);
+    expect(recordedSize({ ...avif(1200, 800), references: references(1001) })).toBeNull();
   });
 });

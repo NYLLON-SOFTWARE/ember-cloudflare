@@ -235,12 +235,25 @@ const MAX_HEIF_PIXELS = 0x4000 ** 2;
 const MAX_INT = 2 ** 31 - 1;
 
 /**
+ * The most boxes libheif 1.19's security limits let it read in a `meta`, `iprp` or `ipco` box: before it adds
+ * each, it checks the box holds no more than 100 already (`Box::read_children`), so it refuses the 102nd.
+ */
+const MAX_HEIF_CHILDREN = 101;
+
+/**
+ * The most entries libheif 1.19's security limits let it read in an `ipma` box, and items an `iref` reference
+ * can be to (`max_items`). This reader takes no more items in the `iinf` box, nor references in the `iref` box,
+ * where libheif has no limit, so that it reads any file in little time and memory: a file of more has no size.
+ */
+const MAX_HEIF_ITEMS = 1000;
+
+/**
  * A HEIF's size as libvips reads it with libheif: its primary image's, from its properties, where that's one
  * of its top-level images, and otherwise the first of them, in the order of their ids. Those are the images
  * that aren't hidden, nor another image's thumbnail (`thmb`) or auxiliary image (`auxl`), such as its alpha
  * channel, nor a region's mask (`mask`). A file libheif refuses, without the boxes it needs or with any image
  * it can't read, is unreadable: one without its codec's configuration, with an essential property libheif
- * doesn't know, too large, or with references between its items that libheif refuses.
+ * doesn't know, too large, past its security limits, or with references between its items that it refuses.
  */
 function heif(view: DataView, bytes: Uint8Array): Header | null {
   // libvips takes an `ftyp` box of whole words, of up to 2,048 bytes, with one of its major brands, and
@@ -252,7 +265,7 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
 
   const meta = metaAfter(view, bytes, ftypSize);
   if (!meta || meta.view.getUint8(0) !== 0) return null;
-  const children = [...boxesIn(meta.bytes, 4)];
+  const children = childrenIn(meta.bytes, 4);
   const [hdlr, pitm, iloc, iinf, iprp, iref] = ["hdlr", "pitm", "iloc", "iinf", "iprp", "iref"].map((type) => children.find((box) => box.type === type));
   if (hdlr && (hdlr.view.getUint8(0) !== 0 || hdlr.bytes.length < 24 || ascii(hdlr.bytes, 8, 4) !== "pict")) return null;
   if (!pitm || !iloc || !iinf || !iprp || pitm.view.getUint8(0) > 1) return null;
@@ -261,11 +274,11 @@ function heif(view: DataView, bytes: Uint8Array): Header | null {
   const images = new Set([...items.keys()].filter((id) => isHeifImage(items.get(id)!)).sort((a, b) => a - b));
   if (!images.has(primary) || items.get(primary)!.hidden) return null;
 
-  const iprpChildren = [...boxesIn(iprp.bytes)];
+  const iprpChildren = childrenIn(iprp.bytes);
   const ipco = iprpChildren.find((box) => box.type === "ipco");
   if (!ipco) return null;
-  const properties = [...boxesIn(ipco.bytes)];
-  const associations = associationsOf(iprpChildren.filter((box) => box.type === "ipma"));
+  const properties = childrenIn(ipco.bytes);
+  const associations = associationsOf(iprpChildren.filter((box) => box.type === "ipma"), images);
   const sizes = new Map<number, Header>();
   const auxiliary = new Set<number>();
   for (const id of images) {
@@ -328,6 +341,16 @@ function* boxesIn(bytes: Uint8Array, at = 0): Generator<Box> {
   }
 }
 
+/** The boxes a box holds in `bytes` from `at`, of which libheif reads no more than `MAX_HEIF_CHILDREN`. */
+function childrenIn(bytes: Uint8Array, at = 0): Box[] {
+  const children = [];
+  for (const box of boxesIn(bytes, at)) {
+    if (children.length === MAX_HEIF_CHILDREN) throw new RangeError("Too many boxes in a box");
+    children.push(box);
+  }
+  return children;
+}
+
 /**
  * The `meta` box libheif finds by skipping from box to box after the `ftyp` box at the start, which it
  * does while one starts at least 32 bytes before the end.
@@ -351,7 +374,7 @@ interface Item {
   contentType?: string;
 }
 
-/** The items an `iinf` box lists, as many as it says it has, by their ids, the first for each id. */
+/** The items an `iinf` box lists, as many as it says it has, up to `MAX_HEIF_ITEMS`, by their ids, the first for each id. */
 function itemsOf({ bytes, view }: Box): Map<number, Item> {
   const items = new Map<number, Item>();
   const wide = view.getUint8(0) !== 0;
@@ -360,6 +383,7 @@ function itemsOf({ bytes, view }: Box): Map<number, Item> {
   for (let n = 0; n < count; n++) {
     const next = listed.next();
     if (next.done) break;
+    if (n === MAX_HEIF_ITEMS) throw new RangeError("Too many items");
     if (next.value.type !== "infe") continue;
     const infe = next.value;
     const version = infe.view.getUint8(0);
@@ -397,8 +421,8 @@ interface Reference {
 }
 
 /**
- * An `iref` box's references, which libheif reads one after another, past each one's header. It refuses one
- * to no item, or to an item twice.
+ * An `iref` box's references, up to `MAX_HEIF_ITEMS`, which libheif reads one after another, past each one's
+ * header. It refuses one to no item, to an item twice, or to more items than its security limits allow.
  */
 function referencesOf({ bytes, view }: Box): Reference[] {
   const version = view.getUint8(0);
@@ -406,11 +430,13 @@ function referencesOf({ bytes, view }: Box): Reference[] {
   const [idOf, idSize] = version === 0 ? [(at: number) => view.getUint16(at), 2] : [(at: number) => view.getUint32(at), 4];
   const references = [];
   for (let at = 4; at < bytes.length; ) {
+    if (references.length === MAX_HEIF_ITEMS) throw new RangeError("Too many references");
     const type = ascii(bytes, at + 4, 4);
     at += view.getUint32(at) === 1 ? 16 : 8;
     const from = idOf(at);
     const count = view.getUint16(at + idSize);
     if (count === 0) throw new RangeError("A reference to nothing");
+    if (count > MAX_HEIF_ITEMS) throw new RangeError(`A reference to ${count} items`);
     at += idSize + 2;
     const to = Array.from({ length: count }, (_, n) => idOf(at + n * idSize));
     if (new Set(to).size < count) throw new RangeError("A reference to an item twice");
@@ -514,27 +540,36 @@ interface Association {
   essential: boolean;
 }
 
-/** Each item's associations with properties, from its first entry in the `ipma` boxes. */
-function associationsOf(ipmas: Box[]): Map<number, Association[]> {
-  const items = new Map<number, Association[]>();
+/**
+ * The associations with properties of each of `images`, from its first entry in the `ipma` boxes, of which
+ * libheif refuses one of more than `MAX_HEIF_ITEMS` entries.
+ */
+function associationsOf(ipmas: Box[], images: Set<number>): Map<number, Association[]> {
+  const associations = new Map<number, Association[]>();
   for (const { view } of ipmas) {
     const version = view.getUint8(0);
     if (version > 1) throw new RangeError(`An ipma box of version ${version}`);
     // Its flags say whether each place takes 15 bits or 7, after a bit saying whether it's essential.
-    const wide = (view.getUint32(0) & 1) === 1;
+    const [placeSize, essentialBit] = (view.getUint32(0) & 1) === 1 ? [2, 0x8000] : [1, 0x80];
     const count = view.getUint32(4);
+    if (count > MAX_HEIF_ITEMS) throw new RangeError(`An ipma box of ${count} entries`);
     for (let at = 8, entry = 0; entry < count && at < view.byteLength; entry++) {
       const id = version === 0 ? view.getUint16(at) : view.getUint32(at);
       at += version === 0 ? 2 : 4;
-      const associated: Association[] = [];
-      for (let left = view.getUint8(at++); left > 0; left--, at += wide ? 2 : 1) {
-        const [bits, essentialBit] = wide ? [view.getUint16(at), 0x8000] : [view.getUint8(at), 0x80];
-        associated.push({ place: bits & (essentialBit - 1), essential: (bits & essentialBit) !== 0 });
+      const end = at + 1 + view.getUint8(at) * placeSize;
+      if (end > view.byteLength) throw new RangeError("An entry runs past its ipma box");
+      if (images.has(id) && !associations.has(id)) {
+        const associated: Association[] = [];
+        for (at++; at < end; at += placeSize) {
+          const bits = placeSize === 2 ? view.getUint16(at) : view.getUint8(at);
+          associated.push({ place: bits & (essentialBit - 1), essential: (bits & essentialBit) !== 0 });
+        }
+        associations.set(id, associated);
       }
-      if (!items.has(id)) items.set(id, associated);
+      at = end;
     }
   }
-  return items;
+  return associations;
 }
 
 /**

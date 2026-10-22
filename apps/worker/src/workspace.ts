@@ -48,7 +48,7 @@ import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import { SessionCache } from "./session-cache";
-import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./sockets";
+import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import {
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
@@ -310,6 +310,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Answers a ping that the runtime doesn't, because it carries more than its type. A workspace socket sends nothing else. */
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (isTooLarge(raw, MAX_WORKSPACE_FRAME_SIZE)) return closeTooLarge(ws);
     const frame = typeof raw === "string" ? parseWorkspaceClientFrame(raw) : null;
     send(ws, frame ? { type: "pong" } : { type: "error", message: "Unrecognized frame" });
   }
