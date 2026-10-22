@@ -272,13 +272,14 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
- * while the value after their id says guests can't stay signed in, or the session the last value names,
- * which showed the link, has ended or is neither theirs nor an active administrator's.
+ * while ?7 says guests can't stay signed in, or the session ?8 names, which showed the link, has ended,
+ * is a guest's while ?7 says that, or is neither theirs nor an active administrator's.
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND (guest = 0 OR ? = 1)
+  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE} AND (guest = 0 OR ?7 = 1)
     AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
-      WHERE showing.id = ? AND shower.status = ${ACTIVE} AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
+      WHERE showing.id = ?8 AND shower.status = ${ACTIVE} AND (shower.guest = 0 OR ?7 = 1)
+        AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
@@ -961,12 +962,15 @@ const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? O
  * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
  * with its user agent, or, when they've saved one at the same endpoint before, records that it was
  * saved again, as ember-rust touches it, with the keys and user agent it has now. ember-rust adds
- * another for keys that differ, which each message then pushes to as well.
+ * another for keys that differ, which each message then pushes to as well. It saves nothing once their
+ * session ?7, which was checked first, has ended, answering a row only if it saves: on D1 a password
+ * reset can end the session in between, and a subscription saved after would outlive it.
  */
 const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
-  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?7 AND user_id = ?1)
   ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh_key = excluded.p256dh_key, auth_key = excluded.auth_key,
-    user_agent = excluded.user_agent, updated_at = excluded.updated_at`;
+    user_agent = excluded.user_agent, updated_at = excluded.updated_at
+  RETURNING id`;
 
 /**
  * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
@@ -1311,7 +1315,7 @@ export class WorkspaceStore {
     now: string,
   ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, guests ? 1 : 0, shownBy),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -1576,13 +1580,21 @@ export class WorkspaceStore {
 
   /**
    * Saves a browser's push subscription for someone, with its user agent, or records that they saved it
-   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently.
+   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently. Answers whether it
+   * saved it, which it doesn't once their session `sessionId` has ended.
    */
-  async savePushSubscription(userId: UserId, { endpoint, p256dhKey, authKey }: PushSubscriptionKeys, userAgent: string | null, now: string): Promise<void> {
-    await this.db.batch([
-      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now),
+  async savePushSubscription(
+    userId: UserId,
+    sessionId: string,
+    { endpoint, p256dhKey, authKey }: PushSubscriptionKeys,
+    userAgent: string | null,
+    now: string,
+  ): Promise<boolean> {
+    const [saved] = await this.db.batch([
+      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now, sessionId),
       statement(TRIM_PUSH_SUBSCRIPTIONS, userId, MAX_PUSH_SUBSCRIPTIONS),
     ]);
+    return saved!.length > 0;
   }
 
   /** Someone's push subscriptions, oldest first. */

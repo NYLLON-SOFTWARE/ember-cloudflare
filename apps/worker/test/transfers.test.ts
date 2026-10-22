@@ -242,6 +242,17 @@ describe(feature("auth.sign-in-link"), () => {
     expect((await post(administrator)).status).toBe(201);
   });
 
+  it("answers 400 for a link an administrator who signed in with just a name showed, while EMBER_GUEST_SIGN_IN doesn't allow it", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    // Making her an administrator leaves her a guest.
+    await workspaceSql("UPDATE users SET role = 1 WHERE id = ?", grace.user.id);
+    const adas = (await personAnswer(grace, administrator.user.id)).transferId!;
+
+    await expectRefused(await apiWith({ EMBER_GUEST_SIGN_IN: undefined }, "/api/session/transfers", signInWith(adas)), "shown by a guest");
+    expect((await transfer(adas)).status).toBe(201);
+  });
+
   it("refuses to sign in from other sites", async () => {
     const grace = await signIn("Grace Hopper");
     const response = await transfer(await yourTransferId(grace), null, { headers: { "Sec-Fetch-Site": "cross-site" } });

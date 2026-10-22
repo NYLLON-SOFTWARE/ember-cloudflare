@@ -604,8 +604,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Signs in the person a sign-in link names, with a session of its own, as ember-rust's session
    * transfers do, unless they're no longer active, or are a guest while `guests` says guests can't
-   * stay signed in, or the session that showed the link has ended or is neither theirs nor an active
-   * administrator's.
+   * stay signed in, or the session that showed the link has ended, is a guest's while that's so, or is
+   * neither theirs nor an active administrator's.
    */
   async transferSession({ userId, sessionId: shownBy }: Transfer, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
@@ -1472,13 +1472,14 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves a browser's push subscription, already checked, for the person `credentials` signs in, with
-   * the browser's user agent, answering false without a valid session. Given none, it only checks the
-   * session, for a subscription that's refused.
+   * the browser's user agent, answering false without a valid session, or if it ends before the
+   * subscription is saved, as a password reset can on D1. Given none, it only checks the session, for a
+   * subscription that's refused.
    */
   async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionKeys | null): Promise<boolean> {
-    const user = await this.authenticate(credentials);
-    if (user && subscription) await this.store.savePushSubscription(user.id, subscription, credentials.client.userAgent, new Date().toISOString());
-    return user !== null;
+    const session = await this.session(credentials);
+    if (!session || !subscription) return session !== null;
+    return this.store.savePushSubscription(session.user.id, session.id, subscription, credentials.client.userAgent, new Date().toISOString());
   }
 
   /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */
