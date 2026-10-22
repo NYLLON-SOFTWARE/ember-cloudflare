@@ -170,10 +170,13 @@ export async function uploadPart(request: Request, env: Env, roomId: RoomId, key
   if (upload.metadata === null) {
     const bytes = new Uint8Array(await request.arrayBuffer());
     // Again now the part has arrived, which can take as long as its sender likes: long enough for
-    // their access to end, or for the Workspace's word to be too old for the room to take.
-    uploader = await uploaderIn(env, credentials, roomId);
-    if (uploader instanceof Response) return uploader;
-    return storeFirstPart(env, files, roomId, uploader, upload, bytes);
+    // their access to end, or for the Workspace's word to be too old for the room to take, or for
+    // another request to post the file, when it answers as a part sent after the post does.
+    const [arrived, unposted] = await Promise.all([uploaderIn(env, credentials, roomId), room.uploadOf(roomId, uploader.user.id, key)]);
+    if (arrived instanceof Response) return arrived;
+    if (!unposted) return problem(404, UPLOAD_NOT_FOUND);
+    if (unposted.completedAt) return posted(await room.finishUpload(roomId, arrived, key));
+    return storeFirstPart(env, files, roomId, arrived, upload, bytes);
   }
 
   // A part after the first, or the first again, once the first has started the upload.
@@ -263,8 +266,14 @@ async function storeFirstPart(env: Env, files: R2Bucket, roomId: RoomId, uploade
   const key = objectKey(upload.id);
 
   if (uploadParts(upload.byteSize) === 1) {
-    await files.put(key, bytes, options);
-    return finish(env, files, roomId, uploader, upload.id, identified);
+    // Only the first request to store the file does, so none can replace the file a message shows.
+    // Any after posts the file R2 has, in case the first didn't live to.
+    if (await files.put(key, bytes, { ...options, onlyIf: new Headers({ "If-None-Match": "*" }) })) {
+      return finish(env, files, roomId, uploader, upload.id, identified);
+    }
+    const stored = await files.get(key);
+    if (!stored) return problem(404, UPLOAD_NOT_FOUND);
+    return finish(env, files, roomId, uploader, upload.id, identifiedOf(new Uint8Array(await stored.arrayBuffer()), upload.filename, upload.contentType));
   }
   const multipart = await files.createMultipartUpload(key, options);
   const { partNumber, etag } = await multipart.uploadPart(1, bytes);
