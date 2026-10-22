@@ -1737,7 +1737,7 @@ export const features = [
     ],
     sources: ["reference/app/channels/typing_notifications_channel.rb", "crates/ember/src/channels/typing_notifications.rs", "reference/app/javascript/controllers/typing_notifications_controller.js", "reference/app/javascript/models/typing_tracker.js", "crates/views/templates/rooms/show/_composer.html", "reference/app/assets/stylesheets/spinner.css"],
     upstreamTests: ["crates/ember/src/channels/tests/channels_test.rs", "parity/screens.yml"],
-    notes: "Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once. Sending a message tells everyone else its author stopped as it arrives, rather than with a stop of its own. Without motion, the spinner's dots hold still in a row, where ember-rust's reset stacks them into one dot. Names that don't fit on one line end in an ellipsis, where ember-rust's wrap down over the message box.",
+    notes: "Typists are told apart by id, so two people with the same name show as two, where ember-rust shows the name once. Sending a message tells everyone else its author stopped as it arrives, rather than with a stop of its own. Closing a tab that was typing tells everyone else its person stopped at once, where ember-rust's channel says nothing when a tab closes (typing_notifications.rs) and leaves the name up for its 5 seconds; closing one that wasn't typing says nothing, as there. Without motion, the spinner's dots hold still in a row, where ember-rust's reset stacks them into one dot. Names that don't fit on one line end in an ellipsis, where ember-rust's wrap down over the message box.",
   },
   {
     id: "realtime.reconnect",

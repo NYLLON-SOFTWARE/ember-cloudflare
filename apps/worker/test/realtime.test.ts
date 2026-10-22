@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { STORED_CLIENT_MESSAGE_IDS } from "../src/store";
@@ -39,14 +39,15 @@ describe(feature("realtime.presence"), () => {
     expect(names(secondTab.welcome.present)).toEqual(["Ada", "Grace"]);
 
     firstTab.close();
-    // Closing one of her tabs only stops any typing in it.
-    expect(await ada.next("typing")).toEqual({ type: "typing", user: grace.user, typing: false });
+    await tabsOpen(room, grace.user.id, 1);
     secondTab.close();
     await ada.next("presence.left");
     expect(ada.log.filter((frame) => frame.type.startsWith("presence."))).toEqual([
       { type: "presence.joined", user: grace.user },
       { type: "presence.left", userId: grace.user.id },
     ]);
+    // Neither tab was typing, so closing them said nothing about typing.
+    expect(ada.log.filter((frame) => frame.type === "typing")).toEqual([]);
   });
 
   it("tells everyone when someone's connection drops without closing", async () => {
@@ -91,6 +92,24 @@ describe(feature("realtime.typing"), () => {
     expect((await grace.next("message.created")).message).toEqual(message);
     await settle(grace);
     expect(grace.pending("typing")).toEqual([]);
+  });
+
+  it("stops someone's typing when the tab doing it closes, and not when another of their tabs does", async () => {
+    const room = await freshRoom("typing-tabs");
+    const ada = await connect(room, "Ada");
+    const grace = await signIn("Grace");
+    const typing = await connect(room, grace);
+    const idle = await connect(room, grace);
+    await connect(room, grace);
+    typing.send({ type: "typing.start" });
+    expect(await ada.next("typing")).toEqual({ type: "typing", user: grace.user, typing: true });
+
+    idle.close();
+    await tabsOpen(room, grace.user.id, 2);
+    typing.close();
+    expect(await ada.next("typing")).toEqual({ type: "typing", user: grace.user, typing: false });
+    await settle(ada);
+    expect(ada.pending("typing")).toEqual([]);
   });
 
   it("lets someone's leaving say they've stopped typing, without a frame of its own", async () => {
@@ -183,3 +202,11 @@ describe(feature("platform.hibernation"), () => {
     expect(await ada.next("presence.left")).toEqual({ type: "presence.left", userId: grace.me.id });
   });
 });
+
+/** Resolves once the room has `count` of `userId`'s sockets open, having handled the rest closing. */
+const tabsOpen = (room: string, userId: string, count: number) =>
+  vi.waitFor(() =>
+    runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      expect(state.getWebSockets(userId)).toHaveLength(count);
+    }),
+  );

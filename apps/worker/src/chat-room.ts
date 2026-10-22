@@ -52,6 +52,8 @@ interface Attachment extends Viewing {
   revoked?: true;
   /** Set when a ban blocks the IP address the socket comes from: it can read, but not change anything. */
   banned?: true;
+  /** Set while the tab is typing, from its typing.start until its typing.stop or message, so closing it stops only typing it did. */
+  typing?: true;
 }
 
 export const USER_HEADER = "X-Ember-User";
@@ -85,6 +87,14 @@ const BANNED = "Request failed (429)";
 const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
+
+/** Keeps in `ws`'s attachment whether its tab is typing, writing it only when that changes. */
+function markTyping(ws: WebSocket, typing: boolean): void {
+  const attachment = ws.deserializeAttachment() as Attachment;
+  if ((attachment.typing === true) === typing) return;
+  const { typing: _, ...rest } = attachment;
+  ws.serializeAttachment((typing ? { ...rest, typing: true } : rest) satisfies Attachment);
+}
 
 /** A page of a room's messages as the bot API reads it, with how many messages the room has. */
 export interface BotPage extends Omit<TimelinePage, "around"> {
@@ -651,6 +661,8 @@ export class ChatRoom extends DurableObject<Env> {
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
         await this.create(store, user, frame.clientMessageId, body, now);
+        // Everyone else takes the message as its author's stop.
+        markTyping(ws, false);
         return;
       }
       case "message.update": {
@@ -682,8 +694,11 @@ export class ChatRoom extends DurableObject<Env> {
         return this.removeBoost(store, boost);
       }
       case "typing.start":
-      case "typing.stop":
-        return this.broadcast({ type: "typing", user, typing: frame.type === "typing.start" }, ws);
+      case "typing.stop": {
+        const typing = frame.type === "typing.start";
+        markTyping(ws, typing);
+        return this.broadcast({ type: "typing", user, typing }, ws);
+      }
       case "history.before": {
         const { messages, hasMore } = await store.page(frame.limit ?? HISTORY_PAGE_SIZE, frame.before);
         return this.send(ws, { type: "history", before: frame.before, messages, hasMore });
@@ -1121,15 +1136,19 @@ export class ChatRoom extends DurableObject<Env> {
 
   /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */
   private leave(ws: WebSocket): void {
-    const { user, revoked } = ws.deserializeAttachment() as Attachment;
-    if (!revoked) this.depart(user, ws);
+    const { user, revoked, typing } = ws.deserializeAttachment() as Attachment;
+    if (!revoked) this.depart(user, ws, typing === true);
   }
 
-  /** Tells the room that `user` closed a socket, `closed` if it's just the one, and has left if it was their last. */
-  private depart(user: User, closed?: WebSocket): void {
-    // Closing one of several tabs only stops the typing it may have been doing.
-    if (this.isPresent(user.id, closed)) this.broadcast({ type: "typing", user, typing: false }, closed);
-    else this.broadcast({ type: "presence.left", userId: user.id }, closed);
+  /**
+   * Tells the room that `user` closed a socket, `closed` if it's just the one, and has left if it was
+   * their last. Closing one of several tabs stops the typing it was doing, if it was: telling everyone
+   * whenever any tab closes was a message to everyone in a busy room for each room someone switched
+   * away from, and cleared the typing another of their tabs was doing.
+   */
+  private depart(user: User, closed?: WebSocket, typing = true): void {
+    if (!this.isPresent(user.id, closed)) this.broadcast({ type: "presence.left", userId: user.id }, closed);
+    else if (typing) this.broadcast({ type: "typing", user, typing: false }, closed);
   }
 
   private refuse(ws: WebSocket, message: string): void {
