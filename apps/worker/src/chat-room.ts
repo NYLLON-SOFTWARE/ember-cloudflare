@@ -160,6 +160,12 @@ export class ChatRoom extends DurableObject<Env> {
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
+  /**
+   * Who has read the room since its latest message, as far as this object has seen. Only a new message
+   * marks a room unread, so until one comes another read of theirs would change nothing, and isn't
+   * logged, as ember-rust's `read` writes nothing for a membership that's read (membership.rs).
+   */
+  private readonly readers = new Set<UserId>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -740,6 +746,8 @@ export class ChatRoom extends DurableObject<Env> {
     kind?: "message" | "reply",
     posted?: PostedFile,
   ): Promise<Message> {
+    // Before the batch, which on D1 may save the message even when it fails.
+    this.readers.clear();
     const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted);
     this.broadcast({ type: "message.created", message, seq });
     const couriers = this.couriersFor(store.roomId);
@@ -898,9 +906,14 @@ export class ChatRoom extends DurableObject<Env> {
     return (this.blobs ??= new Blobs(this.dbFor(), roomId));
   }
 
-  /** Logs that `userId` has read the room, for the Workspace to clear their mark, and sends it the log. */
+  /**
+   * Logs that `userId` has read the room, unless they have since its latest message, for the Workspace
+   * to clear their mark, and sends it the log.
+   */
   private async read(roomId: RoomId, userId: UserId): Promise<void> {
+    if (this.readers.has(userId)) return;
     await this.logFor(roomId).read(userId, new Date().toISOString());
+    this.readers.add(userId);
     this.couriersFor(roomId).workspace.deliver();
   }
 
