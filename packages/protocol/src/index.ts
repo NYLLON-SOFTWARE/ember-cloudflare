@@ -83,6 +83,7 @@ export {
 export {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,
+  MAX_PUSH_SUBSCRIPTIONS,
   parsePushSubscription,
   signOutEndpointOf,
   type PushSubscriptionKeys,

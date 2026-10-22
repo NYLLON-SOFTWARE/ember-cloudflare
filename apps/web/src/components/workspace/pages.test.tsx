@@ -92,7 +92,8 @@ describe(feature("ui.layout"), () => {
     show("/rooms/random");
     expect(idle).toEqual([]);
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("random");
-    expect(idle).toHaveLength(1);
+    // Asked for by the effects of the commit that listed the rooms, which can run a task after the heading shows.
+    await vi.waitFor(() => expect(idle).toHaveLength(1));
 
     await act(async () => {
       idle[0]!();
