@@ -1,6 +1,7 @@
 import type { LinkPreview } from "@ember/protocol";
 import { DurableObject } from "cloudflare:workers";
 import { credentialsOf } from "../auth";
+import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { workspace } from "../workspace";
 import { Outbound, type Network } from "./fetch";
@@ -31,7 +32,7 @@ export async function unfurlLink(request: Request, env: Env): Promise<Response> 
   if (!verdict) return problem(401, "Not signed in");
   if (verdict === "limited") return problem(429, "Too many link previews. Try again in a minute.");
 
-  const url = requiredUrl(await request.json().catch(() => null));
+  const url = requiredUrl(await jsonBodyOf(request));
   if (url === undefined) return problem(400, "param is missing or the value is empty: url");
   // A hash, an array or a number gets past `require`, but isn't a URL.
   if (typeof url !== "string" || isOwnHost(url, request)) return noContent();

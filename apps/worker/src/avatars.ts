@@ -1,6 +1,7 @@
 import { avatarSvg } from "@ember/protocol";
 import { credentialsOf } from "./auth";
 import { avatarTokenUser } from "./avatar-tokens";
+import { jsonBodyOf } from "./bodies";
 import { DEFAULT_BOT_AVATAR } from "./default-bot-avatar";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
@@ -109,7 +110,7 @@ export interface UserForm {
  */
 export async function userFormOf(request: Request): Promise<UserForm | PictureRefusal> {
   if (!request.headers.get("Content-Type")?.startsWith("multipart/form-data")) {
-    return { fields: await request.json().catch(() => null), photo: null };
+    return { fields: await jsonBodyOf(request), photo: null };
   }
   const form = await pictureFormOf(request);
   if (!(form instanceof FormData)) return form;

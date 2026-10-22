@@ -1,4 +1,5 @@
 import { isPasswordTooLong, isPasswordTooShort, parsePasswordReset } from "@ember/protocol";
+import { jsonBodyOf } from "./bodies";
 import type { Env } from "./env";
 import { passwordHasher } from "./passwords";
 import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
@@ -41,7 +42,7 @@ export async function carriesRecoveryToken(request: Request, env: Env): Promise<
  */
 export async function resetPassword(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST" || !(await carriesRecoveryToken(request, env))) return problem(404, "Not found");
-  const reset = parsePasswordReset(await request.json().catch(() => null));
+  const reset = parsePasswordReset(await jsonBodyOf(request));
   if (typeof reset === "string") return problem(400, reset);
   // Before anything is hashed or read, as in ember-rust, which takes up to 4096 bytes. Sign-in takes no
   // more than its form sends, so neither does this.

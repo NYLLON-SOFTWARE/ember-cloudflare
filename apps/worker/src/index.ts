@@ -3,6 +3,7 @@ import {
   CloseCode,
   LOGO_PATH,
   LOGO_TOO_LARGE,
+  MAX_EMAIL_ADDRESS_LENGTH,
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
@@ -57,6 +58,7 @@ import {
 import { directoryOf } from "./avatar-tokens";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
+import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
@@ -105,7 +107,7 @@ const problem = (status: number, message: string) => json({ error: message }, { 
 /** Signs in with an email address and password, or with just a name when the body gives one. */
 async function signIn(request: Request, env: Env): Promise<Response> {
   // Any JSON value parses, null and numbers included, so don't assume an object.
-  const body: unknown = await request.json().catch(() => null);
+  const body: unknown = await jsonBodyOf(request);
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   return "name" in fields ? signInGuest(fields.name, request, env) : signInWithPassword(fields, request, env);
 }
@@ -117,8 +119,14 @@ async function signIn(request: Request, env: Env): Promise<Response> {
  */
 async function signInWithPassword({ emailAddress, password }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
   // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
-  // form sends, which nobody can have.
-  const given = typeof emailAddress === "string" && typeof password === "string" && password !== "" && !isPasswordTooLong(password);
+  // form sends, which nobody can have, or an email address longer than any account's, which the
+  // Workspace would otherwise be sent whole.
+  const given =
+    typeof emailAddress === "string" &&
+    emailAddress.length <= MAX_EMAIL_ADDRESS_LENGTH &&
+    typeof password === "string" &&
+    password !== "" &&
+    !isPasswordTooLong(password);
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const found = await workspace(env).beginSignIn(ip, given ? emailAddress : null);
   if (found === "limited") return problem(429, SIGN_IN_REFUSED);
@@ -218,7 +226,7 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const changes = parseAccountChanges(await request.json().catch(() => null));
+  const changes = parseAccountChanges(await jsonBodyOf(request));
   // Changes that don't parse change nothing, but who's asking is still checked first.
   const account = await workspace(env).changeAccount(credentials, typeof changes === "string" ? {} : changes);
   if (!account) return problem(401, "Not signed in");
@@ -243,7 +251,7 @@ async function customStyles(request: Request, env: Env): Promise<Response> {
 async function changeCustomStyles(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const change = parseCustomStyles(await request.json().catch(() => null));
+  const change = parseCustomStyles(await jsonBodyOf(request));
   // A change that doesn't parse changes nothing, but who's asking is still checked first.
   const account = await workspace(env).changeCustomStyles(credentials, typeof change === "string" ? undefined : change.customStyles);
   if (!account) return problem(401, "Not signed in");
@@ -292,7 +300,7 @@ function logoChanged(account: Account | "forbidden" | null): Response {
 async function changeRole(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const change = parseRoleChange(await request.json().catch(() => null));
+  const change = parseRoleChange(await jsonBodyOf(request));
   // A change that doesn't parse changes nothing, but who's asking and whom it's for are still checked first.
   const person = await workspace(env).changeRole(credentials, userId, change?.role ?? null);
   if (!person) return problem(401, "Not signed in");
@@ -383,7 +391,7 @@ async function profile(request: Request, env: Env): Promise<Response> {
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials || !(await workspace(env).authenticate(credentials))) return problem(401, "Not signed in");
-  const changes = parseProfileChanges(await request.json().catch(() => null));
+  const changes = parseProfileChanges(await jsonBodyOf(request));
   if (typeof changes === "string") return problem(422, changes);
   const { password, ...rest } = changes;
   const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
@@ -425,7 +433,7 @@ async function removeAvatar(request: Request, env: Env): Promise<Response> {
  * the push subscription it ended first, if there was one, and the person's subscriptions with it go too.
  */
 async function endSession(request: Request, env: Env): Promise<Response> {
-  await signOut(request, env, signOutEndpointOf(await request.json().catch(() => null)));
+  await signOut(request, env, signOutEndpointOf(await jsonBodyOf(request)));
   return new Response(null, { status: 204, headers: { "Set-Cookie": expiredSessionCookie(request) } });
 }
 
@@ -517,7 +525,7 @@ const ROOM_CREATION_FORBIDDEN = "Only administrators can create rooms";
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const room = parseNewRoom(await request.json().catch(() => null));
+  const room = parseNewRoom(await jsonBodyOf(request));
   if (typeof room === "string") {
     const may = await workspace(env).mayCreateRooms(credentials);
     if (may === null) return problem(401, "Not signed in");
@@ -535,7 +543,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 async function startDirect(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const direct = parseNewDirect(await request.json().catch(() => null));
+  const direct = parseNewDirect(await jsonBodyOf(request));
   if (typeof direct === "string") return problem(422, direct);
   const started = await workspace(env).startDirect(credentials, direct.userIds);
   return started ? json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 }) : problem(401, "Not signed in");
@@ -564,7 +572,7 @@ async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise
 async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const changes = parseRoomChanges(await request.json().catch(() => null));
+  const changes = parseRoomChanges(await jsonBodyOf(request));
   // Changes that don't parse change nothing, but the room is still checked first.
   const room = await workspace(env).changeRoom(credentials, roomId, typeof changes === "string" ? {} : changes);
   if (!room) return problem(401, "Not signed in");
@@ -597,7 +605,7 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
   if (!credentials) return problem(401, "Not signed in");
   if (!isRoomId(roomId)) return problem(400, "invalid room ID");
   // Any JSON value parses, null and numbers included, so don't assume an object.
-  const body: unknown = await request.json().catch(() => null);
+  const body: unknown = await jsonBodyOf(request);
   const favorite = typeof body === "object" && body !== null ? (body as Record<string, unknown>).favorite : undefined;
   if (typeof favorite !== "boolean") return problem(400, "favorite must be true or false");
   const favorites = await workspace(env).setFavorite(credentials, roomId, favorite);
@@ -615,7 +623,7 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
 async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const involvement = await workspace(env).setInvolvement(credentials, roomId, parseInvolvementChange(await request.json().catch(() => null)));
+  const involvement = await workspace(env).setInvolvement(credentials, roomId, parseInvolvementChange(await jsonBodyOf(request)));
   if (!involvement) return problem(401, "Not signed in");
   if (involvement === "not found") return problem(404, ROOM_NOT_FOUND);
   if (involvement === "invalid") return problem(422, INVOLVEMENT_REFUSED);
@@ -630,7 +638,7 @@ async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promi
 async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const roomIds = parseFavoriteOrder(await request.json().catch(() => null));
+  const roomIds = parseFavoriteOrder(await jsonBodyOf(request));
   if (typeof roomIds === "string") return problem(400, roomIds);
   const favorites = await workspace(env).setFavoriteOrder(credentials, roomIds);
   if (!favorites) return problem(401, "Not signed in");
@@ -651,7 +659,7 @@ const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for e
 async function setSharedOrder(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
-  const roomIds = parseSharedOrder(await request.json().catch(() => null));
+  const roomIds = parseSharedOrder(await jsonBodyOf(request));
   // As in ember-rust, someone who isn't an administrator hears so before the list is checked.
   if (typeof roomIds === "string") {
     const administrator = await workspace(env).canAdminister(credentials);
@@ -841,6 +849,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
  * a bot's key is filtered out of its address, as Campfire's log filters it.
  */
 function failure(request: Request, pathname: string, error: unknown): Response {
+  // A JSON body over the limit is refused as too large, rather than failed on.
+  if (error instanceof BodyTooLarge) return problem(413, error.message);
   const holdsSecrets = pathname === "/api/first_run" || pathname === RECOVERY_PATH;
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");

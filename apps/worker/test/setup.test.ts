@@ -118,7 +118,7 @@ describe(feature("auth.first-run"), () => {
     for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
   });
 
-  it.each([MAX_PASSWORD_LENGTH + 1, 2 ** 20])("refuses a password of %i characters, which the form can't send, and creates nothing", async (length) => {
+  it.each([MAX_PASSWORD_LENGTH + 1, 2 ** 19])("refuses a password of %i characters, which the form can't send, and creates nothing", async (length) => {
     const response = await setUp({ ...ada, password: "x".repeat(length) });
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: PASSWORD_TOO_LONG, field: "password" });

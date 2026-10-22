@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 168 ported and 0 partial of 174 features; 0 not started, 6 not applicable.
+**Overall:** 168 ported and 1 partial of 174 features; 0 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -34,8 +34,8 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Bots and webhooks](#bots-and-webhooks) | 17 | 0 | 0 | 0 | 17 |
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
-| [Platform](#platform) | 11 | 0 | 0 | 4 | 15 |
-| **Total** | **168** | **0** | **0** | **6** | **174** |
+| [Platform](#platform) | 11 | 1 | 0 | 3 | 15 |
+| **Total** | **168** | **1** | **0** | **5** | **174** |
 
 ## Sign-in and sessions
 
@@ -2465,7 +2465,7 @@ ember-rust tests: [`crates/assets/overrides/basecoat/test/lucide.test.mjs`](http
 | Deploy secrets | `platform.deploy-secrets` | This port | ✅ Ported | Scripts: [deploy](apps/worker/scripts/deploy.test.ts) |
 | Web app manifest | `platform.manifest` | Ember | ✅ Ported | Worker: [manifest](apps/worker/test/manifest.test.ts)<br>E2E: [platform](e2e/tests/features/platform.spec.ts), [manifest](e2e/tests/screenshots/manifest.spec.ts) |
 | Installable page head | `platform.head-tags` | Campfire | ✅ Ported | E2E: [platform](e2e/tests/features/platform.spec.ts) |
-| Request and connection limits | `platform.limits` | Campfire | ➖ Not applicable |  |
+| Request and connection limits | `platform.limits` | Campfire | 🟡 Partial | Worker: [body-limits](apps/worker/test/body-limits.test.ts) |
 | Install commands and the private setup link | `platform.install-commands` | Ember | ➖ Not applicable |  |
 | Runs on a Campfire install | `platform.rails-compat` | Campfire | ➖ Not applicable |  |
 | Old Matchbox and Campfire names | `platform.rename-compat` | Ember | ➖ Not applicable |  |
@@ -2595,12 +2595,12 @@ Sources: [`crates/views/templates/layouts/application.html`](https://github.com/
 
 ember-rust tests: [`crates/views/tests/parity_a.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/tests/parity_a.rs)
 
-**Request and connection limits** (`platform.limits`) ➖
+**Request and connection limits** (`platform.limits`) 🟡
 
 - Request bodies are capped at 16 MiB and files at 250 MB, and a form may carry at most 128 files or 4,096 parts.
 - Each live connection may hold 64 subscriptions, 4 KiB identifiers and 1 MiB messages, and is dropped if it stops reading for 30 seconds.
 
-Note: Cloudflare sets its own request, WebSocket and Durable Object limits, so these numbers don't carry over. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 40 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.
+Note: JSON bodies are read no further than 1 MiB, and refused with 413 by their Content-Length or as soon as that much has arrived: tighter than ember-rust's 16 MiB, yet more than the largest the app sends, custom CSS at some 600 KB. Files are capped at 250 MB, as there, but forms aren't counted in parts or files: a photo's form is capped by its length, and a bot's is read a part at a time. The connection limits don't carry over, since Cloudflare sets its own WebSocket and Durable Object limits. The port's own caps are 10,000 characters a message, 16 a reaction and 48 a display name, history pages of 40 messages (a request may ask for up to 100), 50 messages a `message.check`, and 100 bound values a SQL statement, the most either storage backend takes.
 
 Sources: [`crates/kit/src/body.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/kit/src/body.rs) · [`README.md`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/README.md)
 
