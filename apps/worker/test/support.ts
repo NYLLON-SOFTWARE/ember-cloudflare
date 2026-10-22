@@ -222,8 +222,18 @@ async function tablesSql(stub: DurableObjectStub, query: string, ...params: Arra
   return objectSql(stub, query, ...params);
 }
 
-/** Runs SQL against a room's tables, whichever backend this suite is using. */
-export const roomSql = (room: string, query: string, ...params: Array<string | number>) => tablesSql(roomStub(room), query, ...params);
+/**
+ * Runs SQL against a room's tables, whichever backend this suite is using. Since that's behind the
+ * room's back, the room then forgets what it keeps of them, its newest page and latest change, and
+ * reads them again.
+ */
+export async function roomSql(room: string, query: string, ...params: Array<string | number>): Promise<unknown[]> {
+  const rows = await tablesSql(roomStub(room), query, ...params);
+  await runInDurableObject(roomStub(room), (object: unknown) => {
+    (object as { store: unknown }).store = null;
+  });
+  return rows;
+}
 
 /** Runs SQL against the Workspace's tables, whichever backend this suite is using. */
 export const workspaceSql = (query: string, ...params: Array<string | number>) => tablesSql(workspaceStub(), query, ...params);

@@ -65,6 +65,18 @@ const toBoost = (row: BoostRow): Boost => ({
 
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** A page of messages, oldest first, and whether the room has older ones. */
+type Page = { messages: Message[]; hasMore: boolean };
+
+/** `value` with it and everything in it frozen, so whatever shares it can't change it. */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const inner of Object.values(value)) deepFreeze(inner);
+  }
+  return value;
+}
+
 const toMessage = (row: MessageRow): Message => ({
   id: row.id,
   clientMessageId: row.client_message_id,
@@ -180,6 +192,16 @@ export class MessageStore {
   private seq: number | null = null;
   /** What signs files' addresses, under `secret`, once the store has read a file message. */
   private signer: Promise<Signer> | null = null;
+  /**
+   * The newest page, by how many messages it holds, kept from one read until the room's next change:
+   * every socket's welcome starts with it, and the room is the only writer of its messages. Frozen,
+   * since every welcome shares it.
+   */
+  private readonly newest = new Map<number, Page>();
+  /** Counts changes begun and done, so a read that overlapped one isn't kept: on D1, queries interleave. */
+  private changes = 0;
+  /** How many changes are under way. */
+  private changing = 0;
 
   constructor(
     private readonly db: Db,
@@ -195,12 +217,14 @@ export class MessageStore {
   }
 
   /** The newest `limit` messages older than `before` (or the newest overall), oldest first. */
-  async page(limit: number, before?: string): Promise<{ messages: Message[]; hasMore: boolean }> {
-    const rows =
-      before === undefined
-        ? await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1)
-        : await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1);
-    return this.toPage(rows, limit);
+  async page(limit: number, before?: string): Promise<Page> {
+    if (before !== undefined) return this.toPage(await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1), limit);
+    const kept = this.newest.get(limit);
+    if (kept) return kept;
+    const changes = this.changes;
+    const page = await this.toPage(await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1), limit);
+    if (changes === this.changes && this.changing === 0) this.newest.set(limit, deepFreeze(page));
+    return page;
   }
 
   /** The oldest `limit` messages newer than `after`, oldest first, and whether there are newer ones still. */
@@ -456,11 +480,13 @@ export class MessageStore {
    * deleted, for it to purge.
    */
   async deleteAllMessages(): Promise<void> {
-    await this.db.batch([
-      deletingAllFiles(this.roomId, new Date().toISOString()),
-      statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
-      statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
-    ]);
+    await this.changingMessages(() =>
+      this.db.batch([
+        deletingAllFiles(this.roomId, new Date().toISOString()),
+        statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
+        statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
+      ]),
+    );
     this.seq = null;
   }
 
@@ -497,13 +523,27 @@ export class MessageStore {
   private async change(making: (seq: number) => Statement[], count = 1): Promise<number> {
     const seq = (await this.latestChange()) + 1;
     try {
-      await this.db.batch(making(seq));
+      await this.changingMessages(() => this.db.batch(making(seq)));
     } catch (error) {
       this.seq = null;
       throw error;
     }
     this.seq = seq + count - 1;
     return seq;
+  }
+
+  /** Runs `write`, which changes the room's messages, forgetting the newest page before and after it. */
+  private async changingMessages<T>(write: () => Promise<T>): Promise<T> {
+    this.newest.clear();
+    this.changes++;
+    this.changing++;
+    try {
+      return await write();
+    } finally {
+      this.changing--;
+      this.changes++;
+      this.newest.clear();
+    }
   }
 
   /** Gives message `messageId` the number of a change to its reactions. */
@@ -517,7 +557,7 @@ export class MessageStore {
   }
 
   /** Rows read newest first, one more than `limit` if there are more, as a page oldest first. */
-  private async toPage(rows: MessageRow[], limit: number): Promise<{ messages: Message[]; hasMore: boolean }> {
+  private async toPage(rows: MessageRow[], limit: number): Promise<Page> {
     return { messages: await this.messagesOf(rows.slice(0, limit).reverse()), hasMore: rows.length > limit };
   }
 }

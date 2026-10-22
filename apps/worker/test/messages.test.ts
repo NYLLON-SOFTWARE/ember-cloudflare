@@ -372,6 +372,35 @@ describe(feature("messages.history"), () => {
     expect(grace.welcome).toMatchObject({ hasMore: true, hasNewer: false, around: null });
   });
 
+  it("opens a room on its messages as they are now, whatever changed since it last opened", async () => {
+    const room = await freshRoom("page-changes");
+    const ada = await connect(room, "Ada");
+    const first = await post(ada, "first");
+    const second = await post(ada, "second");
+    // Each welcome is someone new opening the room, after the change before it.
+    const opened = async () => (await connect(room, `Reader ${crypto.randomUUID()}`)).welcome.messages;
+    expect((await opened()).map(({ id }) => id)).toEqual([first.id, second.id]);
+
+    const third = await post(ada, "third");
+    expect((await opened()).map(({ id }) => id)).toEqual([first.id, second.id, third.id]);
+
+    ada.send({ type: "message.update", messageId: second.id, body: "<p>second, edited</p>" });
+    await ada.next("message.updated");
+    expect((await opened())[1]).toMatchObject({ id: second.id, body: "<p>second, edited</p>" });
+
+    ada.send({ type: "boost.create", messageId: first.id, content: "👍" });
+    const { boost } = await ada.next("boost.created");
+    expect((await opened())[0]!.boosts).toEqual([boost]);
+
+    ada.send({ type: "boost.delete", boostId: boost.id });
+    await ada.next("boost.deleted");
+    expect((await opened())[0]!.boosts).toEqual([]);
+
+    ada.send({ type: "message.delete", messageId: third.id });
+    await ada.next("message.deleted");
+    expect((await opened()).map(({ id }) => id)).toEqual([first.id, second.id]);
+  });
+
   it("pages backwards from the oldest message shown until there's nothing left", async () => {
     const room = await freshRoom("back");
     const ada = await connect(room, "Ada");
