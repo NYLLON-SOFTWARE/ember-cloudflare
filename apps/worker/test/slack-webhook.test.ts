@@ -647,7 +647,7 @@ describe(feature("bots.cards"), () => {
       "",
       "---",
       "",
-      "<b>raw</b> ![chart](https://example.com/chart.png) [unsafe](javascript:alert(1))",
+      "<b>raw</b> <code>a<b &amp; c</code> ![chart](https://example.com/chart.png) [unsafe](javascript:alert(1))",
     ].join("\n");
     const { message } = await postedCards({ blocks: [{ type: "markdown", text: markdown }] });
     expect(message.cards).toEqual([
@@ -665,7 +665,7 @@ describe(feature("bots.cards"), () => {
               '<div><pre data-language="ts">const ok = 1 &lt; 2;</pre></div>',
               "<div><table><thead><tr><th>Service </th><th>Errors </th></tr></thead><tbody><tr><td>api </td><td>3 </td></tr></tbody></table></div>",
               "<hr>",
-              '<p>&lt;b&gt;raw&lt;/b&gt; <a href="https://example.com/chart.png">chart</a> unsafe</p>',
+              '<p>&lt;b&gt;raw&lt;/b&gt; &lt;code&gt;a&lt;b &amp; c&lt;/code&gt; <a href="https://example.com/chart.png">chart</a> unsafe</p>',
             ].join(""),
           },
         ],
@@ -689,7 +689,7 @@ describe(feature("bots.cards"), () => {
         "",
         "const ok = 1 < 2;",
         "Service Errors api 3 ",
-        "<b>raw</b> chart unsafe",
+        "<b>raw</b> <code>a<b & c</code> chart unsafe",
       ].join("\n"),
     );
   });
@@ -701,7 +701,7 @@ describe(feature("bots.cards"), () => {
       "<https://example.com/?a=1&amp;b=2> and https://example.com/?c=3&amp;d=4",
       "",
       "![**Build** & _chart_ &amp; graph](https://example.com/chart.png?a=1&amp;b=2), ![Line",
-      "wrapped](https://example.com/2.png), ![](https://example.com/3.png?x=1&amp;y=2) and ![not linked &lt;3](javascript:alert(1))",
+      "wrapped](https://example.com/2.png), ![](https://example.com/3.png?x=1&amp;y=2), ![**Use `&amp;`** to join](https://example.com/4.png) and ![not linked &lt;3](javascript:alert(1))",
     ].join("\n");
     const { message } = await postedCards({ blocks: [{ type: "markdown", text: markdown }] });
     expect(message.cards).toEqual([
@@ -713,7 +713,7 @@ describe(feature("bots.cards"), () => {
             html: [
               '<p><a href="https://example.com/?a=1&amp;b=2">escaped</a>, <a href="https://example.com/f%C3%B6%C3%B6">named</a> and <a href="https://example.com/?q=a&amp;b">numeric</a></p>',
               '<p><a href="https://example.com/?a=1&amp;amp;b=2">https://example.com/?a=1&amp;amp;b=2</a> and <a href="https://example.com/?c=3&amp;amp;d=4">https://example.com/?c=3&amp;amp;d=4</a></p>',
-              '<p><a href="https://example.com/chart.png?a=1&amp;b=2">Build &amp; chart &amp; graph</a>, <a href="https://example.com/2.png">Line wrapped</a>, <a href="https://example.com/3.png?x=1&amp;y=2">https://example.com/3.png?x=1&amp;y=2</a> and not linked &lt;3</p>',
+              '<p><a href="https://example.com/chart.png?a=1&amp;b=2">Build &amp; chart &amp; graph</a>, <a href="https://example.com/2.png">Line wrapped</a>, <a href="https://example.com/3.png?x=1&amp;y=2">https://example.com/3.png?x=1&amp;y=2</a>, <a href="https://example.com/4.png">Use &amp;amp; to join</a> and not linked &lt;3</p>',
             ].join(""),
           },
         ],
@@ -725,7 +725,7 @@ describe(feature("bots.cards"), () => {
         "",
         "https://example.com/?a=1&amp;b=2 and https://example.com/?c=3&amp;d=4",
         "",
-        "Build & chart & graph, Line wrapped, https://example.com/3.png?x=1&y=2 and not linked <3",
+        "Build & chart & graph, Line wrapped, https://example.com/3.png?x=1&y=2, Use &amp; to join and not linked <3",
       ].join("\n"),
     );
   });

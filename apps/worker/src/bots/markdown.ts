@@ -1,5 +1,5 @@
 import { decodeHTMLStrict } from "entities/decode";
-import { Marked, TextRenderer, type Tokens } from "marked";
+import { Marked, type Token, type Tokens } from "marked";
 import { anchor, escapeText, linkHref } from "./mrkdwn";
 
 // The Markdown of a Block Kit markdown block (https://docs.slack.dev/reference/block-kit/blocks/markdown-block),
@@ -19,13 +19,18 @@ const LANGUAGE = /^[\w#+.-]+/;
 /** A block in a `div`, which the plain text ends a line after. */
 const ownLine = (html: string) => `<div>${html}</div>`;
 
-/** An image's description as text, as marked writes its `alt`, but with a space for each line break rather than nothing. */
-class Description extends TextRenderer {
-  override br() {
-    return " ";
-  }
+/** An image's description as text: what its words say, its code, tags and autolinks as they're written, and a space for a line break. */
+function descriptionText(tokens: Token[]): string {
+  return tokens
+    .map((token) => {
+      if (token.type === "link" && token.autolink) return token.text;
+      if ("tokens" in token && token.tokens) return descriptionText(token.tokens);
+      if (token.type === "text") return decodeHTMLStrict(token.text);
+      if (token.type === "br") return " ";
+      return "text" in token ? token.text : "";
+    })
+    .join("");
 }
-const description = new Description();
 
 const markdown = new Marked({
   gfm: true,
@@ -37,6 +42,12 @@ const markdown = new Marked({
     html({ text, block }) {
       const html = escapeText(text.trim()).replace(/\n/g, "<br>");
       return block ? `<p>${html}</p>` : html;
+    },
+    text(token) {
+      // marked writes the text in a `pre`, `code`, `kbd` or `script` tag unescaped, as it writes the tag, but the tag
+      // shows as its text here, so that text is escaped as any other is: `<code>a<b</code>` keeps its `<b`.
+      if (token.type === "text") token.escaped = false;
+      return false;
     },
     code({ text, lang }) {
       const language = lang?.match(LANGUAGE)?.[0];
@@ -58,7 +69,7 @@ const markdown = new Marked({
       return url ? anchor(url, label) : label;
     },
     image({ href, tokens }) {
-      const label = decodeHTMLStrict(this.parser.parseInline(tokens, description));
+      const label = descriptionText(tokens);
       const address = decodeHTMLStrict(href);
       const url = linkHref(address);
       return url ? anchor(url, escapeText(label || address)) : escapeText(label);
