@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AVATAR_PATH,
   AVATAR_TOO_LARGE,
+  CURRENT_PASSWORD_WRONG,
   MAX_AVATAR_SIZE,
   type Account,
   type DirectoryUser,
@@ -29,7 +30,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true };
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
@@ -58,7 +59,7 @@ function serve({
       case "GET /api/users/me/profile":
         return loaded();
       case "PATCH /api/users/me/profile": {
-        const { password: _, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
+        const { password: _, currentPassword: _current, pushSubscriptionEndpoint: _endpoint, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
         return saved ? saved() : Response.json({ profile: { ...profile, ...changes }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       }
       case `PUT ${AVATAR_PATH}`:
@@ -99,6 +100,8 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
 }
 
 const field = (label: string) => screen.getByLabelText(label);
+/** Where this browser's push subscription takes its pushes, when it has one. */
+const ENDPOINT = "https://fcm.googleapis.com/fcm/send/desk";
 /** The page once your profile has loaded into it. */
 const loaded = () => waitFor(() => expect(field("Name")).toBeEnabled());
 const saveButton = () => screen.getByRole("button", { name: "Save changes" });
@@ -116,6 +119,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "serviceWorker");
   history.replaceState(null, "", "/");
 });
 
@@ -224,30 +228,92 @@ describe(feature("users.profile"), () => {
     const { user } = showPage();
     await loaded();
     await user.type(field("New password"), "difference engine");
+    await user.type(field("Current password"), "analytical engine");
     await user.click(saveButton());
     expect(saveButton()).toBeDisabled();
     await user.type(field("New password"), "s");
+    await user.type(field("Current password"), "s");
     await user.keyboard("{Enter}");
     expect(saved()).toHaveLength(1);
 
     await act(async () => answer(Response.json({ profile })));
     await waitFor(() => expect(saveButton()).toBeEnabled());
     expect(field("New password")).toHaveValue("difference engines");
+    expect(field("Current password")).toHaveValue("analytical engines");
   });
 
   it("says why a save failed, keeping what's typed", async () => {
-    serve({ saved: () => Response.json({ error: "That email address has an account already" }, { status: 422 }) });
+    serve({ saved: () => Response.json({ error: CURRENT_PASSWORD_WRONG }, { status: 422 }) });
     const { onFailed, user } = showPage();
     await loaded();
     await user.clear(field("Email address"));
     await user.type(field("Email address"), "grace@example.com");
     await user.type(field("New password"), "difference engine");
+    await user.type(field("Current password"), "analytical");
     await user.click(saveButton());
 
-    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: "That email address has an account already" })));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: CURRENT_PASSWORD_WRONG })));
     expect(field("Email address")).toHaveValue("grace@example.com");
     expect(field("New password")).toHaveValue("difference engine");
+    expect(field("Current password")).toHaveValue("analytical");
     expect(saveButton()).toBeEnabled();
+  });
+
+  it("asks for your current password while you have one, where ember-rust doesn't, sending it with your changes and emptying it once they're saved", async () => {
+    const { user } = showPage();
+    await loaded();
+    const current = field("Current password");
+    expect(current).toHaveAttribute("type", "password");
+    expect(current).toHaveAttribute("autocomplete", "current-password");
+    expect(current).toHaveAttribute("placeholder", "Enter your password");
+    expect(current).toHaveAttribute("maxlength", "72");
+    expect(current).toHaveAccessibleDescription("Needed to change your email address or password.");
+    expect(field("New password").compareDocumentPosition(current)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(current.compareDocumentPosition(field("Bio"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await user.clear(field("Email address"));
+    await user.type(field("Email address"), "countess@example.com");
+    await user.type(current, "analytical engine");
+    await user.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ emailAddress: "countess@example.com", currentPassword: "analytical engine" }]);
+    expect(current).toHaveValue("");
+  });
+
+  it("asks for no current password while you have none, until a save gives you one", async () => {
+    const without = { ...profile, emailAddress: null, password: false };
+    serve({
+      loaded: () => Response.json({ profile: without, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...without, password: true }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(screen.queryByLabelText("Current password")).toBeNull();
+
+    await user.type(field("New password"), "difference engine");
+    await user.click(saveButton());
+    expect(await screen.findByLabelText("Current password")).toHaveValue("");
+    expect(saved()).toEqual([{ password: "difference engine" }]);
+  });
+
+  it("names this browser's push subscription with a new password, which forgets your other browsers'", async () => {
+    const registration = { pushManager: { getSubscription: async () => ({ endpoint: ENDPOINT }) } };
+    Object.defineProperty(navigator, "serviceWorker", { value: { getRegistration: async () => registration }, configurable: true });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Bio"), "!");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.type(field("New password"), "difference engine");
+    await user.type(field("Current password"), "analytical engine");
+    await user.click(saveButton());
+
+    await waitFor(() => expect(saved()).toHaveLength(2));
+    // Only the new password needed it.
+    expect(saved()).toEqual([
+      { bio: "Wrote the first program!" },
+      { password: "difference engine", currentPassword: "analytical engine", pushSubscriptionEndpoint: ENDPOINT },
+    ]);
   });
 
   it("says why your profile didn't load", async () => {
@@ -275,9 +341,12 @@ describe(feature("auth.sign-out"), () => {
 });
 
 describe(feature("accounts.translation-buttons"), () => {
-  it("has a translation button by each field once an administrator shows them", () => {
+  it("has a translation button by each field once an administrator shows them", async () => {
     showPage({ ...account, hideTranslationButtons: false });
     expect(screen.getAllByText("Translate")).toHaveLength(4);
+    // And your current password's, which sign-in's translates, once your profile says you have one.
+    await loaded();
+    expect(screen.getAllByText("Translate")).toHaveLength(5);
   });
 
   it("has none while they're hidden", () => {
@@ -478,11 +547,13 @@ describe(feature("users.avatar-upload"), () => {
 });
 
 describe(feature("accounts.custom-css"), () => {
-  it("keeps the new password typed out of its field's value attribute, where custom CSS could read it", async () => {
+  it("keeps the passwords typed out of their fields' value attributes, where custom CSS could read them", async () => {
     const { user } = showPage();
     await loaded();
-    await user.type(field("New password"), "difference engine");
-    expect(field("New password")).toHaveValue("difference engine");
-    expect(field("New password")).not.toHaveAttribute("value");
+    for (const label of ["New password", "Current password"]) {
+      await user.type(field(label), "difference engine");
+      expect(field(label)).toHaveValue("difference engine");
+      expect(field(label)).not.toHaveAttribute("value");
+    }
   });
 });

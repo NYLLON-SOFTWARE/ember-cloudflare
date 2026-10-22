@@ -1,6 +1,8 @@
 import {
   AVATAR_PATH,
   CloseCode,
+  CURRENT_PASSWORD_NEEDED,
+  CURRENT_PASSWORD_WRONG,
   LOGO_PATH,
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
@@ -385,18 +387,32 @@ async function profile(request: Request, env: Env): Promise<Response> {
  * Saves your profile, as its form does (profiles.rs, `update`), answering it as it is then. Who's
  * asking is checked before a new password is hashed, and a blank one keeps the password they have, as
  * ember-rust's `password=` ignores it. An email address someone else has is refused, where ember-rust
- * fails with 500.
+ * fails with 500. Changing your email address or password, while you have one, takes your current
+ * password too, which ember-rust never asks for, so that holding your session isn't enough to take
+ * your account: it's checked as sign-in checks a password, counting against the same limit (429), and
+ * refused (422) when it's missing or wrong. A new password ends your other sessions, keeping this
+ * browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
  */
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials || !(await workspace(env).authenticate(credentials))) return problem(401, "Not signed in");
   const changes = parseProfileChanges(await jsonBodyOf(request));
   if (typeof changes === "string") return problem(422, changes);
-  const { password, ...rest } = changes;
+  const { password, currentPassword, pushSubscriptionEndpoint, ...rest } = changes;
+  const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password));
+  if (!check) return problem(401, "Not signed in");
+  if (check === "limited") return problem(429, SIGN_IN_REFUSED);
+  const checked = check.passwordDigest;
+  if (checked !== null) {
+    if (!currentPassword) return problem(422, CURRENT_PASSWORD_NEEDED);
+    // One longer than the form takes is nobody's, as at sign-in.
+    if (isPasswordTooLong(currentPassword) || !(await passwordHasher(env).verify(currentPassword, checked)).matches) return problem(422, CURRENT_PASSWORD_WRONG);
+  }
   const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
-  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest);
+  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null);
   if (!yours) return problem(401, "Not signed in");
   if (yours === "email address taken") return problem(422, "That email address has an account already");
+  if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   return profileAnswer(yours, env);
 }
 

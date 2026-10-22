@@ -24,6 +24,7 @@ import { leave, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeAvatar, changeProfile, fetchProfile, isSignedOut, removeAvatar } from "@/lib/api";
 import { avatarVariantOf } from "@/lib/previews";
+import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { ConversationNotifications } from "./conversation-notifications";
@@ -54,7 +55,7 @@ export const AVATAR_CHANGED = "It may take up to 30 minutes to change everywhere
 /** Your avatar as the page shows it: its address, and whether you've uploaded one, which Remove avatar takes away. */
 type Picture = Pick<Profile, "avatarUrl" | "avatar">;
 
-/** The form's fields as typed, but for the new password, which only its field holds. */
+/** The form's fields as typed, but for the passwords, which only their fields hold. */
 type Fields = Record<(typeof FIELDS)[number], string>;
 
 /** A profile in the form. */
@@ -62,13 +63,23 @@ const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emai
 
 /**
  * The fields `typed` differently from `saved`, the profile as the page last loaded or saved it, and
- * `password` if one's typed. Only they're sent, where ember-rust's form sends every field, so a save
- * doesn't put back what another tab has saved since.
+ * `password` and `currentPassword` if they're typed. Only they're sent, where ember-rust's form sends
+ * every field, so a save doesn't put back what another tab has saved since.
  */
-function changesOf(saved: Fields, typed: Fields, password: string): ProfileChanges {
+function changesOf(saved: Fields, typed: Fields, password: string, currentPassword: string): ProfileChanges {
   const changes: ProfileChanges = password ? { password } : {};
+  if (currentPassword) changes.currentPassword = currentPassword;
   for (const field of FIELDS) if (typed[field] !== saved[field]) changes[field] = typed[field];
   return changes;
+}
+
+/**
+ * `changes` with this browser's push subscription named, if it has one and they hold a new password,
+ * which forgets the rest of your browsers' subscriptions.
+ */
+async function keepingThisBrowsersPush(changes: ProfileChanges): Promise<ProfileChanges> {
+  const endpoint = changes.password ? await pushEndpoint() : null;
+  return endpoint ? { ...changes, pushSubscriptionEndpoint: endpoint } : changes;
 }
 
 /**
@@ -85,11 +96,13 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * ember-rust's profile (users/profiles/show.html): how to install Ember, for the browsers ember-rust
  * tells, then your avatar, which a photo picked saves at once, showing it meanwhile, with the notice
  * "It may take up to 30 minutes to change everywhere.", and Remove avatar takes away, then your name,
- * email address, a new password and your bio, which Save changes saves with the notice "✓", keeping the
- * page where ember-rust reloads it, then your notification level in each of your rooms and DMs, then a
- * sign-in link for you, a new one each time the page loads or saves, as each of ember-rust's pages has,
- * and Log out in the top bar. Go Back returns to the page it was opened from. Your avatar, name and bio
- * reach everyone's open pages at once, through the workspace socket, as they reach the rail.
+ * email address, a new password, your current password while you have one, which changing your email
+ * address or password takes, where ember-rust asks for none, and your bio, which Save changes saves
+ * with the notice "✓", keeping the page where ember-rust reloads it, then your notification level in
+ * each of your rooms and DMs, then a sign-in link for you, a new one each time the page loads or saves,
+ * as each of ember-rust's pages has, and Log out in the top bar. Go Back returns to the page it was
+ * opened from. Your avatar, name and bio reach everyone's open pages at once, through the workspace
+ * socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
@@ -100,8 +113,11 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [picked, setPicked] = useState<string | null>(null);
   const [savingPicture, setSavingPicture] = useState(false);
   const [transferId, setTransferId] = useState<string | null>(null);
+  /** Whether you have a password, which the form then asks for to change your email address or password. */
+  const [hasPassword, setHasPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
+  const currentPasswordInput = useRef<HTMLInputElement>(null);
   const people = useContext(PeopleContext);
   const back = useBackPath();
   const flash = useFlash();
@@ -130,12 +146,15 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, and a new sign-in link, as an answer has them. An answer can arrive after a later
-   * one, as a profile's save can after a photo's, and the later avatar stays then.
+   * Shows your avatar, whether you have a password, and a new sign-in link, as an answer has them. An
+   * answer can arrive after a later one, as a profile's save can after a photo's, and the later avatar
+   * stays then.
    */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
     const answered = { avatarUrl: profile.avatarUrl, avatar: profile.avatar };
     setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
+    // Nothing takes a password away, so an answer arriving late doesn't hide the field.
+    setHasPassword((had) => had || profile.password);
     setTransferId(transferId);
   }
 
@@ -175,15 +194,17 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     setSaving(true);
     const sent = fields;
     const password = passwordInput.current?.value ?? "";
-    changeProfile(changesOf(saved.current, sent, password)).then(
+    const currentPassword = currentPasswordInput.current?.value ?? "";
+    keepingThisBrowsersPush(changesOf(saved.current, sent, password, currentPassword)).then(changeProfile).then(
       (answer) => {
         if (!mounted.current) return;
         setSaving(false);
         const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
-        // The new password leaves its field, as ember-rust's page comes back without it, unless another was typed meanwhile.
+        // The passwords leave their fields, as ember-rust's page comes back without them, unless others were typed meanwhile.
         if (passwordInput.current?.value === password) passwordInput.current.value = "";
+        if (currentPasswordInput.current?.value === currentPassword) currentPasswordInput.current.value = "";
         showAnswer(answer);
         flash("notice", "✓");
       },
@@ -267,6 +288,25 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               Leave blank to keep your current password.
             </p>
           </Field>
+          {hasPassword && (
+            <Field id="user_current_password" label="Current password" translation="password">
+              {/* Uncontrolled too, and asked for as sign-in asks for it. */}
+              <Input
+                ref={currentPasswordInput}
+                id="user_current_password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                maxLength={MAX_PASSWORD_LENGTH}
+                aria-describedby="profile-current-password-help"
+                disabled={!fields}
+                className={FIELD_INPUT}
+              />
+              <p id="profile-current-password-help" className="text-[0.8em] text-muted-foreground">
+                Needed to change your email address or password.
+              </p>
+            </Field>
+          )}
           <Field id="user_bio" label="Bio" translation="bio">
             {/* Campfire's `.input` as a textarea: three rows, which zz-ember.css lets you make taller. */}
             <textarea

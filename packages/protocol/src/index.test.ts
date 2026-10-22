@@ -18,6 +18,7 @@ import {
   MAX_MESSAGE_HTML_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
+  MAX_PUSH_ENDPOINT_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_USER_NAME_LENGTH,
@@ -466,7 +467,7 @@ describe(feature("notifications.levels"), () => {
 
 describe(feature("users.profile"), () => {
   it("takes each field as typed, even blank, leaving out what isn't sent", () => {
-    const typed = { name: " ", emailAddress: "", password: "  ", bio: "Countess of Lovelace\n" };
+    const typed = { name: " ", emailAddress: "", password: "  ", bio: "Countess of Lovelace\n", currentPassword: " ", pushSubscriptionEndpoint: "" };
     expect(parseProfileChanges(typed)).toEqual(typed);
     expect(parseProfileChanges({ name: "Ada", avatar: "" })).toEqual({ name: "Ada" });
     expect(parseProfileChanges({})).toEqual({});
@@ -478,6 +479,7 @@ describe(feature("users.profile"), () => {
       emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - "@example.com".length)}@example.com`,
       password: "🔐".repeat(MAX_PASSWORD_LENGTH / 2),
       bio: "x".repeat(MAX_BIO_LENGTH),
+      pushSubscriptionEndpoint: `https://fcm.googleapis.com/${"x".repeat(MAX_PUSH_ENDPOINT_LENGTH - "https://fcm.googleapis.com/".length)}`,
     };
     expect(parseProfileChanges(longest)).toEqual(longest);
   });
@@ -493,6 +495,9 @@ describe(feature("users.profile"), () => {
     ["an email address longer than any deliverable one", { emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.com` }, "Email address must be at most 254 characters"],
     ["a password longer than sign-in takes", { password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, "Password must be at most 72 characters."],
     ["a bio longer than the form takes", { bio: "x".repeat(MAX_BIO_LENGTH + 1) }, "Bio must be at most 200 characters"],
+    ["a current password that isn't text", { currentPassword: 12345678 }, "Current password must be text"],
+    ["an endpoint that isn't text", { pushSubscriptionEndpoint: {} }, "Push subscription endpoint must be text"],
+    ["an endpoint longer than a subscription's", { pushSubscriptionEndpoint: "x".repeat(MAX_PUSH_ENDPOINT_LENGTH + 1) }, "Endpoint can't be longer than 2048 characters"],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseProfileChanges(body)).toBe(error);
   });

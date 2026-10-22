@@ -120,6 +120,26 @@ export interface ProfileEntry extends DirectoryEntry {
 /** The same, with the avatar they've uploaded, if any, as their own profile page shows them. */
 export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
+  /** Whether they have a password, which changing their email address or password then asks for. */
+  password: boolean;
+}
+
+/** What someone signs in with: their email address, and their password's digest, or null without one. */
+export interface StoredSignIn {
+  emailAddress: string | null;
+  passwordDigest: string | null;
+}
+
+/**
+ * The sessions a new password ends, all of its person's but `kept`, the one saving it, whose sockets it
+ * closes with `code` in every room they're in, due at `dueAt`, and the push subscriptions it forgets with
+ * them, all of theirs but those at `pushEndpoint`, its browser's.
+ */
+export interface EndedByPassword {
+  kept: string;
+  pushEndpoint: string | null;
+  code: CloseCode;
+  dueAt: number;
 }
 
 /** A bot as the bots page lists it, with its token, which its key is made from, and the rooms it's in but its DMs. */
@@ -541,6 +561,11 @@ export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_i
 const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
   SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
   WHERE sessions.user_id = ? RETURNING id`;
+
+/** The same, for every session of theirs but the one the last value names, which stays signed in. */
+const QUEUE_OTHER_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
+  WHERE sessions.user_id = ? AND sessions.id <> ? RETURNING id`;
 
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
@@ -1015,8 +1040,10 @@ const SESSION_IP_ADDRESSES = `SELECT DISTINCT ip_address FROM sessions WHERE use
 /** Someone as the directory lists them, with their email address, whatever their status. */
 const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
 
-/** The same, with the avatar they've uploaded. */
-const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant FROM users WHERE id = ?`;
+/** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
+const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
+    coalesce(password_digest, '') <> '' AS password
+  FROM users WHERE id = ?`;
 
 /** Gives someone an avatar, or none, recording when, which changes its address. */
 const CHANGE_AVATAR = `UPDATE users SET avatar_key = ?, avatar_variant = ?, updated_at = ? WHERE id = ?`;
@@ -1895,9 +1922,34 @@ export class WorkspaceStore {
     return row ? { ...directoryEntry(row), emailAddress: row.email_address } : null;
   }
 
-  /** Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string): Promise<void> {
-    await this.db.run(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+  /**
+   * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
+   * new password, in the same transaction it ends the sessions and forgets the push subscriptions
+   * `ended` says, queuing closing those sessions' sockets. Answers whether it queued any.
+   */
+  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+    if (!ended) {
+      await this.db.batch([change]);
+      return false;
+    }
+    const [queued] = await this.db.batch([
+      // Before their sessions go, which it finds their sockets by.
+      statement(QUEUE_OTHER_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, ended.code, ended.dueAt, userId, ended.kept),
+      statement(`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userId, ended.kept),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint IS NOT ?`, userId, ended.pushEndpoint),
+      change,
+    ]);
+    return queued!.length > 0;
+  }
+
+  /** What whoever has id `userId` signs in with, whatever their status, or null if nobody does. */
+  async signInOf(userId: UserId): Promise<StoredSignIn | null> {
+    const [row] = await this.db.all<{ email_address: string | null; password_digest: string | null }>(
+      `SELECT email_address, password_digest FROM users WHERE id = ?`,
+      userId,
+    );
+    return row ? { emailAddress: row.email_address, passwordDigest: row.password_digest || null } : null;
   }
 
   /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */
@@ -1908,8 +1960,8 @@ export class WorkspaceStore {
 
   /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
   async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
-    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null }>(OWN_PROFILE, userId);
-    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row) } : null;
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number }>(OWN_PROFILE, userId);
+    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1 } : null;
   }
 
   /**

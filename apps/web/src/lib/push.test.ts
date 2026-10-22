@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { endPushSubscriptionAt, isPushOn, savedAgain, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import { endPushSubscriptionAt, isPushOn, pushEndpoint, savedAgain, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -65,6 +65,20 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await unsubscribeFromPush()).toBeNull();
     registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
     expect(await unsubscribeFromPush()).toBeNull();
+  });
+
+  it("names this browser's push subscription by its endpoint, keeping it, for a new password to keep", async () => {
+    const { registration, unsubscribe } = subscribed();
+    registered(registration);
+    expect(await pushEndpoint()).toBe(ENDPOINT);
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    registered({ pushManager: { getSubscription: async () => null } });
+    expect(await pushEndpoint()).toBeNull();
+    registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
+    expect(await pushEndpoint()).toBeNull();
+    Reflect.deleteProperty(navigator, "serviceWorker");
+    expect(await pushEndpoint()).toBeNull();
   });
 });
 
