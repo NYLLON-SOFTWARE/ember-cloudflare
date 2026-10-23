@@ -30,8 +30,9 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
-`push_subscriptions`, `webhooks`, `bans`, `searches`, `rooms`, `memberships`, `favorites`,
-`pending_revocations`, `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search
+`membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`, `bans`, `searches`,
+`rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes` and
+`deleted_rooms`, and the search
 index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
@@ -454,6 +455,18 @@ search index. On top of that schema it adds indexes and query changes for speed.
   more of the account's settings (`memberful_sign_in`), and the site's keys are Worker secrets, so the
   client secret is never stored. The table names no provider but by its issuer, so another provider
   would need no migration. People who sign in this way have no `password_digest`.
+- **Memberships are asked about, not taken from webhooks.** ember-rust has no memberships. Memberful
+  sends its webhooks in no particular order, so one only queues a check of a linked member in
+  `membership_checks` (workspace migration 0038), keyed by issuer and subject, as `identities` is,
+  which the Workspace's alarm asks Memberful's API about, up to 25 members a request, putting off
+  those it couldn't ask as the outbox puts off a delivery. A webhook during a check moves the row's
+  `queued_at` past the check's start, so settling the check keeps it to ask again, and
+  `identities.checked_at` keeps when the membership the Workspace went by was read, by its own clock
+  as the read began, so an older answer, a check's or a sign-in's, changes nothing.
+  `membership_catch_ups` keeps when everyone linked to a site is next checked, once a day. Someone
+  whose membership lapsed is suspended, `users.status` 3, in one batch that queues closing their
+  sockets and ends their sessions and push subscriptions, but keeps their memberships, so a renewal
+  brings them back with their rooms, and grants them the open rooms made meanwhile.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

@@ -72,8 +72,8 @@ const SETUP_TOKEN = /^[0-9a-f]{64}$/;
 /** Whether this deploy's output may be public: a CI log, except Workers Builds', which is the account's own. */
 const inPublicLog = () => !!process.env.CI && !process.env.WORKERS_CI;
 
-/** The keys of a Memberful custom app, which only the deployer can give. */
-const MEMBERFUL_KEYS = ["MEMBERFUL_URL", "MEMBERFUL_CLIENT_ID", "MEMBERFUL_CLIENT_SECRET"];
+/** The keys of a Memberful custom app, and the secret its site signs webhooks with, which only the deployer can give. */
+const MEMBERFUL_KEYS = ["MEMBERFUL_URL", "MEMBERFUL_CLIENT_ID", "MEMBERFUL_CLIENT_SECRET", "MEMBERFUL_API_KEY", "MEMBERFUL_WEBHOOK_SECRET"];
 
 /**
  * The Memberful keys the deploy's environment gives, which go up with every deploy, so a key changed

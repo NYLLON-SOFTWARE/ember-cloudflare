@@ -77,6 +77,8 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
     MEMBERFUL_URL: _site,
     MEMBERFUL_CLIENT_ID: _client,
     MEMBERFUL_CLIENT_SECRET: _secret,
+    MEMBERFUL_API_KEY: _apiKey,
+    MEMBERFUL_WEBHOOK_SECRET: _webhookSecret,
     ...shell
   } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -298,6 +300,18 @@ describe(feature("auth.memberful-sign-in"), () => {
     const { secrets, logs } = deploy(EVERY_SECRET, [], { env: { MEMBERFUL_URL: "", MEMBERFUL_CLIENT_ID: "", MEMBERFUL_CLIENT_SECRET: "" } });
     expect(secrets).toEqual({});
     expect(logs).toContain("Deploying with the Worker's secrets as they are");
+  });
+});
+
+describe(feature("auth.memberful-memberships"), () => {
+  it("uploads the custom app's API key and the webhook's secret the environment gives too, and never prints them", () => {
+    const keys = { MEMBERFUL_API_KEY: "api-key", MEMBERFUL_WEBHOOK_SECRET: "webhook-secret" };
+    const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { ...keys, CI: "true", GITHUB_ACTIONS: "true" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual(keys);
+    expect(logs).toContain("Deploying with MEMBERFUL_API_KEY, MEMBERFUL_WEBHOOK_SECRET from the environment");
+    expect(logs).not.toContain("api-key");
+    expect(logs).not.toContain("webhook-secret");
   });
 });
 

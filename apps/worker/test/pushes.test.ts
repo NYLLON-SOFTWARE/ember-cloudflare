@@ -3,9 +3,7 @@ import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomI
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Env } from "../src/env";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
-import type { Workspace } from "../src/workspace";
 import { MESSAGE_PUSHES, type MessagePush } from "../src/workspace-store";
 import {
   api,
@@ -24,6 +22,7 @@ import {
   shown,
   signIn,
   upload,
+  withWorkspaceEnv,
   workspaceSql,
   workspaceStub,
   type PushBrowser,
@@ -96,21 +95,6 @@ const labelsOf = (pushes: MessagePush[]) => pushes.flatMap(({ deliveries }) => d
 
 /** How many subscriptions `session`'s person has. */
 const subscriptionsOf = async (session: Session) => ((await workspaceSql("SELECT count(*) AS n FROM push_subscriptions WHERE user_id = ?", session.user.id)) as [{ n: number }])[0].n;
-
-/** Runs `run` while the Workspace's bindings differ from this suite's by `changes`. */
-async function withWorkspaceEnv(changes: Partial<Env>, run: () => Promise<void>): Promise<void> {
-  let original: Env | undefined;
-  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
-    const object = instance as unknown as { env: Env };
-    original = object.env;
-    object.env = { ...original, ...changes };
-  });
-  try {
-    await run();
-  } finally {
-    await runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
-  }
-}
 
 /** Stands in for every push service, answering each push with `status`, and keeps what was pushed where, in the order it came. */
 function pushServices(status: (endpoint: string) => number = () => 201) {

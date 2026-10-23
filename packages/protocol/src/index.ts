@@ -123,8 +123,12 @@ export interface Me extends User {
 /** What someone is in the workspace: ember-rust's user roles (crates/db/src/models/user.rs). */
 export type Role = "member" | "administrator" | "bot";
 
-/** Whether someone can still sign in: people who were removed are deactivated, and banned people are banned. */
-export type UserStatus = "active" | "deactivated" | "banned";
+/**
+ * Whether someone can still sign in: people who were removed are deactivated, and banned people are
+ * banned. While members sign in with Memberful, a member whose membership lapses is suspended until it's
+ * renewed (`auth.memberful-memberships`), which ember-rust has no need of.
+ */
+export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
 
 /** Someone as the people directory lists them. */
 export interface DirectoryUser extends User {
@@ -136,7 +140,7 @@ export interface DirectoryUser extends User {
   avatarUrl: string;
 }
 
-/** What `GET /api/users` answers: everyone in the workspace, deactivated and banned people too. */
+/** What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too. */
 export interface Directory {
   users: DirectoryUser[];
 }
@@ -334,6 +338,12 @@ export interface WorkspaceSettings {
    * hasn't, when Memberful sign-in can't be turned on.
    */
   memberfulSite: string | null;
+  /**
+   * Whether the deployment also has what Memberful's webhooks take, their signing secret and the custom
+   * app's API key (`MEMBERFUL_WEBHOOK_SECRET` and `MEMBERFUL_API_KEY`), so that Ember hears when a
+   * membership lapses or is renewed, and checks what it hears with Memberful.
+   */
+  memberfulWebhooks: boolean;
 }
 
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
@@ -572,6 +582,12 @@ export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
 
 /** Where Memberful sends the browser back to, which the Memberful site's custom app names as its OAuth redirect URL. */
 export const MEMBERFUL_CALLBACK_PATH = "/auth/memberful/callback";
+
+/**
+ * Where the Memberful site's webhooks go, which say when a member's membership changes
+ * (`auth.memberful-memberships`). Memberful signs each, and the Worker checks what it says with Memberful.
+ */
+export const MEMBERFUL_WEBHOOK_PATH = "/webhooks/memberful";
 
 /** Signing in with Memberful, coming back to `returnTo`, a page of the workspace, once signed in, or home without one. */
 export const memberfulSignInPath = (returnTo: string | null) =>

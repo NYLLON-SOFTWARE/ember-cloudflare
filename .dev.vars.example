@@ -23,6 +23,10 @@
 # MEMBERFUL_URL=
 # MEMBERFUL_CLIENT_ID=
 # MEMBERFUL_CLIENT_SECRET=
+# What hearing the site's webhooks takes, at Ember's address followed by /webhooks/memberful, so that a
+# member whose membership lapses is signed out: the app's API key, and the webhook's secret key.
+# MEMBERFUL_API_KEY=
+# MEMBERFUL_WEBHOOK_SECRET=
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true

@@ -37,6 +37,7 @@ const workspaceSettings: WorkspaceSettings = {
   joinCode: "aB3d-Ef5h-iJ7k",
   canAdminister: false,
   memberfulSite: null,
+  memberfulWebhooks: false,
 };
 
 /**

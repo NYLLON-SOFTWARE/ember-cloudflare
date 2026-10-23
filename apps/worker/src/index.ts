@@ -9,6 +9,7 @@ import {
   MEMBERFUL_CALLBACK_PATH,
   MEMBERFUL_SIGN_IN_NEEDED,
   MEMBERFUL_SIGN_IN_PATH,
+  MEMBERFUL_WEBHOOK_PATH,
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
@@ -80,7 +81,8 @@ import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
-import { finishMemberfulSignIn, memberfulKeysOf, memberfulRefusal, startMemberfulSignIn } from "./memberful";
+import { finishMemberfulSignIn, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
+import { memberfulKeysOf } from "./memberful-api";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
@@ -214,16 +216,16 @@ async function me(request: Request, env: Env): Promise<Response> {
 
 /**
  * Workspace settings, which anyone signed in may see, read-only unless they're an administrator, with
- * the Memberful site whose members can sign in, once the deployment has its keys. They hold the join
- * code, which no cache should keep, as the sidebar's invitation does.
+ * the Memberful site whose members can sign in, once the deployment has its keys, and whether it hears
+ * the site's webhooks. They hold the join code, which no cache should keep, as the sidebar's invitation does.
  */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
-  const memberfulSite = memberfulKeysOf(env)?.site ?? null;
-  return json({ ...settings, memberfulSite } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+  const memberful = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null };
+  return json({ ...settings, ...memberful } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -871,6 +873,8 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // A browser's report of what a page's policy blocked comes without the page's cookies or origin,
   // and from any browser the page reached.
   if (pathname === CSP_REPORT_PATH) return cspReport(request);
+  // Nor is Memberful's webhook, which its servers sign with the webhook's secret.
+  if (pathname === MEMBERFUL_WEBHOOK_PATH) return memberfulWebhook(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
   // Nor are a room's files, which ember-rust serves from Active Storage's controllers rather than
   // Campfire's, to whoever has the address, whatever their browser.

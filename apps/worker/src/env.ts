@@ -56,6 +56,15 @@ export interface Env {
   /** That app's client secret, which never leaves the Worker. */
   MEMBERFUL_CLIENT_SECRET?: string;
   /**
+   * That app's API key, with which the Workspace asks Memberful's admin API whose memberships are
+   * active, when a webhook says one changed, and once a day (memberful-api.ts). Without it, only
+   * signing in checks a membership, and Memberful's webhooks are refused, as they are without the
+   * secret below.
+   */
+  MEMBERFUL_API_KEY?: string;
+  /** The secret Memberful signs its webhooks to `/webhooks/memberful` with, which its Webhooks settings show. */
+  MEMBERFUL_WEBHOOK_SECRET?: string;
+  /**
    * The public half of the P-256 key pair that signs push notifications (VAPID), as ember-rust takes
    * it: the point, compressed or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both
    * halves, or with a pair that doesn't match, push notifications are off. Browsers subscribe with it,
