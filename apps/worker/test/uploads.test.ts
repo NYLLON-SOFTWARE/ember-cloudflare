@@ -444,6 +444,23 @@ describe(feature("attachments.previews"), () => {
     expect(new Uint8Array(await (await fetchFile(message.attachment.previewUrl!)).arrayBuffer())).toEqual(blackHole);
   });
 
+  it("keeps a picture's thumbnail only where its own size is known and within 250 megapixels", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const thumbnail = recordedImage("moon-avatar.webp");
+
+    const largest = await uploadWithPreview(ada, room, "largest.png", pngHeader(25_000, 10_000), "image/png", thumbnail);
+    expect(largest.attachment).toMatchObject({ width: 25_000, height: 10_000, previewUrl: expect.any(String) });
+    const larger = await uploadWithPreview(ada, room, "larger.png", pngHeader(25_001, 10_000), "image/png", thumbnail);
+    expect(larger.attachment).toMatchObject({ width: 25_001, height: 10_000 });
+    expect(larger.attachment).not.toHaveProperty("previewUrl");
+    // A PNG cut off before its size, which its thumbnail's would otherwise stand in for.
+    const unsized = await uploadWithPreview(ada, room, "unsized.png", pngHeader(640, 480).subarray(0, 16), "image/png", thumbnail);
+    expect(unsized.attachment).toMatchObject({ contentType: "image/png" });
+    expect(unsized.attachment).not.toHaveProperty("previewUrl");
+    expect(unsized.attachment).not.toHaveProperty("width");
+  });
+
   it("takes a preview only as a WebP, JPEG or PNG of up to 5 MiB that fits within 1200×800", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");

@@ -34,12 +34,23 @@ describe(feature("attachments.previews"), () => {
     expect(screen.getByRole("link", { name: "dot.png" })).toHaveAttribute("style", "width: min(20px, 480px, 2*70dvh); aspect-ratio: 40 / 20;");
   });
 
-  it("shows a picture without a thumbnail, as a bot's, as itself if every browser shows it and it's no more than 5 MiB, and as a card otherwise", () => {
-    render(<Attachment file={stored("earth.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE })} />);
-    expect(screen.getByRole("img", { name: "earth.gif" })).toHaveAttribute("src", "/files/k1/s1/earth.gif");
-    cleanup();
+  it("shows a picture without a thumbnail, as a bot's, as itself if every browser shows it and it's no more than 5 MiB and 250 megapixels, and as a card otherwise", () => {
+    for (const file of [
+      stored("earth.gif", "image/gif", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE }),
+      stored("panorama.png", "image/png", { width: 25_000, height: 10_000 }),
+    ]) {
+      render(<Attachment file={file} />);
+      expect(screen.getByRole("img", { name: file.name })).toHaveAttribute("src", file.url);
+      cleanup();
+    }
 
-    for (const file of [stored("earth.png", "image/png", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE + 1 }), stored("earth.heic", "image/heic", { width: 640, height: 320 })]) {
+    for (const file of [
+      stored("earth.png", "image/png", { width: 640, height: 320, byteSize: MAX_PREVIEW_SIZE + 1 }),
+      stored("earth.heic", "image/heic", { width: 640, height: 320 }),
+      // A small file can hold a picture far too large to decode, and its size can't always be read.
+      stored("panorama.png", "image/png", { width: 25_001, height: 10_000 }),
+      stored("earth.webp", "image/webp"),
+    ]) {
       render(<Attachment file={file} />);
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(card(file.name)).toBeInTheDocument();
@@ -47,8 +58,8 @@ describe(feature("attachments.previews"), () => {
     }
   });
 
-  it("shows a picture of unknown size at its own, up to 480px wide and 640px or 70% of the screen tall", () => {
-    render(<Attachment file={stored("earth.webp", "image/webp")} />);
+  it("shows a picture of unknown size by its thumbnail at the thumbnail's own size, up to 480px wide and 640px or 70% of the screen tall", () => {
+    render(<Attachment file={stored("earth.webp", "image/webp", { previewUrl: "/previews/k1/s1/earth.webp" })} />);
     const link = screen.getByRole("link", { name: "earth.webp" });
     expect(link).not.toHaveAttribute("style");
     expect(link).toHaveClass("w-fit", "max-w-[min(480px,100%)]");
@@ -128,6 +139,14 @@ describe(feature("attachments.lightbox"), () => {
       expect(viewer()).not.toBeInTheDocument();
     },
   );
+
+  it("opens a picture over 250 megapixels, as an older message's can be, as its thumbnail", async () => {
+    const panorama = stored("panorama.jpg", "image/jpeg", { width: 25_001, height: 10_000, previewUrl: "/previews/k1/s1/panorama.jpg" });
+    render(<Attachment file={panorama} />);
+    await userEvent.click(screen.getByRole("link", { name: "panorama.jpg" }));
+    expect(within(viewer()!).getByRole("img", { name: "panorama.jpg" })).toHaveAttribute("src", panorama.previewUrl);
+    expect(within(viewer()!).getByRole("link", { name: "Download file" })).toHaveAttribute("href", panorama.downloadUrl);
+  });
 
   it("opens a picture not every browser shows, such as a HEIC, as its thumbnail", async () => {
     const photo = stored("photo.heic", "image/heic", { width: 4032, height: 3024, previewUrl: "/previews/k1/s1/photo.heic" });

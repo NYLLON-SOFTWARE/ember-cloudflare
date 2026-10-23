@@ -160,7 +160,9 @@ describe(feature("bots.webhook-reply"), () => {
       await expect(delivered).rejects.toThrow(FAILURES[answer.error]!(recorded));
     } else {
       if (recorded.delay) await vi.advanceTimersByTimeAsync(recorded.delay * 1000);
-      expect(await delivered).toEqual(deliveredBy(answer));
+      // But for an answer other than a 200, which says nothing back since Campfire 1.5.2, as ember-rust's
+      // pull request #24 replays it, where the recorded Campfire kept its error page or text as a file.
+      expect(await delivered).toEqual(answer.status && answer.status !== 200 ? { status: answer.status, reply: null } : deliveredBy(answer));
     }
     expect(webhook.requests).toEqual(answer.requests.map(sentBy));
   });
@@ -253,11 +255,34 @@ describe(feature("bots.webhook-reply"), () => {
   });
 
   it("keeps an empty file", async () => {
-    const answering = (body: BodyInit | null, status = 200) => deliveredTo((async () => new Response(body, { status, headers: { "Content-Type": "application/pdf" } })) as typeof fetch);
+    const answering = (body: BodyInit | null) => deliveredTo((async () => new Response(body, { headers: { "Content-Type": "application/pdf" } })) as typeof fetch);
     const empty = { status: 200, reply: { file: { filename: "attachment.pdf", contentType: "application/pdf" }, kept: new Uint8Array() } };
     expect(await answering("")).toEqual(empty);
     expect(await answering(null)).toEqual(empty);
-    expect(await answering(null, 204)).toEqual({ ...empty, status: 204 });
+  });
+
+  it("says nothing back for an answer other than a 200, whatever its type, reading none of it, as Campfire 1.5.2 doesn't", async () => {
+    /** Stands in for keeping a file, which no answer here brings. */
+    const noFile: Keep<never> = () => expect.unreachable("The answer brings no file");
+    for (const status of [204, 301, 302, 400, 403, 404, 500, 503]) {
+      for (const type of ["text/plain", "image/png", "not a mime type"]) {
+        let cancelled = false;
+        const body = new ReadableStream<Uint8Array>({
+          pull: (controller) => controller.enqueue(new TextEncoder().encode("payload")),
+          cancel() {
+            cancelled = true;
+          },
+        });
+        // A 204 can have no body.
+        const answer = new Response(status === 204 ? null : body, { status, headers: { "Content-Type": type } });
+        expect(await postWebhook("https://bots.example.com/hook", "{}", noFile, { send: (async () => answer) as typeof fetch }), `${status} ${type}`).toEqual({ status, reply: null });
+        if (status !== 204) expect(cancelled, `${status} ${type}`).toBe(true);
+      }
+    }
+    // A 200 still says something back.
+    const answering = (type: string) => deliveredTo((async () => new Response("payload", { headers: { "Content-Type": type } })) as typeof fetch);
+    expect(await answering("text/plain")).toEqual({ status: 200, reply: { text: "payload" } });
+    expect(await answering("image/png")).toEqual({ status: 200, reply: { file: { filename: "attachment.png", contentType: "image/png" }, kept: new TextEncoder().encode("payload") } });
   });
 
   it(`fails a file larger than ${MAX_FILE_REPLY_BYTES / 1024 / 1024} MB, reading no further once it's over`, async () => {

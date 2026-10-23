@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { BotAnswer, BotSettings, NewWorkspace, RoomId, User, UserId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
-import { runInDurableObject } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobQueue } from "../src/at-once";
@@ -14,6 +14,7 @@ import type { RoomEvent } from "../src/room-log";
 import { BOT_WEBHOOK, MESSAGE_WEBHOOKS, type BotWebhook, type MessageWebhook } from "../src/workspace-store";
 import {
   api,
+  closeOf,
   connect,
   cookieOf,
   createRoom,
@@ -22,6 +23,7 @@ import {
   post,
   pushBrowser,
   recordedImage,
+  roomSql,
   roomStub,
   settle,
   shown,
@@ -123,6 +125,14 @@ function sendingFileWhenLet(): { reading: () => boolean; send: () => void } {
   });
   return { reading: () => reading, send: () => (sending = true) };
 }
+
+/**
+ * Waits until room `room` has nothing left in its log, which it forgets once the Workspace has applied
+ * it, queuing each message's deliveries. The room gathers what it logs for a moment between calls, and
+ * a message deleted, or a bot taken away, before its call goes out has no delivery queued at all.
+ */
+const applied = (room: RoomId) =>
+  vi.waitFor(async () => expect(await roomSql(room, "SELECT seq FROM room_events WHERE room_id = ?", room)).toEqual([]), { timeout: 5_000 });
 
 /** The R2 bucket that keeps files. */
 const files = () => (env as unknown as Env).FILES!;
@@ -498,6 +508,21 @@ describe(feature("bots.webhook-reply"), () => {
     client.close();
   });
 
+  it("posts nothing for an error page a bot's webhook answers, keeping nothing in R2, as Campfire 1.5.2 doesn't", async () => {
+    const { ada, general } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    bots(async () => new Response("<h1>Internal Server Error</h1>", { status: 500, headers: { "Content-Type": "text/html" } }));
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const client = await connect(general, ada);
+
+    const sent = await post(client, `<p>Hey ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(logs).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} performed: 500`));
+    await settle(client);
+    expect(client.pending("message.created")).toEqual([]);
+    expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
+    client.close();
+  });
+
   it("posts nothing for text with nothing in it, logging why", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
@@ -548,6 +573,42 @@ describe(feature("bots.webhook-reply"), () => {
     file.send();
     await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${sent.id} to bot ${bot.id} failed:`, "its reply wasn't posted: the room is gone"));
     expect((await files().list({ prefix: "files/" })).objects).toEqual([]);
+  });
+
+  it("sends nothing waiting its turn once its room is deleted, and makes nothing again in a room the alarm has erased meanwhile", async () => {
+    const { ada } = await setUp();
+    const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
+    const room = await createRoom("Launch", { as: ada });
+    // The bot's webhook holds both the room's places until the test lets it answer.
+    let answering = false;
+    const delivered = bots(async () => {
+      while (!answering) await new Promise((resolve) => setTimeout(resolve, 10));
+      return new Response(null, { status: 204 });
+    });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = await connect(room.id, ada);
+    const closed = closeOf(client.ws);
+
+    await post(client, `<p>One ${mention(bot)}</p>`);
+    await post(client, `<p>Two ${mention(bot)}</p>`);
+    const waiting = await post(client, `<p>Three ${mention(bot)}</p>`);
+    await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(room.id);
+    expect((await api(`/api/rooms/${room.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
+    await closed;
+    await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
+    expect(await runDurableObjectAlarm(roomStub(room.id))).toBe(true);
+
+    answering = true;
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(`Bot::WebhookJob of message ${waiting.id} to bot ${bot.id} failed:`, "the message is gone"));
+    expect(delivered).toHaveLength(2);
+    const left = await runInDurableObject(roomStub(room.id), async (_room, state: DurableObjectState) => ({
+      tables: state.storage.sql.exec(`SELECT name FROM sqlite_master WHERE name NOT LIKE '\\_cf\\_%' ESCAPE '\\'`).toArray(),
+      keys: [...(await state.storage.list()).keys()],
+      alarm: await state.storage.getAlarm(),
+    }));
+    expect(left).toEqual({ tables: [], keys: [], alarm: null });
   });
 
   it("keeps none of a file a bot says back once the bot is deleted while it arrives", async () => {
@@ -629,6 +690,7 @@ describe(feature("bots.webhook-jobs"), () => {
       await post(client, `<p>Four ${mention(bot)}</p>`),
     ];
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(general);
     // The third and fourth wait their turn, by which time the bot is renamed, the third edited, which
     // mentions it by its new name, and the fourth deleted.
     await changeBot(ada, bot, { name: "Deploy Bot" });
@@ -674,6 +736,7 @@ describe(feature("bots.webhook-jobs"), () => {
     await post(client, `<p>Two ${mention(busy)}</p>`);
     const sent = await post(client, `<p>Three ${mention(deleted)} ${mention(removed)} ${mention(unhooked)}</p>`);
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(room.id);
     await deleteBot(ada, deleted);
     await keepOnly(ada, room.id, [ada.user.id, busy.id, unhooked.id]);
     await changeBot(ada, unhooked, { webhookUrl: "" });

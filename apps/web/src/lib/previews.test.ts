@@ -40,9 +40,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** Has pictures decode as `width` by `height`, or fail to, as Chrome fails to decode HEIC. */
+/** Has pictures load and decode as `width` by `height`, or fail to load, as Chrome fails to load HEIC. */
 function decodes(width: number, height: number, ok = true) {
-  HTMLImageElement.prototype.decode = vi.fn(() => (ok ? Promise.resolve() : Promise.reject(new DOMException("The source image cannot be decoded.", "EncodingError"))));
+  vi.spyOn(HTMLImageElement.prototype, "src", "set").mockImplementation(function (this: HTMLImageElement) {
+    void Promise.resolve().then(() => this.dispatchEvent(new Event(ok ? "load" : "error")));
+  });
+  HTMLImageElement.prototype.decode = vi.fn(() => Promise.resolve());
   vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(width);
   vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(height);
 }
@@ -151,10 +154,11 @@ describe(feature("attachments.previews"), () => {
     const broken = previewOf(file("broken.mov", "video/quicktime"));
     videos[0]!.dispatchEvent(new Event("error"));
     expect(await broken).toBeNull();
-    // A recording of sound alone has no picture.
+    // A recording of sound alone has no picture, so none is sought.
     const sound = previewOf(file("interview.mp4", "video/mp4"));
-    await plays(videos[1]!, { width: 0, height: 0 });
+    const soughtIn = loads(videos[1]!, { width: 0, height: 0 });
     expect(await sound).toBeNull();
+    expect(soughtIn()).toBeNaN();
     expect(canvases).toEqual([]);
 
     vi.useFakeTimers();
@@ -175,6 +179,7 @@ describe(feature("attachments.previews"), () => {
     expect(canvases).toEqual([]);
 
     // A picture that hasn't decoded by then goes without one too.
+    decodes(2400, 1600);
     HTMLImageElement.prototype.decode = vi.fn(() => new Promise<void>(() => {}));
     const slow = previewOf(file("panorama.png", "image/png"));
     await vi.advanceTimersByTimeAsync(5_000);
@@ -182,13 +187,34 @@ describe(feature("attachments.previews"), () => {
     expect(canvases).toEqual([]);
 
     // And so does one still being encoded.
-    decodes(2400, 1600);
+    HTMLImageElement.prototype.decode = vi.fn(() => Promise.resolve());
     vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => {});
     const encoding = previewOf(file("mural.png", "image/png"));
     await vi.advanceTimersByTimeAsync(4_999);
     expect(canvases).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(await encoding).toBeNull();
+  });
+
+  it("makes none of a picture or video over 250 megapixels, decoding no picture and seeking no frame of it, as ember-rust makes none", async () => {
+    decodes(25_001, 10_000);
+    expect(await previewOf(file("panorama.png", "image/png"))).toBeNull();
+    expect(await avatarVariantOf(file("panorama.jpg", "image/jpeg"))).toBeNull();
+    expect(HTMLImageElement.prototype.decode).not.toHaveBeenCalled();
+    const tall = previewOf(file("tall.mp4", "video/mp4"));
+    const soughtIn = loads(videos[0]!, { width: 10_000, height: 25_001 });
+    expect(await tall).toBeNull();
+    expect(soughtIn()).toBeNaN();
+    expect(canvases).toEqual([]);
+
+    // 250 megapixels is in.
+    decodes(25_000, 10_000);
+    expect(await previewOf(file("panorama.png", "image/png"))).not.toBeNull();
+    expect(HTMLImageElement.prototype.decode).toHaveBeenCalledOnce();
+    const wide = previewOf(file("wide.mp4", "video/mp4"));
+    expect(await plays(videos[1]!, { width: 25_000, height: 10_000 })).toBe(0.1);
+    expect(await wide).not.toBeNull();
+    expect(canvases).toMatchObject([{ width: 1200, height: 480 }, { width: 1200, height: 480 }]);
   });
 });
 

@@ -4,7 +4,8 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UNDELIVERED_EVENTS, type RoomEvent } from "../src/room-log";
-import { MESSAGE_PUSHES, type MessagePush } from "../src/workspace-store";
+import type { Workspace } from "../src/workspace";
+import { MESSAGE_PUSHES, type MessagePush, type WorkspaceStore } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -376,6 +377,46 @@ describe(feature("notifications.push"), () => {
       await change({ type: "message.delete", messageId: edited.id });
       await post(ada, "<p>Last</p>");
       await vi.waitFor(async () => expect(await bodies()).toEqual(["Ada: Final", "Ada: Last"]), { timeout: 5_000 });
+    });
+
+    it("asks again whether a push may go once its turn comes, sending none to someone banned meanwhile, and keeps their subscription for when the ban is lifted", async () => {
+      const pushed = pushServices();
+      const ada = await setUp();
+      const room = await freshRoom("Designers");
+      const [kevin] = await people("Kevin");
+      const browser = await pushBrowser();
+      await subscribe(kevin, "kevin", browser);
+      await involve(kevin, room, "everything");
+      const adaThere = await connect(room, ada, { visible: true });
+      // The Workspace answers whether Kevin's push may go once the test lets it, as ember-rust's test holds its check.
+      let asked = false;
+      const answers: boolean[] = [];
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const pushable = store.pushable.bind(store);
+        store.pushable = async (id) => {
+          store.pushable = pushable;
+          asked = true;
+          await released;
+          answers.push(await pushable(id));
+          return answers.at(-1)!;
+        };
+      });
+
+      await post(adaThere, "<p>Before the ban</p>");
+      await vi.waitFor(() => expect(asked).toBe(true), { timeout: 5_000 });
+      await ban(ada, kevin);
+      release();
+      await vi.waitFor(() => expect(answers).toEqual([false]), { timeout: 5_000 });
+      expect(pushed).toEqual([]);
+      expect(await subscriptionsOf(kevin)).toBe(1);
+
+      await ban(ada, kevin, "DELETE");
+      await post(adaThere, "<p>After the ban</p>");
+      await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Ada: After the ban" } });
     });
 
     it("forgets a subscription its push service says is gone, and keeps one it couldn't reach", async () => {
