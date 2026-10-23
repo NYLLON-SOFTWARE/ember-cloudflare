@@ -210,21 +210,24 @@ describe(feature("rooms.show"), () => {
 });
 
 describe(feature("rooms.icons"), () => {
-  it("takes the name of every icon in the catalog", () => {
-    expect(ROOM_ICON_NAMES).toHaveLength(1869);
-    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash"]));
+  it("takes the name of every icon in the catalog, Lucide's and Iconoir's", () => {
+    expect(ROOM_ICON_NAMES).toHaveLength(3540);
+    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash", "iconoir:regular:coffee-cup", "iconoir:solid:heart"]));
     expect(ROOM_ICON_NAMES.filter((name) => !isRoomIcon(name))).toEqual([]);
   });
 
   it("refuses anything that isn't exactly one, as ember-rust does", () => {
     const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
-    expect(values.filter(isRoomIcon)).toEqual([]);
+    // As ember-rust's picker_icons.rs refuses them.
+    const iconoir = ["lucide:house", "iconoir:heart", "iconoir:solid:../heart", "iconoir:regular:not-an-icon", "iconoir:Regular:coffee-cup"];
+    expect([...values, ...iconoir].filter(isRoomIcon)).toEqual([]);
   });
 
   it('takes a new or changed room\'s icon, "" for the default, or none, which keeps the one it has', () => {
     expect(parseNewRoom({ kind: "open", name: "Design", icon: "coffee" })).toEqual({ kind: "open", name: "Design", icon: "coffee" });
     expect(parseNewRoom({ kind: "closed", name: "Leads", icon: "" })).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [] });
     expect(parseRoomChanges({ icon: "rocket" })).toEqual({ icon: "rocket" });
+    expect(parseRoomChanges({ icon: "iconoir:solid:heart" })).toEqual({ icon: "iconoir:solid:heart" });
     expect(parseRoomChanges({ icon: "", kind: "open" })).toEqual({ icon: "", kind: "open" });
     expect(parseRoomChanges({ name: "Design" })).toHaveProperty("icon", undefined);
   });

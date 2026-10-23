@@ -35,6 +35,8 @@ describe(feature("rooms.icons"), () => {
     const ada = await signIn("Ada");
     const room = await createRoom("Design", { as: ada });
 
+    expect(((await (await change(room.id, ada, { icon: "iconoir:regular:coffee-cup" })).json()) as { room: SharedRoom }).room).toEqual({ ...room, icon: "iconoir:regular:coffee-cup" });
+    expect(await stored(room.id)).toEqual({ name: "Design", icon: "iconoir:regular:coffee-cup" });
     expect(((await (await change(room.id, ada, { icon: "rocket" })).json()) as { room: SharedRoom }).room).toEqual({ ...room, icon: "rocket" });
     expect(await stored(room.id)).toEqual({ name: "Design", icon: "rocket" });
     expect((await change(room.id, ada, { name: "Launch", kind: "open" })).status).toBe(200);
@@ -50,7 +52,7 @@ describe(feature("rooms.icons"), () => {
     const ada = await signIn("Ada");
     const room = await createRoom("Design", { icon: "coffee", as: ada });
 
-    for (const icon of ["Coffee", "../coffee", null]) {
+    for (const icon of ["Coffee", "../coffee", "iconoir:coffee-cup", null]) {
       const changed = await change(room.id, ada, { name: "Renamed", icon });
       expect(changed.status).toBe(422);
       expect(await changed.json()).toEqual(ICON_REFUSED);

@@ -6,29 +6,37 @@ import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
 /**
- * Serves each icon a room can have as an SVG of its own at /lucide/icons/<name>.svg, which `RoomIcon`
- * draws, writing them from ember-rust's catalog in src/components/icons/lucide/ (its README says more).
+ * Serves each icon a room can have as an SVG of its own, which `RoomIcon` draws: Lucide's at
+ * /lucide/icons/<name>.svg and Iconoir's at /iconoir/icons/<variant>/<name>.svg, as `roomIconUrl` has
+ * them, writing them from ember-rust's picker catalog in src/components/icons/picker/ (its README says more).
  */
 function roomIcons(): Plugin {
-  type Catalog = Array<{ name: string; svg: string }>;
-  let catalog: Catalog | undefined;
-  const icons = () => (catalog ??= JSON.parse(readFileSync(path.resolve(import.meta.dirname, "src/components/icons/lucide/catalog.json"), "utf8")) as Catalog);
+  type Catalog = { icons: Array<{ name: string; svg: string }> };
+  /** Where icon `name` is served, without the leading slash. */
+  const fileOf = (name: string) => (name.startsWith("iconoir:") ? `iconoir/icons/${name.split(":").slice(1).join("/")}.svg` : `lucide/icons/${name}.svg`);
+  let files: Map<string, string> | undefined;
+  /** Each icon's drawing, by where it's served. */
+  const icons = () => {
+    if (files) return files;
+    const catalog = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "src/components/icons/picker/catalog.json"), "utf8")) as Catalog;
+    return (files = new Map(catalog.icons.map(({ name, svg }) => [fileOf(name), svg])));
+  };
   return {
     name: "ember-room-icons",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        const name = /^\/lucide\/icons\/([a-z0-9-]+)\.svg$/.exec(request.url ?? "")?.[1];
-        const icon = name && icons().find((icon) => icon.name === name);
-        if (!icon) return next();
+        const svg = icons().get(request.url?.slice(1) ?? "");
+        if (!svg) return next();
         response.setHeader("Content-Type", "image/svg+xml");
-        response.end(icon.svg);
+        response.end(svg);
       });
     },
-    // Written beside the bundle rather than emitted with it, which would list all 1,869 in the build's output.
+    // Written beside the bundle rather than emitted with it, which would list all 3,540 in the build's output.
     writeBundle({ dir }) {
-      const folder = path.join(dir!, "lucide/icons");
-      mkdirSync(folder, { recursive: true });
-      for (const { name, svg } of icons()) writeFileSync(path.join(folder, `${name}.svg`), svg);
+      for (const [file, svg] of icons()) {
+        mkdirSync(path.dirname(path.join(dir!, file)), { recursive: true });
+        writeFileSync(path.join(dir!, file), svg);
+      }
     },
   };
 }

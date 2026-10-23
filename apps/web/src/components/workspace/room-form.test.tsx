@@ -100,7 +100,7 @@ describe(feature("rooms.icon-picker"), () => {
     const name = screen.getByRole("textbox", { name: "Room name" });
     const picker = screen.getByRole("button", { name: "Choose room icon" });
     expect(name.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(picker).toHaveTextContent("Coffee");
+    expect(picker).toHaveTextContent("Break Room");
     expect(picker).toBeEnabled();
   });
 
