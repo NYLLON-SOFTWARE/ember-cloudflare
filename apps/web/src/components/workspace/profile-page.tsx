@@ -28,6 +28,7 @@ import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { ConversationNotifications } from "./conversation-notifications";
+import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
@@ -98,7 +99,8 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * "It may take up to 30 minutes to change everywhere.", and Remove avatar takes away, then your name,
  * email address, a new password, your current password while you have one, which changing your email
  * address or password takes, where ember-rust asks for none, and your bio, which Save changes saves
- * with the notice "✓", keeping the page where ember-rust reloads it, then your notification level in
+ * with the notice "✓", keeping the page where ember-rust reloads it, then, while members sign in with
+ * Memberful, this port's own, connecting your Memberful account, then your notification level in
  * each of your rooms and DMs, then a sign-in link for you, a new one each time the page loads or saves,
  * as each of ember-rust's pages has, and Log out in the top bar. Go Back returns to the page it was
  * opened from. Your avatar, name and bio reach everyone's open pages at once, through the workspace
@@ -115,6 +117,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [transferId, setTransferId] = useState<string | null>(null);
   /** Whether you have a password, which the form then asks for to change your email address or password. */
   const [hasPassword, setHasPassword] = useState(false);
+  /** Whether you've connected a Memberful account, or null while there's none to connect. */
+  const [memberful, setMemberful] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -146,15 +150,16 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, whether you have a password, and a new sign-in link, as an answer has them. An
-   * answer can arrive after a later one, as a profile's save can after a photo's, and the later avatar
-   * stays then.
+   * Shows your avatar, whether you have a password, whether you've connected Memberful, and a new sign-in
+   * link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
+   * photo's, and the later avatar stays then.
    */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
     const answered = { avatarUrl: profile.avatarUrl, avatar: profile.avatar };
     setPicture((shown) => (shown && avatarVersionOf(shown.avatarUrl) > avatarVersionOf(answered.avatarUrl) ? shown : answered));
     // Nothing takes a password away, so an answer arriving late doesn't hide the field.
     setHasPassword((had) => had || profile.password);
+    setMemberful(profile.memberful);
     setTransferId(transferId);
   }
 
@@ -322,6 +327,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
+        {memberful !== null && <MemberfulConnection connected={memberful} hasPassword={hasPassword} administrator={me.administrator} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -30,7 +30,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, memberful: null };
 const account: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
@@ -402,6 +402,35 @@ describe(feature("notifications.profile-list"), () => {
     await user.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
     expect(onFailed).toHaveBeenCalledOnce();
     expect(answered).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("auth.memberful-connect"), () => {
+  const memberful = () => screen.queryByRole("region", { name: "Memberful" });
+
+  it("has a Memberful section between the form and your rooms' levels while members sign in with Memberful", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, memberful: false }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { showRooms } = showPage();
+    await loaded();
+    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
+    expect(memberful()).toHaveTextContent("Connect your Memberful account to keep signing in as yourself.");
+    // Its own password field, as you have a password.
+    expect(within(memberful()!).getByLabelText("Password")).toBeInTheDocument();
+    expect(saveButton().compareDocumentPosition(memberful()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(memberful()!.compareDocumentPosition(screen.getByRole("list", { name: "Conversation notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says once you've connected one", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, memberful: true }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    showPage();
+    await loaded();
+    expect(memberful()).toHaveTextContent("Your Memberful account is connected, so you sign in with it.");
+  });
+
+  it("has none while members don't sign in with Memberful", async () => {
+    showPage();
+    await loaded();
+    expect(memberful()).not.toBeInTheDocument();
   });
 });
 

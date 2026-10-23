@@ -309,7 +309,7 @@ describe(feature("search.messages"), () => {
     await indexed(room);
     await searchSql("UPDATE search_messages SET message = NULL");
 
-    await workspaceSql(MIGRATIONS.find(({ name }) => name === "0039_search_results.sql")!.sql);
+    await workspaceSql(MIGRATIONS.find(({ name }) => name === "0040_search_results.sql")!.sql);
     expect(await workspaceSql("SELECT room_id FROM pending_reindexes")).toContainEqual({ room_id: room });
     await runInDurableObject(workspaceStub(), (instance: Workspace) => instance.alarm());
     await runRoomAlarm(room);

@@ -1,5 +1,6 @@
 import { MAX_EMAIL_ADDRESS_LENGTH, MAX_USER_NAME_LENGTH } from "@ember/protocol";
 import type { Env } from "./env";
+import { isLoopback } from "./loopback";
 
 // What Ember asks the Memberful site whose members sign in (`auth.memberful-sign-in`), and the keys it
 // asks with: its member API, with the access token a sign-in's code is exchanged for, says who signed
@@ -45,13 +46,14 @@ const MAX_SUBJECT_LENGTH = 255;
 
 /**
  * The deployment's Memberful keys, or null without all three, or with a site that isn't an https
- * address. The site is the address's origin, so a path or trailing slash after it changes nothing.
+ * address, or an http one on this computer, where the browser tests fake one. The site is the address's
+ * origin, so a path or trailing slash after it changes nothing.
  */
 export function memberfulKeysOf(env: Env): MemberfulKeys | null {
   const [url, clientId, clientSecret] = [env.MEMBERFUL_URL?.trim(), env.MEMBERFUL_CLIENT_ID?.trim(), env.MEMBERFUL_CLIENT_SECRET?.trim()];
   if (!url || !clientId || !clientSecret) return null;
   const site = URL.parse(url);
-  if (site?.protocol === "https:") return { site: site.origin, clientId, clientSecret };
+  if (site?.protocol === "https:" || (site?.protocol === "http:" && isLoopback(site))) return { site: site.origin, clientId, clientSecret };
   console.error("MEMBERFUL_URL must be a Memberful site's https address, such as https://example.memberful.com, so Memberful sign-in is off");
   return null;
 }

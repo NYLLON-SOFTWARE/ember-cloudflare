@@ -36,7 +36,8 @@ import pushSubscriptionsPerBrowser from "../migrations/0035_push_subscriptions_p
 import invitationDismissals from "../migrations/0036_invitation_dismissals.sql";
 import identities from "../migrations/0037_identities.sql";
 import membershipChecks from "../migrations/0038_membership_checks.sql";
-import searchResultsReindex from "../migrations/0039_search_results.sql";
+import pendingIdentities from "../migrations/0039_pending_identities.sql";
+import searchResultsReindex from "../migrations/0040_search_results.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 
@@ -98,7 +99,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0036_invitation_dismissals.sql", scope: "workspace", sql: invitationDismissals },
   { name: "0037_identities.sql", scope: "workspace", sql: identities },
   { name: "0038_membership_checks.sql", scope: "workspace", sql: membershipChecks },
-  { name: "0039_search_results.sql", scope: "workspace", sql: searchResultsReindex },
+  { name: "0039_pending_identities.sql", scope: "workspace", sql: pendingIdentities },
+  { name: "0040_search_results.sql", scope: "workspace", sql: searchResultsReindex },
 ];
 
 /**

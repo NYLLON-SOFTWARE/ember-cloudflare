@@ -6,6 +6,15 @@ import { devices, type PlaywrightTestOptions, type PlaywrightWorkerOptions, type
 // regenerating the join link would stop another's new person joining through it.
 
 export const SETTINGS_SERVER_PORT = Number(process.env.E2E_SETTINGS_PORT ?? 8789);
+/** Where the Memberful site the Memberful specs fake listens, which the second server's MEMBERFUL_URL names. */
+export const MEMBERFUL_SITE_PORT = Number(process.env.E2E_MEMBERFUL_PORT ?? 8790);
+/** The second server's Memberful keys, which that site checks. None is a secret. */
+export const MEMBERFUL_KEYS = {
+  clientId: "e2e",
+  clientSecret: "e2e-only-not-a-secret",
+  apiKey: "e2e-only-not-an-api-key",
+  webhookSecret: "e2e-only-not-a-webhook-secret",
+};
 /** The project that sets the second server up. */
 const SETTINGS_FIRST_RUN = "workspace-settings-first-run";
 
