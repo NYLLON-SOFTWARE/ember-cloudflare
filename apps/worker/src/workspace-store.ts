@@ -308,10 +308,11 @@ const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_addr
 
 /**
  * The same, for someone who signed in, unless they've stopped being active since, or their password
- * has been reset since it was checked.
+ * has been reset since it was checked, or they're no longer an administrator while the last value says
+ * only administrators sign in with a password.
  */
 const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ?`;
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR role = ${ADMINISTRATOR})`;
 
 /** Keeps a digest made now of the password someone signed in with, in place of the one checked, unless it has changed since. */
 const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND password_digest = ?`;
@@ -1421,12 +1422,22 @@ export class WorkspaceStore {
 
   /**
    * Starts a session for someone who signed in with the password `passwordDigest` is the digest of,
-   * unless they've stopped being active since, or their password has been reset, and keeps `rehash`,
-   * a digest made now of the same password, in its place when there is one.
+   * unless they've stopped being active since, or their password has been reset, or they're not an
+   * administrator while `administratorsOnly` says only administrators sign in with a password, and keeps
+   * `rehash`, a digest made now of the same password, in its place when there is one.
    */
-  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+  async startSession(
+    userId: UserId,
+    passwordDigest: string,
+    rehash: string | null,
+    administratorsOnly: boolean,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<StoredSession | null> {
     const results = await this.db.batch([
-      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest),
+      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest, administratorsOnly ? 1 : 0),
       ...(rehash === null ? [] : [statement(REHASH_PASSWORD, rehash, userId, passwordDigest)]),
       statement(SESSION, tokenDigest),
     ]);

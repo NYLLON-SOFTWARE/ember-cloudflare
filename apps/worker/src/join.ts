@@ -67,12 +67,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
 
   const passwordDigest = await passwordHasher(env).hash(form.password);
   const token = newSessionToken();
-  const person = {
-    name: form.name,
-    emailAddress: form.emailAddress,
-    passwordDigest,
-    avatar,
-  };
+  const person = { name: form.name, emailAddress: form.emailAddress, passwordDigest, avatar };
   const user = await workspace(env).join(code, person, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   if (user === "not found") return formAnswer({ error: "Not found" }, 404);
   if (user === "memberful") return formAnswer(MEMBERFUL_INSTEAD, 403);

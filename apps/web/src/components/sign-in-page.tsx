@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, signIn } from "@/lib/api";
-import { forgetReturnPath, returnPath } from "@/lib/return-path";
+import { returnPath } from "@/lib/return-path";
 
 // ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
 // in zz-ember.css) and the help contact under it. A refused sign-in shakes the card and flashes
@@ -121,10 +121,8 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
               </form>
             ) : (
               <Button asChild className={PRIMARY_BUTTON}>
-                {/* The Worker opens the page this tab was sent here from once it's signed in, so the tab needn't. */}
-                <a href={memberfulSignInPath(returnPath())} onClick={() => forgetReturnPath()}>
-                  Sign in with Memberful
-                </a>
+                {/* The Worker opens the page this tab was sent here from once it's signed in. The tab keeps it too, for a try that fails. */}
+                <a href={memberfulSignInPath(returnPath())}>Sign in with Memberful</a>
               </Button>
             )}
             {memberfulSignIn &&

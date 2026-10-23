@@ -646,10 +646,12 @@ export class Workspace extends DurableObject<Env> {
    * only someone who knows their password can, so it says nothing about who has an account.
    */
   async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | "memberful" | null> {
-    if ((await this.joinableAccount())?.memberfulSignIn && !(await this.store.isAdministrator(userId))) return "memberful";
-    // On D1 a role change can overlap it, so it's remembered only if none did.
+    const administratorsOnly = (await this.joinableAccount())?.memberfulSignIn ?? false;
+    if (administratorsOnly && !(await this.store.isAdministrator(userId))) return "memberful";
+    // On D1 a role change can overlap it, so it's remembered only if none did, and the session starts
+    // only if they're an administrator still, when only administrators may sign in with a password.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startSession(userId, passwordDigest, rehash, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startSession(userId, passwordDigest, rehash, administratorsOnly, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -673,11 +675,14 @@ export class Workspace extends DurableObject<Env> {
    * members sign in with Memberful, which answers "memberful".
    */
   async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful"> {
-    if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
-    await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
-    this.sessions.remember(tokenDigest, session);
-    return meOf(session);
+    // One at a time, as joining is, so that none can overlap turning Memberful sign-in on.
+    return this.oneAtATime(async () => {
+      if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
+      await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+      this.sessions.remember(tokenDigest, session);
+      return meOf(session);
+    });
   }
 
   /**

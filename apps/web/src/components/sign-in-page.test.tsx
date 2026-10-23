@@ -226,10 +226,11 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
     expect(screen.getByText("Administrator?")).toBeInTheDocument();
 
-    // The Worker opens that page once it's signed in, so this tab forgets it. jsdom can't follow the link.
+    // The Worker opens that page once it's signed in, and this tab keeps it, for another try if Memberful
+    // sends it back here, or an administrator's password. jsdom can't follow the link.
     document.addEventListener("click", (event) => event.preventDefault(), { once: true });
     await userEvent.click(memberful);
-    expect(returnPath()).toBeNull();
+    expect(returnPath()).toBe("/rooms/abc?tab=pins");
   });
 
   it("goes home once signed in when this tab came to sign in itself", () => {

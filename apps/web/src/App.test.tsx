@@ -688,6 +688,26 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
+describe(feature("auth.memberful-sign-in"), () => {
+  it("forgets the page to come back to once it opens signed in, as signing in with Memberful opens that page itself", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/general");
+    history.replaceState(null, "", "/rooms/general");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(sessionStorage.getItem("ember:return-to")).toBeNull();
+  });
+
+  it("keeps it on the sign-in page, which opens even for someone signed in", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/general");
+    history.replaceState(null, "", "/session/new");
+    serve({ signedIn: true });
+    render(<App />);
+    expect(await signInPage()).toBeInTheDocument();
+    expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
+  });
+});
+
 describe(feature("auth.sign-up"), () => {
   const joinPage = () => screen.findByRole("heading", { name: "Join Ember" });
 

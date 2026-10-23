@@ -12,8 +12,14 @@ import {
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, apiWith, builtPages, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, workspaceSql, type Session } from "./support";
+import { credentialsFor, newSessionToken } from "../src/auth";
+import type { Env } from "../src/env";
+import type { Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
+import { api, apiWith, builtPages, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
@@ -262,6 +268,36 @@ describe(feature("auth.memberful-sign-in"), () => {
       expect(await count("users")).toBe(1);
     });
 
+    it("doesn't add someone with just a name while it's being turned on", async () => {
+      const administrator = await setUp();
+      const [adas, guests] = await Promise.all(
+        [administrator.cookie.split("=")[1]!, newSessionToken()].map((token) => credentialsFor(token, new Request(origin), env as unknown as Env)),
+      );
+      const signedIn = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const changeAccount = store.changeAccount.bind(store);
+        let reach!: () => void;
+        const reached = new Promise<void>((resolve) => (reach = resolve));
+        let save!: () => void;
+        const saving = new Promise<void>((resolve) => (save = resolve));
+        // On D1 a sign-in can read the workspace as it was before Memberful sign-in is saved, and add a guest after.
+        vi.spyOn(store, "changeAccount").mockImplementationOnce(async (...args) => {
+          reach();
+          await saving;
+          return changeAccount(...args);
+        });
+
+        const turningOn = workspace.changeAccount(adas!, { settings: { memberfulSignIn: true } });
+        await reached;
+        const signingIn = workspace.signInGuest("Guest", guests!.tokenDigest, guests!.client);
+        save();
+        expect(await turningOn).toMatchObject({ memberfulSignIn: true });
+        return signingIn;
+      });
+      expect(signedIn).toBe("memberful");
+      expect(await count("users")).toBe(1);
+    });
+
     it("signs only administrators in with a password, and tells a member so only once their password checks out", async () => {
       const administrator = await setUp();
       await joinAsGrace();
@@ -276,6 +312,42 @@ describe(feature("auth.memberful-sign-in"), () => {
       const wrong = await signInWithPassword({ emailAddress: grace.emailAddress, password: "wrong" });
       expect(wrong.status).toBe(401);
       expect(await wrong.json()).toEqual({ error: SIGN_IN_REFUSED });
+    });
+
+    it("doesn't sign in an administrator made a member while their sign-in was checked", async () => {
+      const administrator = await setUp();
+      const member = await joinAsGrace();
+      const promoted = await api(`/api/account/users/${member.user.id}`, { method: "PATCH", headers: as(administrator), body: JSON.stringify({ role: "administrator" }) });
+      expect(promoted.status).toBe(200);
+      await turnMemberful(administrator, true);
+      // As if she had a password, which the sign-in checked.
+      await workspaceSql("UPDATE users SET password_digest = ? WHERE id = ?", "checked", member.user.id);
+      const [adas, laptop] = await Promise.all(
+        [administrator.cookie.split("=")[1]!, newSessionToken()].map((token) => credentialsFor(token, new Request(origin), env as unknown as Env)),
+      );
+      const [signedIn, signedInNow] = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const isAdministrator = store.isAdministrator.bind(store);
+        let read!: () => void;
+        const reading = new Promise<void>((resolve) => (read = resolve));
+        let answer!: () => void;
+        const answering = new Promise<void>((resolve) => (answer = resolve));
+        // On D1 a sign-in can read Grace as an administrator, and start her session only once she's a member.
+        vi.spyOn(store, "isAdministrator").mockImplementationOnce(async (userId) => {
+          const was = await isAdministrator(userId);
+          read();
+          await answering;
+          return was;
+        });
+
+        const signingIn = workspace.startSession(member.user.id, "checked", null, laptop!.tokenDigest, laptop!.client);
+        await reading;
+        expect(await workspace.changeRole(adas!, member.user.id, "member")).toMatchObject({ role: "member" });
+        answer();
+        return [await signingIn, await workspace.me(laptop!)];
+      });
+      expect(signedIn).toBeNull();
+      expect(signedInNow).toBeNull();
     });
 
     it("leaves the sessions people have signed in", async () => {
