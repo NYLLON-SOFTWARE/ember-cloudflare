@@ -468,7 +468,8 @@ search index. On top of that schema it adds indexes and query changes for speed.
   membership lapsed is suspended, `users.status` 3, in one batch that queues closing their sockets
   and ends their sessions and push subscriptions, but keeps their memberships, which saving a private
   room's settings leaves too, since they list only people active, so a renewal brings them back with
-  their rooms, and grants them the open rooms made meanwhile.
+  their rooms, and grants them the open rooms made meanwhile. Making an open room private takes them
+  out, as it does anyone else nobody chose, so that statement reads the room's kind before it changes.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

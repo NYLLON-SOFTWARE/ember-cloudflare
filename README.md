@@ -252,7 +252,7 @@ their password is reset.
 A member whose membership lapses can't sign in again. With the webhook, they're suspended too: their
 sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their
 rooms, private ones too, messages and role stay, and they're back as they were once it's renewed and
-they sign in. A
+they sign in. Making an open room private leaves them out of it, as it does anyone not chosen. A
 webhook only tells Ember whom to ask about: Memberful sends them in no particular order, so the
 Workspace asks Memberful's API what that member's membership is now, and asks about everyone linked
 once a day too, in case one never came. Administrators are never suspended. They see suspended

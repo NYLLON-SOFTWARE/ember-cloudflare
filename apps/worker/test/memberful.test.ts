@@ -1051,6 +1051,31 @@ describe(feature("auth.memberful-memberships"), () => {
     );
 
     it(
+      "takes a suspended member out of an open room made private, as it does everyone else nobody chose for it",
+      hearingWebhooks(async () => {
+        const administrator = await setUpCheckingMemberships();
+        const site = fakeMemberful();
+        const { id } = (await memberfulSession()).user;
+        const room = await createRoom("lounge", { as: administrator });
+        expect(await workspaceSql("SELECT user_id FROM memberships WHERE room_id = ? AND user_id = ?", room.id, id)).toEqual([{ user_id: id }]);
+        site.member = { ...katherine, subscriptions: [{ active: false }] };
+        await webhook(subscriptionChanged(katherine));
+        await checked();
+        expect(await statusOf(administrator, id)).toBe("suspended");
+
+        const body = JSON.stringify({ name: "Lounge", kind: "closed", memberIds: [administrator.user.id] });
+        expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: as(administrator), body })).status).toBe(200);
+        expect(await workspaceSql("SELECT user_id FROM memberships WHERE room_id = ?", room.id)).toEqual([{ user_id: administrator.user.id }]);
+
+        site.member = katherine;
+        const session = await memberfulSession();
+        const { rooms } = (await (await api("/api/sidebar", { headers: as(session) })).json()) as Sidebar;
+        expect(rooms.map(({ id }) => id)).not.toContain(room.id);
+        expect((await api(`/api/rooms/${room.id}/settings`, { headers: as(session) })).status).toBe(404);
+      }),
+    );
+
+    it(
       "goes by the newest read of a membership, as a sign-in that began while a check asked Memberful",
       hearingWebhooks(async () => {
         const administrator = await setUpCheckingMemberships();

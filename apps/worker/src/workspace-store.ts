@@ -642,19 +642,21 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
   WHERE sessions.token_digest = ? RETURNING id`;
 
 /**
- * Whether a membership is someone's suspended for their Memberful membership's lapsing, which changing
- * the room leaves be: its settings list only people active, and the room is theirs again once their
- * membership is renewed.
+ * Whether a membership is that of someone suspended for their Memberful membership's lapsing, in a room
+ * that's private already, which changing the room leaves be: its settings list only people active, and
+ * the room is theirs again once their membership is renewed. Making an open room private takes them out,
+ * as it does everyone else nobody chose for it. It's read before the room's kind changes.
  */
-const SUSPENDED_MEMBERSHIP = `EXISTS (SELECT 1 FROM users WHERE users.id = memberships.user_id AND users.status = ${SUSPENDED})`;
+const KEPT_SUSPENDED_MEMBERSHIP = `EXISTS (SELECT 1 FROM users JOIN rooms ON rooms.id = memberships.room_id
+  WHERE users.id = memberships.user_id AND users.status = ${SUSPENDED} AND rooms.kind = 'closed')`;
 
 /**
  * Queues closing the sockets of everyone in a room but the people a JSON list names and anyone
- * suspended, whom changing the room takes out of it, answering a row for each. Their person tag closes
- * all their sockets there.
+ * suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`), whom changing the room takes out of
+ * it, answering a row for each. Their person tag closes all their sockets there.
  */
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
-  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${SUSPENDED_MEMBERSHIP}
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
   RETURNING id`;
 
 /**
@@ -1266,8 +1268,8 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Takes everyone but the people a JSON list names and anyone suspended (`SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
-export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${SUSPENDED_MEMBERSHIP}
+/** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
+export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
   RETURNING user_id`;
 
 /** Who's in a room, which the memberships' key finds. */
@@ -2352,9 +2354,9 @@ export class WorkspaceStore {
   /**
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
-   * anyone else out but those suspended, whom its settings don't list, and queueing closing their
-   * sockets there with `code`, due at `dueAt`. Answers what it changed, who's in the room then, and
-   * whether the shared order ranks it.
+   * anyone else out but those suspended in a room that was private already, whom its settings don't
+   * list, and queueing closing their sockets there with `code`, due at `dueAt`. Answers what it
+   * changed, who's in the room then, and whether the shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
@@ -2371,11 +2373,12 @@ export class WorkspaceStore {
       return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    const [updated, added, , removed, after, rank] = (await this.db.batch([
-      update,
-      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
+    // Whom it takes out is read before the room's kind changes, which says whether anyone suspended stays.
+    const [, removed, updated, added, after, rank] = (await this.db.batch([
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
+      update,
+      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       members,
       ranked,
     ])) as UserIdRow[][];
