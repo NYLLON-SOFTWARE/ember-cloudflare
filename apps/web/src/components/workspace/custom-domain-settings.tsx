@@ -18,6 +18,9 @@ export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/work
 /** Where the Cloudflare dashboard shows the Domains tab of the Worker named `worker`, whose Add Domain adds a custom domain. */
 export const workerDomains = (worker: string) => `https://dash.cloudflare.com/?to=/:account/workers/services/view/${worker}/production/domains`;
 
+/** Where Ember's README gives it a custom domain through Cloudflare for SaaS, for a domain whose DNS stays with another provider. */
+export const DNS_ELSEWHERE = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare#when-the-domains-dns-is-elsewhere";
+
 /** A workers.dev address, `<worker>.<subdomain>.workers.dev`: the Worker's name, then its account's subdomain. */
 const WORKERS_DEV = /^([a-z0-9-]+)\.[a-z0-9-]+\.workers\.dev$/;
 
@@ -187,7 +190,8 @@ function reachNote(reaches: CustomDomainReach, domain: string, worker: string | 
 
 /**
  * The steps to make `domain` Ember's address: Cloudflare's, on the Domains tab of the Worker this page
- * is open at, where its workers.dev address names it; a check that the domain reaches Ember; then Ember's.
+ * is open at, where its workers.dev address names it, or the README's for a domain whose DNS stays
+ * elsewhere; a check that the domain reaches Ember; then Ember's.
  */
 function Steps({ domain, onFailed }: { domain: string; onFailed: Props["onFailed"] }) {
   // What Check DNS found, or "checking" while it asks.
@@ -227,6 +231,13 @@ function Steps({ domain, onFailed }: { domain: string; onFailed: Props["onFailed
         <a href={worker === null ? WORKERS_DASHBOARD : workerDomains(worker)} target="_blank" rel="noopener" className="wrap-anywhere underline">
           {worker === null ? "Open the Cloudflare dashboard" : `Open ${worker}'s domains`}
         </a>
+        <p className={cn(NOTE, "mt-1")}>
+          If the domain's DNS is with another provider, Cloudflare offers to take it over for free, copying its records. To leave it there, follow{" "}
+          <a href={DNS_ELSEWHERE} target="_blank" rel="noopener" className="underline">
+            Ember's steps for Cloudflare for SaaS
+          </a>{" "}
+          instead.
+        </p>
       </li>
       <li>
         Check that <strong className="wrap-anywhere">{domain}</strong> reaches Ember.

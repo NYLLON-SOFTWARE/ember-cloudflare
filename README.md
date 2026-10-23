@@ -188,9 +188,9 @@ Custom domain in Workspace settings, which walks them through it:
 1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
    Worker: Workers & Pages, the Worker, Domains, Add Domain. At the workers.dev address the step names
    the Worker and links straight to its Domains tab. Its domain must be on Cloudflare, in the account
-   that runs the Worker; Cloudflare makes the DNS record and the certificate. Ember holds no Cloudflare
-   token to do this itself, since a token that can add a domain to the Worker can also deploy new code
-   to it.
+   that runs the Worker, unless you [keep its DNS elsewhere](#when-the-domains-dns-is-elsewhere);
+   Cloudflare makes the DNS record and the certificate. Ember holds no Cloudflare token to do this
+   itself, since a token that can add a domain to the Worker can also deploy new code to it.
 2. Check DNS, which asks the domain from the Worker for a one-time probe only this Ember answers, and
    says whether it reaches Ember, something else answers there, or nothing does yet.
 3. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
@@ -202,6 +202,28 @@ turns notifications on again, which replaces their browser's subscription at the
 and webhooks go on posting to the addresses they were given. Workspace settings stay wherever they're
 opened, so if the domain ever stops reaching Ember, open them at the workers.dev address and choose
 Stop using it. Deploys leave the domain alone as long as `wrangler.jsonc` lists no `routes`.
+
+#### When the domain's DNS is elsewhere
+
+Cloudflare gives a Worker a Custom Domain only on a domain whose DNS it runs: Add Domain with any
+other offers to move the domain's DNS to Cloudflare, which is free and copies its records. To leave
+the DNS where it is, give Ember the address through Cloudflare for SaaS instead. That takes another
+domain already on Cloudflare in the account that runs Ember, `example.net` say, and a payment
+method, though the first 100 addresses are free. In the Cloudflare dashboard, on example.net:
+
+1. Under SSL/TLS, Custom Hostnames, enable Cloudflare for SaaS.
+2. Under DNS, Records, add a proxied `AAAA` record, `ember-saas` say, for `100::`, an address that
+   goes nowhere, and make `ember-saas.example.net` the Fallback Origin under Custom Hostnames.
+3. Under Workers Routes, route `chat.example.com/*` to Ember's Worker, and
+   `chat.example.com/.well-known/*` to no Worker, so that Cloudflare itself answers the certificate
+   authority when it issues and renews the address's certificate. A route for `*/*`, as Cloudflare's
+   guide suggests, would send all of example.net to Ember.
+4. Under Custom Hostnames, add `chat.example.com` with HTTP validation.
+
+Then at chat.example.com's DNS provider add `chat.example.com CNAME ember-saas.example.net`. That
+record is why the address must be a name under the domain, such as chat.example.com: example.com
+itself can't be a CNAME. Once Custom Hostnames shows the address and its certificate active, carry
+on from Check DNS.
 
 ### Memberful sign-in
 
