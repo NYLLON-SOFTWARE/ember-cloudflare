@@ -91,6 +91,8 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
   const [status, setStatus] = useState<"loading" | "failed" | "ready">("loading");
   // The tab, which stays as it was the next time the dialog opens, as ember-rust's does.
   const [collection, setCollection] = useState<IconCollection>("All");
+  // The tab as it is now, which icons still loading when another was chosen are searched in.
+  const collectionNow = useRef(collection);
   const [matches, setMatches] = useState<CatalogIcon[]>([]);
   const [visible, setVisible] = useState(PAGE_SIZE);
   // The icon picked here, which Use icon applies.
@@ -110,7 +112,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
     focusing.current = null;
   }, [visible]);
 
-  const find = (value: string, icons = catalog, within = collection) => {
+  const find = (value: string, icons = catalog, within = collectionNow.current) => {
     if (!icons) return;
     setMatches(searchIcons(icons, context, value, within));
     setVisible(PAGE_SIZE);
@@ -158,8 +160,9 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
   };
 
   const showCollection = (next: IconCollection) => {
+    collectionNow.current = next;
     setCollection(next);
-    find(searchBox.current?.value ?? "", catalog, next);
+    find(searchBox.current?.value ?? "");
   };
 
   // As a tablist's arrows do, choosing the tab they move to.

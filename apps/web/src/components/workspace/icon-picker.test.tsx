@@ -198,6 +198,21 @@ describe(feature("rooms.icon-picker"), () => {
     expect(status()).toHaveTextContent(/^6 icons$/);
   });
 
+  it("searches the tab chosen and the words typed while the icons loaded, once they come", async () => {
+    let answer = (_: Response) => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const { user } = showPicker();
+    await user.click(trigger());
+    await user.click(tab("Iconoir"));
+    await user.type(searchBox(), "coffee");
+    expect(status()).toHaveTextContent("Loading icons…");
+    await act(async () => answer(Response.json(catalog)));
+    expect(tab("Iconoir")).toHaveAttribute("aria-selected", "true");
+    expect(shown()).toEqual(["iconoir:regular:coffee-cup"]);
+    await user.clear(searchBox());
+    expect(shown()).toEqual(catalog.roomOrder.filter((name) => name.startsWith("iconoir:")));
+  });
+
   it("applies the icon picked only with Use icon, and hands focus back to the button", async () => {
     serveCatalog();
     const { onChange, onSubmit, user } = showPicker("coffee");
