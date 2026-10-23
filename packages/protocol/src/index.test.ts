@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
+  DEFAULT_NAVIGATION_ICONS,
   INVOLVEMENTS,
   isInvolvement,
   isMessageTooLong,
@@ -27,6 +28,8 @@ import {
   MAX_USER_NAME_LENGTH,
   memberfulProblemOf,
   memberfulSignInPath,
+  NAVIGATION_ICONS_REFUSED,
+  NAVIGATION_SLOTS,
   NOT_A_CUSTOM_DOMAIN,
   parseAccountChanges,
   parseClientFrame,
@@ -50,6 +53,7 @@ import {
   startingInvolvement,
   suggestedCount,
   TAGLINE_TOO_LONG,
+  withNavigationIcons,
   type WorkspaceServerFrame,
 } from "./index";
 
@@ -189,7 +193,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -210,21 +214,24 @@ describe(feature("rooms.show"), () => {
 });
 
 describe(feature("rooms.icons"), () => {
-  it("takes the name of every icon in the catalog", () => {
-    expect(ROOM_ICON_NAMES).toHaveLength(1869);
-    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash"]));
+  it("takes the name of every icon in the catalog, Lucide's and Iconoir's", () => {
+    expect(ROOM_ICON_NAMES).toHaveLength(3540);
+    expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash", "iconoir:regular:coffee-cup", "iconoir:solid:heart"]));
     expect(ROOM_ICON_NAMES.filter((name) => !isRoomIcon(name))).toEqual([]);
   });
 
   it("refuses anything that isn't exactly one, as ember-rust does", () => {
     const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
-    expect(values.filter(isRoomIcon)).toEqual([]);
+    // As ember-rust's picker_icons.rs refuses them.
+    const iconoir = ["lucide:house", "iconoir:heart", "iconoir:solid:../heart", "iconoir:regular:not-an-icon", "iconoir:Regular:coffee-cup"];
+    expect([...values, ...iconoir].filter(isRoomIcon)).toEqual([]);
   });
 
   it('takes a new or changed room\'s icon, "" for the default, or none, which keeps the one it has', () => {
     expect(parseNewRoom({ kind: "open", name: "Design", icon: "coffee" })).toEqual({ kind: "open", name: "Design", icon: "coffee" });
     expect(parseNewRoom({ kind: "closed", name: "Leads", icon: "" })).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [] });
     expect(parseRoomChanges({ icon: "rocket" })).toEqual({ icon: "rocket" });
+    expect(parseRoomChanges({ icon: "iconoir:solid:heart" })).toEqual({ icon: "iconoir:solid:heart" });
     expect(parseRoomChanges({ icon: "", kind: "open" })).toEqual({ icon: "", kind: "open" });
     expect(parseRoomChanges({ name: "Design" })).toHaveProperty("icon", undefined);
   });
@@ -401,6 +408,45 @@ describe(feature("accounts.translation-buttons"), () => {
     ["a good setting beside a bad name", { name: 7, settings: { hideTranslationButtons: true } }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.navigation-icons"), () => {
+  it("takes an icon for any of the rail's buttons and appearance modes, or \"\" for its own", () => {
+    expect(parseAccountChanges({ navigationIcons: { home: "coffee", dark: "iconoir:solid:heart", search: "" } })).toEqual({
+      navigationIcons: { home: "coffee", dark: "iconoir:solid:heart", search: "" },
+    });
+    expect(parseAccountChanges({ name: "Ember", navigationIcons: {} })).toEqual({ name: "Ember", navigationIcons: {} });
+    expect(parseAccountChanges({ name: "Ember" })).toEqual({ name: "Ember" });
+  });
+
+  it("takes a slot's own icon as its default, as ember-rust saves it", () => {
+    expect(NAVIGATION_SLOTS.every((slot) => isRoomIcon(DEFAULT_NAVIGATION_ICONS[slot]))).toBe(true);
+    expect(parseAccountChanges({ navigationIcons: { home: "iconoir:regular:home", dms: "iconoir:regular:home" } })).toEqual({
+      navigationIcons: { home: "", dms: "iconoir:regular:home" },
+    });
+  });
+
+  it.each([
+    ["a slot it doesn't know", { settings: "coffee" }],
+    ["a slot named like an object's own", { constructor: "coffee" }],
+    ["markup", { home: "<svg></svg>" }],
+    ["an icon's name in capitals", { home: "Coffee" }],
+    ["an Iconoir variant it doesn't know", { home: "iconoir:unknown:coffee-cup" }],
+    ["a path", { home: "iconoir:regular:../coffee-cup" }],
+    ["null", { home: null }],
+    ["a list of icons", { home: ["coffee"] }],
+  ])("refuses %s", (_, navigationIcons) => {
+    expect(parseAccountChanges({ navigationIcons })).toBe(NAVIGATION_ICONS_REFUSED);
+  });
+
+  it("refuses anything but an object of slots", () => {
+    for (const navigationIcons of ["coffee", null, [], ["home"], 42]) expect(parseAccountChanges({ navigationIcons })).toBe(NAVIGATION_ICONS_REFUSED);
+  });
+
+  it("changes only the slots a change names, giving \"\" its default again", () => {
+    expect(withNavigationIcons({ home: "coffee", dms: "mail" }, { home: "", dark: "moon-star" })).toEqual({ dms: "mail", dark: "moon-star" });
+    expect(withNavigationIcons({ home: "coffee" }, {})).toEqual({ home: "coffee" });
   });
 });
 

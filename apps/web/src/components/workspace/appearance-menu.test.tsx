@@ -1,7 +1,9 @@
 import { feature } from "@ember/parity";
+import type { Account } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { AccountContext, useAccount } from "@/hooks/use-account";
 import { AppearanceMenu } from "./appearance-menu";
 
 /** The button, as it sits on the rail between Workspace and your profile. */
@@ -116,5 +118,28 @@ describe(feature("ui.appearance"), () => {
     await user.click(button);
     await user.click(screen.getByRole("link", { name: "Your profile" }));
     expect(dialog()).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.navigation-icons"), () => {
+  function AccountWith({ navigationIcons }: { navigationIcons: Account["navigationIcons"] }) {
+    return (
+      <AccountContext value={{ ...useAccount(), navigationIcons }}>
+        <AppearanceMenu />
+      </AccountContext>
+    );
+  }
+
+  it("draws the icons an administrator chose for the modes, and Iconoir's for the rest", async () => {
+    const user = userEvent.setup();
+    render(<AccountWith navigationIcons={{ system: "monitor-cog", dark: "iconoir:regular:moon-sat" }} />);
+    const button = screen.getByRole("button", { name: "Appearance: System" });
+    expect(button.querySelector("[data-icon]")).toHaveAttribute("data-icon", "monitor-cog");
+
+    await user.click(button);
+    const iconOf = (name: string) => radio(name).closest("label")!.querySelector("[data-icon], svg:not(:last-child)");
+    expect(iconOf("Light")).toHaveClass("iconoir-sun-light");
+    expect(iconOf("Dark")).toHaveAttribute("data-icon", "iconoir:regular:moon-sat");
+    expect(iconOf("System")).toHaveAttribute("data-icon", "monitor-cog");
   });
 });

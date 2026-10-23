@@ -147,7 +147,7 @@ export interface Directory {
 
 export type RoomKind = "open" | "closed" | "direct";
 
-/** A room's icon: the name of one of the Lucide icons in ember-rust's catalog. */
+/** A room's icon: the name of one of the Lucide or Iconoir icons in ember-rust's picker catalog. */
 export type RoomIconName = (typeof ROOM_ICON_NAMES)[number];
 
 /**
@@ -297,6 +297,45 @@ export interface RoomSettings {
  */
 export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
+/**
+ * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
+ * settings, as ember-rust's `NAVIGATION_ICONS` (helpers/icons.rs, pull request #24) has them.
+ */
+export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
+export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
+
+/**
+ * Each slot's icon until an administrator chooses another: the rail's Iconoir icons, which the project's
+ * owner chose over ember-rust's Lucide ones.
+ */
+export const DEFAULT_NAVIGATION_ICONS = {
+  home: "iconoir:regular:home",
+  dms: "iconoir:regular:multi-bubble",
+  activity: "iconoir:regular:bell",
+  search: "iconoir:regular:search",
+  admin: "iconoir:regular:box",
+  light: "iconoir:regular:sun-light",
+  dark: "iconoir:regular:half-moon",
+  system: "iconoir:regular:computer",
+} as const satisfies Record<NavigationSlot, RoomIconName>;
+
+/** The icons an administrator chose for the rail's buttons and the appearance modes, by slot. */
+export type NavigationIcons = Partial<Record<NavigationSlot, RoomIconName>>;
+
+/** The slots whose icons Save changes changes, as Community settings send them: each an icon's name, or "" for its default. */
+export type NavigationIconChanges = Partial<Record<NavigationSlot, RoomIconChoice>>;
+
+/** `icons` with `changes` made: a slot changed to "" has its default again. */
+export function withNavigationIcons(icons: NavigationIcons, changes: NavigationIconChanges): NavigationIcons {
+  const changed = { ...icons };
+  for (const slot of NAVIGATION_SLOTS) {
+    const icon = changes[slot];
+    if (icon === "") delete changed[slot];
+    else if (icon !== undefined) changed[slot] = icon;
+  }
+  return changed;
+}
+
 /** The workspace, which first run creates, as every page shows it. */
 export interface Account {
   name: string;
@@ -328,6 +367,11 @@ export interface Account {
    * password. Off until one turns it on.
    */
   memberfulSignIn: boolean;
+  /**
+   * The icons an administrator chose in Community settings for the rail's buttons and the appearance
+   * modes, as ember-rust's pull request #24 lets them. A slot without one shows its default.
+   */
+  navigationIcons: NavigationIcons;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -358,13 +402,15 @@ export interface NewJoinCode {
 
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
- * its settings, and its custom domain, which can only be the address the request comes to, or null for none.
+ * its settings, its custom domain, which can only be the address the request comes to, or null for
+ * none, and the icons of the rail's buttons and the appearance modes.
  */
 export interface AccountChanges {
   name?: string;
   tagline?: string;
   settings?: AccountSettings;
   customDomain?: string | null;
+  navigationIcons?: NavigationIconChanges;
 }
 
 /**
@@ -1246,25 +1292,46 @@ export function parseCustomDomainCheck(data: unknown): { domain: string } | stri
 /** A tagline as it's kept: on one line, with a single space between words and none at either end. */
 const taglineOf = (text: string) => text.replace(/\s+/g, " ").trim();
 
+export const NAVIGATION_ICONS_REFUSED = 'Navigation icons must give the rail\'s buttons and the appearance modes one of the room icons each, or "" for the default';
+
+/**
+ * Untrusted changes to navigation icons as ember-rust's `parse_navigation_icons` reads them
+ * (controllers/accounts.rs, pull request #24): an object of known slots, each an icon's exact name or ""
+ * for its default, which its default's own name stands for too. Undefined for anything else.
+ */
+function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
+  if (!isJsonObject(data)) return undefined;
+  const changes: NavigationIconChanges = {};
+  for (const [key, icon] of Object.entries(data)) {
+    if (!(NAVIGATION_SLOTS as readonly string[]).includes(key) || (icon !== "" && !isRoomIcon(icon))) return undefined;
+    const slot = key as NavigationSlot;
+    changes[slot] = icon === DEFAULT_NAVIGATION_ICONS[slot] ? "" : icon;
+  }
+  return changes;
+}
+
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
  * ember-rust, the name is saved as typed, even blank. The tagline, this port's own, is kept on one line
  * without space at its ends, and blank is none. Each setting is true or false, and one it doesn't know
  * is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null, which
- * the Worker then checks is the address the request came to.
+ * the Worker then checks is the address the request came to. Navigation icons are as `navigationIconsOf` reads them.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain } = data;
+  const { name, tagline, settings, customDomain, navigationIcons } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
   const domain = customDomainOf(customDomain);
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
+  const icons = navigationIconsOf(navigationIcons);
+  if (navigationIcons !== undefined && icons === undefined) return NAVIGATION_ICONS_REFUSED;
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
     ...(domain !== undefined && { customDomain: domain }),
+    ...(icons !== undefined && { navigationIcons: icons }),
   };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";

@@ -8,6 +8,7 @@ import {
   type AccountSettings,
   type DirectoryUser,
   type Me,
+  type NavigationIconChanges,
   type PersonRole,
   type RoomId,
   type SidebarRoom,
@@ -33,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { InviteLink } from "./invite-link";
 import { MemberfulSettings } from "./memberful-settings";
+import { NavigationIconSettings } from "./navigation-icon-settings";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
@@ -79,8 +81,9 @@ interface Props {
  *
  * - Community (accounts/_community_settings.html), where administrators change the workspace's icon, which
  *   one picked saves at once, showing it meanwhile, and Remove icon takes away, then rename the workspace,
- *   give it a tagline, this port's own, and show or hide the translation buttons, which Save changes saves
- *   together, and give it a custom domain, this port's own too. Members see its icon, name and tagline.
+ *   give it a tagline, this port's own, show or hide the translation buttons, and choose the rail's
+ *   icons, which Save changes saves together, and give it a custom domain, this port's own too. Members
+ *   see its icon, name and tagline.
  * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
@@ -115,6 +118,9 @@ export function WorkspaceSettingsPage({
   const [regenerating, setRegenerating] = useState(false);
   // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
+  // The navigation icons chosen until Save changes saves them. Only these are sent, where ember-rust's
+  // form sends all eight, so that saving never puts back what another tab changed in the others.
+  const [iconChanges, setIconChanges] = useState<NavigationIconChanges>({});
   // Where Must be admin to create new rooms and Members sign in with Memberful were moved to, while that's saved.
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
@@ -155,6 +161,7 @@ export function WorkspaceSettingsPage({
         setSettings(settings);
         setTypedName(null);
         setTypedTagline(null);
+        setIconChanges({});
         answered(settings.account);
         onJoinCodeChanged(settings.joinCode);
       },
@@ -166,20 +173,28 @@ export function WorkspaceSettingsPage({
     return () => void (stopped = true);
   }, [administrator, askForAccount, onJoinCodeChanged, onFailed]);
 
-  // The name, the tagline and, if it was moved, the translation buttons' switch, as ember-rust's form sends them together.
+  // The name, the tagline and, if they were changed, the translation buttons' switch and the navigation
+  // icons, as ember-rust's form sends them together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
     const sent = { name, tagline };
     const hideTranslationButtons = hidingTranslations;
-    changeAccount({ ...sent, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
+    const navigationIcons = iconChanges;
+    changeAccount({
+      ...sent,
+      ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }),
+      ...(Object.keys(navigationIcons).length > 0 && { navigationIcons }),
+    }).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
         setSaving(false);
         // Unless it's been moved again since.
         setHidingTranslations((hiding) => (hiding === hideTranslationButtons ? null : hiding));
+        // Each icon saved shows as the workspace has it now, unless another's been chosen since.
+        setIconChanges((changes) => Object.fromEntries(Object.entries(changes).filter(([slot, icon]) => icon !== navigationIcons[slot as keyof NavigationIconChanges])));
         setSettings((settings) => settings && { ...settings, account });
         // Each shows as it's kept, the tagline with no space at its ends, unless it's been typed over since.
         setTypedName((typed) => (typed === sent.name ? null : typed));
@@ -377,6 +392,11 @@ export function WorkspaceSettingsPage({
                     aria-describedby="localization-description"
                   />
                 </div>
+                <NavigationIconSettings
+                  changes={iconChanges}
+                  onChange={(slot, icon) => setIconChanges((changes) => ({ ...changes, [slot]: icon }))}
+                  disabled={saving}
+                />
                 {/* On a page of community settings, as wide as it needs, but at least 126px, at the form's end. */}
                 <SubmitButton disabled={saving} className="w-auto min-w-[126px] self-end">
                   Save changes

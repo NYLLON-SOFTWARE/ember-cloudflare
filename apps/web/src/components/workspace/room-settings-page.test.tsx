@@ -178,10 +178,13 @@ describe(feature("rooms.settings-page"), () => {
 });
 
 describe(feature("rooms.icon-picker"), () => {
+  /** The icon picker's catalog, of one icon. */
+  const LOCK_CATALOG = { icons: [{ name: "lock", label: "Lock", collection: "Lucide", tags: ["security"], svg: "<svg></svg>" }], roomOrder: ["lock"], navigationOrder: ["lock"] };
+
   it("starts with the room's icon, and saves the one chosen", async () => {
     const saved = { ...leads, icon: null };
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (String(input).endsWith("catalog.json")) return Response.json([{ name: "lock", label: "Lock", svg: "<svg></svg>" }]);
+      if (String(input).endsWith("catalog.json")) return Response.json(LOCK_CATALOG);
       return init?.method === "PATCH" ? Response.json({ room: saved }) : Response.json(closedSettings);
     });
     const { onSaved, user } = showPage(leads);
@@ -196,7 +199,7 @@ describe(feature("rooms.icon-picker"), () => {
 
   it("counts an icon put in the form as a change until it's put back", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
-      String(input).endsWith("catalog.json") ? Response.json([{ name: "lock", label: "Lock", svg: "<svg></svg>" }]) : Response.json(closedSettings),
+      String(input).endsWith("catalog.json") ? Response.json(LOCK_CATALOG) : Response.json(closedSettings),
     );
     const { user } = showPage(leads);
     const pick = async (name: string) => {

@@ -2,8 +2,10 @@ import {
   MAX_FAVORITES,
   MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
+  NAVIGATION_SLOTS,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
+  isRoomIcon,
   suggestedCount,
   type Account,
   type BotChanges,
@@ -13,6 +15,8 @@ import {
   type Favorites,
   type HelpContact,
   type Involvement,
+  type NavigationIconChanges,
+  type NavigationIcons,
   type PersonRole,
   type Profile,
   type PushSubscriptionKeys,
@@ -64,7 +68,8 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
- * anyone may create rooms, no custom domain, and members sign in with passwords rather than Memberful.
+ * anyone may create rooms, no custom domain, members sign in with passwords rather than Memberful, and
+ * the rail has its own icons.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -73,6 +78,7 @@ export const NEW_ACCOUNT_LOOKS = {
   restrictRoomCreation: false,
   customDomain: null,
   memberfulSignIn: false,
+  navigationIcons: {},
 } as const;
 
 /**
@@ -95,9 +101,11 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, and the custom domain.
+ * switches change, the custom domain, and the navigation icons whose slots change.
  */
-export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">>;
+export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">> & {
+  navigationIcons?: NavigationIconChanges;
+};
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -525,6 +533,22 @@ const customDomainIn = (settings: Record<string, unknown> | null) => (typeof set
  */
 const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in);
 
+/**
+ * The navigation icons the account's settings keep as `ember_navigation_icons`, as ember-rust reads them
+ * (account.rs, `navigation_icons`, pull request #24): an object of slots, where any other value is none,
+ * and a slot or an icon Ember doesn't know is left out, as ember-rust draws an unknown icon as its default.
+ */
+function navigationIconsIn(settings: Record<string, unknown> | null): NavigationIcons {
+  const stored = settings?.ember_navigation_icons;
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return {};
+  const icons: NavigationIcons = {};
+  for (const slot of NAVIGATION_SLOTS) {
+    const icon = (stored as Record<string, unknown>)[slot];
+    if (isRoomIcon(icon)) icons[slot] = icon;
+  }
+  return icons;
+}
+
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
 }
@@ -937,6 +961,25 @@ const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
+
+/** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
+const navigationIconsPatch = (changes: NavigationIconChanges) => Object.fromEntries(Object.entries(changes).map(([slot, icon]) => [slot, icon || null]));
+
+/**
+ * Changes the slots the JSON object ?1 names in the account's navigation icons, and records when: a slot
+ * whose icon is null has its default again. As a merge patch it leaves the other slots, and the other
+ * settings, as they are, as ember-rust's `update_navigation_icons` merges a change into them (account.rs,
+ * pull request #24), and navigation icons that aren't an object start afresh, as ember-rust reads them.
+ */
+const CHANGE_NAVIGATION_ICONS = `UPDATE accounts SET settings = json_set(
+    CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
+    '$.ember_navigation_icons',
+    json_patch(
+      CASE WHEN json_valid(settings) AND json_type(settings, '$.ember_navigation_icons') = 'object'
+        THEN json_extract(settings, '$.ember_navigation_icons') ELSE '{}' END,
+      ?1
+    )
+  ), updated_at = ?2`;
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -1367,13 +1410,17 @@ export class WorkspaceStore {
       restrictRoomCreation: restrictsRoomCreation(settings),
       customDomain: customDomainIn(settings),
       memberfulSignIn: signsInWithMemberful(settings),
+      navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
-  /** Changes the workspace's name, tagline, settings and custom domain, as `change` has them, in one batch. */
-  async changeAccount({ name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn }: AccountChange, now: string): Promise<void> {
+  /** Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has them, in one batch. */
+  async changeAccount(
+    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn, navigationIcons }: AccountChange,
+    now: string,
+  ): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(tagline === undefined ? [] : [statement(SET_TAGLINE, JSON.stringify(tagline), now)]),
@@ -1381,6 +1428,7 @@ export class WorkspaceStore {
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
       ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
+      ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
     ]);
   }
 

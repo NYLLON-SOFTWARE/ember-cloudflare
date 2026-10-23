@@ -2,7 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CloseCode,
   isRoomId,
+  NAVIGATION_SLOTS,
   parseWorkspaceClientFrame,
+  withNavigationIcons,
   type Account,
   type AccountChanges,
   type Bot,
@@ -15,6 +17,8 @@ import {
   type HelpContact,
   type Involvement,
   type Me,
+  type NavigationIconChanges,
+  type NavigationIcons,
   type NewBot,
   type NewJoinCode,
   type NewRoom,
@@ -131,6 +135,12 @@ export const MEMBERFUL_ROUND_TRIP_MS = 10 * 60 * 1000;
  */
 const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
 
+/** The slots `changes` gives another icon than `icons` has, or undefined for none. */
+function changedNavigationIcons(icons: NavigationIcons, changes: NavigationIconChanges): NavigationIconChanges | undefined {
+  const changed = NAVIGATION_SLOTS.filter((slot) => changes[slot] !== undefined && changes[slot] !== (icons[slot] ?? ""));
+  return changed.length > 0 ? Object.fromEntries(changed.map((slot) => [slot, changes[slot]])) : undefined;
+}
+
 /** The account as every page shows it, without its join code, which only the people in it see. */
 const accountOf = ({
   name,
@@ -140,6 +150,7 @@ const accountOf = ({
   restrictRoomCreation,
   customDomain,
   memberfulSignIn,
+  navigationIcons,
   updatedAt,
   storedLogo,
 }: JoinableAccount): Account => ({
@@ -151,6 +162,7 @@ const accountOf = ({
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
   memberfulSignIn,
+  navigationIcons,
 });
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
@@ -492,10 +504,11 @@ export class Workspace extends DurableObject<Env> {
    * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change, a
    * new custom domain included, which tabs open at another address then point to.
    */
-  async changeAccount(credentials: Credentials, { name, tagline, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
+  async changeAccount(credentials: Credentials, { name, tagline, settings, customDomain, navigationIcons }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
       const { hideTranslationButtons, restrictRoomCreation, memberfulSignIn } = settings ?? {};
+      const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
         ...(tagline !== undefined && tagline !== account.tagline && { tagline }),
@@ -503,9 +516,11 @@ export class Workspace extends DurableObject<Env> {
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
         ...(memberfulSignIn !== undefined && memberfulSignIn !== account.memberfulSignIn && { memberfulSignIn }),
+        ...(icons && { navigationIcons: icons }),
       };
       if (Object.keys(change).length === 0) return accountOf(account);
-      const shown = await this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
+      const changed = { ...account, ...change, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
+      const shown = await this.publishAccount(changed, (now) => this.store.changeAccount(change, now));
       // Memberships may have lapsed or been renewed while it was off, so turning it on checks everyone's.
       if (change.memberfulSignIn) await this.keepCatchingUp(Date.now());
       return shown;

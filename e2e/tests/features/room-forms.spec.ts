@@ -237,23 +237,28 @@ test.describe(feature("rooms.icon-picker"), () => {
     await trigger.click();
 
     const picker = ada.page.getByRole("dialog", { name: "Choose a room icon" });
-    await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown", ICON_CATALOG_LOADED);
+    await expect(picker.getByRole("status")).toHaveText("3,540 icons · 72 shown", ICON_CATALOG_LOADED);
+    await picker.getByRole("tab", { name: "Iconoir" }).click();
+    await expect(picker.getByRole("status")).toHaveText("1,671 icons · 72 shown");
     await picker.getByRole("searchbox", { name: "Search icons" }).fill("coffee");
-    await picker.getByRole("button", { name: "Use Coffee icon" }).click();
+    await picker.getByRole("button", { name: "Use Coffee Cup icon from Iconoir" }).click();
     await picker.getByRole("button", { name: "Use icon" }).click();
     await expect(picker).toBeHidden();
-    await expect(trigger).toContainText("Coffee");
+    await expect(trigger).toContainText("Coffee Cup · Iconoir");
     await ada.page.getByRole("button", { name: "Save" }).click();
 
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${design.id}$`));
+    const icon = '[data-icon="iconoir:regular:coffee-cup"]';
     const row = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name });
-    await expect(row.locator('[data-icon="coffee"]')).toBeVisible();
-    await expect(ada.page.getByRole("navigation", { name: "Page" }).locator('[data-icon="coffee"]')).toBeVisible();
+    await expect(row.locator(icon)).toBeVisible();
+    await expect(ada.page.getByRole("navigation", { name: "Page" }).locator(icon)).toBeVisible();
     // Each icon is a file of its own, which the page fetches as it shows it.
-    const svg = await request.get("/lucide/icons/coffee.svg");
-    expect(svg.status()).toBe(200);
-    expect(svg.headers()["content-type"]).toContain("image/svg+xml");
-    expect(await svg.text()).toContain("<svg");
+    for (const path of ["/iconoir/icons/regular/coffee-cup.svg", "/lucide/icons/coffee.svg"]) {
+      const svg = await request.get(path);
+      expect(svg.status()).toBe(200);
+      expect(svg.headers()["content-type"]).toContain("image/svg+xml");
+      expect(await svg.text()).toContain("<svg");
+    }
   });
 });
 
@@ -371,7 +376,7 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     await page.getByRole("button", { name: "Choose room icon" }).click();
     const picker = page.getByRole("dialog", { name: "Choose a room icon" });
     await picker.getByRole("searchbox", { name: "Search icons" }).fill("coffee");
-    await picker.getByRole("button", { name: "Use Coffee icon" }).click();
+    await picker.getByRole("button", { name: "Use Break Room icon" }).click();
     await picker.getByRole("button", { name: "Use icon" }).click();
     await workspaceLink(page).click();
     await unsaved(page).getByRole("button", { name: "Save" }).click();

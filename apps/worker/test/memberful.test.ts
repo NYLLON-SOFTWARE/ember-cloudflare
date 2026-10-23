@@ -261,6 +261,7 @@ const account = (memberfulSignIn: boolean): Account => ({
   logo: null,
   customDomain: null,
   memberfulSignIn,
+  navigationIcons: {},
 });
 
 beforeEach(freshDeploy);

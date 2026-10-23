@@ -53,7 +53,7 @@ test("the room icon picker fits the phone", async ({ page, room, screenIsFine })
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await page.getByRole("button", { name: "Choose room icon" }).click();
   const picker = page.getByRole("dialog", { name: "Choose a room icon" });
-  await expect(picker.getByRole("status")).toHaveText("1,869 icons · 72 shown", ICON_CATALOG_LOADED);
+  await expect(picker.getByRole("status")).toHaveText("3,540 icons · 72 shown", ICON_CATALOG_LOADED);
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 

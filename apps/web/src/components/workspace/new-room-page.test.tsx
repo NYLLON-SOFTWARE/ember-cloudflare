@@ -99,17 +99,18 @@ describe(feature("rooms.create-open"), () => {
   });
 
   it("creates the room with the icon chosen", async () => {
+    const ROCKET = { name: "rocket", label: "Rocket", roomLabel: "Launches", collection: "Lucide", tags: ["launches"], svg: "<svg></svg>" };
     const created = { id: "design", name: "New room", kind: "open", icon: "rocket" } satisfies Room;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (String(input).endsWith("catalog.json")) return Response.json([{ name: "rocket", label: "Rocket", svg: "<svg></svg>" }]);
+      if (String(input).endsWith("catalog.json")) return Response.json({ icons: [ROCKET], roomOrder: ["rocket"], navigationOrder: ["rocket"] });
       return init?.method === "POST" ? Response.json({ room: created }, { status: 201 }) : Response.json({ people: [ada, grace, linus] });
     });
     const { onCreated, user } = showPage();
     expect(await screen.findByRole("button", { name: "Choose room icon" })).toHaveTextContent("Default hashtag");
     await user.click(screen.getByRole("button", { name: "Choose room icon" }));
-    await user.click(await screen.findByRole("button", { name: "Use Rocket icon" }));
+    await user.click(await screen.findByRole("button", { name: "Use Launches icon" }));
     await user.click(screen.getByRole("button", { name: "Use icon" }));
-    expect(screen.getByRole("button", { name: "Choose room icon" })).toHaveTextContent("Rocket");
+    expect(screen.getByRole("button", { name: "Choose room icon" })).toHaveTextContent("Launches");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(posted()).toEqual({ kind: "open", name: "New room", icon: "rocket" });
