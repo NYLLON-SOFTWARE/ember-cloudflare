@@ -6,6 +6,9 @@ import {
   LOGO_PATH,
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
+  MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_SIGN_IN_NEEDED,
+  MEMBERFUL_SIGN_IN_PATH,
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
@@ -75,6 +78,7 @@ import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
+import { finishMemberfulSignIn, memberfulKeysOf, memberfulRefusal, startMemberfulSignIn } from "./memberful";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
@@ -117,7 +121,8 @@ async function signIn(request: Request, env: Env): Promise<Response> {
 /**
  * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
  * address's limit before anything is checked, and an unknown email address costs a password check
- * too, so the answer's timing doesn't say who has an account.
+ * too, so the answer's timing doesn't say who has an account. While members sign in with Memberful,
+ * only an administrator signs in with a password, and anyone else whose password checks out hears 403.
  */
 async function signInWithPassword({ emailAddress, password }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
   // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
@@ -148,11 +153,15 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
       user = await workspace(env).startSession(kept.userId, kept.passwordDigest, null, digest, client);
     }
   }
+  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
-/** Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it. */
+/**
+ * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
+ * unless members sign in with Memberful.
+ */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
   if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
@@ -160,6 +169,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
@@ -178,7 +188,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setup: account ? "complete" : "pending",
     setupAccess: setupAccessOf(request, env),
     setupPlaceholders: setupPlaceholdersOf(env),
-    guestSignIn: guestSignIn(env),
+    guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     helpContact,
     version: versionOf(env),
@@ -201,15 +211,17 @@ async function me(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Workspace settings, which anyone signed in may see, read-only unless they're an administrator. They
- * hold the join code, which no cache should keep, as the sidebar's invitation does.
+ * Workspace settings, which anyone signed in may see, read-only unless they're an administrator, with
+ * the Memberful site whose members can sign in, once the deployment has its keys. They hold the join
+ * code, which no cache should keep, as the sidebar's invitation does.
  */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
-  return json(settings satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+  const memberfulSite = memberfulKeysOf(env)?.site ?? null;
+  return json({ ...settings, memberfulSite } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -224,13 +236,14 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
  * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
- * the request came to (`customDomainRefusal`).
+ * the request came to (`customDomainRefusal`), and Memberful sign-in can only be turned on with the
+ * deployment's Memberful keys. Turning it off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const changes = parseAccountChanges(await jsonBodyOf(request));
-  const refusal = typeof changes === "string" ? changes : customDomainRefusal(changes.customDomain, request);
+  const refusal = typeof changes === "string" ? changes : (customDomainRefusal(changes.customDomain, request) ?? memberfulRefusal(changes.settings, env));
   // Changes that are refused change nothing, but who's asking is still checked first.
   const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes);
   if (!account) return problem(401, "Not signed in");
@@ -853,6 +866,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
+  if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
+  // Signing in, which as ember-rust's `reject_banned_ip` refuses a banned IP address, though it's a GET.
+  if (pathname === MEMBERFUL_CALLBACK_PATH) return (await isFromBannedAddress(request, env)) ? tooManyRequests() : finishMemberfulSignIn(request, env);
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);

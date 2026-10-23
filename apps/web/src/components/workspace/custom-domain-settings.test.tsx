@@ -12,7 +12,7 @@ import { CustomDomainSettings, WORKERS_DASHBOARD } from "./custom-domain-setting
 /** The test environment's jsdom, whose address the section reads as the page's. */
 declare const jsdom: { reconfigure(options: { url: string }): void };
 
-const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null };
+const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
 
 /** Where Workspace settings would be at `host`. */
 const settingsAt = (host: string) => `https://${host}/account/edit`;

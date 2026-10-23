@@ -60,9 +60,15 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 
 /**
  * What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, anyone may
- * create rooms, and no custom domain.
+ * create rooms, no custom domain, and members sign in with passwords rather than Memberful.
  */
-export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, customDomain: null } as const;
+export const NEW_ACCOUNT_LOOKS = {
+  hideTranslationButtons: true,
+  customStyles: "",
+  restrictRoomCreation: false,
+  customDomain: null,
+  memberfulSignIn: false,
+} as const;
 
 /**
  * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
@@ -83,7 +89,7 @@ export interface NewAccount {
 }
 
 /** What `WorkspaceStore.changeAccount` changes: the name, the settings workspace settings' switches change, and the custom domain. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain">>;
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -125,6 +131,23 @@ export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
   /** Whether they have a password, which changing their email address or password then asks for. */
   password: boolean;
+}
+
+/** Someone who signs in with a Memberful account, which no account here is linked to yet. */
+export interface NewLinkedPerson {
+  id: UserId;
+  name: string;
+  /** Their Memberful account's email address, or null for one Ember can't keep. */
+  emailAddress: string | null;
+}
+
+/** The person an account elsewhere is linked to, as signing in with it finds them. */
+export interface LinkedPerson {
+  userId: UserId;
+  /** Whether they're active, as only active people sign in. */
+  active: boolean;
+  /** Whether they're one of the workspace's administrators. */
+  administrator: boolean;
 }
 
 /** What someone signs in with: their email address, and their password's digest, or null without one. */
@@ -293,6 +316,10 @@ const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_di
 /** Keeps a digest made now of the password someone signed in with, in place of the one checked, unless it has changed since. */
 const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND password_digest = ?`;
 
+/** The same, for someone signing in with an account elsewhere that's linked to them, unless they've stopped being active. */
+const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}`;
+
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
  * while ?7 says guests can't stay signed in, or the session ?8 names, which showed the link, has ended,
@@ -392,6 +419,12 @@ const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPr
 
 /** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
+
+/**
+ * Whether members sign in with Memberful, which the account's settings keep as `memberful_sign_in`, this
+ * port's own: only while the setting is present.
+ */
+const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in);
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
@@ -792,6 +825,7 @@ const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
+const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -1215,18 +1249,20 @@ export class WorkspaceStore {
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
       customDomain: customDomainIn(settings),
+      memberfulSignIn: signsInWithMemberful(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
   /** Changes the workspace's name, settings and custom domain, as `change` has them, in one batch. */
-  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain }: AccountChange, now: string): Promise<void> {
+  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
+      ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
     ]);
   }
 
@@ -1306,6 +1342,49 @@ export class WorkspaceStore {
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
     ]);
+  }
+
+  /**
+   * Adds someone who signed in with an account elsewhere, the one `issuer` and `subject` name, as a
+   * member with no password, linked to it, with their session, in every open room, as `createMember`
+   * adds someone who joins. If someone has their email address already, or the account is linked to
+   * someone already, a unique index refuses its statement, and so the whole batch.
+   */
+  async createLinkedMember(
+    person: NewLinkedPerson,
+    issuer: string,
+    subject: string,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO users (id, name, email_address, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, person.id, person.name, person.emailAddress, now, now),
+      statement(`INSERT INTO identities (issuer, subject, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, issuer, subject, person.id, now, now),
+      statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+    ]);
+  }
+
+  /** The person the account elsewhere that `issuer` and `subject` name is linked to, whatever their status, or null for nobody. */
+  async linkedPerson(issuer: string, subject: string): Promise<LinkedPerson | null> {
+    const [row] = await this.db.all<{ id: UserId; status: number; role: number }>(
+      `SELECT users.id, users.status, users.role FROM identities JOIN users ON users.id = identities.user_id
+        WHERE identities.issuer = ? AND identities.subject = ?`,
+      issuer,
+      subject,
+    );
+    return row ? { userId: row.id, active: row.status === ACTIVE, administrator: row.role === ADMINISTRATOR } : null;
+  }
+
+  /** Starts a session for someone who signed in with an account elsewhere that's linked to them, unless they've stopped being active. */
+  async startLinkedSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+    const [, [row]] = (await this.db.batch([
+      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId),
+      statement(SESSION, tokenDigest),
+    ])) as [unknown[], SessionRow[]];
+    return row ? storedSession(row) : null;
   }
 
   /** Whether anyone has exactly this email address, whatever their status. */

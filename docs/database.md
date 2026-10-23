@@ -5,37 +5,40 @@ choices to adopt as features land.
 
 ## Where the data lives
 
-`STORAGE_BACKEND` in `wrangler.jsonc` picks the backend. With `do-sqlite` (the default),
-each room's messages, boosts, recent revocations and deletions, its files' records, and the changes
-the Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
-storage, and the account, people, their sessions, browsers' push subscriptions, bots' webhooks, bans
-and recent searches, rooms, memberships and the outbox of revocations, purges and reindexes in the
-Workspace object's. With `d1`, all of them live in one D1 database. Both backends use the schema in
-`apps/worker/migrations/` and the queries in `apps/worker/src/store.ts`, run through the driver in
-`apps/worker/src/db.ts`. The search index is the exception: it keeps its tables in the `SearchIndex`
-object's own SQLite storage on either backend, since D1 can't export a database that holds a virtual
-table, as its FTS5 table is. The files themselves live in R2, in the bucket bound as `FILES`.
+`STORAGE_BACKEND` in `wrangler.jsonc` picks the backend. With `do-sqlite` (the default), each room's
+messages, boosts, recent revocations and deletions, its files' records, and the changes the
+Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
+storage, and the account, people, their sessions and linked accounts elsewhere, browsers' push
+subscriptions, bots' webhooks, bans and recent searches, rooms, memberships and the outbox of
+revocations, purges and reindexes in the Workspace object's. With `d1`, all of them live in one D1
+database. Both backends use the schema in `apps/worker/migrations/` and the queries in
+`apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`. The search index is
+the exception: it keeps its tables in the `SearchIndex` object's own SQLite storage on either
+backend, since D1 can't export a database that holds a virtual table, as its FTS5 table is. The
+files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
 room's change log, its log of messages for the search index, its recent deletions and its files, and
-`workspace` for the workspace-wide tables (the account, people, sessions, push subscriptions,
-webhooks, bans, recent searches, rooms, memberships, stars, pending revocations, purges and
-reindexes, and the rooms deleted). On DO SQLite, an object applies only its own scope's files, so a
-room's storage never holds workspace tables. Wrangler applies every file to D1, where all the tables
-share one database and each room's rows carry its `room_id`. The search index's schema is in
-`apps/worker/search-migrations/`, which only the index applies, listed in `SEARCH_MIGRATIONS`.
+`workspace` for the workspace-wide tables (the account, people, sessions, linked accounts, push
+subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
+purges and reindexes, and the rooms deleted). On DO SQLite, an object applies only its own scope's
+files, so a room's storage never holds workspace tables. Wrangler applies every file to D1, where
+all the tables share one database and each room's rows carry its `room_id`. The search index's
+schema is in `apps/worker/search-migrations/`, which only the index applies, listed in
+`SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `push_subscriptions`,
-`webhooks`, `bans`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`,
-`pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search index keeps
-`search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also names its
-Durable Object, and the Worker asks the Workspace whether someone is a member before it wakes the
-room for their socket. First run creates the account and its administrator, who signs in with an
-email address and password, found through the unique index on `users.email_address`, as do the
-people who join with the join link; where it's allowed, anyone can sign in with just a display name
-instead. Presence and typing live in each room object's memory.
+`message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`push_subscriptions`, `webhooks`, `bans`, `searches`, `rooms`, `memberships`, `favorites`,
+`pending_revocations`, `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search
+index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
+names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
+wakes the room for their socket. First run creates the account and its administrator, who signs in
+with an email address and password, found through the unique index on `users.email_address`, as do
+the people who join with the join link; where it's allowed, anyone can sign in with just a display
+name instead, and while an administrator has turned it on, members sign in with Memberful, found
+through `identities`. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -439,6 +442,18 @@ search index. On top of that schema it adds indexes and query changes for speed.
   and an image's width and height. A page of messages reads no other table for it, and its addresses
   are signed as the page is answered. An upload's row in `blobs` keeps the id the app gave its message
   and, once the room posts it, the message's, so a part sent again answers with the same message.
+- **Accounts elsewhere are linked by their issuer and subject.** ember-rust signs people in with
+  passwords alone. Signing in with Memberful (`auth.memberful-sign-in`) links someone here to a
+  member of a Memberful site in `identities` (workspace migration 0037), keyed by the issuer, the
+  site's origin, and the subject, the member's id there, so a member of another site never signs in
+  as anyone here; a unique index on `(user_id, issuer)` links each person to one account a site at
+  most. Email addresses never link accounts, since Memberful makes an account for whoever registers
+  an address, without checking it's theirs: someone new whose Memberful email address someone here
+  has is refused by `users.email_address`'s unique index, and their person, identity, session and
+  open rooms are one batch, so nothing is left behind. Whether members sign in with Memberful is one
+  more of the account's settings (`memberful_sign_in`), and the site's keys are Worker secrets, so the
+  client secret is never stored. The table names no provider but by its issuer, so another provider
+  would need no migration. People who sign in this way have no `password_digest`.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

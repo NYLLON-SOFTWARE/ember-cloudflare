@@ -313,6 +313,12 @@ export interface Account {
    * workspace settings. Null while Ember has none, and is used wherever it's opened.
    */
   customDomain: string | null;
+  /**
+   * Whether members sign in with Memberful, which an administrator turns on in workspace settings: then
+   * the join link and signing in with just a name are off, and only administrators sign in with a
+   * password. Off until one turns it on.
+   */
+  memberfulSignIn: boolean;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -322,6 +328,12 @@ export interface WorkspaceSettings {
   joinCode: string;
   /** Whether you can change the workspace, as administrators can. Members see it read-only. */
   canAdminister: boolean;
+  /**
+   * The address of the Memberful site whose members can sign in, such as https://example.memberful.com,
+   * once the deployment has the keys of its custom app (`MEMBERFUL_URL` and the rest), or null while it
+   * hasn't, when Memberful sign-in can't be turned on.
+   */
+  memberfulSite: string | null;
 }
 
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
@@ -339,10 +351,15 @@ export interface AccountChanges {
   customDomain?: string | null;
 }
 
-/** The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]` names it. */
+/**
+ * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
+ * names it, but Memberful sign-in, this port's own, which the Worker turns on only with the deployment's
+ * Memberful keys.
+ */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  memberfulSignIn?: boolean;
 }
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
@@ -546,6 +563,49 @@ export interface LinkPreview {
 
 /** ember-rust's one answer to a sign-in it refuses, for a wrong password and too many attempts alike. */
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
+
+/**
+ * Where the sign-in page's Sign in with Memberful goes, which sends the browser on to sign in at the
+ * Memberful site (`auth.memberful-sign-in`), naming the page to come back to in `return_to`.
+ */
+export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
+
+/** Where Memberful sends the browser back to, which the Memberful site's custom app names as its OAuth redirect URL. */
+export const MEMBERFUL_CALLBACK_PATH = "/auth/memberful/callback";
+
+/** Signing in with Memberful, coming back to `returnTo`, a page of the workspace, once signed in, or home without one. */
+export const memberfulSignInPath = (returnTo: string | null) =>
+  returnTo === null ? MEMBERFUL_SIGN_IN_PATH : `${MEMBERFUL_SIGN_IN_PATH}?return_to=${encodeURIComponent(returnTo)}`;
+
+/**
+ * Why a Memberful sign-in didn't sign anyone in, which the callback sends the browser back to sign in
+ * with, as `?memberful=`, and what the sign-in page then says.
+ */
+export const MEMBERFUL_SIGN_IN_PROBLEMS = {
+  /** Memberful sent the browser back without a sign-in, or with one this browser didn't start, or didn't answer as it should. */
+  failed: "Signing in with Memberful didn't work. Try again.",
+  /** The Memberful account has no active subscription, nor the all access pass. */
+  membership: "Your Memberful account has no active membership.",
+  /** Someone here has the Memberful account's email address already, and accounts are never matched by it. */
+  taken: "Someone here has your Memberful email address already. Ask an administrator for help.",
+  /** An administrator has turned Memberful sign-in off. */
+  off: "Memberful sign-in is off.",
+  /** It's on, but the deployment has no Memberful keys. */
+  unavailable: "Memberful sign-in isn't set up. Ask an administrator for help.",
+  /** Too many sign-ins from the address, or the account was removed or banned: ember-rust's one answer to a refused sign-in. */
+  refused: SIGN_IN_REFUSED,
+} as const;
+export type MemberfulSignInProblem = keyof typeof MEMBERFUL_SIGN_IN_PROBLEMS;
+
+/** The query parameter that names a Memberful sign-in's problem. */
+export const MEMBERFUL_PROBLEM_PARAM = "memberful";
+
+/** The problem `value` names, or null for none it names. */
+export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem | null =>
+  value !== null && Object.hasOwn(MEMBERFUL_SIGN_IN_PROBLEMS, value) ? (value as MemberfulSignInProblem) : null;
+
+/** Why signing in with a password, joining with the join link, or signing in with just a name is refused while members sign in with Memberful. */
+export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";
 
 /**
  * What a room closes a socket with when access to it ends, where ember-rust sends a `disconnect`
@@ -1032,6 +1092,7 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  memberfulSignIn: "Members sign in with Memberful",
 };
 
 /**

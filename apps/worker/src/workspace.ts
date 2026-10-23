@@ -43,6 +43,7 @@ import { openDb, type Db } from "./db";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
+import type { MemberfulMember } from "./memberful";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
@@ -112,13 +113,23 @@ const MESSAGES_PER_PURGE = 100;
 const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
 
 /** The account as every page shows it, without its join code, which only the people in it see. */
-const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation, customDomain, updatedAt, storedLogo }: JoinableAccount): Account => ({
+const accountOf = ({
+  name,
+  hideTranslationButtons,
+  customStyles,
+  restrictRoomCreation,
+  customDomain,
+  memberfulSignIn,
+  updatedAt,
+  storedLogo,
+}: JoinableAccount): Account => ({
   name,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
+  memberfulSignIn,
 });
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
@@ -193,6 +204,16 @@ export interface BotKeyAccess extends BotAccess {
 
 /** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
 export interface WebhookAccess extends BotAccess, BotWebhook {}
+
+/**
+ * Why signing in with Memberful signed nobody in: members don't sign in with Memberful, the person the
+ * account is linked to was removed or banned, it has no active membership, or someone new would have
+ * someone's email address.
+ */
+export type MemberfulRefusal = "off" | "refused" | "membership" | "taken";
+
+/** What a join link does: joins, is off while members sign in with Memberful, or isn't the join link. */
+export type JoinLink = "joins" | "memberful" | "not found";
 
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
@@ -377,10 +398,14 @@ export class Workspace extends DurableObject<Env> {
     return account;
   }
 
-  /** Whether `code` is the workspace's join code, which it can't be before first run. */
-  async isJoinCode(code: string): Promise<boolean> {
+  /**
+   * What the join link with `code` does: "not found" unless `code` is the workspace's join code, which it
+   * can't be before first run, and "memberful" while members sign in with Memberful, which turns it off.
+   */
+  async joinLink(code: string): Promise<JoinLink> {
     const account = await this.joinableAccount();
-    return account !== null && isCode(code, account.joinCode);
+    if (account === null || !isCode(code, account.joinCode)) return "not found";
+    return account.memberfulSignIn ? "memberful" : "joins";
   }
 
   /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
@@ -391,9 +416,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
-   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session.
+   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
+   * Worker adds the Memberful site from its keys.
    */
-  async workspaceSettings(credentials: Credentials): Promise<WorkspaceSettings | "not set up" | null> {
+  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
@@ -409,12 +435,13 @@ export class Workspace extends DurableObject<Env> {
   async changeAccount(credentials: Credentials, { name, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const { hideTranslationButtons, restrictRoomCreation } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, memberfulSignIn } = settings ?? {};
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
+        ...(memberfulSignIn !== undefined && memberfulSignIn !== account.memberfulSignIn && { memberfulSignIn }),
       };
       if (Object.keys(change).length === 0) return accountOf(account);
       return this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
@@ -567,12 +594,14 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
    * session their cookie's token opens, as ember-rust's `users#create` does. Answers "not found" if
-   * `code` isn't the join code, and null if someone already has their email address.
+   * `code` isn't the join code, "memberful" while members sign in with Memberful, and null if someone
+   * already has their email address.
    */
-  async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | "not found" | null> {
-    // The Worker checked the code before the form arrived, but the link may have been regenerated since.
+  async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
+    // The Worker checked the link before the form arrived, but it may have been regenerated or turned off since.
     return this.oneAtATime(async () => {
-      if (!(await this.isJoinCode(code))) return "not found";
+      const link = await this.joinLink(code);
+      if (link !== "joins") return link;
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
       try {
         await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
@@ -612,9 +641,12 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
-   * active since, or their password has been reset while it was checked.
+   * active since, or their password has been reset while it was checked. While members sign in with
+   * Memberful, only administrators sign in with a password, and anyone else hears "memberful", which
+   * only someone who knows their password can, so it says nothing about who has an account.
    */
-  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | null> {
+  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | "memberful" | null> {
+    if ((await this.joinableAccount())?.memberfulSignIn && !(await this.store.isAdministrator(userId))) return "memberful";
     // On D1 a role change can overlap it, so it's remembered only if none did.
     const session = await this.sessions.keep(tokenDigest, () =>
       this.store.startSession(userId, passwordDigest, rehash, sortableId(), tokenDigest, client, new Date().toISOString()),
@@ -636,12 +668,54 @@ export class Workspace extends DurableObject<Env> {
     return session && meOf(session);
   }
 
-  /** Adds someone who signs in with just a name, and the session their cookie's token opens. */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me> {
+  /**
+   * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
+   * members sign in with Memberful, which answers "memberful".
+   */
+  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful"> {
+    if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
     const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
     await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
     this.sessions.remember(tokenDigest, session);
     return meOf(session);
+  }
+
+  /**
+   * Signs in `member`, who signed in to the Memberful site `issuer`, with the session their cookie's
+   * token opens: as the person their Memberful account is linked to, or else as someone new, a member in
+   * every open room, linked to it, as joining adds someone. Accounts are linked by the site and the
+   * member's id there, never matched by email address. Answers "off" unless members sign in with
+   * Memberful, "refused" for someone linked who has been removed or banned, "membership" for anyone but
+   * an administrator without an active membership, and "taken" when someone here has the email address
+   * someone new would have, which creates nothing.
+   */
+  async signInWithMemberful(issuer: string, member: MemberfulMember, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
+    // One at a time, so that two sign-ins of someone new can't both add them, and none can overlap
+    // turning Memberful sign-in off.
+    return this.oneAtATime(async () => {
+      if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
+      const linked = await this.store.linkedPerson(issuer, member.id);
+      if (linked) {
+        if (!linked.active) return "refused";
+        if (!linked.administrator && !member.subscribed) return "membership";
+        // On D1 a role change can overlap it, so it's remembered only if none did.
+        const session = await this.sessions.keep(tokenDigest, () =>
+          this.store.startLinkedSession(linked.userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+        );
+        return session ? meOf(session) : "refused";
+      }
+      if (!member.subscribed) return "membership";
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: member.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+      const person = { ...session.user, emailAddress: member.emailAddress };
+      try {
+        await this.store.createLinkedMember(person, issuer, member.id, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+      } catch (error) {
+        if (member.emailAddress !== null && (await this.store.hasEmailAddress(member.emailAddress))) return "taken";
+        throw error;
+      }
+      this.sessions.remember(tokenDigest, session);
+      return meOf(session);
+    });
   }
 
   /**

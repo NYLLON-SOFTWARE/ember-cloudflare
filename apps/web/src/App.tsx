@@ -33,7 +33,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&
   a.logo === b.logo &&
-  a.customDomain === b.customDomain;
+  a.customDomain === b.customDomain &&
+  a.memberfulSignIn === b.memberfulSignIn;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.

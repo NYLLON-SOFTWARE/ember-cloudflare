@@ -24,6 +24,8 @@ import {
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_USER_NAME_LENGTH,
+  memberfulProblemOf,
+  memberfulSignInPath,
   parseAccountChanges,
   parseClientFrame,
   parseCustomStyles,
@@ -183,7 +185,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -409,6 +411,27 @@ describe(feature("rooms.creation-permission"), () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  it("takes Members sign in with Memberful as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { memberfulSignIn: true } })).toEqual({ settings: { memberfulSignIn: true } });
+    expect(parseAccountChanges({ settings: { memberfulSignIn: false, restrictRoomCreation: true } })).toEqual({
+      settings: { memberfulSignIn: false, restrictRoomCreation: true },
+    });
+    expect(parseAccountChanges({ settings: { memberfulSignIn: 1 } })).toBe("Members sign in with Memberful must be true or false");
+  });
+
+  it("names the page to come back to, if any, in Sign in with Memberful's address", () => {
+    expect(memberfulSignInPath(null)).toBe("/auth/memberful");
+    expect(memberfulSignInPath("/rooms/general?x=1#y")).toBe("/auth/memberful?return_to=%2Frooms%2Fgeneral%3Fx%3D1%23y");
+  });
+
+  it("reads only the problems it knows from the sign-in page's address", () => {
+    expect(memberfulProblemOf("membership")).toBe("membership");
+    expect(memberfulProblemOf("refused")).toBe("refused");
+    for (const value of [null, "", "toString", "Membership", "constructor"]) expect(memberfulProblemOf(value)).toBeNull();
   });
 });
 

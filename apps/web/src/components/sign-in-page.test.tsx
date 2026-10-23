@@ -1,8 +1,9 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { returnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { FlashProvider } from "./flash";
 import { SignInPage } from "./sign-in-page";
@@ -13,7 +14,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
@@ -34,6 +35,7 @@ const card = () => screen.getByRole("heading", { name: "Sign in to Ember" }).clo
 afterEach(() => {
   vi.restoreAllMocks();
   history.replaceState(null, "", "/");
+  sessionStorage.clear();
 });
 
 describe(feature("auth.sign-in"), () => {
@@ -208,5 +210,77 @@ describe(feature("accounts.custom-css"), () => {
     await userEvent.type(password, "correct horse");
     expect(password).toHaveValue("correct horse");
     expect(password).not.toHaveAttribute("value");
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  const withMemberful = { ...workspace, account: { ...workspace.account, memberfulSignIn: true } };
+
+  it("offers Sign in with Memberful in place of the password form, coming back to the page this tab was sent from", async () => {
+    // As the app remembers the page it was on before it sends a tab to sign in.
+    sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
+    history.replaceState(null, "", "/session/new");
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    const memberful = screen.getByRole("link", { name: "Sign in with Memberful" });
+    expect(memberful).toHaveAttribute("href", "/auth/memberful?return_to=%2Frooms%2Fabc%3Ftab%3Dpins");
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+    expect(screen.getByText("Administrator?")).toBeInTheDocument();
+
+    // The Worker opens that page once it's signed in, so this tab forgets it. jsdom can't follow the link.
+    document.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    await userEvent.click(memberful);
+    expect(returnPath()).toBeNull();
+  });
+
+  it("goes home once signed in when this tab came to sign in itself", () => {
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toHaveAttribute("href", "/auth/memberful");
+  });
+
+  it("lets an administrator sign in with a password instead, and back", async () => {
+    const user = userEvent.setup();
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await user.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    expect(screen.getByLabelText("Email address")).toHaveFocus();
+    expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+    expect(screen.getByText("Member?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Memberful" }));
+    expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+  });
+
+  it("flashes what the server says when a member signs in with a password", async () => {
+    respond(403, { error: MEMBERFUL_SIGN_IN_NEEDED });
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    await signIn("compiler");
+    expect(await screen.findByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_NEEDED);
+    expect(card()).toHaveClass("motion-safe:animate-shake");
+  });
+
+  it("says why signing in with Memberful didn't work, once, taking it out of the address", () => {
+    history.replaceState(null, "", "/session/new?memberful=membership&email_address=ada%40example.com#top");
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("alert")).toHaveTextContent("Your Memberful account has no active membership.");
+    expect(`${location.pathname}${location.search}${location.hash}`).toBe("/session/new?email_address=ada%40example.com#top");
+
+    cleanup();
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says nothing of a problem it doesn't know", () => {
+    history.replaceState(null, "", "/session/new?memberful=toString");
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(location.search).toBe("");
+  });
+
+  it("asks only for a password while it's off", () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Administrator?")).not.toBeInTheDocument();
   });
 });
