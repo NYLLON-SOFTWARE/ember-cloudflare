@@ -776,7 +776,21 @@ export const features = [
     ],
     sources: ["crates/views/templates/rooms/show/_invitation.html", "crates/ember/src/controllers/rooms.rs", "crates/db/src/models/room.rs"],
     upstreamTests: ["parity/screens.yml", "parity/kro/workspace.test.mjs"],
-    notes: "It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.",
+    notes: "Only administrators are shown it, and each can dismiss it for good, as the project's owner chose (`rooms.invitation-dismissal`), where ember-rust shows it to everyone in the room. It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.",
+  },
+  {
+    id: "rooms.invitation-dismissal",
+    title: "Welcome card for administrators, until they dismiss it",
+    origin: "cloudflare",
+    status: "ported",
+    behaviors: [
+      "Only the workspace's administrators are shown the welcome card. Anyone else in the first room sees the room's own welcome while it's empty.",
+      "The card's × (\"Dismiss welcome card\") takes it away for good for the administrator who pressed it: it leaves every tab of theirs at once, and no device of theirs shows it again. Other administrators keep theirs.",
+      "Someone made an administrator gets the card without reloading, unless they dismissed it before, and someone made a member loses it.",
+      "A dismissal the server doesn't save leaves the card and says why, and one from a session that's ended goes to sign in.",
+    ],
+    sources: [],
+    notes: "The project's owner asked for it (2026-10-23): ember-rust's card (`rooms.invitation-card`) shows to everyone in the first room and can't be dismissed. The join link stays on workspace settings, which anyone signed in can open, as in ember-rust (`accounts.join-link`). `DELETE /api/sidebar/invitation` records the dismissal in `users.invitation_dismissed_at` (workspace migration 0036) and answers 204, and the sidebar gives an invitation only to an active administrator who hasn't dismissed it. The × waits for that answer, dimmed, before the card goes, and the person's other tabs hear `invitation.dismissed` on the workspace socket. A new role loads the sidebar again, which brings the card or takes it away. The × is 36px, or 44px for fingers, as ember-rust's icon picker's is.",
   },
   {
     id: "rooms.member-only-access",
@@ -2466,7 +2480,7 @@ export const features = [
     status: "ported",
     behaviors: [
       "A room nobody has written in says \"Welcome to #<room>\" and \"This is the very beginning of the room. Say hello!\"",
-      "The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).",
+      "The workspace's first room shows its administrators the welcome card instead, while it has one, until they dismiss it (`rooms.invitation-card`, `rooms.invitation-dismissal`).",
     ],
     sources: [],
   },

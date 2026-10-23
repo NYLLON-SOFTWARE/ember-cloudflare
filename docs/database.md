@@ -294,6 +294,11 @@ search index. On top of that schema it adds indexes and query changes for speed.
   sorts every room by `created_at` to find it. Every sidebar here asks, so
   `index_rooms_on_created_at_and_id` (workspace migration 0014) finds it at once. Our ids sort by
   time too, but not the old addresses of the rooms `LEGACY_ROOMS` registers.
+- **The welcome card is dismissed in a column of the person.** ember-rust shows the card to everyone
+  in the first room and can't dismiss it. Here only active administrators are given it, until they
+  dismiss it, which `users.invitation_dismissed_at` records (workspace migration 0036), so it stays
+  dismissed on every device they sign in on, whatever their role later. The sidebar reads it in the
+  statement that already reads the version of their stars, so it costs no statement more.
 - **Each group of people has one DM, found by its key.** ember-rust finds a group's DM by reading
   every DM's members and comparing them with the group (`find_direct_for`,
   `crates/db/src/models/room.rs`), each time someone starts one. Ours keeps each DM's members' ids,

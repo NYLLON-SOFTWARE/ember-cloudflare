@@ -1204,6 +1204,41 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
+describe(feature("rooms.invitation-dismissal"), () => {
+  const invited = { ...roomList(rooms), invitation: { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" } };
+  const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
+  /** Shows general with the welcome card, its dismissal answered by `answer`. */
+  async function showCard(answer: () => Response) {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({ "GET /api/sidebar": () => Response.json(invited), "DELETE /api/sidebar/invitation": answer });
+    const shown = showWorkspace("/rooms/general");
+    return { ...shown, dismiss: await screen.findByRole("button", { name: "Dismiss welcome card" }) };
+  }
+
+  it("takes the welcome card away once its × has saved that it's dismissed", async () => {
+    const { dismiss, user } = await showCard(() => new Response(null, { status: 204 }));
+    await user.click(dismiss);
+    await waitFor(() => expect(card()).not.toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/sidebar/invitation" && init?.method === "DELETE")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the card when the dismissal isn't saved, saying why", async () => {
+    const { dismiss, user } = await showCard(() => Response.json({ error: "Workspace unavailable" }, { status: 503 }));
+    await user.click(dismiss);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Workspace unavailable");
+    expect(card()).toBeInTheDocument();
+    expect(dismiss).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("goes to sign in when the dismissal finds the session gone", async () => {
+    const { dismiss, onSessionChanged, user } = await showCard(() => Response.json({ error: "Not signed in" }, { status: 401 }));
+    await user.click(dismiss);
+    await waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(null));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
 describe(feature("sidebar.shared-order"), () => {
   it("puts the sidebar's rooms in the order an administrator saves on workspace settings, after their stars", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };

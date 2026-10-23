@@ -840,7 +840,17 @@ const AFTER_UNSTAR = afterStarring(STARRABLE);
 
 /** The rooms ?1 has starred and can star, in the order they starred them. */
 const FAVORITES_FOR_USER = `SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}) ORDER BY position`;
-const FAVORITES_VERSION = `SELECT favorites_version AS version FROM users WHERE id = ?`;
+
+/**
+ * The version of ?'s stars, and whether they're given the welcome card: whether they're an active
+ * administrator who hasn't dismissed it.
+ */
+const SIDEBAR_USER = `SELECT favorites_version AS version,
+    role = ${ADMINISTRATOR} AND status = ${ACTIVE} AND invitation_dismissed_at IS NULL AS invited
+  FROM users WHERE id = ?`;
+
+/** Records that ?2 dismissed the welcome card at ?1, unless they had already. */
+const DISMISS_INVITATION = `UPDATE users SET invitation_dismissed_at = ?1 WHERE id = ?2 AND invitation_dismissed_at IS NULL`;
 
 /** ?1's notification level in room ?2, if they're in it. */
 const INVOLVEMENT = `SELECT involvement FROM memberships WHERE user_id = ?1 AND room_id = ?2`;
@@ -1671,17 +1681,17 @@ export class WorkspaceStore {
   /**
    * The rooms someone is in, with their unread marks and the people in their DMs, the ones they've
    * starred, the people their sidebar suggests for DMs, and the workspace's first room, if there is one
-   * yet.
+   * yet and they're given the welcome card: an active administrator who hasn't dismissed it.
    */
-  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; sharedOrder: RoomId[]; suggestions: User[]; originalRoomId: RoomId | null }> {
+  async roomsFor(userId: UserId): Promise<{ rooms: SidebarRoom[]; favorites: Favorites; sharedOrder: RoomId[]; suggestions: User[]; invitationRoomId: RoomId | null }> {
     const [rows, [original], starred, [user], members, suggested] = (await this.db.batch([
       statement(ROOMS_FOR_USER, userId),
       statement(ORIGINAL_ROOM),
       statement(FAVORITES_FOR_USER, userId),
-      statement(FAVORITES_VERSION, userId),
+      statement(SIDEBAR_USER, userId),
       statement(DIRECT_MEMBERS_FOR_USER, userId),
       statement(SUGGESTED_FOR_USER, userId),
-    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number }>, DirectMemberRow[], User[]];
+    ])) as [SidebarRow[], Array<{ id: RoomId }>, Array<{ room_id: RoomId }>, Array<{ version: number; invited: number }>, DirectMemberRow[], User[]];
     const membersByRoom = Map.groupBy(members, (member) => member.room_id);
     const peopleInDirects = new Set(members.map((member) => member.id)).size;
     return {
@@ -1689,8 +1699,13 @@ export class WorkspaceStore {
       favorites: { rooms: starred.map((row) => row.room_id), version: user?.version ?? 0 },
       sharedOrder: sharedOrderOf(rows),
       suggestions: suggested.slice(0, suggestedCount(peopleInDirects)),
-      originalRoomId: original?.id ?? null,
+      invitationRoomId: user?.invited === 1 ? (original?.id ?? null) : null,
     };
+  }
+
+  /** Records that someone has dismissed the welcome card, at `now`, unless they had already. */
+  async dismissInvitation(userId: UserId, now: string): Promise<void> {
+    await this.db.run(DISMISS_INVITATION, now, userId);
   }
 
   /**

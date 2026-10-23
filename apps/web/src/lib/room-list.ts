@@ -137,8 +137,11 @@ export type RoomChange =
 /** What the server answers a change to a room with: the room as saved, gone for this person, or their level in it. */
 export type RoomAnswer = Extract<RoomChange, { type: "saved" | "gone" | "involved" }>;
 
-/** A change to the list: to someone's rooms, or the join link's new code, made here for the welcome card. */
-export type SidebarChange = RoomChange | { type: "join code"; joinCode: string };
+/**
+ * A change to the list: to someone's rooms, or to the welcome card: the join link's new code, made here,
+ * or the card dismissed, here or in another of their tabs.
+ */
+export type SidebarChange = RoomChange | { type: "join code"; joinCode: string } | { type: "invitation dismissed" };
 
 /**
  * Someone's rooms: the server's list, once it arrives, with the changes made since it was asked for,
@@ -175,6 +178,8 @@ function changed(list: Sidebar, change: SidebarChange): Sidebar {
       return { ...list, rooms: list.rooms.map((room) => (room.id === change.roomId ? { ...room, involvement: change.involvement } : room)) };
     case "join code":
       return { ...list, invitation: list.invitation && { ...list.invitation, joinCode: change.joinCode } };
+    case "invitation dismissed":
+      return { ...list, invitation: null };
     // Stars come from a star's answer, the socket and the list itself, in whatever order they arrive,
     // so the newest stands.
     case "starred":

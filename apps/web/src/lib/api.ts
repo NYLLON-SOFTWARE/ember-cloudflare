@@ -363,6 +363,11 @@ export async function fetchSidebar(copy: SidebarCopy | null): Promise<SidebarCop
   return { sidebar: await dataOf<Sidebar>(response), etag: response.headers.get("ETag") };
 }
 
+/** Dismisses the welcome card for this person, for good: their sidebar, on any device, has no invitation from then on. */
+export async function dismissInvitation(): Promise<void> {
+  await request("/api/sidebar/invitation", { method: "DELETE" });
+}
+
 /** A copy of the people directory, and the ETag the server sent it with. */
 export interface DirectoryCopy {
   directory: Directory;
