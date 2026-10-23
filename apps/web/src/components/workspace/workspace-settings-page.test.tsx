@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, type Account, type AccountChanges, type DirectoryUser, type Me, type RoleChange, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
+import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, MAX_TAGLINE_LENGTH, type Account, type AccountChanges, type DirectoryUser, type Me, type RoleChange, type RoomId, type SidebarRoom, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import cancel from "@/components/icons/campfire/cancel.svg";
 import crown from "@/components/icons/campfire/crown.svg";
@@ -22,7 +22,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -95,10 +95,11 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ ...settings, account });
       case "PATCH /api/account": {
         if (saved) return saved();
-        const { name = account.name, settings: changed, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
+        const { name = account.name, tagline = account.tagline, settings: changed, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
         account = {
           ...account,
           name,
+          tagline,
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
           customDomain,
@@ -257,7 +258,7 @@ describe(feature("accounts.name"), () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
-    expect(saved()).toEqual([{ name: "Difference Engines" }]);
+    expect(saved()).toEqual([{ name: "Difference Engines", tagline: "" }]);
     expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, name: "Difference Engines" });
     expect(name).toHaveValue("Difference Engines");
   });
@@ -266,7 +267,7 @@ describe(feature("accounts.name"), () => {
     const { user } = showPage();
     await user.type(await nameField(), "{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
-    expect(saved()).toEqual([{ name: "Analytical Engines" }]);
+    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "" }]);
   });
 
   it("leaves the field unfocused, and its text where you click, as ember-rust does", async () => {
@@ -315,6 +316,79 @@ describe(feature("accounts.name"), () => {
     await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
     act(() => workspaceSays({ ...asMember.account, name: "Difference Engines" }));
     expect(screen.getByRole("heading", { level: 2, name: "Difference Engines" })).toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.tagline"), () => {
+  const TAGLINE = "Engines for every occasion";
+  const tagged: WorkspaceSettings = { ...asAdministrator, account: { ...asAdministrator.account, tagline: TAGLINE } };
+  const taglineField = () => screen.findByRole("textbox", { name: "Tagline" });
+
+  it("asks administrators for a tagline under the workspace name, saying where it shows and how long it can be", async () => {
+    showPage();
+    const tagline = await taglineField();
+    expect(tagline).toHaveValue("");
+    expect(tagline).toHaveAttribute("placeholder", "Sum it up in a few words");
+    expect(tagline).toHaveAttribute("autocomplete", "off");
+    expect(tagline).toHaveAttribute("maxlength", String(MAX_TAGLINE_LENGTH));
+    expect(tagline).toHaveAccessibleDescription("Shown under the workspace name in the sidebar, up to 30 characters. Leave it empty for none.");
+    // Right under the name, in the form Save changes sends.
+    const form = screen.getByRole("textbox", { name: "Workspace name" }).closest("form")!;
+    expect(within(form).getAllByRole("textbox")).toEqual([screen.getByRole("textbox", { name: "Workspace name" }), tagline]);
+    expect(within(form).getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+  });
+
+  it("saves the tagline with the name, saying Changes saved., and shows it as it's kept", async () => {
+    // The server keeps it with no space at either end.
+    serve(asAdministrator, { saved: () => Response.json({ account: tagged.account }) });
+    const { onAccountChanged, user } = showPage();
+    const tagline = await taglineField();
+    await user.type(tagline, ` ${TAGLINE} `);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: ` ${TAGLINE} ` }]);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(tagged.account);
+    expect(tagline).toHaveValue(TAGLINE);
+  });
+
+  it("keeps what's typed while a save was on its way", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const tagline = await taglineField();
+    await user.type(tagline, "Engines {Enter}");
+    await user.type(tagline, "galore");
+    answer(Response.json({ account: { ...asAdministrator.account, tagline: "Engines" } }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(tagline).toHaveValue("Engines galore");
+  });
+
+  it("takes the tagline away once it's emptied and saved", async () => {
+    serve(tagged);
+    const { onAccountChanged, user } = showPage();
+    const tagline = await taglineField();
+    await waitFor(() => expect(tagline).toHaveValue(TAGLINE));
+    await user.clear(tagline);
+    await user.type(tagline, "{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "" }]);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account);
+  });
+
+  it("shows members the tagline under the workspace name, as the workspace socket last said it, and nothing while there's none", async () => {
+    serve({ ...tagged, canAdminister: false });
+    showPage(asLinus);
+    const name = await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(name.closest("hgroup")).toHaveTextContent(`Analytical Engines${TAGLINE}`);
+    expect(screen.queryByRole("textbox", { name: "Tagline" })).not.toBeInTheDocument();
+
+    act(() => workspaceSays({ ...asMember.account, tagline: "Engines, now with steam" }));
+    expect(name.closest("hgroup")).toHaveTextContent("Analytical EnginesEngines, now with steam");
+    act(() => workspaceSays(asMember.account));
+    expect(name.closest("hgroup")).toHaveTextContent(/^Analytical Engines$/);
   });
 });
 

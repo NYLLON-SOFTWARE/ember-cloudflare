@@ -35,7 +35,7 @@ describe(feature("platform.live-socket"), () => {
     expect((await openWorkspaceSocket(grace)).welcome).toEqual({
       type: "welcome",
       you: { ...grace.user, administrator: false },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
     });
   });
 

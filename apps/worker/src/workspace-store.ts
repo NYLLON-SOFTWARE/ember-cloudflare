@@ -63,10 +63,11 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned", "sus
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
 /**
- * What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, anyone may
- * create rooms, no custom domain, and members sign in with passwords rather than Memberful.
+ * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
+ * anyone may create rooms, no custom domain, and members sign in with passwords rather than Memberful.
  */
 export const NEW_ACCOUNT_LOOKS = {
+  tagline: "",
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,
@@ -92,8 +93,11 @@ export interface NewAccount {
   joinCode: string;
 }
 
-/** What `WorkspaceStore.changeAccount` changes: the name, the settings workspace settings' switches change, and the custom domain. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">>;
+/**
+ * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
+ * switches change, and the custom domain.
+ */
+export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -509,6 +513,9 @@ function hidesTranslationButtons(settings: Record<string, unknown> | null): bool
  */
 const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
 
+/** The account's tagline, which its settings keep as `tagline`, ember-rust having none, or empty while it has none. */
+const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings?.tagline === "string" ? settings.tagline : "");
+
 /** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
@@ -917,7 +924,7 @@ export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role =
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
 
 /**
- * Sets the account's setting `key`, true or false as JSON, and records when. The other settings stay,
+ * Sets the account's setting `key` to the JSON value ?1, and records when. The other settings stay,
  * as ember-rust merges a change into them (account.rs, `assign`), and settings that aren't a JSON
  * object start afresh, as ember-rust reads them.
  */
@@ -925,6 +932,7 @@ const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
     CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
     '$.${key}', json(?1)
   ), updated_at = ?2`;
+const SET_TAGLINE = setSetting("tagline");
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
@@ -1353,6 +1361,7 @@ export class WorkspaceStore {
     return {
       name: row.name,
       joinCode: row.join_code,
+      tagline: taglineIn(settings),
       hideTranslationButtons: hidesTranslationButtons(settings),
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
@@ -1363,10 +1372,11 @@ export class WorkspaceStore {
     };
   }
 
-  /** Changes the workspace's name, settings and custom domain, as `change` has them, in one batch. */
-  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn }: AccountChange, now: string): Promise<void> {
+  /** Changes the workspace's name, tagline, settings and custom domain, as `change` has them, in one batch. */
+  async changeAccount({ name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
+      ...(tagline === undefined ? [] : [statement(SET_TAGLINE, JSON.stringify(tagline), now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),

@@ -268,7 +268,7 @@ describe(feature("accounts.logo"), () => {
     const response = await removeLogo(ada);
     expect(response.status).toBe(200);
     const { account } = (await response.json()) as { account: Account };
-    expect(account).toEqual({ name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false });
+    expect(account).toEqual({ name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false });
     expect(await socket.next()).toEqual({ type: "account.updated", account });
     expect(await bytesOf(await logo("/account/logo"))).toEqual(icons["/logos/app-icon.png"]);
     expect(await logoColumns()).toMatchObject({ logo_key: null, logo_variant: null });

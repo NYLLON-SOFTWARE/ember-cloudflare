@@ -134,6 +134,7 @@ const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(upda
 /** The account as every page shows it, without its join code, which only the people in it see. */
 const accountOf = ({
   name,
+  tagline,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
@@ -143,6 +144,7 @@ const accountOf = ({
   storedLogo,
 }: JoinableAccount): Account => ({
   name,
+  tagline,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
@@ -490,12 +492,13 @@ export class Workspace extends DurableObject<Env> {
    * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change, a
    * new custom domain included, which tabs open at another address then point to.
    */
-  async changeAccount(credentials: Credentials, { name, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
+  async changeAccount(credentials: Credentials, { name, tagline, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
       const { hideTranslationButtons, restrictRoomCreation, memberfulSignIn } = settings ?? {};
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
+        ...(tagline !== undefined && tagline !== account.tagline && { tagline }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
