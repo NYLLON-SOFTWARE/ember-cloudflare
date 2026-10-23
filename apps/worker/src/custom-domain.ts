@@ -61,7 +61,7 @@ export async function reachOf(request: Request, env: Env, domain: string): Promi
   } catch {
     return "nothing";
   }
-  await response.body?.cancel();
+  void response.body?.cancel().catch(() => {});
   if (response.headers.get(PROBE_ANSWER_HEADER) === answer) return "ember";
   return isUnreached(response.status) ? "nothing" : "elsewhere";
 }

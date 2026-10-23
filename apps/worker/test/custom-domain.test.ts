@@ -367,6 +367,17 @@ describe(feature("accounts.custom-domain"), () => {
     }
   });
 
+  it("finds what answers there by the answer's head, even when the rest of it fails", async () => {
+    const administrator = await setUp();
+    // A body that fails, as when the connection drops after the head.
+    const failing = () => new ReadableStream({ start: (controller) => controller.error(new TypeError("Network connection lost.")) });
+    const answer = { with: async (request: Request) => new Response(failing(), { headers: (await exports.default.fetch(request)).headers }) };
+    internet(answer);
+    expect(await reachOf(administrator, DOMAIN)).toBe("ember");
+    answer.with = async () => new Response(failing(), { headers: { "Content-Type": "text/html" } });
+    expect(await reachOf(administrator, DOMAIN)).toBe("elsewhere");
+  });
+
   it("lets only administrators check, telling anyone else so before checking what they sent", async () => {
     await setUp();
     const member = await signIn("Grace");
@@ -388,6 +399,7 @@ describe(feature("accounts.custom-domain"), () => {
       ["localhost:8787", NOT_A_CUSTOM_DOMAIN],
       [`https://${DOMAIN}`, CUSTOM_DOMAIN_NOT_A_HOST],
       [`${DOMAIN}/api/health`, CUSTOM_DOMAIN_NOT_A_HOST],
+      [`${DOMAIN}:99999`, CUSTOM_DOMAIN_NOT_A_HOST],
       [42, CUSTOM_DOMAIN_NOT_A_HOST],
     ] as const) {
       const response = await check(administrator, domain);

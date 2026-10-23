@@ -1052,8 +1052,10 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
 
-/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port. */
-const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
+/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port, from 1 and without leading zeros. */
+const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::([1-9][0-9]{0,4}))?$/;
+/** The highest port a URL can have. */
+const MAX_PORT = 65535;
 
 /**
  * Where a deploy or `wrangler dev` puts Ember, which can't be its custom domain: a workers.dev address,
@@ -1062,10 +1064,10 @@ const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
  */
 const DEPLOYED_HOSTNAME = /(?:^|\.)workers\.dev$|^localhost$|^127(?:\.[0-9]{1,3}){3}$|^\[::1\]$/;
 
-/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have. */
+/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have and a port a URL can. */
 export function isHost(host: string): boolean {
-  const name = host.length <= MAX_HOST_NAME_LENGTH + ":65535".length ? HOST.exec(host)?.[1] : undefined;
-  return name !== undefined && name.length <= MAX_HOST_NAME_LENGTH;
+  const match = host.length <= MAX_HOST_NAME_LENGTH + `:${MAX_PORT}`.length ? HOST.exec(host) : null;
+  return match !== null && match[1]!.length <= MAX_HOST_NAME_LENGTH && Number(match[2] ?? 0) <= MAX_PORT;
 }
 
 /** Whether the host name `hostname` could be Ember's custom domain: any but where a deploy or `wrangler dev` puts it. */
