@@ -60,7 +60,7 @@ function eventOf({ messageId, plainText, mentions, ...event }: EventRow): RoomEv
 export const logEvent = (roomId: RoomId, kind: RoomEvent["kind"], userId: UserId, at: string, messageId: string | null = null): Statement =>
   statement(`INSERT INTO room_events (room_id, kind, user_id, at, message_id) VALUES (?, ?, ?, ?, ?)`, roomId, kind, userId, at, messageId);
 
-/** A message written, edited or deleted that the search index has yet to hear of. */
+/** A message written, edited, boosted or deleted that the search index has yet to hear of. */
 export interface UnindexedMessage {
   /** Its place in the room's log of them, whose numbers only grow. */
   seq: number;
@@ -70,7 +70,7 @@ export interface UnindexedMessage {
 /** The oldest messages the search index has yet to hear of, up to a number of them. */
 export const UNINDEXED_MESSAGES = `SELECT seq, message_id AS messageId FROM unindexed_messages WHERE room_id = ? ORDER BY seq LIMIT ?`;
 
-/** Logs that a message was written, edited or deleted, for the search index, in the batch that makes the change. */
+/** Logs that a message was written, edited, boosted or deleted, for the search index, in the batch that makes the change. */
 export const logIndexing = (roomId: RoomId, messageId: string): Statement =>
   statement(`INSERT INTO unindexed_messages (room_id, message_id) VALUES (?, ?)`, roomId, messageId);
 

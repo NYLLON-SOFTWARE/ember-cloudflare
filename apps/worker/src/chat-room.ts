@@ -141,7 +141,7 @@ const ERASE_RETRY_MS = 5 * 60 * 1000;
 interface Couriers {
   /** Sends the Workspace the room's events, which it marks the room unread and read by. */
   workspace: Courier;
-  /** Sends the search index the messages written, edited and deleted. */
+  /** Sends the search index the messages written, edited, boosted and deleted. */
   index: Courier;
   /** Has R2 delete the files the room has marked deleted. */
   files: Courier;
@@ -829,6 +829,8 @@ export class ChatRoom extends DurableObject<Env> {
   private async addBoost(store: MessageStore, messageId: string, user: User, content: string, now: string): Promise<Boost> {
     const { boost, seq } = await store.addBoost(sortableId(), messageId, user, content, now);
     this.broadcast({ type: "boost.created", boost, seq });
+    // Search results show a message's boosts, so the index takes it again.
+    this.couriersFor(store.roomId).index.deliver();
     return boost;
   }
 
@@ -836,6 +838,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+    this.couriersFor(store.roomId).index.deliver();
   }
 
   /**
@@ -1060,8 +1063,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Sends the search index the messages written, edited or deleted longest ago that it hasn't taken, as
-   * many as one call takes, as they are now, and forgets them once it has. Answers how many it sent.
+   * Sends the search index the messages written, edited, boosted or deleted longest ago that it hasn't
+   * taken, as many as one call takes, as they are now, and forgets them once it has. Answers how many it
+   * sent.
    */
   private async sendMessages(roomId: RoomId): Promise<number> {
     const log = this.logFor(roomId);

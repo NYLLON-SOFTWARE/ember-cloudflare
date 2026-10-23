@@ -163,11 +163,16 @@ export const MESSAGES_DELETED_SINCE = `SELECT message_id FROM message_deletions 
 /** The messages whose ids a JSON array lists. */
 const MESSAGES_WITH_IDS = `${SELECT_MESSAGES} WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
 
+/**
+ * The longest row the search index keeps for a result to show, in UTF-16 code units: a row of Durable
+ * Object SQLite takes 2 MB, and each unit takes at most 3 bytes of UTF-8, so this leaves room for the rest
+ * of the index's row. A message with more, as one with many cards can have, goes without, and a search
+ * reads it from its room.
+ */
+const MAX_INDEXED_ROW = 600_000;
+
 /** The same in every room, which D1 alone can read at once. */
 const MESSAGES_ANYWHERE_WITH_IDS = `${SELECT_MESSAGES} WHERE id IN (SELECT value FROM json_each(?))`;
-
-/** What the search index keeps of the messages whose ids a JSON array lists. */
-const INDEXABLE_MESSAGES = `SELECT id, created_at AS createdAt, plain_text AS text FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
 
 /** Which page `MessageStore.pageAt` reads: the one before a message, or after one, or with neither the newest. */
 export interface PageCursor {
@@ -303,9 +308,13 @@ export class MessageStore {
     return this.messagesOf(await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids)));
   }
 
-  /** What the search index keeps of the messages `ids` names that the room has. */
+  /** What the search index keeps of the messages `ids` names that the room has: their text, and their rows for results to show. */
   async indexable(ids: string[]): Promise<IndexedMessage[]> {
-    return this.db.all<IndexedMessage>(INDEXABLE_MESSAGES, this.roomId, JSON.stringify(ids));
+    const rows = await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids));
+    return rows.map((row) => {
+      const message = JSON.stringify(row);
+      return { id: row.id, createdAt: row.created_at, text: row.plain_text, message: message.length <= MAX_INDEXED_ROW ? message : null };
+    });
   }
 
   async find(id: string): Promise<Message | null> {
@@ -503,6 +512,8 @@ export class MessageStore {
         now,
       ),
       this.numbered(messageId, seq),
+      // Search results show a message's boosts, as the index keeps it.
+      logIndexing(this.roomId, messageId),
     ]);
     return { boost: { id, messageId, booster, content, createdAt: now }, seq };
   }
@@ -513,7 +524,11 @@ export class MessageStore {
   }
 
   async removeBoost(boost: Boost): Promise<number> {
-    return this.change((seq) => [statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id), this.numbered(boost.messageId, seq)]);
+    return this.change((seq) => [
+      statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id),
+      this.numbered(boost.messageId, seq),
+      logIndexing(this.roomId, boost.messageId),
+    ]);
   }
 
   /**
@@ -568,4 +583,9 @@ export class MessageStore {
  */
 export async function messagesAnywhereWithIds(db: Db, ids: string[], secret: string): Promise<Message[]> {
   return toMessages(await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids)), () => fileSigner(secret));
+}
+
+/** The messages whose rows the search index keeps (`indexable`), their files' addresses signed under `secret`. */
+export function indexedMessages(rows: string[], secret: string): Promise<Message[]> {
+  return toMessages(rows.map((row) => JSON.parse(row) as MessageRow), () => fileSigner(secret));
 }

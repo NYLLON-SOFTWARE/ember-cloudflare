@@ -347,7 +347,7 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `apps/worker/search-migrations/`, which wrangler never applies to D1, listed in `SEARCH_MIGRATIONS`.
 - **Rooms send the search index their changes through a log of their own.** ember-rust writes its
   index after the transaction that changes a message commits (`crates/db/src/models/message.rs`).
-  Ours is in another object, so the batch that writes, edits or deletes a message logs its id in
+  Ours is in another object, so the batch that writes, edits, boosts or deletes a message logs its id in
   `unindexed_messages` (room migration 0021), and the room sends the index those messages as they are
   by then, the same way it sends the Workspace its change log (above): 50 at a time, one call out,
   and its alarm trying a failed call again, deleting them once the index has them. But it waits its
@@ -363,14 +363,20 @@ search index. On top of that schema it adds indexes and query changes for speed.
 - **Messages from before the index are logged once, through the Workspace's outbox.** Workspace
   migration 0022 queues a `pending_reindexes` row for every room, as registering a legacy room does,
   and the Workspace's alarm asks each room to log all its messages, after the revocations and purges
-  it delivers, putting off a room it can't reach as it does a purge, but never giving up.
-- **Search results are read where their messages are.** ember-rust reads the matching messages in
-  the query that finds them. Ours are elsewhere, so on DO SQLite the Worker asks each room with
-  matches for its own, six rooms at a time, and on D1 it reads them all in one query, by id. Either
-  way, a message deleted since the index heard of it is left out. In the perf suite's `search`
-  scenario, searching ten rooms of 100 messages for a word in a quarter of them took 14 ms (p50) on DO
-  SQLite, against 6 ms for a word in none, so reading the newest 100 from their rooms is about half of
-  it; on D1, where one query reads them, 11 ms against 8.
+  it delivers, putting off a room it can't reach as it does a purge, but never giving up. Workspace
+  migration 0036 does it once more, for the index to keep what results show of every message (below).
+- **Search results come from the index.** ember-rust reads the matching messages in the query that
+  finds them. Ours live in their rooms, so the index keeps each message's row as its room sent it,
+  boosts and all, as JSON in `search_messages.message` (search migration 0002), and a search answers
+  from that alone. The probe reads it only for matches in the searcher's rooms. Results show a message
+  as the index last took it, so an edit, a boost or a deletion shows once the room's log reaches the
+  index, as a new message is found, where ember-rust's are as of the search. Before, on DO SQLite the
+  Worker asked each room with matches for its own, six rooms at a time, waking every room a search
+  matched, and on D1 it read them all in one query, by id. It still does for a match the index has no
+  row for: one it took before it kept them, or one longer than 600,000 characters as JSON (a row of DO
+  SQLite takes 2 MB), as a bot's cards can make one. In the perf suite's `search` scenario, 20 rooms of
+  250 messages, searching for a word in a quarter of them took 6.6 ms (p50) on DO SQLite, against 13.8
+  ms when it asked the rooms, and 5.4 ms for a word in none; on D1, 7.2 ms against 8.5.
 - **Each person has a recent search once, ordered by a number.** ember-rust's `searches` gives each
   a row id, looks a search up before touching it or adding it, and orders them by when they were last
   searched for (`crates/db/src/models/search.rs`). Ours are keyed by person and search (workspace

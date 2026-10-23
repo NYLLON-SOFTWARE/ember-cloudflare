@@ -4,6 +4,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRoom } from "../src/chat-room";
 import type { Env } from "../src/env";
+import { MIGRATIONS } from "../src/migrations";
 import { SEARCH_PROBE, type IndexedMessage } from "../src/search-index";
 import type { Workspace } from "../src/workspace";
 import {
@@ -256,30 +257,92 @@ describe(feature("search.messages"), () => {
     expect(await resultsFor(ada.session, "tart")).toEqual({ query: "tart", messages: [], rooms: [], recent: [] });
   });
 
+  it("shows each match as the index last took it, boosts and all, asking no room", async () => {
+    const room = await freshRoom("kept");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "elderflower cordial");
+    ada.send({ type: "boost.create", messageId: message.id, content: "🍋" });
+    const { boost } = await ada.next("boost.created");
+    await indexed(room);
+    expect((await resultsFor(ada.session, "elderflower")).messages).toMatchObject([{ id: message.id, body: message.body, boosts: [{ id: boost.id, content: "🍋" }] }]);
+
+    // Its room's copy changed behind its back, so the index hasn't heard of it.
+    await roomSql(room, "UPDATE messages SET body = '<p>changed</p>' WHERE id = ?", message.id);
+    expect((await resultsFor(ada.session, "elderflower")).messages).toMatchObject([{ body: message.body }]);
+
+    // Taking the boost away sends the message again, as its room has it now.
+    ada.send({ type: "boost.delete", boostId: boost.id });
+    await ada.next("boost.deleted");
+    await indexed(room);
+    expect((await resultsFor(ada.session, "elderflower")).messages).toMatchObject([{ body: "<p>changed</p>", boosts: [] }]);
+  });
+
+  it("reads a match the index took before it kept messages from its room, as it is now", async () => {
+    const room = await freshRoom("unkept");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "damson preserve");
+    await indexed(room);
+    await searchSql("UPDATE search_messages SET message = NULL");
+    await roomSql(room, "UPDATE messages SET body = '<p>damson preserve, now</p>' WHERE id = ?", message.id);
+    expect((await resultsFor(ada.session, "damson")).messages).toMatchObject([{ id: message.id, body: "<p>damson preserve, now</p>" }]);
+  });
+
+  it("keeps no message too big for the index's row, and reads that one from its room", async () => {
+    const room = await freshRoom("big");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "quince paste");
+    await indexed(room);
+    // Bigger than a message's text may be, as a bot's cards can make one.
+    const big = `<p>quince paste${" and more".repeat(70_000)}</p>`;
+    await roomSql(room, "UPDATE messages SET body = ? WHERE id = ?", big, message.id);
+    await roomStub(room).reindex(room);
+    await runRoomAlarm(room);
+    await indexed(room);
+    expect(await searchSql("SELECT message IS NULL AS unkept FROM search_messages WHERE message_id = ?", message.id)).toEqual([{ unkept: 1 }]);
+    expect((await resultsFor(ada.session, "quince")).messages).toMatchObject([{ id: message.id, body: big }]);
+  });
+
+  it("has every room index its messages again once the index keeps what results show", async () => {
+    const room = await freshRoom("again");
+    const ada = await connect(room, "Ada");
+    const message = await post(ada, "medlar jelly");
+    await indexed(room);
+    await searchSql("UPDATE search_messages SET message = NULL");
+
+    await workspaceSql(MIGRATIONS.find(({ name }) => name === "0036_search_results.sql")!.sql);
+    expect(await workspaceSql("SELECT room_id FROM pending_reindexes")).toContainEqual({ room_id: room });
+    await runInDurableObject(workspaceStub(), (instance: Workspace) => instance.alarm());
+    await runRoomAlarm(room);
+    await indexed(room);
+    expect(await searchSql("SELECT message IS NOT NULL AS kept FROM search_messages WHERE message_id = ?", message.id)).toEqual([{ kept: 1 }]);
+  });
+
   it("takes each room's changes in order, so a call that arrives late changes nothing, and numbers messages by when they were written", async () => {
     const index = searchIndexStub();
-    const at = (time: string, id: string, text: string): IndexedMessage => ({ id, createdAt: `2026-10-16T${time}Z`, text });
+    const at = (time: string, id: string, text: string): IndexedMessage => ({ id, createdAt: `2026-10-16T${time}Z`, text, message: JSON.stringify({ text }) });
+    const hits = async (terms: string, roomIds: RoomId[]) => (await index.search(terms, roomIds)).map(({ messageId, roomId }) => ({ messageId, roomId }));
     await index.apply("room-a", 2, [at("10:00:01.000", "later", "pear newer")], []);
     await index.apply("room-a", 1, [at("10:00:01.000", "later", "pear older")], []);
-    expect(await index.search('"newer"', ["room-a"])).toEqual([{ messageId: "later", roomId: "room-a" }]);
+    expect(await index.search('"newer"', ["room-a"])).toEqual([{ messageId: "later", roomId: "room-a", message: JSON.stringify({ text: "pear newer" }) }]);
     expect(await index.search('"older"', ["room-a"])).toEqual([]);
 
     // Heard of after the later one, and from another room, but written before it, as in the same millisecond.
     await index.apply("room-b", 1, [at("10:00:00.000", "earlier", "pear"), at("10:00:01.000", "same-b", "pear"), at("10:00:01.000", "same-a", "pear")], []);
-    expect(await index.search('"pear"', ["room-a", "room-b"])).toEqual([
+    expect(await hits('"pear"', ["room-a", "room-b"])).toEqual([
       { messageId: "same-b", roomId: "room-b" },
       { messageId: "same-a", roomId: "room-b" },
       { messageId: "later", roomId: "room-a" },
       { messageId: "earlier", roomId: "room-b" },
     ]);
 
-    // An edit keeps its number, and a deletion takes it out.
+    // An edit keeps its number, and what results show of it, and a deletion takes it out.
     await index.apply("room-b", 2, [at("10:00:00.000", "earlier", "pear edited")], ["same-a"]);
-    expect(await index.search('"pear"', ["room-a", "room-b"])).toEqual([
+    expect(await hits('"pear"', ["room-a", "room-b"])).toEqual([
       { messageId: "same-b", roomId: "room-b" },
       { messageId: "later", roomId: "room-a" },
       { messageId: "earlier", roomId: "room-b" },
     ]);
+    expect((await index.search('"edited"', ["room-b"]))[0]?.message).toBe(JSON.stringify({ text: "pear edited" }));
   });
 
   it("forgets a deleted room's messages, and takes nothing more from it", async () => {
@@ -299,7 +362,7 @@ describe(feature("search.messages"), () => {
     expect(await searchSql("SELECT count(*) AS n FROM search_index WHERE search_index MATCH 'kumquat'")).toEqual([{ n: 0 }]);
 
     // A call the room made before it was deleted, arriving after.
-    await searchIndexStub().apply(room, 1_000, [{ id: message.id, createdAt: message.createdAt, text: "kumquat" }], []);
+    await searchIndexStub().apply(room, 1_000, [{ id: message.id, createdAt: message.createdAt, text: "kumquat", message: "{}" }], []);
     expect(await searchSql("SELECT count(*) AS n FROM search_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
   });
 
