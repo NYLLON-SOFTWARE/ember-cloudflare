@@ -55,7 +55,7 @@ describe(feature("rooms.creation-permission"), () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
     const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
-    const restricted: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: true, logo: null, customDomain: null, memberfulSignIn: false };
+    const restricted: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: true, logo: null, customDomain: null, memberfulSignIn: false };
 
     const response = await restrict(administrator, true);
     expect(response.status).toBe(200);

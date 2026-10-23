@@ -267,7 +267,7 @@ export const features = [
     ],
     sources: ["crates/views/templates/accounts/edit.html", "crates/ember/src/controllers/accounts.rs", "crates/views/src/accounts.rs", "crates/views/src/helpers/application.rs"],
     upstreamTests: ["parity/kro/workspace.test.mjs", "reference/test/controllers/accounts_controller_test.rb"],
-    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get the logo picker (`accounts.logo`) and Workspace name (`accounts.name`), and members the workspace's logo and name, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Administrators also get Hide translation buttons (`accounts.translation-buttons`) under the name, and Chat bots (`bots.list`) and Custom styles (`accounts.custom-css`) at the top bar's other end, their labels hidden at 500px wide and below as zz-ember.css hides them. Members get the Rooms section only while anyone may create rooms (`rooms.creation-permission`).",
+    notes: "The rail's Admin link, Workspace for members, opens `/account/edit`, titled \"Account settings\", with its heading and \"Ember™ version <version>\" at the foot, and nothing scrolls sideways at 390px wide. Go Back returns to the last room visited (`rooms.last-visited`). Administrators get the logo picker (`accounts.logo`), Workspace name (`accounts.name`) and Tagline (`accounts.tagline`), this port's own, and members the workspace's logo, name and tagline, then the Rooms section's New room, then the box with the invite link (`accounts.join-link`) and, under \"People\", the people list (`accounts.people`). The page loads again when the person looking is made an administrator or a member, so it shows what they can do now. Administrators also get Hide translation buttons (`accounts.translation-buttons`) under the name and tagline, and Chat bots (`bots.list`) and Custom styles (`accounts.custom-css`) at the top bar's other end, their labels hidden at 500px wide and below as zz-ember.css hides them. Members get the Rooms section only while anyone may create rooms (`rooms.creation-permission`).",
   },
   {
     id: "accounts.name",
@@ -283,6 +283,22 @@ export const features = [
     sources: ["crates/ember/src/controllers/accounts.rs", "crates/db/src/models/account.rs", "crates/views/templates/accounts/edit.html", "reference/app/controllers/accounts_controller.rb"],
     upstreamTests: ["crates/ember/src/controllers/presenters/accounts/tests.rs", "reference/test/controllers/accounts_controller_test.rb"],
     notes: "Saved with `PATCH /api/account`, which members get 403 from, and loaded with `GET /api/account`, which tells the page whether you can change it. Unlike ember-rust, a name is at most 100 characters (422 past that, and the field stops there), so the sidebar's heading can show it. Every open tab shows the new name at once, as the workspace socket says it (`account.updated`, and each welcome, for a tab that was without its socket), where ember-rust's show it on their next page.",
+  },
+  {
+    id: "accounts.tagline",
+    title: "Workspace tagline",
+    origin: "cloudflare",
+    status: "ported",
+    behaviors: [
+      "Administrators give the workspace a tagline in workspace settings' Tagline field, under Workspace name (placeholder \"Sum it up in a few words\", described as \"Shown under the workspace name in the sidebar, up to 30 characters. Leave it empty for none.\"), which Save changes saves with the name, saying \"Changes saved.\". Members get 403.",
+      "`PATCH /api/account` takes `tagline` as text, kept on one line with a single space between words and none at either end, of at most 30 characters once it is: the field stops at 30, and the API answers 422 \"Tagline must be at most 30 characters\" past that or for anything but text. Empty is none.",
+      "The sidebar shows the tagline in small type under the workspace name, in the desktop layout and in the phones' drawer, where it keeps clear of the close button as the name does, and nothing there while there's none. Where it doesn't fit on one line it wraps, rather than being cut off.",
+      "Members' workspace settings show it under the workspace name.",
+      "Every open tab shows a new tagline at once, as the workspace socket says (`account.updated`).",
+      "Workspace settings' Workspace name and Tagline follow the workspace socket until they're typed in, so saving one in a tab never puts back what another tab saved in the other.",
+    ],
+    sources: [],
+    notes: "This port's own: ember-rust heads the sidebar with the workspace's name alone (`.mb-workspace-heading`, users/sidebars/show.html), and the project's owner asked for a line under it. It's called a tagline, as WordPress names the line under a site's title and HTML names what an `hgroup` holds beside its heading, which is what the sidebar puts them in. 30 characters fit on one line of 13px type in the 280px sidebar and in a phone's drawer from 375px wide, as Apple keeps an app's subtitle under its name to 30; a narrower sidebar, 230px between 901 and 1100px wide or a 320px phone's drawer, or wider letters can wrap it onto a second line. It's kept in the account's settings as `tagline`, beside ember-rust's, so it took no migration, and saving it leaves the other settings alone.",
   },
   {
     id: "accounts.logo",

@@ -254,6 +254,7 @@ const bootstrap = async () => (await (await api("/api/bootstrap")).json()) as Bo
 /** The workspace as pages show a new one, with Memberful sign-in on or off. */
 const account = (memberfulSignIn: boolean): Account => ({
   name: "Ember",
+  tagline: "",
   hideTranslationButtons: true,
   customStyles: "",
   restrictRoomCreation: false,

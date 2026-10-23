@@ -2,6 +2,7 @@ import { useId, useMemo, useState, type MouseEvent } from "react";
 import type { Favorites, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { MessagesAdd } from "@/components/icons/campfire";
 import { RoomIcon } from "@/components/icons/room-icon";
+import { useAccount } from "@/hooks/use-account";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
@@ -49,7 +50,8 @@ interface Props {
 }
 
 /**
- * The conversation list: rooms, then DMs, under the workspace name. The starred rooms come first, then
+ * The conversation list: rooms, then DMs, under the workspace name, and under that in small type the
+ * tagline an administrator gave it, this port's own, if it has one. The starred rooms come first, then
  * the ones the shared order ranks, in its order, then the rest by name, and a starred room's row ends
  * with a star, as channel_order_controller.js marks it (`.mb-room-favorite-marker`), without the grip
  * it shows before the star (`.mb-room-drag-handle`), which the project's owner chose to drop: held, the
@@ -77,6 +79,7 @@ export function Sidebar({
   onStarred,
   onSessionChanged,
 }: Props) {
+  const { tagline } = useAccount();
   const { shared, directs } = useMemo(() => apart(unreadOnly ? rooms.filter((room) => markedUnread(room, currentRoomId)) : rooms), [rooms, unreadOnly, currentRoomId]);
   const shown = useMemo(() => new Set(shared.map((room) => room.id)), [shared]);
   const nameOf = (roomId: RoomId) => {
@@ -116,9 +119,14 @@ export function Sidebar({
   };
   return (
     <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
-      {/* At 900px and below the drawer's close button sits at the end of this row. A long name wraps where
-          ember-rust's runs under the sidebar's edge. */}
-      <h2 className="flex min-h-7 items-center gap-2 px-1.5 text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
+      {/* ember-rust's `.mb-workspace-heading`, as an hgroup, HTML's element for a heading and its tagline. At
+          900px and below the drawer's close button sits at the end of the name's row, and the tagline keeps
+          clear of it too. A long name wraps where ember-rust's runs under the sidebar's edge, and so does a
+          tagline in a narrower sidebar or wider letters than its length allows for. */}
+      <hgroup className="px-1.5 max-md:pr-10">
+        <h2 className="flex min-h-7 items-center gap-2 text-[17px] leading-6 font-[650] wrap-anywhere">{workspaceName}</h2>
+        {tagline && <p className="text-[13px] leading-[18px] text-muted-foreground wrap-anywhere">{tagline}</p>}
+      </hgroup>
 
       <section aria-label="Rooms" className="flex flex-col">
         <p id={helpId} className="sr-only">

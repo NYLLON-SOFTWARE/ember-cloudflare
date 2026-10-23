@@ -300,6 +300,11 @@ export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "
 /** The workspace, which first run creates, as every page shows it. */
 export interface Account {
   name: string;
+  /**
+   * The few words an administrator gives in Workspace settings, which the sidebar shows in small type
+   * under the name. Empty while there are none, when nothing shows there.
+   */
+  tagline: string;
   /** Whether the translation buttons by fields are hidden, as they are until an administrator shows them. */
   hideTranslationButtons: boolean;
   /** The CSS administrators add to every page, after the app's own. Empty when there's none. */
@@ -352,11 +357,12 @@ export interface NewJoinCode {
 }
 
 /**
- * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its settings,
- * and its custom domain, which can only be the address the request comes to, or null for none.
+ * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
+ * its settings, and its custom domain, which can only be the address the request comes to, or null for none.
  */
 export interface AccountChanges {
   name?: string;
+  tagline?: string;
   settings?: AccountSettings;
   customDomain?: string | null;
 }
@@ -963,6 +969,13 @@ export const MAX_CHECKED_MESSAGES = 50;
 export const MAX_ROOM_NAME_LENGTH = 100;
 /** ember-rust has no limit; this keeps the workspace's name to what the sidebar's heading can show. */
 export const MAX_ACCOUNT_NAME_LENGTH = 100;
+/**
+ * This port's own: what fits on one line under the name at the top of the sidebar, at its full 280px
+ * and in the drawer of a phone from 375px wide, as an App Store app's subtitle takes 30 characters
+ * under its name. A narrower sidebar, or wider letters, can wrap it onto a second line.
+ */
+export const MAX_TAGLINE_LENGTH = 30;
+export const TAGLINE_TOO_LONG = `Tagline must be at most ${MAX_TAGLINE_LENGTH} characters`;
 /** The longest host name DNS has, which a custom domain can be, with a port. */
 const MAX_HOST_NAME_LENGTH = 253;
 /**
@@ -1230,19 +1243,29 @@ export function parseCustomDomainCheck(data: unknown): { domain: string } | stri
   return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
 }
 
+/** A tagline as it's kept: on one line, with a single space between words and none at either end. */
+const taglineOf = (text: string) => text.replace(/\s+/g, " ").trim();
+
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
- * ember-rust, the name is saved as typed, even blank. Each setting is true or false, and one it doesn't
- * know is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null,
- * which the Worker then checks is the address the request came to.
+ * ember-rust, the name is saved as typed, even blank. The tagline, this port's own, is kept on one line
+ * without space at its ends, and blank is none. Each setting is true or false, and one it doesn't know
+ * is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null, which
+ * the Worker then checks is the address the request came to.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, settings, customDomain } = data;
+  const { name, tagline, settings, customDomain } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
+  const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
+  if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
   const domain = customDomainOf(customDomain);
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
-  const changes: AccountChanges = { ...(name !== undefined && { name }), ...(domain !== undefined && { customDomain: domain }) };
+  const changes: AccountChanges = {
+    ...(name !== undefined && { name }),
+    ...(kept !== undefined && { tagline: kept }),
+    ...(domain !== undefined && { customDomain: domain }),
+  };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";
   const changed: AccountSettings = {};

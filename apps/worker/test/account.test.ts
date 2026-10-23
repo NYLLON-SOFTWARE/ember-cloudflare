@@ -1,5 +1,15 @@
 import { feature } from "@ember/parity";
-import { MAX_ACCOUNT_NAME_LENGTH, type Account, type Bootstrap, type NewJoinCode, type NewWorkspace, type Sidebar, type WorkspaceSettings } from "@ember/protocol";
+import {
+  MAX_ACCOUNT_NAME_LENGTH,
+  MAX_TAGLINE_LENGTH,
+  TAGLINE_TOO_LONG,
+  type Account,
+  type Bootstrap,
+  type NewJoinCode,
+  type NewWorkspace,
+  type Sidebar,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +22,7 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
 /** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
-const named = (name: string): Account => ({ name, hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false });
+const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -206,6 +216,105 @@ describe(feature("accounts.name"), () => {
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
+  });
+});
+
+describe(feature("accounts.tagline"), () => {
+  const TAGLINE = "Engines for every occasion";
+  /** The new workspace, with `tagline`. */
+  const tagged = (tagline: string): Account => ({ ...named("Ember"), tagline });
+
+  it("has none until an administrator gives it one", async () => {
+    expect((await bootstrap()).account.tagline).toBe("");
+    const administrator = await setUp();
+    expect((await bootstrap(administrator)).account.tagline).toBe("");
+    expect(((await (await settings(administrator)).json()) as WorkspaceSettings).account.tagline).toBe("");
+  });
+
+  it("gives the workspace a tagline for an administrator, which every page has, keeping the other settings", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+
+    const response = await change(administrator, { tagline: TAGLINE });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ account: tagged(TAGLINE) });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({ restrict_room_creation_to_administrators: false, tagline: TAGLINE });
+    expect((await bootstrap(member)).account).toEqual(tagged(TAGLINE));
+    expect(((await (await settings(member)).json()) as WorkspaceSettings).account).toEqual(tagged(TAGLINE));
+    // Signing in and joining have the whole account too.
+    expect((await bootstrap()).account).toEqual(tagged(TAGLINE));
+  });
+
+  it("keeps it on one line, with no space at either end, and takes it away when it's blank", async () => {
+    const administrator = await setUp();
+    expect(await (await change(administrator, { tagline: "  Engines\tfor\n\nevery   occasion " })).json()).toEqual({ account: tagged(TAGLINE) });
+    // As long as it can be, once it's kept, though more was sent.
+    const longest = "x".repeat(MAX_TAGLINE_LENGTH);
+    expect(await (await change(administrator, { tagline: `  ${longest}\n` })).json()).toEqual({ account: tagged(longest) });
+    expect(await (await change(administrator, { tagline: " \n " })).json()).toEqual({ account: named("Ember") });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({ restrict_room_creation_to_administrators: false, tagline: "" });
+  });
+
+  it("saves it with the name, recording when only if either changed", async () => {
+    const administrator = await setUp();
+    const long = "2026-01-01T00:00:00.000Z";
+    await workspaceSql("UPDATE accounts SET updated_at = ?", long);
+
+    // As workspace settings send both, with the tagline blank before there's one.
+    const unchanged = await change(administrator, { name: "Ember", tagline: "" });
+    expect(await unchanged.json()).toEqual({ account: named("Ember") });
+    expect(await storedSettings()).toEqual({ settings: '{"restrict_room_creation_to_administrators":false}', updated_at: long });
+
+    const changed = await change(administrator, { name: "Ember", tagline: TAGLINE });
+    expect(await changed.json()).toEqual({ account: tagged(TAGLINE) });
+    expect((await storedSettings()).updated_at > long).toBe(true);
+  });
+
+  it("tells everyone's workspace sockets the new tagline", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
+
+    // A tagline saved unchanged changes nothing pages show.
+    await change(administrator, { tagline: "" });
+    await change(administrator, { tagline: TAGLINE });
+    for (const socket of sockets) expect(await socket.next()).toEqual({ type: "account.updated", account: tagged(TAGLINE) });
+  });
+
+  it("lets only administrators change it, and tells anyone else so before looking at what they sent", async () => {
+    await setUp();
+    const member = await signIn("Grace");
+    for (const body of [{ tagline: TAGLINE }, { tagline: 7 }]) {
+      const response = await change(member, body);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    }
+    expect((await bootstrap()).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["a tagline that's too long", { tagline: "x".repeat(MAX_TAGLINE_LENGTH + 1) }],
+    ["one that isn't text", { tagline: null }],
+    ["a good name beside a bad tagline", { name: "Ember Studio", tagline: [TAGLINE] }],
+  ])("refuses %s, changing nothing", async (_, body) => {
+    const administrator = await setUp();
+    const response = await change(administrator, body);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: TAGLINE_TOO_LONG });
+    expect((await bootstrap()).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["one", '{"tagline":"Engines for every occasion"}', TAGLINE],
+    ["none", '{"restrict_room_creation_to_administrators":false}', ""],
+    ["one that isn't text", '{"tagline":7}', ""],
+    ["settings that don't parse", "not JSON", ""],
+  ])("reads %s from the account's settings", async (_, stored, tagline) => {
+    await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", stored);
+    // Started afresh, the Workspace has to read the account again.
+    await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).account.tagline).toBe(tagline);
   });
 });
 
