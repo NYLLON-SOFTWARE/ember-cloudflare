@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
+import { NAVIGATION_SLOTS, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
@@ -35,7 +35,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.restrictRoomCreation === b.restrictRoomCreation &&
   a.logo === b.logo &&
   a.customDomain === b.customDomain &&
-  a.memberfulSignIn === b.memberfulSignIn;
+  a.memberfulSignIn === b.memberfulSignIn &&
+  NAVIGATION_SLOTS.every((slot) => a.navigationIcons[slot] === b.navigationIcons[slot]);
 
 export function App() {
   // Undefined until the server says whether Ember is set up.

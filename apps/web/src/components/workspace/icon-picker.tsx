@@ -1,4 +1,4 @@
-import { useEffect, useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import type { RoomIconName } from "@ember/protocol";
 import { Dismiss, IconPickerChevron, IconPickerSearch } from "@/components/icons/ember";
 import CATALOG_URL from "@/components/icons/picker/catalog.json?url";
@@ -369,6 +369,39 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
   );
 }
 
+interface IconTriggerProps {
+  /** What the button's called, such as Choose room icon. */
+  label: string;
+  /** The icon chosen, drawn 23px wide. */
+  preview: ReactNode;
+  /** The button's two lines. */
+  title: string;
+  subtitle: string;
+  disabled: boolean;
+  onOpen: (trigger: HTMLButtonElement) => void;
+}
+
+/** `.mb-icon-picker-trigger`: the icon chosen and what it is, with a chevron, opening the dialog to choose another. */
+export function IconTrigger({ label, preview, title, subtitle, disabled, onOpen }: IconTriggerProps) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="dialog"
+      disabled={disabled}
+      onClick={(event) => onOpen(event.currentTarget)}
+      className="flex min-h-[74px] w-full cursor-pointer items-center gap-[13px] rounded-[10px] border bg-background px-[15px] py-[13px] text-start text-foreground enabled:hover:border-muted-foreground enabled:hover:bg-surface disabled:cursor-not-allowed"
+    >
+      <span className="flex size-[42px] flex-[0_0_42px] items-center justify-center rounded-[9px] bg-hover text-[26px] text-foreground">{preview}</span>
+      <span className="grid min-w-0 flex-1 gap-[3px]">
+        <strong className="text-sm font-medium wrap-anywhere">{title}</strong>
+        <span className="text-xs text-muted-foreground">{subtitle}</span>
+      </span>
+      <IconPickerChevron className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
+    </button>
+  );
+}
+
 interface Props {
   /** The icon the form saves, or null for `#`. */
   icon: RoomIconName | null;
@@ -387,21 +420,14 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl }: Pro
     <div className="mt-[22px] flex min-w-0 flex-col gap-[7px] text-start">
       <div>
         <span className="flex items-center gap-2 text-[13px] font-[550]">Room icon</span>
-        <button
-          type="button"
-          aria-label="Choose room icon"
-          aria-haspopup="dialog"
+        <IconTrigger
+          label="Choose room icon"
+          preview={<RoomIcon icon={icon} size={23} />}
+          title={roomIconLabel(icon)}
+          subtitle="Choose from Lucide and Iconoir"
           disabled={disabled}
-          onClick={(event) => dialog.current?.open({ icon, defaultIcon: null, defaultLabel: "Default hashtag", apply: onChange, trigger: event.currentTarget })}
-          className="flex min-h-[74px] w-full cursor-pointer items-center gap-[13px] rounded-[10px] border bg-background px-[15px] py-[13px] text-start text-foreground enabled:hover:border-muted-foreground enabled:hover:bg-surface disabled:cursor-not-allowed"
-        >
-          <RoomIcon icon={icon} size={23} className="flex size-[42px] flex-[0_0_42px] items-center justify-center rounded-[9px] bg-hover text-[26px] text-foreground" />
-          <span className="grid min-w-0 flex-1 gap-[3px]">
-            <strong className="text-sm font-medium wrap-anywhere">{roomIconLabel(icon)}</strong>
-            <span className="text-xs text-muted-foreground">Choose from Lucide and Iconoir</span>
-          </span>
-          <IconPickerChevron className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
-        </button>
+          onOpen={(trigger) => dialog.current?.open({ icon, defaultIcon: null, defaultLabel: "Default hashtag", apply: onChange, trigger })}
+        />
       </div>
       <p className="mt-2 text-xs text-muted-foreground">Shown beside this room for everyone in the workspace.</p>
       <IconDialog

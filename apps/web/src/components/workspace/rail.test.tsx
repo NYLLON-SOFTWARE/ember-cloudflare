@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { avatarSvg } from "@ember/protocol";
+import { avatarSvg, type Account } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -182,7 +182,7 @@ describe(feature("users.avatars"), () => {
 
 describe(feature("accounts.logo"), () => {
   it("shows Ember's flame, or the workspace's logo on the page's background, as ember-rust's `.mb-rail__brand`", () => {
-    const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
+    const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
     const brand = screen.getByRole("link", { name: "Ember home" });
     expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");
@@ -192,5 +192,29 @@ describe(feature("accounts.logo"), () => {
     expect(brand.querySelector("img")).toHaveAttribute("src", "/account/logo?v=20261017120000");
     expect(brand.querySelector("img")).toHaveAttribute("alt", "");
     expect(brand).toHaveClass("bg-background");
+  });
+});
+
+describe(feature("accounts.navigation-icons"), () => {
+  it("draws the icons an administrator chose for its buttons, and Iconoir's for the rest", () => {
+    const account: Account = {
+      name: "Analytical Engines",
+      tagline: "",
+      hideTranslationButtons: true,
+      customStyles: "",
+      restrictRoomCreation: false,
+      logo: null,
+      customDomain: null,
+      memberfulSignIn: false,
+      navigationIcons: { home: "coffee", search: "iconoir:solid:heart" },
+    };
+    render(<AccountContext value={account}>{railAt("home", activityOff, { ...ada, administrator: true })}</AccountContext>);
+    const icon = (name: string) => screen.getByRole(name === "Activity" ? "button" : "link", { name }).querySelector("[data-icon], svg");
+    expect(icon("Home")).toHaveAttribute("data-icon", "coffee");
+    expect(icon("Home")).toHaveStyle({ maskImage: "url(/lucide/icons/coffee.svg)", width: "22px", height: "22px" });
+    expect(icon("Search")).toHaveStyle({ maskImage: "url(/iconoir/icons/solid/heart.svg)" });
+    expect(icon("DMs")).toHaveClass("iconoir-multi-bubble", "size-[22px]");
+    expect(icon("Activity")).toHaveClass("iconoir-bell");
+    expect(icon("Admin")).toHaveClass("iconoir-box");
   });
 });

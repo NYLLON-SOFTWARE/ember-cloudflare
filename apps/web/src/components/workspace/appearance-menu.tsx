@@ -1,27 +1,28 @@
 import { useRef, useState } from "react";
-import { Computer, HalfMoon, SunLight } from "@/components/icons/iconoir";
 import { Check } from "@/components/icons/lucide";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { chooseAppearance, useAppearance } from "@/lib/appearance";
+import { NavigationIcon } from "./navigation-icon";
 
 const OPTIONS = [
-  { value: "light", label: "Light", Icon: SunLight },
-  { value: "dark", label: "Dark", Icon: HalfMoon },
-  { value: "system", label: "System", Icon: Computer },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
 ] as const;
 
 /**
  * The rail's appearance button, from ember-rust's components/appearance.html: it's named for the
  * choice shown and opens a small dialog of Light, Dark and System radio buttons. A choice applies at
- * once and leaves the dialog open, which Escape or a click elsewhere closes. Like the rail's, its
- * icons are Iconoir's, where ember-rust draws Lucide's sun, moon and monitor.
+ * once and leaves the dialog open, which Escape or a click elsewhere closes. Its icons are those an
+ * administrator chose in Community settings, as ember-rust's pull request #24 has them, or, like the
+ * rail's, Iconoir's, where ember-rust draws Lucide's sun, moon and monitor.
  */
 export function AppearanceMenu() {
   const appearance = useAppearance();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const choices = useRef<HTMLFieldSetElement>(null);
-  const { label, Icon } = OPTIONS.find((option) => option.value === appearance)!;
+  const { label } = OPTIONS.find((option) => option.value === appearance)!;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -31,7 +32,7 @@ export function AppearanceMenu() {
         aria-label={`Appearance: ${label}`}
         title={`Appearance: ${label}`}
       >
-        <Icon className="size-[18px]" />
+        <NavigationIcon slot={appearance} size={18} className="size-[18px]" />
       </PopoverTrigger>
       <PopoverContent
         aria-label="Appearance"
@@ -53,7 +54,7 @@ export function AppearanceMenu() {
       >
         <fieldset ref={choices}>
           <legend className="px-2 pt-1 pb-2 text-xs font-semibold text-muted-foreground">Appearance</legend>
-          {OPTIONS.map(({ value, label, Icon }) => (
+          {OPTIONS.map(({ value, label }) => (
             <label
               key={value}
               className="relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-[7px] p-2 hover:bg-hover has-checked:bg-hover has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-foreground touch:min-h-11"
@@ -66,7 +67,7 @@ export function AppearanceMenu() {
                 onChange={() => chooseAppearance(value)}
                 className="peer absolute size-px opacity-0 [clip-path:inset(50%)]"
               />
-              <Icon className="size-[18px] shrink-0" />
+              <NavigationIcon slot={value} size={18} className="size-[18px] shrink-0" />
               <span>{label}</span>
               <Check className="invisible ml-auto size-[18px] shrink-0 peer-checked:visible" />
             </label>

@@ -1,11 +1,11 @@
-import type { ComponentType, MouseEvent } from "react";
-import type { Me } from "@ember/protocol";
-import { Bell, Box, Home, MultiBubble, Search } from "@/components/icons/iconoir";
+import type { MouseEvent } from "react";
+import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
+import { NavigationIcon } from "./navigation-icon";
 import { opensNewDirect } from "./new-direct-dialog";
 import { UserAvatar } from "./user-avatar";
 
@@ -14,10 +14,8 @@ const RAIL_LINK = cn(
   "hover:bg-hover hover:text-foreground aria-[current=page]:bg-hover aria-[current=page]:text-foreground",
 );
 
-type Icon = ComponentType<{ className?: string }>;
-
 interface RailLinkProps {
-  icon: Icon;
+  slot: NavigationSlot;
   label: string;
   href: string;
   current: boolean;
@@ -25,10 +23,10 @@ interface RailLinkProps {
 }
 
 /** One of the rail's links, marked when it's the page shown. */
-function RailLink({ icon: Icon, label, href, current, onClick }: RailLinkProps) {
+function RailLink({ slot, label, href, current, onClick }: RailLinkProps) {
   return (
     <PageLink href={href} aria-current={current ? "page" : undefined} onClick={onClick} className={RAIL_LINK}>
-      <Icon className="size-[22px]" />
+      <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
     </PageLink>
   );
@@ -56,7 +54,7 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
       onClick={onToggle}
       className={cn(RAIL_LINK, "aria-pressed:bg-hover aria-pressed:text-foreground")}
     >
-      <Bell className="size-[22px]" />
+      <NavigationIcon slot="activity" size={22} className="size-[22px]" />
       <span>Activity</span>
       {unread > 0 && (
         <span
@@ -88,8 +86,9 @@ interface Props {
 }
 
 /**
- * The persistent navigation rail from ember-rust's layouts/application.html, drawn with Iconoir's
- * icons rather than ember-rust's, as the project's owner chose.
+ * The persistent navigation rail from ember-rust's layouts/application.html, drawn with the icons an
+ * administrator chose in Community settings, as ember-rust's pull request #24 has it, or else with
+ * Iconoir's rather than ember-rust's, as the project's owner chose.
  */
 export function Rail({ me, workspaceName, current, activity, onNewDirect }: Props) {
   const { logo } = useAccount();
@@ -114,13 +113,13 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
           <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
         )}
       </PageLink>
-      <RailLink icon={Home} label="Home" href="/" current={marked === "home" || marked === "room"} />
+      <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
       {/* Never marked, since its address opens New direct message over the last room visited. */}
-      <RailLink icon={MultiBubble} label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
+      <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
-      <RailLink icon={Search} label="Search" href={SEARCHES_PATH} current={marked === "search"} />
+      <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} />
       <hr className="my-1 w-8 border-t" />
-      <RailLink icon={Box} label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
+      <RailLink slot="admin" label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
       <AppearanceMenu />
       {/* ember-rust's `.mb-rail__profile`: your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink

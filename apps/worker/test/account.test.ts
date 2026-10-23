@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import {
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_TAGLINE_LENGTH,
+  NAVIGATION_ICONS_REFUSED,
   TAGLINE_TOO_LONG,
   type Account,
   type Bootstrap,
@@ -22,7 +23,7 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
 /** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
-const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false });
+const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -315,6 +316,127 @@ describe(feature("accounts.tagline"), () => {
     // Started afresh, the Workspace has to read the account again.
     await evictDurableObject(workspaceStub());
     expect((await bootstrap()).account.tagline).toBe(tagline);
+  });
+});
+
+describe(feature("accounts.navigation-icons"), () => {
+  /** The new workspace, with `navigationIcons`. */
+  const iconed = (navigationIcons: Account["navigationIcons"]): Account => ({ ...named("Ember"), navigationIcons });
+  const storedIcons = async () => (JSON.parse((await storedSettings()).settings!) as { ember_navigation_icons?: unknown }).ember_navigation_icons;
+
+  it("has none chosen until an administrator chooses some", async () => {
+    expect((await bootstrap()).account.navigationIcons).toEqual({});
+    const administrator = await setUp();
+    expect((await bootstrap(administrator)).account.navigationIcons).toEqual({});
+  });
+
+  it("gives the rail's buttons and appearance modes the icons an administrator chooses, which every page has", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+
+    const response = await change(administrator, { navigationIcons: { home: "coffee", dark: "iconoir:solid:heart" } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ account: iconed({ home: "coffee", dark: "iconoir:solid:heart" }) });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({
+      restrict_room_creation_to_administrators: false,
+      ember_navigation_icons: { home: "coffee", dark: "iconoir:solid:heart" },
+    });
+    expect((await bootstrap(member)).account).toEqual(iconed({ home: "coffee", dark: "iconoir:solid:heart" }));
+    expect((await bootstrap()).account).toEqual(iconed({ home: "coffee", dark: "iconoir:solid:heart" }));
+  });
+
+  it("changes only the slots a change names, giving back a slot's own icon for \"\" or its own name", async () => {
+    const administrator = await setUp();
+    await change(administrator, { navigationIcons: { home: "coffee", dms: "mail", search: "telescope" } });
+
+    const response = await change(administrator, { navigationIcons: { home: "", dms: "iconoir:regular:multi-bubble", system: "monitor-cog" } });
+    expect(await response.json()).toEqual({ account: iconed({ search: "telescope", system: "monitor-cog" }) });
+    expect(await storedIcons()).toEqual({ search: "telescope", system: "monitor-cog" });
+    // Evicted, the Workspace reads them as they're kept.
+    await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).account.navigationIcons).toEqual({ search: "telescope", system: "monitor-cog" });
+  });
+
+  it("saves them with the name and the other settings, keeping the room order and favorites, and records when only if they changed", async () => {
+    const administrator = await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", '{"ember_default_room_order":[3,1],"ember_favorite_channels":{"7":[3]},"tagline":"Engines"}');
+    await evictDurableObject(workspaceStub());
+    const long = "2026-01-01T00:00:00.000Z";
+    await workspaceSql("UPDATE accounts SET updated_at = ?", long);
+
+    // A slot given the icon it has, or its own while it has its own, changes nothing.
+    await change(administrator, { name: "Ember", navigationIcons: { home: "", activity: "iconoir:regular:bell" } });
+    expect((await storedSettings()).updated_at).toBe(long);
+
+    const response = await change(administrator, { name: "Ember", tagline: "Engines", settings: { hideTranslationButtons: false }, navigationIcons: { admin: "settings" } });
+    expect((await response.json()) as { account: Account }).toMatchObject({ account: { tagline: "Engines", hideTranslationButtons: false, navigationIcons: { admin: "settings" } } });
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual({
+      ember_default_room_order: [3, 1],
+      ember_favorite_channels: { "7": [3] },
+      tagline: "Engines",
+      hide_translation_buttons: false,
+      ember_navigation_icons: { admin: "settings" },
+    });
+    expect((await storedSettings()).updated_at > long).toBe(true);
+  });
+
+  it("tells everyone's workspace sockets the icons", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
+
+    // Choosing the slot's own icon changes nothing pages show.
+    await change(administrator, { navigationIcons: { light: "iconoir:regular:sun-light" } });
+    await change(administrator, { navigationIcons: { light: "sun" } });
+    for (const socket of sockets) expect(await socket.next()).toEqual({ type: "account.updated", account: iconed({ light: "sun" }) });
+  });
+
+  it("lets only administrators choose them, and tells anyone else so before looking at what they sent", async () => {
+    await setUp();
+    const member = await signIn("Grace");
+    for (const body of [{ navigationIcons: { home: "coffee" } }, { navigationIcons: { home: "<svg></svg>" } }]) {
+      const response = await change(member, body);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    }
+    expect((await bootstrap()).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["a slot it doesn't know", { navigationIcons: { profile: "coffee" } }],
+    ["an icon that isn't in the catalog", { navigationIcons: { home: "iconoir:regular:../coffee-cup" } }],
+    ["icons that aren't an object", { navigationIcons: ["coffee"] }],
+    ["a good name beside a bad icon", { name: "Ember Studio", navigationIcons: { home: "Coffee" } }],
+  ])("refuses %s, changing nothing", async (_, body) => {
+    const administrator = await setUp();
+    const response = await change(administrator, body);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: NAVIGATION_ICONS_REFUSED });
+    expect((await bootstrap()).account).toEqual(named("Ember"));
+  });
+
+  it.each([
+    ["some", '{"ember_navigation_icons":{"home":"coffee","dark":"iconoir:solid:heart"}}', { home: "coffee", dark: "iconoir:solid:heart" }],
+    ["none", '{"restrict_room_creation_to_administrators":false}', {}],
+    ["icons that aren't an object", '{"ember_navigation_icons":["coffee"]}', {}],
+    ["an icon or a slot it doesn't know", '{"ember_navigation_icons":{"home":"no-such-icon","profile":"coffee","dms":7,"search":"telescope"}}', { search: "telescope" }],
+    ["settings that don't parse", "not JSON", {}],
+  ])("reads %s from the account's settings", async (_, stored, navigationIcons) => {
+    await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", stored);
+    await evictDurableObject(workspaceStub());
+    expect((await bootstrap()).account.navigationIcons).toEqual(navigationIcons);
+  });
+
+  it.each([
+    ["icons that aren't an object", '{"ember_navigation_icons":"coffee","tagline":"Engines"}', { tagline: "Engines", ember_navigation_icons: { home: "coffee" } }],
+    ["settings that don't parse", "not JSON", { ember_navigation_icons: { home: "coffee" } }],
+  ])("starts afresh from %s", async (_, stored, settings) => {
+    const administrator = await setUp();
+    await workspaceSql("UPDATE accounts SET settings = ?", stored);
+    await evictDurableObject(workspaceStub());
+    expect((await change(administrator, { navigationIcons: { home: "coffee" } })).status).toBe(200);
+    expect(JSON.parse((await storedSettings()).settings!)).toEqual(settings);
   });
 });
 
