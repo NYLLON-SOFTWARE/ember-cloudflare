@@ -370,6 +370,9 @@ const QUEUE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_checks (issuer, subjec
 const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2)
   ON CONFLICT (issuer) DO UPDATE SET due_at = min(due_at, excluded.due_at)`;
 
+/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later. */
+const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2) ON CONFLICT (issuer) DO NOTHING`;
+
 /** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
 const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
 
@@ -639,11 +642,20 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
   WHERE sessions.token_digest = ? RETURNING id`;
 
 /**
- * Queues closing the sockets of everyone in a room but the people a JSON list names, whom changing
- * the room takes out of it, answering a row for each. Their person tag closes all their sockets there.
+ * Whether a membership is someone's suspended for their Memberful membership's lapsing, which changing
+ * the room leaves be: its settings list only people active, and the room is theirs again once their
+ * membership is renewed.
+ */
+const SUSPENDED_MEMBERSHIP = `EXISTS (SELECT 1 FROM users WHERE users.id = memberships.user_id AND users.status = ${SUSPENDED})`;
+
+/**
+ * Queues closing the sockets of everyone in a room but the people a JSON list names and anyone
+ * suspended, whom changing the room takes out of it, answering a row for each. Their person tag closes
+ * all their sockets there.
  */
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
-  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING id`;
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${SUSPENDED_MEMBERSHIP}
+  RETURNING id`;
 
 /**
  * Queues revoking the sockets of each of someone's sessions in every room they're in, answering a row
@@ -1254,8 +1266,9 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Takes everyone but the people a JSON list names out of a room, and answers whom. */
-export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING user_id`;
+/** Takes everyone but the people a JSON list names and anyone suspended (`SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
+export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${SUSPENDED_MEMBERSHIP}
+  RETURNING user_id`;
 
 /** Who's in a room, which the memberships' key finds. */
 export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
@@ -1809,6 +1822,11 @@ export class WorkspaceStore {
     await this.db.run(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, dueAt);
   }
 
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already. */
+  async startMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
+    await this.db.run(START_MEMBERSHIP_CATCH_UP, issuer, dueAt);
+  }
+
   /**
    * Forgets the membership checks and catch-ups of every Memberful site but `site`, all of them for null,
    * as nothing checks them, then, if the catch-up of `site` is due by `now`, queues checking every
@@ -2334,8 +2352,9 @@ export class WorkspaceStore {
   /**
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
-   * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers what
-   * it changed, who's in the room then, and whether the shared order ranks it.
+   * anyone else out but those suspended, whom its settings don't list, and queueing closing their
+   * sockets there with `code`, due at `dueAt`. Answers what it changed, who's in the room then, and
+   * whether the shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);

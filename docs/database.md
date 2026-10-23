@@ -463,10 +463,12 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `queued_at` past the check's start, so settling the check keeps it to ask again, and
   `identities.checked_at` keeps when the membership the Workspace went by was read, by its own clock
   as the read began, so an older answer, a check's or a sign-in's, changes nothing.
-  `membership_catch_ups` keeps when everyone linked to a site is next checked, once a day. Someone
-  whose membership lapsed is suspended, `users.status` 3, in one batch that queues closing their
-  sockets and ends their sessions and push subscriptions, but keeps their memberships, so a renewal
-  brings them back with their rooms, and grants them the open rooms made meanwhile.
+  `membership_catch_ups` keeps when everyone linked to a site is next checked, once a day, and the
+  Workspace makes one due as it starts if Memberful sign-in is on and none is. Someone whose
+  membership lapsed is suspended, `users.status` 3, in one batch that queues closing their sockets
+  and ends their sessions and push subscriptions, but keeps their memberships, which saving a private
+  room's settings leaves too, since they list only people active, so a renewal brings them back with
+  their rooms, and grants them the open rooms made meanwhile.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

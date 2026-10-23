@@ -99,7 +99,8 @@ export async function memberWhoSignedIn({ site, clientId, clientSecret }: Member
  * Whether each of the members of the Memberful site `subjects` name has an active membership, as its
  * admin API says, asked in one request: false for one it answers null for, as GraphQL answers for a
  * member it doesn't have. Null when Memberful doesn't answer, or not as it should, as when it answers
- * only errors, which a wrong API key gets, and that's logged without anything it sent.
+ * with errors, which a wrong API key gets, and a member it failed to describe, and that's logged without
+ * anything it sent.
  */
 export async function membershipsOf({ site, apiKey }: MemberfulApi, subjects: string[]): Promise<Map<string, boolean> | null> {
   // Each member by an alias of its own, its id written as GraphQL writes a string, as JSON does.
@@ -141,9 +142,14 @@ function accessTokenOf(answer: unknown): string | null {
   return typeof token === "string" && token !== "" ? token : null;
 }
 
-/** The `data` of a GraphQL answer, or null for an answer without it, which an error that stopped the whole query gives. */
+/**
+ * The `data` of a GraphQL answer, or null for an answer with errors, or without it, which an error that
+ * stopped the whole query gives. A field that failed is null in `data`, which would read as a member
+ * without a membership, so an answer with any errors is no answer.
+ */
 function dataOf(answer: unknown): Record<string, unknown> | null {
-  const data = (answer as { data?: unknown } | null)?.data;
+  const { data, errors } = (answer ?? {}) as { data?: unknown; errors?: unknown };
+  if (Array.isArray(errors) && errors.length > 0) return null;
   return typeof data === "object" && data !== null ? (data as Record<string, unknown>) : null;
 }
 

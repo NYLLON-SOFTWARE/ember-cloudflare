@@ -10,6 +10,7 @@ import {
   type Directory,
   type Me,
   type NewWorkspace,
+  type RoomSettings,
   type Sidebar,
   type UserId,
   type UserStatus,
@@ -90,8 +91,9 @@ interface SentToMemberful {
  * Stands in for the Memberful site: its token endpoint gives an access token for `CODE` sent with the
  * app's keys, and its member API describes `site.member`, which a test can change, to that token. Its
  * admin API describes `site.member` and `site.others` by their ids to the app's API key, as they were when
- * it was asked, once `site.held` settles, or answers 502 if `site.down` was set then. What it's sent goes
- * in `site.requests`.
+ * it was asked, once `site.held` settles, or answers 502 if `site.down` was set then. Either fails to
+ * describe the members whose ids are in `site.failing`, answering as GraphQL answers a field that failed:
+ * null, with an error saying where. What it's sent goes in `site.requests`.
  */
 function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
   const site = {
@@ -99,6 +101,7 @@ function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
     others: [] as MemberfulMember[],
     held: Promise.resolve(),
     down: false,
+    failing: [] as string[],
     requests: [] as SentToMemberful[],
   };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -118,19 +121,28 @@ function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
       return Response.json({ access_token: ACCESS_TOKEN, token_type: "bearer", expires_in: 900, refresh_token: "a-refresh-token" });
     }
     if (url.origin === SITE && url.pathname === "/api/graphql/member" && request.headers.get("Authorization") === `Bearer ${ACCESS_TOKEN}`) {
+      if (site.member && site.failing.includes(site.member.id)) {
+        const error = { message: "Internal server error", path: ["currentMember", "subscriptions"] };
+        return Response.json({ data: { currentMember: { ...site.member, subscriptions: null } }, errors: [error] });
+      }
       return Response.json({ data: { currentMember: site.member } });
     }
     if (request.method === "POST" && url.href === `${SITE}/api/graphql`) {
       // As Memberful answers a wrong key: 200, with errors and no data.
       if (request.headers.get("Authorization") !== `Bearer ${API_KEY}`) return Response.json({ errors: [{ message: "Invalid authentication token." }] });
       // What it says is as things were when it was asked, however long it takes to answer.
-      const down = site.down;
-      const asked = [...(JSON.parse(body) as { query: string }).query.matchAll(/(m\d+): member\(id: ("(?:[^"\\]|\\.)*")\)/g)];
+      const [down, failing] = [site.down, site.failing];
+      const asked = [...(JSON.parse(body) as { query: string }).query.matchAll(/(m\d+): member\(id: ("(?:[^"\\]|\\.)*")\)/g)].map(([, alias, id]) => ({
+        alias: alias!,
+        id: JSON.parse(id!) as string,
+      }));
       const described = (id: string) => [site.member, ...site.others].find((member) => member?.id === id) ?? null;
       const membershipOf = (member: MemberfulMember | null) => member && { unrestrictedAccess: member.unrestrictedAccess, subscriptions: member.subscriptions };
-      const data = Object.fromEntries(asked.map(([, alias, id]) => [alias, membershipOf(described(JSON.parse(id!) as string))]));
+      const data = Object.fromEntries(asked.map(({ alias, id }) => [alias, failing.includes(id) ? null : membershipOf(described(id))]));
+      const errors = asked.filter(({ id }) => failing.includes(id)).map(({ alias }) => ({ message: "Internal server error", path: [alias] }));
       await site.held;
-      return down ? new Response("Bad gateway", { status: 502 }) : Response.json({ data });
+      if (down) return new Response("Bad gateway", { status: 502 });
+      return Response.json(errors.length > 0 ? { data, errors } : { data });
     }
     return new Response("Unauthorized", { status: 401 });
   });
@@ -963,6 +975,82 @@ describe(feature("auth.memberful-memberships"), () => {
     );
 
     it(
+      "puts a check off when Memberful answers it with an error, rather than taking the member as one without a membership",
+      hearingWebhooks(async () => {
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        const administrator = await setUpCheckingMemberships();
+        const site = fakeMemberful();
+        const session = await memberfulSession();
+        const dorothysId = (await memberfulSessionOf(dorothy, site)).user.id;
+        site.others = [dorothy];
+        site.failing = [katherine.id];
+        await idle();
+        await queueChecks(katherine, dorothy);
+        expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+        site.failing = [];
+        expect(await queuedChecks()).toEqual([
+          { subject: "4242", attempts: 1 },
+          { subject: "4243", attempts: 1 },
+        ]);
+        expect(errors).toHaveBeenCalledWith("Memberful's admin endpoint answered 200 without what it should");
+
+        await checked();
+        expect(await statusOf(administrator, session.user.id)).toBe("active");
+        expect(await statusOf(administrator, dorothysId)).toBe("active");
+        expect(await signsIn(session)).toBe(true);
+      }),
+    );
+
+    it(
+      "changes nobody once Memberful sign-in is turned off while Memberful answers",
+      hearingWebhooks(async () => {
+        const administrator = await setUpCheckingMemberships();
+        const site = fakeMemberful();
+        const session = await memberfulSession();
+        site.member = { ...katherine, subscriptions: [{ active: false }] };
+        await idle();
+        const answered = Promise.withResolvers<void>();
+        site.held = answered.promise;
+        await queueChecks(katherine);
+        const checking = runDurableObjectAlarm(workspaceStub());
+        await vi.waitFor(() => expect(askedAfter(site.requests)).toEqual([["4242"]]));
+
+        await turnMemberful(administrator, false);
+        answered.resolve();
+        expect(await checking).toBe(true);
+        expect(await statusOf(administrator, session.user.id)).toBe("active");
+        expect(await signsIn(session)).toBe(true);
+      }),
+    );
+
+    it(
+      "keeps a suspended member in the private rooms they're in when a room's settings are saved, for when it's renewed",
+      hearingWebhooks(async () => {
+        const administrator = await setUpCheckingMemberships();
+        const site = fakeMemberful();
+        const { id } = (await memberfulSession()).user;
+        const room = await createRoom("board", { closedTo: [administrator.user.id, id], as: administrator });
+        site.member = { ...katherine, subscriptions: [{ active: false }] };
+        await webhook(subscriptionChanged(katherine));
+        await checked();
+        expect(await statusOf(administrator, id)).toBe("suspended");
+
+        // Saved as its settings page saves it, with the people it lists who are in it, which leaves out anyone suspended.
+        const { people } = (await (await api(`/api/rooms/${room.id}/settings`, { headers: as(administrator) })).json()) as RoomSettings;
+        const memberIds = people.filter(({ member }) => member).map((person) => person.id);
+        expect(memberIds).toEqual([administrator.user.id]);
+        const body = JSON.stringify({ name: "Board", kind: "closed", memberIds });
+        expect((await api(`/api/rooms/${room.id}`, { method: "PATCH", headers: as(administrator), body })).status).toBe(200);
+        expect(await workspaceSql("SELECT user_id FROM memberships WHERE room_id = ? AND user_id = ?", room.id, id)).toEqual([{ user_id: id }]);
+
+        site.member = katherine;
+        const session = await memberfulSession();
+        const { rooms } = (await (await api("/api/sidebar", { headers: as(session) })).json()) as Sidebar;
+        expect(rooms.map(({ id }) => id)).toContain(room.id);
+      }),
+    );
+
+    it(
       "goes by the newest read of a membership, as a sign-in that began while a check asked Memberful",
       hearingWebhooks(async () => {
         const administrator = await setUpCheckingMemberships();
@@ -1036,6 +1124,29 @@ describe(feature("auth.memberful-memberships"), () => {
     );
 
     it(
+      "makes the daily check due as the Workspace starts, if it's on and none is, as once the deployment is given the API key",
+      hearingWebhooks(async () => {
+        const administrator = await setUpCheckingMemberships();
+        const site = fakeMemberful();
+        const { id } = (await memberfulSession()).user;
+        site.member = { ...katherine, subscriptions: [] };
+        await idle();
+        const resume = () =>
+          runInDurableObject(workspaceStub(), (workspace: Workspace) => (workspace as unknown as { resumeDeliveries(): Promise<void> }).resumeDeliveries());
+        // As a deployment that had it on before it had the key: nothing was due.
+        await workspaceSql("DELETE FROM membership_catch_ups");
+        await resume();
+        await vi.waitFor(async () => expect(await statusOf(administrator, id)).toBe("suspended"), { timeout: 5_000 });
+
+        // The next, a day off, stays as it is.
+        await idle();
+        const next = await workspaceSql("SELECT due_at FROM membership_catch_ups");
+        await resume();
+        expect(await workspaceSql("SELECT due_at FROM membership_catch_ups")).toEqual(next);
+      }),
+    );
+
+    it(
       "checks everyone linked as Memberful sign-in is turned on again",
       hearingWebhooks(async () => {
         const administrator = await setUpCheckingMemberships();
@@ -1103,6 +1214,18 @@ describe(feature("auth.memberful-memberships"), () => {
       const session = await memberfulSession();
       expect(session.user.id).toBe(id);
       expect(await statusOf(administrator, id)).toBe("active");
+    });
+
+    it("takes a sign-in Memberful answers with an error as one that didn't work, rather than a lapse", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const administrator = await setUpWithMemberful();
+      const site = fakeMemberful();
+      const session = await memberfulSession();
+      site.failing = [katherine.id];
+      expect(locationOf(await signInWithMemberful())).toBe(backToSignIn("failed"));
+      expect(errors).toHaveBeenLastCalledWith("Memberful's member endpoint answered 200 without what it should");
+      expect(await statusOf(administrator, session.user.id)).toBe("active");
+      expect(await signsIn(session)).toBe(true);
     });
   });
 

@@ -339,7 +339,7 @@ export class Workspace extends DurableObject<Env> {
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
     // queues a revocation, or the next start, sets the alarm.
-    void ctx.blockConcurrencyWhile(() => this.scheduleDelivery().catch((error) => console.error("Could not schedule the outbox's deliveries", error)));
+    void ctx.blockConcurrencyWhile(() => this.resumeDeliveries().catch((error) => console.error("Could not schedule the outbox's deliveries", error)));
     const legacy = legacyRooms(env);
     // Before anything else is answered, so the first request after a deploy finds them. A failure
     // mustn't keep everyone from signing in, so it's only logged, and the next start tries again.
@@ -1917,7 +1917,8 @@ export class Workspace extends DurableObject<Env> {
    * says, as a sign-in goes by what it reads (`settleMembership`). A check Memberful failed to answer
    * before is asked alone, so that a member it can't answer for holds up nobody else, and one it fails to
    * answer now is put off, as a revocation is. While members don't sign in with Memberful, or the
-   * deployment can't ask its admin API, nothing is checked, and whatever was queued is forgotten.
+   * deployment can't ask its admin API, nothing is checked, and whatever was queued is forgotten, and
+   * once it's turned off, what Memberful answers changes nobody.
    */
   private async checkMemberships(): Promise<void> {
     const api = (await this.joinableAccount())?.memberfulSignIn ? memberfulApiOf(this.env) : null;
@@ -1928,7 +1929,12 @@ export class Workspace extends DurableObject<Env> {
     const subjects = checks.map(({ subject }) => subject);
     const readAt = Date.now();
     const memberships = await membershipsOf(api, subjects);
-    if (memberships) await this.oneAtATime(() => this.applyMemberships(api.site, memberships, readAt));
+    if (memberships) {
+      await this.oneAtATime(async () => {
+        // Turning it off waits its turn too, so this sees it if it came while Memberful answered.
+        if ((await this.joinableAccount())?.memberfulSignIn) await this.applyMemberships(api.site, memberships, readAt);
+      });
+    }
     await this.store.settleMembershipChecks(api.site, subjects, memberships ? readAt : null, Date.now());
   }
 
@@ -2057,6 +2063,17 @@ export class Workspace extends DurableObject<Env> {
       console.error("Could not delete pictures from R2; trying again later", error);
       await this.store.settlePictureDeletions([], due, Date.now());
     }
+  }
+
+  /**
+   * Sets the alarm for the outbox's next delivery due, as the Workspace starts, having made the daily
+   * check of memberships due at once if members sign in with Memberful and none is due, as when the
+   * deployment has only just been given the admin API's key (`auth.memberful-memberships`).
+   */
+  private async resumeDeliveries(): Promise<void> {
+    const api = memberfulApiOf(this.env);
+    if (api && (await this.joinableAccount())?.memberfulSignIn) await this.store.startMembershipCatchUp(api.site, Date.now());
+    await this.scheduleDelivery();
   }
 
   /** Sets the alarm for the outbox's next delivery due, if any is waiting. */
