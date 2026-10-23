@@ -14,7 +14,9 @@
 // Cloudflare's build logs mask nothing, as GitHub's would. A CI log can be public, as a public
 // repository's Actions logs are, so there the deploy makes no setup token, and says so, unless
 // EMBER_SETUP_TOKEN in its environment brings one the deployer keeps as a secret of their own.
-// Workers Builds' log is the account's own, so Deploy to Cloudflare gets its link there.
+// Workers Builds' log is the account's own, so Deploy to Cloudflare gets its link there. The keys of
+// a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), go up with every
+// deploy whose environment gives them, as the Preview workflow's does from the repository's secrets.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -69,6 +71,23 @@ const SETUP_TOKEN = /^[0-9a-f]{64}$/;
 
 /** Whether this deploy's output may be public: a CI log, except Workers Builds', which is the account's own. */
 const inPublicLog = () => !!process.env.CI && !process.env.WORKERS_CI;
+
+/** The keys of a Memberful custom app, and the secret its site signs webhooks with, which only the deployer can give. */
+const MEMBERFUL_KEYS = ["MEMBERFUL_URL", "MEMBERFUL_CLIENT_ID", "MEMBERFUL_CLIENT_SECRET", "MEMBERFUL_API_KEY", "MEMBERFUL_WEBHOOK_SECRET"];
+
+/**
+ * The Memberful keys the deploy's environment gives, which go up with every deploy, so a key changed
+ * where the deployer keeps it changes in the Worker too. Ones it doesn't give stay as the Worker has them.
+ */
+function givenSecrets(): Record<string, string> {
+  return Object.fromEntries(MEMBERFUL_KEYS.flatMap((name) => (process.env[name] ? [[name, process.env[name]]] : [])));
+}
+
+/** What the deploy says it uploads: the secrets it made, and the ones its environment gave, by name alone. */
+function uploading(made: string[], given: string[]): string {
+  const secrets = [made.length ? `new ${made.join(", ")}` : "", given.length ? `${given.join(", ")} from the environment` : ""].filter(Boolean);
+  return secrets.length ? `Deploying with ${secrets.join(", and ")}` : "Deploying with the Worker's secrets as they are";
+}
 
 /** What became of the Worker's setup token: made here, given by the environment, withheld from a public log, or kept from before. */
 type SetupToken = "made" | "given" | "withheld" | "kept";
@@ -155,12 +174,12 @@ function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: s
 async function deploy(args: string[]): Promise<number> {
   const target = targetOptions(args);
   const { secrets, setupToken } = await missingSecrets(secretNames(target));
+  const given = givenSecrets();
   const dir = mkdtempSync(path.join(tmpdir(), "ember-deploy-"));
   try {
     const file = path.join(dir, "secrets.json");
-    writeFileSync(file, JSON.stringify(secrets), { mode: 0o600 });
-    const made = Object.keys(secrets);
-    console.log(made.length ? `Deploying with new ${made.join(", ")}` : "Deploying with the Worker's secrets as they are");
+    writeFileSync(file, JSON.stringify({ ...secrets, ...given }), { mode: 0o600 });
+    console.log(uploading(Object.keys(secrets), Object.keys(given)));
     // wrangler records what it deployed, the Worker's address among it, in the file the environment names, else one of this deploy's own.
     const output = process.env.WRANGLER_OUTPUT_FILE_PATH || path.join(dir, "wrangler-output.json");
     const status = wrangler(["deploy", "--secrets-file", file, ...args], false, { WRANGLER_OUTPUT_FILE_PATH: output }).status ?? 1;

@@ -6,9 +6,14 @@ import {
   LOGO_PATH,
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
+  MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_SIGN_IN_NEEDED,
+  MEMBERFUL_SIGN_IN_PATH,
+  MEMBERFUL_WEBHOOK_PATH,
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
+  parseCustomDomainCheck,
   parseCustomStyles,
   parseFavoriteOrder,
   parseInvolvementChange,
@@ -25,6 +30,7 @@ import {
   type Account,
   type Bootstrap,
   type ChangedPerson,
+  type CustomDomainCheck,
   type CustomStyles,
   type Directory,
   type Favorites,
@@ -70,11 +76,13 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
-import { customDomainRefusal } from "./custom-domain";
+import { answerProbe, customDomainRefusal, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
+import { finishMemberfulSignIn, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
+import { memberfulKeysOf } from "./memberful-api";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
@@ -118,7 +126,8 @@ async function signIn(request: Request, env: Env): Promise<Response> {
 /**
  * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
  * address's limit before anything is checked, and an unknown email address costs a password check
- * too, so the answer's timing doesn't say who has an account.
+ * too, so the answer's timing doesn't say who has an account. While members sign in with Memberful,
+ * only an administrator signs in with a password, and anyone else whose password checks out hears 403.
  */
 async function signInWithPassword({ emailAddress, password }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
   // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
@@ -149,11 +158,15 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
       user = await workspace(env).startSession(kept.userId, kept.passwordDigest, null, digest, client);
     }
   }
+  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
-/** Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it. */
+/**
+ * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
+ * unless members sign in with Memberful.
+ */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
   if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
@@ -161,6 +174,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
@@ -179,7 +193,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setup: account ? "complete" : "pending",
     setupAccess: setupAccessOf(request, env),
     setupPlaceholders: setupPlaceholdersOf(env),
-    guestSignIn: guestSignIn(env),
+    guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     helpContact,
     version: versionOf(env),
@@ -202,15 +216,17 @@ async function me(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Workspace settings, which anyone signed in may see, read-only unless they're an administrator. They
- * hold the join code, which no cache should keep, as the sidebar's invitation does.
+ * Workspace settings, which anyone signed in may see, read-only unless they're an administrator, with
+ * the Memberful site whose members can sign in, once the deployment has its keys, and whether it hears
+ * the site's webhooks. They hold the join code, which no cache should keep, as the sidebar's invitation does.
  */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
-  return json(settings satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+  const memberful = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null };
+  return json({ ...settings, ...memberful } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -225,18 +241,33 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
  * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
- * the request came to (`customDomainRefusal`).
+ * the request came to (`customDomainRefusal`), and Memberful sign-in can only be turned on with the
+ * deployment's Memberful keys. Turning it off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const changes = parseAccountChanges(await jsonBodyOf(request));
-  const refusal = typeof changes === "string" ? changes : customDomainRefusal(changes.customDomain, request);
+  const refusal = typeof changes === "string" ? changes : (customDomainRefusal(changes.customDomain, request) ?? memberfulRefusal(changes.settings, env));
   // Changes that are refused change nothing, but who's asking is still checked first.
   const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes);
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return refusal ? problem(422, refusal) : json({ account });
+}
+
+/**
+ * Checks what a domain an administrator is making Ember's address reaches, as Workspace settings' Check
+ * DNS asks, after who's asking, as changing the workspace does: this Ember, something else, or nothing yet.
+ */
+async function checkCustomDomain(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const check = parseCustomDomainCheck(await jsonBodyOf(request));
+  if (typeof check === "string") return problem(422, check);
+  return json({ reaches: await reachOf(request, env, check.domain) } satisfies CustomDomainCheck, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
@@ -743,6 +774,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
+  if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
@@ -833,12 +865,17 @@ const tooManyRequests = () => new Response(null, { status: 429, headers: { "Cont
 async function route(request: Request, env: Env, pathname: string): Promise<Response> {
   // The deploy check isn't a browser's, any more than /up is.
   if (pathname === "/api/health") return health(request, env);
+  // Nor is a custom domain check's probe, which this Worker sends.
+  const probe = request.method === "GET" ? probeOf(pathname) : null;
+  if (probe !== null) return answerProbe(env, probe);
   // Nor is password recovery's script, whose token another site's page can't send, since its header
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
   // A browser's report of what a page's policy blocked comes without the page's cookies or origin,
   // and from any browser the page reached.
   if (pathname === CSP_REPORT_PATH) return cspReport(request);
+  // Nor is Memberful's webhook, which its servers sign with the webhook's secret.
+  if (pathname === MEMBERFUL_WEBHOOK_PATH) return memberfulWebhook(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
   // Nor are a room's files, which ember-rust serves from Active Storage's controllers rather than
   // Campfire's, to whoever has the address, whatever their browser.
@@ -854,6 +891,9 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
+  if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
+  // Signing in, which as ember-rust's `reject_banned_ip` refuses a banned IP address, though it's a GET.
+  if (pathname === MEMBERFUL_CALLBACK_PATH) return (await isFromBannedAddress(request, env)) ? tooManyRequests() : finishMemberfulSignIn(request, env);
   if (isSetupPath(pathname)) return setupPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);

@@ -123,8 +123,12 @@ export interface Me extends User {
 /** What someone is in the workspace: ember-rust's user roles (crates/db/src/models/user.rs). */
 export type Role = "member" | "administrator" | "bot";
 
-/** Whether someone can still sign in: people who were removed are deactivated, and banned people are banned. */
-export type UserStatus = "active" | "deactivated" | "banned";
+/**
+ * Whether someone can still sign in: people who were removed are deactivated, and banned people are
+ * banned. While members sign in with Memberful, a member whose membership lapses is suspended until it's
+ * renewed (`auth.memberful-memberships`), which ember-rust has no need of.
+ */
+export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
 
 /** Someone as the people directory lists them. */
 export interface DirectoryUser extends User {
@@ -136,7 +140,7 @@ export interface DirectoryUser extends User {
   avatarUrl: string;
 }
 
-/** What `GET /api/users` answers: everyone in the workspace, deactivated and banned people too. */
+/** What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too. */
 export interface Directory {
   users: DirectoryUser[];
 }
@@ -313,6 +317,12 @@ export interface Account {
    * workspace settings. Null while Ember has none, and is used wherever it's opened.
    */
   customDomain: string | null;
+  /**
+   * Whether members sign in with Memberful, which an administrator turns on in workspace settings: then
+   * the join link and signing in with just a name are off, and only administrators sign in with a
+   * password. Off until one turns it on.
+   */
+  memberfulSignIn: boolean;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -322,6 +332,18 @@ export interface WorkspaceSettings {
   joinCode: string;
   /** Whether you can change the workspace, as administrators can. Members see it read-only. */
   canAdminister: boolean;
+  /**
+   * The address of the Memberful site whose members can sign in, such as https://example.memberful.com,
+   * once the deployment has the keys of its custom app (`MEMBERFUL_URL` and the rest), or null while it
+   * hasn't, when Memberful sign-in can't be turned on.
+   */
+  memberfulSite: string | null;
+  /**
+   * Whether the deployment also has what Memberful's webhooks take, their signing secret and the custom
+   * app's API key (`MEMBERFUL_WEBHOOK_SECRET` and `MEMBERFUL_API_KEY`), so that Ember hears when a
+   * membership lapses or is renewed, and checks what it hears with Memberful.
+   */
+  memberfulWebhooks: boolean;
 }
 
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
@@ -339,10 +361,15 @@ export interface AccountChanges {
   customDomain?: string | null;
 }
 
-/** The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]` names it. */
+/**
+ * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
+ * names it, but Memberful sign-in, this port's own, which the Worker turns on only with the deployment's
+ * Memberful keys.
+ */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  memberfulSignIn?: boolean;
 }
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
@@ -546,6 +573,55 @@ export interface LinkPreview {
 
 /** ember-rust's one answer to a sign-in it refuses, for a wrong password and too many attempts alike. */
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
+
+/**
+ * Where the sign-in page's Sign in with Memberful goes, which sends the browser on to sign in at the
+ * Memberful site (`auth.memberful-sign-in`), naming the page to come back to in `return_to`.
+ */
+export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
+
+/** Where Memberful sends the browser back to, which the Memberful site's custom app names as its OAuth redirect URL. */
+export const MEMBERFUL_CALLBACK_PATH = "/auth/memberful/callback";
+
+/**
+ * Where the Memberful site's webhooks go, which say when a member's membership changes
+ * (`auth.memberful-memberships`). Memberful signs each, and the Worker checks what it says with Memberful.
+ */
+export const MEMBERFUL_WEBHOOK_PATH = "/webhooks/memberful";
+
+/** Signing in with Memberful, coming back to `returnTo`, a page of the workspace, once signed in, or home without one. */
+export const memberfulSignInPath = (returnTo: string | null) =>
+  returnTo === null ? MEMBERFUL_SIGN_IN_PATH : `${MEMBERFUL_SIGN_IN_PATH}?return_to=${encodeURIComponent(returnTo)}`;
+
+/**
+ * Why a Memberful sign-in didn't sign anyone in, which the callback sends the browser back to sign in
+ * with, as `?memberful=`, and what the sign-in page then says.
+ */
+export const MEMBERFUL_SIGN_IN_PROBLEMS = {
+  /** Memberful sent the browser back without a sign-in, or with one this browser didn't start, or didn't answer as it should. */
+  failed: "Signing in with Memberful didn't work. Try again.",
+  /** The Memberful account has no active subscription, nor the all access pass. */
+  membership: "Your Memberful account has no active membership.",
+  /** Someone here has the Memberful account's email address already, and accounts are never matched by it. */
+  taken: "Someone here has your Memberful email address already. Ask an administrator for help.",
+  /** An administrator has turned Memberful sign-in off. */
+  off: "Memberful sign-in is off.",
+  /** It's on, but the deployment has no Memberful keys. */
+  unavailable: "Memberful sign-in isn't set up. Ask an administrator for help.",
+  /** Too many sign-ins from the address, or the account was removed or banned: ember-rust's one answer to a refused sign-in. */
+  refused: SIGN_IN_REFUSED,
+} as const;
+export type MemberfulSignInProblem = keyof typeof MEMBERFUL_SIGN_IN_PROBLEMS;
+
+/** The query parameter that names a Memberful sign-in's problem. */
+export const MEMBERFUL_PROBLEM_PARAM = "memberful";
+
+/** The problem `value` names, or null for none it names. */
+export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem | null =>
+  value !== null && Object.hasOwn(MEMBERFUL_SIGN_IN_PROBLEMS, value) ? (value as MemberfulSignInProblem) : null;
+
+/** Why signing in with a password, joining with the join link, or signing in with just a name is refused while members sign in with Memberful. */
+export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";
 
 /**
  * What a room closes a socket with when access to it ends, where ember-rust sends a `disconnect`
@@ -1032,6 +1108,7 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  memberfulSignIn: "Members sign in with Memberful",
 };
 
 /**
@@ -1052,8 +1129,10 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
 
-/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port. */
-const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
+/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port, from 1 and without leading zeros. */
+const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::([1-9][0-9]{0,4}))?$/;
+/** The highest port a URL can have. */
+const MAX_PORT = 65535;
 
 /**
  * Where a deploy or `wrangler dev` puts Ember, which can't be its custom domain: a workers.dev address,
@@ -1062,10 +1141,10 @@ const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
  */
 const DEPLOYED_HOSTNAME = /(?:^|\.)workers\.dev$|^localhost$|^127(?:\.[0-9]{1,3}){3}$|^\[::1\]$/;
 
-/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have. */
+/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have and a port a URL can. */
 export function isHost(host: string): boolean {
-  const name = host.length <= MAX_HOST_NAME_LENGTH + ":65535".length ? HOST.exec(host)?.[1] : undefined;
-  return name !== undefined && name.length <= MAX_HOST_NAME_LENGTH;
+  const match = host.length <= MAX_HOST_NAME_LENGTH + `:${MAX_PORT}`.length ? HOST.exec(host) : null;
+  return match !== null && match[1]!.length <= MAX_HOST_NAME_LENGTH && Number(match[2] ?? 0) <= MAX_PORT;
 }
 
 /** Whether the host name `hostname` could be Ember's custom domain: any but where a deploy or `wrangler dev` puts it. */
@@ -1078,6 +1157,28 @@ export const NOT_A_CUSTOM_DOMAIN = "A workers.dev or localhost address can't be 
 
 /** A custom domain as `PATCH /api/account` may send one, a host or null for none, or undefined when it's neither. */
 const customDomainOf = (value: unknown): string | null | undefined => (value === null || (typeof value === "string" && isHost(value)) ? value : undefined);
+
+/**
+ * What a custom domain reaches, as checking it finds: this Ember; something else, which answers there
+ * but isn't it; or nothing yet, as before Cloudflare has added the domain, or while its certificate is
+ * on the way.
+ */
+export type CustomDomainReach = "ember" | "elsewhere" | "nothing";
+
+/** What `POST /api/account/custom_domain_checks` answers: what the domain it was sent reaches. */
+export interface CustomDomainCheck {
+  reaches: CustomDomainReach;
+}
+
+/**
+ * Parses an untrusted request to check a custom domain, `{ domain }`, whose host could be Ember's as
+ * one `PATCH /api/account` takes could. Returns why it's refused instead of the domain.
+ */
+export function parseCustomDomainCheck(data: unknown): { domain: string } | string {
+  const domain = isJsonObject(data) && typeof data.domain === "string" && isHost(data.domain) ? data.domain : null;
+  if (domain === null) return CUSTOM_DOMAIN_NOT_A_HOST;
+  return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
+}
 
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in

@@ -13,16 +13,22 @@ export function rememberThisPage(): void {
   }
 }
 
-/** The page to go to now that this tab is signed in, forgetting it; null to go home. */
-export function takeReturnPath(): string | null {
+/** The page to go to once this tab is signed in, which it keeps until it's taken or forgotten; null to go home. */
+export function returnPath(): string | null {
   try {
     const path = sessionStorage.getItem(KEY);
-    sessionStorage.removeItem(KEY);
     // Only a path on this site, which is all `rememberThisPage` stores.
     return path?.startsWith("/") && !path.startsWith("//") ? path : null;
   } catch {
     return null;
   }
+}
+
+/** The page to go to now that this tab is signed in, forgetting it; null to go home. */
+export function takeReturnPath(): string | null {
+  const path = returnPath();
+  forgetReturnPath();
+  return path;
 }
 
 /** Forgets the page to come back to, so signing in goes home. */

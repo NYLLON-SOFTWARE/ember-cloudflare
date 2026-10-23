@@ -33,7 +33,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&
   a.logo === b.logo &&
-  a.customDomain === b.customDomain;
+  a.customDomain === b.customDomain &&
+  a.memberfulSignIn === b.memberfulSignIn;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.
@@ -78,6 +79,8 @@ export function App() {
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }
+          // Someone signed in has come back already, as signing in with Memberful opens that page itself.
+          if (user && location.pathname !== SIGN_IN_PATH && location.pathname !== TRANSFER_PATH) forgetReturnPath();
           // The room the page shows connects now, while the workspace loads, rather than once it shows.
           if (user && workspace.setup === "complete") letGoOfRoom = openRoomSocketAhead(location.pathname);
           setMe(user);

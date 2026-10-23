@@ -24,8 +24,12 @@ import {
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_USER_NAME_LENGTH,
+  memberfulProblemOf,
+  memberfulSignInPath,
+  NOT_A_CUSTOM_DOMAIN,
   parseAccountChanges,
   parseClientFrame,
+  parseCustomDomainCheck,
   parseCustomStyles,
   parseInvolvementChange,
   parseNewDirect,
@@ -183,7 +187,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -389,6 +393,9 @@ describe(feature("accounts.custom-domain"), () => {
     ["nothing", ""],
     ["an empty label", "chat..example.com"],
     ["a port without a host", ":8443"],
+    ["a port past 65535, which no URL has", "chat.example.com:65536"],
+    ["port 0, where nothing answers", "chat.example.com:0"],
+    ["a port with a leading zero, which location.host never has", "chat.example.com:08443"],
     ["a name longer than DNS allows", `${"a".repeat(63)}.`.repeat(3) + "a".repeat(62)],
     ["a number", 42],
     ["a list", ["chat.example.com"]],
@@ -400,6 +407,14 @@ describe(feature("accounts.custom-domain"), () => {
     for (const hostname of ["ember.kro.workers.dev", "workers.dev", "Ember.Kro.Workers.Dev", "localhost", "127.0.0.1", "127.8.0.1", "[::1]"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, false]);
     for (const hostname of ["chat.example.com", "workers.dev.example.com", "chat.localhost", "example.com"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, true]);
   });
+
+  it("checks a domain that could be Ember's, as a host, with its port where it has one", () => {
+    expect(parseCustomDomainCheck({ domain: "chat.example.com" })).toEqual({ domain: "chat.example.com" });
+    expect(parseCustomDomainCheck({ domain: "chat.localhost:8443" })).toEqual({ domain: "chat.localhost:8443" });
+    for (const domain of ["ember.kro.workers.dev", "localhost:8787", "127.0.0.1"]) expect(parseCustomDomainCheck({ domain })).toBe(NOT_A_CUSTOM_DOMAIN);
+    for (const body of [{ domain: "https://chat.example.com" }, { domain: "Chat.Example.com" }, { domain: "chat.example.com:99999" }, { domain: "[::1]" }, { domain: 42 }, {}, null, ["chat.example.com"]])
+      expect(parseCustomDomainCheck(body)).toBe(CUSTOM_DOMAIN_NOT_A_HOST);
+  });
 });
 
 describe(feature("rooms.creation-permission"), () => {
@@ -409,6 +424,27 @@ describe(feature("rooms.creation-permission"), () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  it("takes Members sign in with Memberful as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { memberfulSignIn: true } })).toEqual({ settings: { memberfulSignIn: true } });
+    expect(parseAccountChanges({ settings: { memberfulSignIn: false, restrictRoomCreation: true } })).toEqual({
+      settings: { memberfulSignIn: false, restrictRoomCreation: true },
+    });
+    expect(parseAccountChanges({ settings: { memberfulSignIn: 1 } })).toBe("Members sign in with Memberful must be true or false");
+  });
+
+  it("names the page to come back to, if any, in Sign in with Memberful's address", () => {
+    expect(memberfulSignInPath(null)).toBe("/auth/memberful");
+    expect(memberfulSignInPath("/rooms/general?x=1#y")).toBe("/auth/memberful?return_to=%2Frooms%2Fgeneral%3Fx%3D1%23y");
+  });
+
+  it("reads only the problems it knows from the sign-in page's address", () => {
+    expect(memberfulProblemOf("membership")).toBe("membership");
+    expect(memberfulProblemOf("refused")).toBe("refused");
+    for (const value of [null, "", "toString", "Membership", "constructor"]) expect(memberfulProblemOf(value)).toBeNull();
   });
 });
 

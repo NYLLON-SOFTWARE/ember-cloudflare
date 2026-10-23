@@ -188,6 +188,21 @@ export const closeOf = (ws: WebSocket) => new Promise<CloseEvent>((resolve) => w
 /** The Workspace's Durable Object. */
 export const workspaceStub = () => workspace(env as unknown as Env);
 
+/** Runs `run` while the Workspace's bindings differ from this suite's by `changes`. */
+export async function withWorkspaceEnv(changes: Partial<Env>, run: () => Promise<void>): Promise<void> {
+  let original: Env | undefined;
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const object = instance as unknown as { env: Env };
+    original = object.env;
+    object.env = { ...original, ...changes };
+  });
+  try {
+    await run();
+  } finally {
+    await runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
+  }
+}
+
 /** The search index's Durable Object. */
 export const searchIndexStub = () => searchIndex(env as unknown as Env);
 

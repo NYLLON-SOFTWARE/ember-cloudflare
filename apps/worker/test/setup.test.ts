@@ -42,7 +42,7 @@ describe(feature("auth.first-run"), () => {
       setupAccess: "link",
       setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
       guestSignIn: true,
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
       helpContact: null,
       version: "0.1",
       // The suite's key pair's public key, uncompressed, without padding.

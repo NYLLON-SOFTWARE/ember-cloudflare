@@ -7,7 +7,11 @@ name: Preview
 # public and the deploy prints no token into it; without one, nobody can set the Worker up until a
 # deploy from a terminal, or `wrangler secret put EMBER_SETUP_TOKEN`, gives it a token.
 # EMBER_SETUP_NAME_PLACEHOLDER and EMBER_SETUP_EMAIL_PLACEHOLDER repository variables, if set, are the
-# name and email address its Set up Ember form suggests in place of Kevin Rose's.
+# name and email address its Set up Ember form suggests in place of Kevin Rose's. MEMBERFUL_URL,
+# MEMBERFUL_CLIENT_ID and MEMBERFUL_CLIENT_SECRET repository secrets, if set, are a Memberful custom
+# app's keys, which go up with each deploy so its members can sign in once an administrator turns that on,
+# and MEMBERFUL_API_KEY and MEMBERFUL_WEBHOOK_SECRET the app's API key and its site's webhook secret,
+# with which Ember hears when a membership lapses.
 on:
   push:
     branches: [main]
@@ -68,6 +72,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # Optional: the setup token for a Worker that has none yet, which its setup link carries.
           EMBER_SETUP_TOKEN: ${{ secrets.EMBER_SETUP_TOKEN }}
+          # Optional: a Memberful custom app's keys, for its members to sign in, and what hearing its
+          # site's webhooks takes, for lapsed members to be signed out.
+          MEMBERFUL_URL: ${{ secrets.MEMBERFUL_URL }}
+          MEMBERFUL_CLIENT_ID: ${{ secrets.MEMBERFUL_CLIENT_ID }}
+          MEMBERFUL_CLIENT_SECRET: ${{ secrets.MEMBERFUL_CLIENT_SECRET }}
+          MEMBERFUL_API_KEY: ${{ secrets.MEMBERFUL_API_KEY }}
+          MEMBERFUL_WEBHOOK_SECRET: ${{ secrets.MEMBERFUL_WEBHOOK_SECRET }}
           # Optional, and not secret: what the setup form suggests.
           EMBER_SETUP_NAME_PLACEHOLDER: ${{ vars.EMBER_SETUP_NAME_PLACEHOLDER }}
           EMBER_SETUP_EMAIL_PLACEHOLDER: ${{ vars.EMBER_SETUP_EMAIL_PLACEHOLDER }}
@@ -80,7 +91,7 @@ jobs:
             if [ -n "${!name}" ]; then vars+=(--var "$name:${!name}"); fi
           done
           # The deploy script adds the secrets the Worker doesn't have yet with its code, as it does
-          # for Deploy to Cloudflare, so no version runs without them.
+          # for Deploy to Cloudflare, so no version runs without them, and the Memberful keys given.
           node apps/worker/scripts/deploy.ts --name "$WORKER_NAME" "${vars[@]}"
           url=$(jq -rn 'first(inputs | select(.type == "deploy") | .targets[]? | select(endswith(".workers.dev")))' "$WRANGLER_OUTPUT_FILE_PATH")
           if [ -z "$url" ]; then

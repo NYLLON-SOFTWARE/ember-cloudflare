@@ -24,18 +24,21 @@ export const isHttps = (request: Request) => urlOf(request).protocol === "https:
  * another Worker on workers.dev. Plain HTTP, where `wrangler dev` and the browser tests run, can't
  * use it.
  */
-const sessionCookieName = (request: Request) => (isHttps(request) ? "__Host-session_token" : "session_token");
+export const hostCookieName = (request: Request, name: string) => (isHttps(request) ? `__Host-${name}` : name);
 
-function setCookie(request: Request, value: string, maxAge: number): string {
+/** The `Set-Cookie` that keeps `value` as the cookie `name` for `maxAge` seconds, out of reach of scripts and other sites' requests. */
+export function hostCookie(request: Request, name: string, value: string, maxAge: number): string {
   const secure = isHttps(request) ? "; Secure" : "";
-  return `${sessionCookieName(request)}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+  return `${hostCookieName(request, name)}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+const SESSION_COOKIE = "session_token";
+
 /** The `Set-Cookie` that signs this browser in with `token`, or refreshes how long it stays signed in. */
-export const sessionCookie = (request: Request, token: string) => setCookie(request, token, SESSION_MAX_AGE_SECONDS);
+export const sessionCookie = (request: Request, token: string) => hostCookie(request, SESSION_COOKIE, token, SESSION_MAX_AGE_SECONDS);
 
 /** The `Set-Cookie` that makes this browser forget its session. */
-export const expiredSessionCookie = (request: Request) => setCookie(request, "", 0);
+export const expiredSessionCookie = (request: Request) => hostCookie(request, SESSION_COOKIE, "", 0);
 
 /** The values of the request's cookies named `name`, in the order it sent them. */
 export function cookieValues(request: Request, name: string): string[] {
@@ -48,7 +51,8 @@ export function cookieValues(request: Request, name: string): string[] {
 }
 
 /** The session token the request's cookie carries, if it looks like one. */
-export const sessionToken = (request: Request) => cookieValues(request, sessionCookieName(request)).find((value) => SESSION_TOKEN.test(value)) ?? null;
+export const sessionToken = (request: Request) =>
+  cookieValues(request, hostCookieName(request, SESSION_COOKIE)).find((value) => SESSION_TOKEN.test(value)) ?? null;
 
 export const newSessionToken = () => toBase64url(crypto.getRandomValues(new Uint8Array(32)));
 

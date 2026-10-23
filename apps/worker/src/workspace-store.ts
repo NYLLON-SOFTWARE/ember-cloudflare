@@ -47,22 +47,32 @@ export interface Client {
 const ACTIVE = 0;
 const DEACTIVATED = 1;
 const BANNED = 2;
+/** This port's own, for a member whose Memberful membership has lapsed, until it's renewed (`auth.memberful-memberships`). */
+const SUSPENDED = 3;
+/** ember-rust's role for everyone who neither runs the workspace nor is a bot (user.rs). */
+const MEMBER = 0;
 /** ember-rust's role for the people who run the workspace (user.rs). */
 const ADMINISTRATOR = 1;
 /** ember-rust's role for bots (user.rs). */
 const BOT = 2;
 /** ember-rust's roles and statuses (user.rs), each at the number it stores. */
 const ROLES: readonly Role[] = ["member", "administrator", "bot"];
-const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
+const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned", "suspended"];
 
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
 /**
  * What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, anyone may
- * create rooms, and no custom domain.
+ * create rooms, no custom domain, and members sign in with passwords rather than Memberful.
  */
-export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, customDomain: null } as const;
+export const NEW_ACCOUNT_LOOKS = {
+  hideTranslationButtons: true,
+  customStyles: "",
+  restrictRoomCreation: false,
+  customDomain: null,
+  memberfulSignIn: false,
+} as const;
 
 /**
  * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
@@ -83,7 +93,7 @@ export interface NewAccount {
 }
 
 /** What `WorkspaceStore.changeAccount` changes: the name, the settings workspace settings' switches change, and the custom domain. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain">>;
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -125,6 +135,33 @@ export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
   /** Whether they have a password, which changing their email address or password then asks for. */
   password: boolean;
+}
+
+/** Someone who signs in with a Memberful account, which no account here is linked to yet. */
+export interface NewLinkedPerson {
+  id: UserId;
+  name: string;
+  /** Their Memberful account's email address, or null for one Ember can't keep. */
+  emailAddress: string | null;
+}
+
+/** The person an account elsewhere is linked to, as signing in with it finds them. */
+export interface LinkedPerson {
+  userId: UserId;
+  /** Whether they can sign in, as only active people do, or why not. */
+  status: UserStatus;
+  /** Whether they're one of the workspace's administrators. */
+  administrator: boolean;
+  /** When their membership was last read, by the Workspace's clock: as a sign-in began, or a check asked Memberful. */
+  checkedAt: number;
+}
+
+/** A membership the Workspace has yet to check with the Memberful site's admin API. */
+export interface MembershipCheck {
+  /** The member id of the account to check, at the site checked. */
+  subject: string;
+  /** How many checks of it in a row Memberful failed to answer. */
+  attempts: number;
 }
 
 /** What someone signs in with: their email address, and their password's digest, or null without one. */
@@ -285,13 +322,59 @@ const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_addr
 
 /**
  * The same, for someone who signed in, unless they've stopped being active since, or their password
- * has been reset since it was checked.
+ * has been reset since it was checked, or they're no longer an administrator while the last value says
+ * only administrators sign in with a password.
  */
 const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ?`;
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR role = ${ADMINISTRATOR})`;
 
 /** Keeps a digest made now of the password someone signed in with, in place of the one checked, unless it has changed since. */
 const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND password_digest = ?`;
+
+/** The same, for someone signing in with an account elsewhere that's linked to them, unless they've stopped being active. */
+const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
+  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}`;
+
+/** The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each account's membership was last read. */
+const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, users.role, identities.checked_at
+  FROM identities JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject IN (SELECT value FROM json_each(?2))`;
+
+/**
+ * Whether the membership of the person a linked account signs in as counts: a member's does, while
+ * they're active, or suspended for its lapsing. Administrators are let in whatever their membership, and
+ * someone removed or banned stays so.
+ */
+const MEMBERSHIP_COUNTS = `users.role = ${MEMBER} AND users.status IN (${ACTIVE}, ${SUSPENDED})`;
+
+/**
+ * Queues checking the membership of the account at issuer ?1 with subject ?2, due at ?3, if its member's
+ * counts, as a webhook about it came then. One queued already is due then too, unless it's due sooner, and
+ * is checked again if it was asked about before then.
+ */
+const QUEUE_MEMBERSHIP_CHECK = `INSERT INTO membership_checks (issuer, subject, queued_at, due_at)
+  SELECT identities.issuer, identities.subject, ?3, ?3 FROM identities JOIN users ON users.id = identities.user_id
+  WHERE identities.issuer = ?1 AND identities.subject = ?2 AND ${MEMBERSHIP_COUNTS}
+  ON CONFLICT (issuer, subject) DO UPDATE SET queued_at = excluded.queued_at, due_at = min(due_at, excluded.due_at)`;
+
+/**
+ * Queues checking the membership of every account at issuer ?1 whose member's counts, due at ?2, if the
+ * site's catch-up is due by then. A check queued already stays as it is, so one Memberful has failed to
+ * answer still waits its turn.
+ */
+const QUEUE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_checks (issuer, subject, queued_at, due_at)
+  SELECT identities.issuer, identities.subject, ?2, ?2 FROM identities JOIN users ON users.id = identities.user_id
+  WHERE identities.issuer = ?1 AND ${MEMBERSHIP_COUNTS} AND EXISTS (SELECT 1 FROM membership_catch_ups WHERE issuer = ?1 AND due_at <= ?2)
+  ON CONFLICT DO NOTHING`;
+
+/** Makes the catch-up at issuer ?1 due at ?2, unless it's due sooner. */
+const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2)
+  ON CONFLICT (issuer) DO UPDATE SET due_at = min(due_at, excluded.due_at)`;
+
+/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later. */
+const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2) ON CONFLICT (issuer) DO NOTHING`;
+
+/** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
+const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
@@ -392,6 +475,12 @@ const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPr
 
 /** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
+
+/**
+ * Whether members sign in with Memberful, which the account's settings keep as `memberful_sign_in`, this
+ * port's own: only while the setting is present.
+ */
+const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in);
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
@@ -553,11 +642,22 @@ const QUEUE_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag
   WHERE sessions.token_digest = ? RETURNING id`;
 
 /**
- * Queues closing the sockets of everyone in a room but the people a JSON list names, whom changing
- * the room takes out of it, answering a row for each. Their person tag closes all their sockets there.
+ * Whether a membership is that of someone suspended for their Memberful membership's lapsing, in a room
+ * that's private already, which changing the room leaves be: its settings list only people active, and
+ * the room is theirs again once their membership is renewed. Making an open room private takes them out,
+ * as it does everyone else nobody chose for it. It's read before the room's kind changes.
+ */
+const KEPT_SUSPENDED_MEMBERSHIP = `EXISTS (SELECT 1 FROM users JOIN rooms ON rooms.id = memberships.room_id
+  WHERE users.id = memberships.user_id AND users.status = ${SUSPENDED} AND rooms.kind = 'closed')`;
+
+/**
+ * Queues closing the sockets of everyone in a room but the people a JSON list names and anyone
+ * suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`), whom changing the room takes out of
+ * it, answering a row for each. Their person tag closes all their sockets there.
  */
 export const QUEUE_MEMBER_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
-  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING id`;
+  SELECT room_id, user_id, ?, ? FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
+  RETURNING id`;
 
 /**
  * Queues revoking the sockets of each of someone's sessions in every room they're in, answering a row
@@ -792,6 +892,7 @@ const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
+const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -933,6 +1034,9 @@ const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORD
 
 /** Someone active, as the directory lists them, as ember-rust finds whom to change (`User.active.find`, accounts/users.rs). */
 const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status = ${ACTIVE}`;
+
+/** The same, or someone suspended for their membership's lapsing, as an administrator can remove them too. */
+const REMOVABLE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status IN (${ACTIVE}, ${SUSPENDED})`;
 
 /** The active bots, by name, with their tokens, as ember-rust's bots page lists them (`User.active_bots.ordered`, user.rs). */
 const ACTIVE_BOTS = `SELECT id, name, bio, role, status, updated_at, bot_token FROM users
@@ -1164,8 +1268,9 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
 
-/** Takes everyone but the people a JSON list names out of a room, and answers whom. */
-export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) RETURNING user_id`;
+/** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
+export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
+  RETURNING user_id`;
 
 /** Who's in a room, which the memberships' key finds. */
 export const ROOM_MEMBERS = `SELECT user_id FROM memberships WHERE room_id = ?`;
@@ -1215,18 +1320,20 @@ export class WorkspaceStore {
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
       customDomain: customDomainIn(settings),
+      memberfulSignIn: signsInWithMemberful(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
   /** Changes the workspace's name, settings and custom domain, as `change` has them, in one batch. */
-  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain }: AccountChange, now: string): Promise<void> {
+  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
+      ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
     ]);
   }
 
@@ -1308,6 +1415,63 @@ export class WorkspaceStore {
     ]);
   }
 
+  /**
+   * Adds someone who signed in with an account elsewhere, the one `issuer` and `subject` name, as a
+   * member with no password, linked to it, with their session, in every open room, as `createMember`
+   * adds someone who joins. If someone has their email address already, or the account is linked to
+   * someone already, a unique index refuses its statement, and so the whole batch.
+   */
+  async createLinkedMember(
+    person: NewLinkedPerson,
+    issuer: string,
+    subject: string,
+    checkedAt: number,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO users (id, name, email_address, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, person.id, person.name, person.emailAddress, now, now),
+      statement(
+        `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        issuer,
+        subject,
+        person.id,
+        checkedAt,
+        now,
+        now,
+      ),
+      statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+    ]);
+  }
+
+  /** The person the account elsewhere that `issuer` and `subject` name is linked to, whatever their status, or null for nobody. */
+  async linkedPerson(issuer: string, subject: string): Promise<LinkedPerson | null> {
+    return (await this.linkedPeople(issuer, [subject])).get(subject) ?? null;
+  }
+
+  /** The people the accounts at `issuer` with `subjects` are linked to, whatever their status, by subject, leaving out those linked to nobody. */
+  async linkedPeople(issuer: string, subjects: string[]): Promise<Map<string, LinkedPerson>> {
+    const rows = await this.db.all<{ subject: string; id: UserId; status: number; role: number; checked_at: number }>(LINKED_PEOPLE, issuer, JSON.stringify(subjects));
+    return new Map(
+      rows.map((row) => [
+        row.subject,
+        { userId: row.id, status: STATUSES[row.status] ?? "active", administrator: row.role === ADMINISTRATOR, checkedAt: row.checked_at },
+      ]),
+    );
+  }
+
+  /** Starts a session for someone who signed in with an account elsewhere that's linked to them, unless they've stopped being active. */
+  async startLinkedSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+    const [, [row]] = (await this.db.batch([
+      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId),
+      statement(SESSION, tokenDigest),
+    ])) as [unknown[], SessionRow[]];
+    return row ? storedSession(row) : null;
+  }
+
   /** Whether anyone has exactly this email address, whatever their status. */
   async hasEmailAddress(emailAddress: string): Promise<boolean> {
     return (await this.db.all(`SELECT 1 FROM users WHERE email_address = ?`, emailAddress)).length > 0;
@@ -1342,12 +1506,22 @@ export class WorkspaceStore {
 
   /**
    * Starts a session for someone who signed in with the password `passwordDigest` is the digest of,
-   * unless they've stopped being active since, or their password has been reset, and keeps `rehash`,
-   * a digest made now of the same password, in its place when there is one.
+   * unless they've stopped being active since, or their password has been reset, or they're not an
+   * administrator while `administratorsOnly` says only administrators sign in with a password, and keeps
+   * `rehash`, a digest made now of the same password, in its place when there is one.
    */
-  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+  async startSession(
+    userId: UserId,
+    passwordDigest: string,
+    rehash: string | null,
+    administratorsOnly: boolean,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<StoredSession | null> {
     const results = await this.db.batch([
-      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest),
+      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest, administratorsOnly ? 1 : 0),
       ...(rehash === null ? [] : [statement(REHASH_PASSWORD, rehash, userId, passwordDigest)]),
       statement(SESSION, tokenDigest),
     ]);
@@ -1503,6 +1677,45 @@ export class WorkspaceStore {
     return reconnections!.length > 0;
   }
 
+  /**
+   * Suspends the active member `userId`, whose membership of the Memberful site `issuer` has lapsed, as
+   * their account there with `subject` was read at `readAt`, in one transaction: queues closing each of
+   * their sessions' sockets with `code` in every room they're in, due at `dueAt`, as removing them does,
+   * ends their sessions, forgets their push subscriptions, marks them suspended, recording when, and
+   * records the read. Their rooms, messages, role and avatar stay, for when it's renewed. Answers whether
+   * it queued any.
+   */
+  async suspendPerson(userId: UserId, issuer: string, subject: string, readAt: number, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      // Before their sessions go, which it finds their sockets by.
+      statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
+      statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
+      statement(`UPDATE users SET status = ${SUSPENDED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, userId),
+      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /**
+   * Lets back the suspended member `userId`, whose membership of the Memberful site `issuer` is renewed,
+   * as their account there with `subject` was read at `readAt`, in one transaction: makes them active,
+   * recording when, puts them in the open rooms made while they were suspended, as joining puts someone
+   * in every open room, and records the read.
+   */
+  async restorePerson(userId: UserId, issuer: string, subject: string, readAt: number, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status = ${SUSPENDED}`, now, userId),
+      statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
+      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
+    ]);
+  }
+
+  /** Records that the memberships of the accounts at the Memberful site `issuer` with `subjects` were read at `readAt`, unless they were since. */
+  async stampMemberships(issuer: string, subjects: string[], readAt: number): Promise<void> {
+    if (subjects.length > 0) await this.db.run(STAMP_MEMBERSHIPS, issuer, JSON.stringify(subjects), readAt);
+  }
+
   /** Every IP address a ban blocks. */
   async bannedAddresses(): Promise<string[]> {
     return (await this.db.all<{ ip_address: string }>(`SELECT DISTINCT ip_address FROM bans`)).map((row) => row.ip_address);
@@ -1598,15 +1811,75 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex or picture deletion is due, if any is waiting,
-   * leaving out the purges waiting on their rooms' revocations, which are due no sooner.
+   * Queues checking the membership of the account at the Memberful site `issuer` with `subject`, due at
+   * `now`, as a webhook about it came then, if it's linked to a member whose membership counts, and makes
+   * the site's catch-up due by `nextCatchUp`.
+   */
+  async queueMembershipCheck(issuer: string, subject: string, now: number, nextCatchUp: number): Promise<void> {
+    await this.db.batch([statement(QUEUE_MEMBERSHIP_CHECK, issuer, subject, now), statement(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, nextCatchUp)]);
+  }
+
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due by `dueAt`. */
+  async scheduleMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
+    await this.db.run(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, dueAt);
+  }
+
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already. */
+  async startMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
+    await this.db.run(START_MEMBERSHIP_CATCH_UP, issuer, dueAt);
+  }
+
+  /**
+   * Forgets the membership checks and catch-ups of every Memberful site but `site`, all of them for null,
+   * as nothing checks them, then, if the catch-up of `site` is due by `now`, queues checking every
+   * membership there that counts and makes the next due at `nextCatchUp`, and answers up to `limit` of
+   * its checks due by `now`, those due longest first.
+   */
+  async dueMembershipChecks(site: string | null, now: number, nextCatchUp: number, limit: number): Promise<MembershipCheck[]> {
+    const results = await this.db.batch([
+      statement(`DELETE FROM membership_checks WHERE issuer IS NOT ?`, site),
+      statement(`DELETE FROM membership_catch_ups WHERE issuer IS NOT ?`, site),
+      statement(QUEUE_MEMBERSHIP_CATCH_UP, site, now),
+      statement(`UPDATE membership_catch_ups SET due_at = ? WHERE issuer = ? AND due_at <= ?`, nextCatchUp, site, now),
+      statement(`SELECT subject, attempts FROM membership_checks WHERE issuer = ? AND due_at <= ? ORDER BY due_at, subject LIMIT ?`, site, now, limit),
+    ]);
+    return results[4] as MembershipCheck[];
+  }
+
+  /**
+   * Forgets the checks of the accounts at the Memberful site `issuer` with `subjects`, which it answered
+   * for as read at `readAt`, but those queued again since, which are checked again. When it didn't answer
+   * (null), puts them off instead, each for twice as long as the time before, up to the longest wait, as
+   * a revocation is, for as long as it takes.
+   */
+  async settleMembershipChecks(issuer: string, subjects: string[], readAt: number | null, now: number): Promise<void> {
+    const checked = JSON.stringify(subjects);
+    if (readAt !== null) {
+      await this.db.run(`DELETE FROM membership_checks WHERE issuer = ? AND subject IN (SELECT value FROM json_each(?)) AND queued_at <= ?`, issuer, checked, readAt);
+      return;
+    }
+    await this.db.run(
+      `UPDATE membership_checks SET attempts = attempts + 1, due_at = ? + min(?, ? << min(attempts, ?)) WHERE issuer = ? AND subject IN (SELECT value FROM json_each(?))`,
+      now,
+      LONGEST_RETRY_MS,
+      FIRST_RETRY_MS,
+      RETRY_DOUBLINGS,
+      issuer,
+      checked,
+    );
+  }
+
+  /**
+   * When the outbox's next revocation, purge, reindex, picture deletion or membership check is due, if
+   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
-        (SELECT min(due_at) FROM pending_picture_deletions) AS picture`,
+        (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -1888,6 +2161,12 @@ export class WorkspaceStore {
     return row ? directoryEntry(row) : null;
   }
 
+  /** Someone active, or suspended for their membership's lapsing, as the people directory lists them, or null for anyone else: whom removing finds. */
+  async removablePerson(userId: UserId): Promise<DirectoryEntry | null> {
+    const [row] = await this.db.all<DirectoryRow>(REMOVABLE_PERSON, userId);
+    return row ? directoryEntry(row) : null;
+  }
+
   /** Gives someone `role`, recording when. */
   async changeRole(userId: UserId, role: PersonRole, now: string): Promise<void> {
     await this.db.run(CHANGE_ROLE, ROLES.indexOf(role), now, userId);
@@ -2075,8 +2354,9 @@ export class WorkspaceStore {
   /**
    * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
    * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
-   * anyone else out and queueing closing their sockets there with `code`, due at `dueAt`. Answers what
-   * it changed, who's in the room then, and whether the shared order ranks it.
+   * anyone else out but those suspended in a room that was private already, whom its settings don't
+   * list, and queueing closing their sockets there with `code`, due at `dueAt`. Answers what it
+   * changed, who's in the room then, and whether the shared order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
@@ -2093,11 +2373,12 @@ export class WorkspaceStore {
       return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
     }
     const memberIds = JSON.stringify(changes.memberIds);
-    const [updated, added, , removed, after, rank] = (await this.db.batch([
-      update,
-      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
+    // Whom it takes out is read before the room's kind changes, which says whether anyone suspended stays.
+    const [, removed, updated, added, after, rank] = (await this.db.batch([
       statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
       statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
+      update,
+      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
       members,
       ranked,
     ])) as UserIdRow[][];

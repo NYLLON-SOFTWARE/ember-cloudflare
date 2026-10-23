@@ -32,6 +32,7 @@ import {
   type Sidebar,
   type User,
   type UserId,
+  type UserStatus,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -43,6 +44,7 @@ import { openDb, type Db } from "./db";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
+import { memberfulApiOf, membershipsOf, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
@@ -59,6 +61,7 @@ import {
   type Client,
   type DirectoryEntry,
   type JoinableAccount,
+  type LinkedPerson,
   type NewPerson,
   type OwnProfileEntry,
   type PendingRevocation,
@@ -90,6 +93,10 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
  */
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
+/** How long the Workspace waits for a custom domain check's probe, longer than the check waits for an answer. */
+const PROBE_WAIT_MS = 30 * 1000;
+/** How many probes the Workspace waits for at once, of the latest checks. */
+const WAITING_PROBES = 20;
 /**
  * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
  * first, then purges, then reindexes, and how many rooms a change calls before it answers
@@ -104,6 +111,13 @@ const DELIVERIES_PER_RUN = 40;
 const CLOSING_SOCKETS_MS = 2_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
+/**
+ * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
+ * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
+ */
+const MEMBERSHIPS_PER_CHECK = 25;
+/** How often the Workspace checks the membership of everyone linked to the Memberful site, in case a webhook about one never came. */
+const MEMBERSHIP_CATCH_UP_MS = 24 * 60 * 60 * 1000;
 
 /**
  * ember-rust's `fresh_account_logo_path`, which account-logo.ts serves: versioned by when the account
@@ -112,13 +126,23 @@ const MESSAGES_PER_PURGE = 100;
 const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
 
 /** The account as every page shows it, without its join code, which only the people in it see. */
-const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation, customDomain, updatedAt, storedLogo }: JoinableAccount): Account => ({
+const accountOf = ({
+  name,
+  hideTranslationButtons,
+  customStyles,
+  restrictRoomCreation,
+  customDomain,
+  memberfulSignIn,
+  updatedAt,
+  storedLogo,
+}: JoinableAccount): Account => ({
   name,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
+  memberfulSignIn,
 });
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
@@ -194,6 +218,16 @@ export interface BotKeyAccess extends BotAccess {
 /** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
 export interface WebhookAccess extends BotAccess, BotWebhook {}
 
+/**
+ * Why signing in with Memberful signed nobody in: members don't sign in with Memberful, the person the
+ * account is linked to was removed or banned, it has no active membership, or someone new would have
+ * someone's email address.
+ */
+export type MemberfulRefusal = "off" | "refused" | "membership" | "taken";
+
+/** What a join link does: joins, is off while members sign in with Memberful, or isn't the join link. */
+export type JoinLink = "joins" | "memberful" | "not found";
+
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
 
@@ -219,6 +253,17 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+
+/**
+ * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
+ * without one, whom it suspends, "renewed" for a suspended member with one, whom it lets back, and null
+ * for anyone else, administrators included, who are let in whatever their membership.
+ */
+function membershipChange({ status, administrator }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
+  if (!subscribed && status === "active" && !administrator) return "lapsed";
+  if (subscribed && status === "suspended") return "renewed";
+  return null;
+}
 
 /**
  * Whether a change to the profile of someone with `emailAddress` changes what they sign in with: it's
@@ -270,6 +315,8 @@ export class Workspace extends DurableObject<Env> {
   private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
+  /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
+  private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
   /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
@@ -292,7 +339,7 @@ export class Workspace extends DurableObject<Env> {
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
     // queues a revocation, or the next start, sets the alarm.
-    void ctx.blockConcurrencyWhile(() => this.scheduleDelivery().catch((error) => console.error("Could not schedule the outbox's deliveries", error)));
+    void ctx.blockConcurrencyWhile(() => this.resumeDeliveries().catch((error) => console.error("Could not schedule the outbox's deliveries", error)));
     const legacy = legacyRooms(env);
     // Before anything else is answered, so the first request after a deploy finds them. A failure
     // mustn't keep everyone from signing in, so it's only logged, and the next start tries again.
@@ -363,6 +410,25 @@ export class Workspace extends DurableObject<Env> {
     await this.db.all("SELECT 1");
   }
 
+  /**
+   * Waits a while for a custom domain check's `probe`, which `takeProbe` then answers with `answer`.
+   * There's one Workspace, which only this Ember reaches, so a domain that answers the probe reaches
+   * this Ember (custom-domain.ts, `reachOf`). A check takes seconds, so probes are only kept in memory,
+   * and only the latest few.
+   */
+  expectProbe(probe: string, answer: string): void {
+    const now = Date.now();
+    for (const [waiting, { until }] of this.probes) if (until <= now || this.probes.size >= WAITING_PROBES) this.probes.delete(waiting);
+    this.probes.set(probe, { answer, until: now + PROBE_WAIT_MS });
+  }
+
+  /** The answer to a custom domain check's `probe`, once, while the Workspace waits for it, or null. */
+  takeProbe(probe: string): string | null {
+    const expected = this.probes.get(probe);
+    this.probes.delete(probe);
+    return expected !== undefined && expected.until > Date.now() ? expected.answer : null;
+  }
+
   /** The workspace's account, or null until first run creates it. Its join code is only for the people in it. */
   async account(): Promise<Account | null> {
     const account = await this.joinableAccount();
@@ -377,10 +443,14 @@ export class Workspace extends DurableObject<Env> {
     return account;
   }
 
-  /** Whether `code` is the workspace's join code, which it can't be before first run. */
-  async isJoinCode(code: string): Promise<boolean> {
+  /**
+   * What the join link with `code` does: "not found" unless `code` is the workspace's join code, which it
+   * can't be before first run, and "memberful" while members sign in with Memberful, which turns it off.
+   */
+  async joinLink(code: string): Promise<JoinLink> {
     const account = await this.joinableAccount();
-    return account !== null && isCode(code, account.joinCode);
+    if (account === null || !isCode(code, account.joinCode)) return "not found";
+    return account.memberfulSignIn ? "memberful" : "joins";
   }
 
   /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
@@ -391,9 +461,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
-   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session.
+   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
+   * Worker adds what it knows of the Memberful site from its keys.
    */
-  async workspaceSettings(credentials: Credentials): Promise<WorkspaceSettings | "not set up" | null> {
+  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
@@ -409,15 +480,19 @@ export class Workspace extends DurableObject<Env> {
   async changeAccount(credentials: Credentials, { name, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const { hideTranslationButtons, restrictRoomCreation } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, memberfulSignIn } = settings ?? {};
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
+        ...(memberfulSignIn !== undefined && memberfulSignIn !== account.memberfulSignIn && { memberfulSignIn }),
       };
       if (Object.keys(change).length === 0) return accountOf(account);
-      return this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
+      const shown = await this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
+      // Memberships may have lapsed or been renewed while it was off, so turning it on checks everyone's.
+      if (change.memberfulSignIn) await this.keepCatchingUp(Date.now());
+      return shown;
     });
   }
 
@@ -567,12 +642,14 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
    * session their cookie's token opens, as ember-rust's `users#create` does. Answers "not found" if
-   * `code` isn't the join code, and null if someone already has their email address.
+   * `code` isn't the join code, "memberful" while members sign in with Memberful, and null if someone
+   * already has their email address.
    */
-  async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | "not found" | null> {
-    // The Worker checked the code before the form arrived, but the link may have been regenerated since.
+  async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
+    // The Worker checked the link before the form arrived, but it may have been regenerated or turned off since.
     return this.oneAtATime(async () => {
-      if (!(await this.isJoinCode(code))) return "not found";
+      const link = await this.joinLink(code);
+      if (link !== "joins") return link;
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
       try {
         await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
@@ -595,6 +672,15 @@ export class Workspace extends DurableObject<Env> {
     return emailAddress === null ? null : this.store.passwordFor(emailAddress);
   }
 
+  /**
+   * Counts a sign-in with Memberful from `ip` against the same limit, before Memberful is asked anything:
+   * "limited" past it, or else when it began by the Workspace's clock, which what Memberful then says of
+   * the membership of whoever signed in is no older than.
+   */
+  async beginMemberfulSignIn(ip: string): Promise<"limited" | number> {
+    return this.signInAttempts.attempt(ip) ? Date.now() : "limited";
+  }
+
   /** Whose password `emailAddress` signs in with, and its digest as kept now, for a sign-in that found the one it checked replaced. */
   passwordKept(emailAddress: string): Promise<{ userId: UserId; passwordDigest: string } | null> {
     return this.store.passwordFor(emailAddress);
@@ -612,12 +698,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
-   * active since, or their password has been reset while it was checked.
+   * active since, or their password has been reset while it was checked. While members sign in with
+   * Memberful, only administrators sign in with a password, and anyone else hears "memberful", which
+   * only someone who knows their password can, so it says nothing about who has an account.
    */
-  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | null> {
-    // On D1 a role change can overlap it, so it's remembered only if none did.
+  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | "memberful" | null> {
+    const administratorsOnly = (await this.joinableAccount())?.memberfulSignIn ?? false;
+    if (administratorsOnly && !(await this.store.isAdministrator(userId))) return "memberful";
+    // On D1 a role change can overlap it, so it's remembered only if none did, and the session starts
+    // only if they're an administrator still, when only administrators may sign in with a password.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startSession(userId, passwordDigest, rehash, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startSession(userId, passwordDigest, rehash, administratorsOnly, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -636,12 +727,147 @@ export class Workspace extends DurableObject<Env> {
     return session && meOf(session);
   }
 
-  /** Adds someone who signs in with just a name, and the session their cookie's token opens. */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me> {
-    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
-    await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
-    this.sessions.remember(tokenDigest, session);
-    return meOf(session);
+  /**
+   * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
+   * members sign in with Memberful, which answers "memberful".
+   */
+  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful"> {
+    // One at a time, as joining is, so that none can overlap turning Memberful sign-in on.
+    return this.oneAtATime(async () => {
+      if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
+      await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+      this.sessions.remember(tokenDigest, session);
+      return meOf(session);
+    });
+  }
+
+  /**
+   * Signs in `member`, who signed in to the Memberful site `issuer`, with the session their cookie's
+   * token opens: as the person their Memberful account is linked to, or else as someone new, a member in
+   * every open room, linked to it, as joining adds someone. Accounts are linked by the site and the
+   * member's id there, never matched by email address. What Memberful said of their membership, as of
+   * `readAt`, is gone by as a check's is (`settleMembership`), unless the Workspace has gone by a newer
+   * read: a member whose membership has lapsed is suspended, their sessions elsewhere ending, and one whose
+   * membership is renewed is let back. Answers "off" unless members sign in with Memberful, "refused" for
+   * someone linked who has been removed or banned, "membership" for anyone but an administrator without
+   * an active membership, and "taken" when someone here has the email address someone new would have,
+   * which creates nothing.
+   */
+  async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
+    // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
+    // Memberful sign-in off, or a check of the same membership, and a suspension closes the sockets it
+    // ends before answering.
+    return this.closingSockets(async () => {
+      if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
+      const linked = await this.store.linkedPerson(issuer, member.id);
+      if (linked) {
+        if (linked.status === "deactivated" || linked.status === "banned") return "refused";
+        if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
+        // On D1 a role change can overlap it, so it's remembered only if none did.
+        const session = await this.sessions.keep(tokenDigest, () =>
+          this.store.startLinkedSession(linked.userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+        );
+        return session ? meOf(session) : "refused";
+      }
+      if (!member.subscribed) return "membership";
+      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: member.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+      const person = { ...session.user, emailAddress: member.emailAddress };
+      try {
+        await this.store.createLinkedMember(person, issuer, member.id, readAt, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+      } catch (error) {
+        if (member.emailAddress !== null && (await this.store.hasEmailAddress(member.emailAddress))) return "taken";
+        throw error;
+      }
+      this.sessions.remember(tokenDigest, session);
+      return meOf(session);
+    });
+  }
+
+  /**
+   * Queues checking the membership of the account with `subject` at the Memberful site `issuer` with its
+   * admin API, as the site's webhook says it changed, if it's linked to a member whose membership counts,
+   * while members sign in with Memberful (`auth.memberful-memberships`). The alarm checks it.
+   */
+  async queueMembershipCheck(issuer: string, subject: string): Promise<void> {
+    if (!(await this.joinableAccount())?.memberfulSignIn) return;
+    const now = Date.now();
+    await this.store.queueMembershipCheck(issuer, subject, now, now + MEMBERSHIP_CATCH_UP_MS);
+    await this.scheduleDelivery();
+  }
+
+  /**
+   * Makes the daily check of every membership at the deployment's Memberful site due by `dueAt`, if it
+   * can ask the site's admin API, and sets the alarm for it.
+   */
+  private async keepCatchingUp(dueAt: number): Promise<void> {
+    const api = memberfulApiOf(this.env);
+    if (!api) return;
+    await this.store.scheduleMembershipCatchUp(api.site, dueAt);
+    await this.wakeAt(dueAt);
+  }
+
+  /**
+   * Goes by what Memberful said of the membership of `linked`, the person their account with `subject` at
+   * the Memberful site `issuer` is linked to, as read at `readAt`, unless the Workspace has gone by a newer
+   * read: suspends a member whose membership has lapsed (`suspendLapsed`), lets back one whose membership
+   * is renewed (`restoreRenewed`), or else records the read. Administrators are let in whatever their
+   * membership, and someone removed or banned stays so. Answers their status then. One change at a time.
+   */
+  private async settleMembership(issuer: string, subject: string, linked: LinkedPerson, subscribed: boolean, readAt: number): Promise<UserStatus> {
+    if (linked.checkedAt > readAt) return linked.status;
+    const change = membershipChange(linked, subscribed);
+    if (change === "lapsed") {
+      await this.suspendLapsed(linked.userId, issuer, subject, readAt);
+      return "suspended";
+    }
+    if (change === "renewed") {
+      await this.restoreRenewed(linked.userId, issuer, subject, readAt);
+      return "active";
+    }
+    await this.store.stampMemberships(issuer, [subject], readAt);
+    return linked.status;
+  }
+
+  /**
+   * Suspends the active member `userId`, whose membership has lapsed, as their account with `subject` at
+   * the Memberful site `issuer` was read at `readAt` (`auth.memberful-memberships`): all their sessions
+   * end, and their sockets close for good, here at once and in every room they're in through the outbox,
+   * as removing them closes them, but they stay in their rooms, for when it's renewed. Everyone's
+   * workspace sockets hear of it.
+   */
+  private async suspendLapsed(userId: UserId, issuer: string, subject: string, readAt: number): Promise<void> {
+    const now = Date.now();
+    // As when removing someone, until the database says it queued nothing.
+    let queued = true;
+    try {
+      queued = await this.sessions.change(
+        (session) => session.user.id === userId,
+        () => this.store.suspendPerson(userId, issuer, subject, readAt, CloseCode.Revoked, now, new Date(now).toISOString()),
+      );
+    } finally {
+      // Whether or not it saved: the app connects them again if they're still signed in.
+      this.closeSockets(userId, CloseCode.Revoked);
+      if (queued) await this.revocationsQueued(now);
+    }
+    await this.publishPerson(userId);
+  }
+
+  /**
+   * Lets back the suspended member `userId`, whose membership is renewed, as their account with `subject`
+   * at the Memberful site `issuer` was read at `readAt`, to sign in again, to the rooms they were in and
+   * every open room. Everyone's workspace sockets hear of it.
+   */
+  private async restoreRenewed(userId: UserId, issuer: string, subject: string, readAt: number): Promise<void> {
+    await this.store.restorePerson(userId, issuer, subject, readAt, new Date().toISOString());
+    await this.publishPerson(userId);
+  }
+
+  /** Tells every workspace socket of `userId` as the people directory now lists them. */
+  private async publishPerson(userId: UserId): Promise<void> {
+    const person = await this.store.person(userId);
+    if (person) this.broadcast({ type: "user.updated", user: await this.directoryUser(person) });
   }
 
   /**
@@ -993,19 +1219,20 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Removes the active person `userId` from the workspace as the person `credentials` signs in, as
-   * ember-rust's `accounts/users#destroy` does (`User#deactivate`, user.rs), answering them as the people
-   * directory then lists them: "forbidden" unless that's an administrator, "not found" unless `userId`
-   * is someone active, or null without a valid session. Unlike ember-rust, which leaves it to the page,
-   * nobody can remove themselves ("yourself"), so there's always an administrator. All their sessions
-   * end, and their sockets close for good: here at once, and in every room they're in through the
-   * outbox. Everyone's workspace sockets hear of it.
+   * ember-rust's `accounts/users#destroy` does (`User#deactivate`, user.rs), or someone suspended for
+   * their membership's lapsing, answering them as the people directory then lists them: "forbidden"
+   * unless that's an administrator, "not found" unless `userId` is someone active or suspended, or null
+   * without a valid session. Unlike ember-rust, which leaves it to the page, nobody can remove
+   * themselves ("yourself"), so there's always an administrator. All their sessions end, and their
+   * sockets close for good: here at once, and in every room they're in through the outbox. Everyone's
+   * workspace sockets hear of it.
    */
   async removePerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | "yourself" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = await this.store.activePerson(userId);
+      const person = await this.store.removablePerson(userId);
       if (!person) return "not found";
       if (userId === user.id) return "yourself";
       return this.deactivate(person);
@@ -1013,9 +1240,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Deactivates someone active, as ember-rust's `User#deactivate` does (user.rs), answering them as the
-   * people directory then lists them. All their sessions end, and their sockets close for good: here at
-   * once, and in every room they're in through the outbox. Everyone's workspace sockets hear of it.
+   * Deactivates someone active or suspended, as ember-rust's `User#deactivate` does (user.rs), answering
+   * them as the people directory then lists them. All their sessions end, and their sockets close for
+   * good: here at once, and in every room they're in through the outbox. Everyone's workspace sockets
+   * hear of it.
    */
   private async deactivate({ id, name, bio, role }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
@@ -1671,15 +1899,61 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, and sets
-   * the alarm for whatever is due next.
+   * Delivers what's due in the outbox, at most `DELIVERIES_PER_RUN` rows, revocations first, then checks
+   * the memberships due, and sets the alarm for whatever is due next.
    */
   override async alarm(): Promise<void> {
     const revocations = await this.deliverRevocations((now) => this.store.dueRevocations(now, DELIVERIES_PER_RUN));
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+    await this.checkMemberships();
     await this.scheduleDelivery();
+  }
+
+  /**
+   * Checks the memberships due with the Memberful site's admin API (`auth.memberful-memberships`), having
+   * queued everyone's if the daily catch-up is due, as many as one request asks after, and goes by what it
+   * says, as a sign-in goes by what it reads (`settleMembership`). A check Memberful failed to answer
+   * before is asked alone, so that a member it can't answer for holds up nobody else, and one it fails to
+   * answer now is put off, as a revocation is. While members don't sign in with Memberful, or the
+   * deployment can't ask its admin API, nothing is checked, and whatever was queued is forgotten, and
+   * once it's turned off, what Memberful answers changes nobody.
+   */
+  private async checkMemberships(): Promise<void> {
+    const api = (await this.joinableAccount())?.memberfulSignIn ? memberfulApiOf(this.env) : null;
+    const now = Date.now();
+    const due = await this.store.dueMembershipChecks(api?.site ?? null, now, now + MEMBERSHIP_CATCH_UP_MS, MEMBERSHIPS_PER_CHECK);
+    if (!api || due.length === 0) return;
+    const checks = due[0]!.attempts > 0 ? due.slice(0, 1) : due.filter(({ attempts }) => attempts === 0);
+    const subjects = checks.map(({ subject }) => subject);
+    const readAt = Date.now();
+    const memberships = await membershipsOf(api, subjects);
+    if (memberships) {
+      await this.oneAtATime(async () => {
+        // Turning it off waits its turn too, so this sees it if it came while Memberful answered.
+        if ((await this.joinableAccount())?.memberfulSignIn) await this.applyMemberships(api.site, memberships, readAt);
+      });
+    }
+    await this.store.settleMembershipChecks(api.site, subjects, memberships ? readAt : null, Date.now());
+  }
+
+  /**
+   * Goes by what Memberful said of each membership in `memberships`, by the subject of its account at the
+   * Memberful site `issuer`, as read at `readAt`, as `settleMembership` does, recording all the reads that
+   * change nothing at once.
+   */
+  private async applyMemberships(issuer: string, memberships: Map<string, boolean>, readAt: number): Promise<void> {
+    const unchanged: string[] = [];
+    for (const [subject, linked] of await this.store.linkedPeople(issuer, [...memberships.keys()])) {
+      // The Workspace has gone by a newer read.
+      if (linked.checkedAt > readAt) continue;
+      const change = membershipChange(linked, memberships.get(subject)!);
+      if (change === "lapsed") await this.suspendLapsed(linked.userId, issuer, subject, readAt);
+      else if (change === "renewed") await this.restoreRenewed(linked.userId, issuer, subject, readAt);
+      else unchanged.push(subject);
+    }
+    await this.store.stampMemberships(issuer, unchanged, readAt);
   }
 
   /**
@@ -1789,6 +2063,17 @@ export class Workspace extends DurableObject<Env> {
       console.error("Could not delete pictures from R2; trying again later", error);
       await this.store.settlePictureDeletions([], due, Date.now());
     }
+  }
+
+  /**
+   * Sets the alarm for the outbox's next delivery due, as the Workspace starts, having made the daily
+   * check of memberships due at once if members sign in with Memberful and none is due, as when the
+   * deployment has only just been given the admin API's key (`auth.memberful-memberships`).
+   */
+  private async resumeDeliveries(): Promise<void> {
+    const api = memberfulApiOf(this.env);
+    if (api && (await this.joinableAccount())?.memberfulSignIn) await this.store.startMembershipCatchUp(api.site, Date.now());
+    await this.scheduleDelivery();
   }
 
   /** Sets the alarm for the outbox's next delivery due, if any is waiting. */

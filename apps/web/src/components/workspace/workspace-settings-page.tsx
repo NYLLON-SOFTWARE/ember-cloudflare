@@ -31,6 +31,7 @@ import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { InviteLink } from "./invite-link";
+import { MemberfulSettings } from "./memberful-settings";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
@@ -72,12 +73,12 @@ interface Props {
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators change
  * the workspace's logo, which a logo picked saves at once, showing it meanwhile, and Remove logo takes
- * away, rename the workspace, show or hide the translation buttons, give it a custom domain, this port's
- * own, and have a link to the Custom CSS page, and members see its logo and name. Then comes the Rooms section with New room, which members
+ * away, rename the workspace, show or hide the translation buttons, give it a custom domain and turn on
+ * Memberful sign-in, this port's own, and have a link to the Custom CSS page, and members see its logo and name. Then comes the Rooms section with New room, which members
  * don't get while only administrators can create rooms, and where administrators switch that on or off
- * and put the rooms in order for everyone. Then the join link, which administrators can regenerate, the
- * people, whom administrators can make administrators or members and remove, and "Ember™ version" at
- * the foot.
+ * and put the rooms in order for everyone. Then the join link, which administrators can regenerate, or
+ * while members sign in with Memberful, a note that it's off, the people, whom administrators can make
+ * administrators or members and remove, and "Ember™ version" at the foot.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -100,9 +101,11 @@ export function WorkspaceSettingsPage({
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  // Where the Hide translation buttons switch was moved to, while that's saved, and Must be admin to create new rooms.
+  // Where the Hide translation buttons switch was moved to, while that's saved, and Must be admin to create new
+  // rooms, and Members sign in with Memberful.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
+  const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
   const account = useAccount();
   const people = useContext(PeopleContext);
   // The people as they are now, for answers that come later.
@@ -220,6 +223,11 @@ export function WorkspaceSettingsPage({
     if (restrictingCreation !== null) return;
     setRestrictingCreation(restrict);
     saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
+  };
+  const switchMemberful = (on: boolean) => {
+    if (switchingMemberful !== null) return;
+    setSwitchingMemberful(on);
+    saveSwitch({ memberfulSignIn: on }, () => setSwitchingMemberful(null));
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
@@ -340,6 +348,12 @@ export function WorkspaceSettingsPage({
                 />
               </div>
               <CustomDomainSettings askForAccount={askForAccount} onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} />
+              <MemberfulSettings
+                site={settings.memberfulSite}
+                webhooks={settings.memberfulWebhooks}
+                checked={switchingMemberful ?? account.memberfulSignIn}
+                onCheckedChange={switchMemberful}
+              />
             </>
           ) : (
             <>
@@ -384,7 +398,13 @@ export function WorkspaceSettingsPage({
         {/* ember-rust's box holds the people too, under the link (accounts/edit.html). */}
         {settings && (
           <div className="my-4 rounded-[10px] border bg-surface px-[1ch] pt-4">
-            <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+            {account.memberfulSignIn ? (
+              <p className="text-start">
+                <strong>Members sign in with Memberful</strong>, so the join link is off.
+              </p>
+            ) : (
+              <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+            )}
             <hr className="my-4 w-full" />
             <h2 id="people-heading" className="mb-3 text-base font-semibold">
               People

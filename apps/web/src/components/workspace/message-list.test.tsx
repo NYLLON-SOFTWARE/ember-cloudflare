@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
 import { initialRoomState, type RoomState } from "@/lib/room-state";
 import { MessageList } from "./message-list";
 
@@ -332,6 +333,15 @@ describe(feature("rooms.invitation-card"), () => {
   it("shows no card in other rooms", () => {
     render(list({ messages: [], paged: false }));
     expect(card()).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  it("shows no welcome card while members sign in with Memberful, since its join link is off", () => {
+    const account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: true };
+    render(<AccountContext value={account}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>);
+    expect(screen.queryByRole("heading", { name: "Welcome to Ember" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
   });
 });

@@ -13,7 +13,9 @@ import { AvatarLink } from "./user-avatar";
 // bots by name, administrators first, with a rule before the members when there are both, each avatar
 // linking to the person's page, and your own row to your profile. Administrators also see who's banned,
 // dimmed under Campfire's cancel mark (avatars.css), and on each active person's row a crown that makes
-// them an administrator or a member again, and, but on their own, Delete, which removes them.
+// them an administrator or a member again, and, but on their own, Delete, which removes them. They see
+// members suspended for their Memberful membership's lapsing too (`auth.memberful-memberships`), which
+// ember-rust has no need of, dimmed and said to be so, with Delete.
 
 /** What ember-rust's Delete asks before removing someone (accounts/users/_user.html). */
 export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
@@ -30,9 +32,12 @@ interface Props {
   "aria-labelledby"?: string;
 }
 
-/** Who's listed, administrators then members, as an administrator or a member sees them (presenters/accounts.rs). */
+/**
+ * Who's listed, administrators then members, as an administrator or a member sees them
+ * (presenters/accounts.rs): everyone active, and for administrators, everyone banned or suspended too.
+ */
 function groupsOf(people: People, administrator: boolean): [DirectoryUser[], DirectoryUser[]] {
-  const listed = byName([...people.values()].filter((person) => person.status === "active" || (administrator && person.status === "banned")));
+  const listed = byName([...people.values()].filter((person) => person.status === "active" || (administrator && person.status !== "deactivated")));
   return [listed.filter((person) => person.role === "administrator"), listed.filter((person) => person.role === "member")];
 }
 
@@ -69,11 +74,13 @@ export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelle
 
   const row = (person: DirectoryUser) => {
     const banned = person.status === "banned";
+    const suspended = person.status === "suspended";
     const mine = person.id === myId;
     const role = changing.get(person.id) ?? person.role;
     return (
-      <ListRow key={person.id} figure={<Avatar person={person} banned={banned} />} name={person.name}>
-        {onChangeRole && !banned && (
+      <ListRow key={person.id} figure={<Avatar person={person} banned={banned} dimmed={banned || suspended} />} name={person.name}>
+        {suspended && <span className="shrink-0 text-[0.8em] text-muted-foreground">Membership lapsed</span>}
+        {onChangeRole && person.status === "active" && (
           <RoleCrown
             administrator={role === "administrator"}
             mine={mine}
@@ -96,11 +103,11 @@ export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelle
 }
 
 /**
- * Someone's avatar, linking to their page, as ember-rust's lists draw it at 3.75ch, dimmed under a cancel
- * mark when they're banned, which taps go through.
+ * Someone's avatar, linking to their page, as ember-rust's lists draw it at 3.75ch, dimmed when they
+ * can't sign in, and under a cancel mark when they're banned, which taps go through.
  */
-function Avatar({ person, banned }: { person: DirectoryUser; banned: boolean }) {
-  const avatar = <AvatarLink user={person} className={cn("size-[3.75ch]", banned && "[&>img]:opacity-50")} lazy />;
+function Avatar({ person, banned, dimmed }: { person: DirectoryUser; banned: boolean; dimmed: boolean }) {
+  const avatar = <AvatarLink user={person} className={cn("size-[3.75ch]", dimmed && "[&>img]:opacity-50")} lazy />;
   if (!banned) return avatar;
   return (
     <span className="relative grid shrink-0">
