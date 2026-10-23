@@ -1524,5 +1524,35 @@ describe(feature("auth.memberful-connect"), () => {
       expect(locationOf(await finish(started))).toBe(backToSignIn("refused"));
       expect(await identities()).toEqual([]);
     });
+
+    it("starts at Ember's custom domain, where Memberful sends the browser back, and goes there from a tab left open elsewhere", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      const used = await apiWith({}, "https://chat.example.com/api/account", {
+        method: "PATCH",
+        headers: as(administrator),
+        body: JSON.stringify({ customDomain: "chat.example.com" }),
+      });
+      expect(used.status).toBe(200);
+
+      // From her profile, or as she signs in, at the address Ember has moved from, it keeps nothing.
+      const fromProfile = await connect(member, { currentPassword: grace.password });
+      expect(fromProfile.status).toBe(202);
+      expect(await fromProfile.json()).toEqual({ memberfulConnection: "https://chat.example.com/users/me/profile" });
+      expect(fromProfile.headers.get("Set-Cookie")).toBeNull();
+      expect(fromProfile.headers.get("Cache-Control")).toBe("no-store");
+      const atSignIn = await signInWithPasswordToConnect(grace, "/rooms/abc?tab=pins");
+      expect(atSignIn.status).toBe(202);
+      expect(await atSignIn.json()).toEqual({ memberfulConnection: "https://chat.example.com/rooms/abc?tab=pins" });
+      expect(atSignIn.headers.get("Set-Cookie")).toBeNull();
+      expect(await count("pending_identities")).toBe(0);
+
+      const there = await apiWith(KEYS, `https://chat.example.com${MEMBERFUL_CONNECTIONS_PATH}`, {
+        method: "POST",
+        headers: { ...as(member), "CF-Connecting-IP": IP },
+        body: JSON.stringify({ currentPassword: grace.password }),
+      });
+      expect((await connectionOf(there)).cookie).toMatch(/^__Host-memberful_state=/);
+      expect(await count("pending_identities")).toBe(1);
+    });
   });
 });

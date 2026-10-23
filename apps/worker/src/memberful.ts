@@ -135,6 +135,8 @@ export async function startMemberfulSignIn(request: Request, env: Env): Promise<
  * (`auth.memberful-connect`), to come back to the page `returnTo` names: where to sign in there, and the
  * `Set-Cookie` that keeps the state it goes with, whose digest the Workspace keeps for the callback. Null
  * unless the deployment has Memberful's keys and the Workspace kept it (`startMemberfulConnection`).
+ * Asked at an address Ember has moved from to its custom domain, as a tab left open there is, it starts
+ * nothing, and answers that page at the custom domain instead, to sign in and connect there.
  */
 export async function memberfulConnectionFor(
   request: Request,
@@ -142,12 +144,16 @@ export async function memberfulConnectionFor(
   userId: UserId,
   passwordDigest: string,
   returnTo: unknown,
-): Promise<{ connection: MemberfulConnection; cookie: string } | null> {
+): Promise<{ connection: MemberfulConnection; cookie: string | null } | null> {
   const keys = memberfulKeysOf(env);
   if (!keys) return null;
+  const url = new URL(request.url);
+  const returnPath = returnPathOf(typeof returnTo === "string" ? returnTo : null, url.origin);
+  // Memberful sends the browser back to the custom domain, which a cookie kept here is never sent to.
+  const origin = originFor(request, (await workspace(env).account())?.customDomain ?? null);
+  if (origin !== url.origin) return { connection: { memberfulConnection: new URL(returnPath, origin).href }, cookie: null };
   const state = newSessionToken();
   if (!(await workspace(env).startMemberfulConnection(userId, passwordDigest, await tokenDigest(state, env.SESSION_SECRET), keys.site))) return null;
-  const returnPath = returnPathOf(typeof returnTo === "string" ? returnTo : null, new URL(request.url).origin);
   return { connection: { memberfulConnection: authorizationOf(keys, state) }, cookie: stateCookie(request, state, returnPath, true) };
 }
 

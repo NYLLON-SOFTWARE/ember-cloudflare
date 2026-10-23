@@ -623,7 +623,9 @@ export interface MemberfulConnectionStart {
  * Where to sign in at the Memberful site, within ten minutes, to connect the account you sign in to there
  * to yours here (`auth.memberful-connect`): what connecting from your profile answers, and what signing in
  * with a password answers a member whose password checks out while members sign in with Memberful, until
- * they've connected one. Memberful sends the browser back, which connects it.
+ * they've connected one. Memberful sends the browser back, which connects it. Asked at an address Ember
+ * has moved from to its custom domain (`accounts.custom-domain`), where Memberful doesn't send it back, it's
+ * the page to come back to at the custom domain instead, to sign in and connect there.
  */
 export interface MemberfulConnection {
   memberfulConnection: string;

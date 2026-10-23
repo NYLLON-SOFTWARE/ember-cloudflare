@@ -494,9 +494,12 @@ async function connectMemberful(request: Request, env: Env): Promise<Response> {
   return connecting ? connectionAnswer(connecting) : problem(409, "Connecting Memberful didn't start. Try again.");
 }
 
-/** Sends the browser on to sign in at the Memberful site to connect an account there, with the cookie that keeps the state it goes with, which no cache should keep. */
-const connectionAnswer = ({ connection, cookie }: { connection: MemberfulConnection; cookie: string }) =>
-  json(connection, { status: 202, headers: { "Set-Cookie": cookie, "Cache-Control": "no-store" } });
+/**
+ * Sends the browser on to sign in at the Memberful site to connect an account there, with the cookie that
+ * keeps the state it goes with, or on to Ember's custom domain to connect from there, which no cache should keep.
+ */
+const connectionAnswer = ({ connection, cookie }: { connection: MemberfulConnection; cookie: string | null }) =>
+  json(connection, { status: 202, headers: { ...(cookie === null ? {} : { "Set-Cookie": cookie }), "Cache-Control": "no-store" } });
 
 /**
  * Gives you the avatar the form brings, as ember-rust's profile form saves `user[avatar]` as soon as
