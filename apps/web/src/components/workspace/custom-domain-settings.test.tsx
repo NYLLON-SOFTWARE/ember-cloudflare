@@ -7,7 +7,7 @@ import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type Accou
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
-import { CustomDomainSettings, WORKERS_DASHBOARD, workerSettings } from "./custom-domain-settings";
+import { CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
 
 /** The test environment's jsdom, whose address the section reads as the page's. */
 declare const jsdom: { reconfigure(options: { url: string }): void };
@@ -92,13 +92,13 @@ describe(feature("accounts.custom-domain"), () => {
     await user.click(screen.getByRole("button", { name: "Set up" }));
     const steps = screen.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
     const [cloudflare, check, ember] = within(steps).getAllByRole("listitem");
-    // The Worker's workers.dev address names it, so the dashboard opens at its settings.
+    // The Worker's workers.dev address names it, so the dashboard opens at its Domains tab.
     expect(cloudflare).toHaveTextContent(
-      "In the Cloudflare dashboard, open the settings of ember, the Worker that runs Ember. Under Domains & Routes, choose Add, then Custom domain, and enter chat.example.com.",
+      "In the Cloudflare dashboard, open the Domains tab of ember, the Worker that runs Ember. Under Custom Domains and Routes, choose Add Domain and enter chat.example.com.",
     );
-    expect(within(cloudflare!).getByRole("link", { name: "Open ember's settings" })).toHaveAttribute(
+    expect(within(cloudflare!).getByRole("link", { name: "Open ember's domains" })).toHaveAttribute(
       "href",
-      "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/settings",
+      "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/domains",
     );
     expect(check).toHaveTextContent("Check that chat.example.com reaches Ember.");
     expect(within(check!).getByRole("button", { name: "Check DNS" })).toBeEnabled();
@@ -136,7 +136,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(screen.getByRole("link", { name: "http://chat.localhost:8787/account/edit" })).toBeInTheDocument();
     // No workers.dev address names the Worker here, so the dashboard opens at the list of Workers.
     const [cloudflare] = screen.getAllByRole("listitem");
-    expect(cloudflare).toHaveTextContent("In the Cloudflare dashboard, open Workers & Pages and choose this Worker. Under Settings, Domains & Routes, choose Add, then Custom domain");
+    expect(cloudflare).toHaveTextContent("In the Cloudflare dashboard, open Workers & Pages, choose this Worker and open its Domains tab. Under Custom Domains and Routes, choose Add Domain");
     expect(within(cloudflare!).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", WORKERS_DASHBOARD);
   });
 
@@ -145,7 +145,7 @@ describe(feature("accounts.custom-domain"), () => {
     const { user, onFailed } = showSection(settingsAt("ember-production.nyllon.workers.dev"));
     await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
     await user.click(screen.getByRole("button", { name: "Set up" }));
-    expect(screen.getByRole("link", { name: "Open ember-production's settings" })).toHaveAttribute("href", workerSettings("ember-production"));
+    expect(screen.getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
     const check = screen.getByRole("button", { name: "Check DNS" });
     const status = screen.getByRole("status");
     expect(status).toHaveTextContent(/^$/);

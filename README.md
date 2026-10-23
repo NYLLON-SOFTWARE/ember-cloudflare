@@ -186,11 +186,11 @@ Ember answers at its workers.dev address until an administrator gives it one of 
 Custom domain in Workspace settings, which walks them through it:
 
 1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
-   Worker: Workers & Pages, the Worker, Settings, Domains & Routes, Add, Custom domain. At the
-   workers.dev address the step names the Worker and links straight to its settings. Its domain must
-   be on Cloudflare, in the account that runs the Worker; Cloudflare makes the DNS record and the
-   certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a domain
-   to the Worker can also deploy new code to it.
+   Worker: Workers & Pages, the Worker, Domains, Add Domain. At the workers.dev address the step names
+   the Worker and links straight to its Domains tab. Its domain must be on Cloudflare, in the account
+   that runs the Worker; Cloudflare makes the DNS record and the certificate. Ember holds no Cloudflare
+   token to do this itself, since a token that can add a domain to the Worker can also deploy new code
+   to it.
 2. Check DNS, which asks the domain from the Worker for a one-time probe only this Ember answers, and
    says whether it reaches Ember, something else answers there, or nothing does yet.
 3. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
