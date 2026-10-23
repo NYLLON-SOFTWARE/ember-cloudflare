@@ -2,6 +2,7 @@ import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { webPush } from "./push/keys";
 import { carriesRecoveryToken } from "./recovery";
+import { urlOf } from "./request-url";
 import { workspace } from "./workspace";
 
 // ember-rust's /up (Rails::HealthController, `health::show` in crates/ember/src/controllers.rs),
@@ -44,7 +45,7 @@ function acceptedFormat(accept: string): Format | null {
  * Accept header that wants JSON, and 406 for any other format, as Rails does.
  */
 export function up(request: Request): Response {
-  const extension = UP_PATH.exec(new URL(request.url).pathname)?.[1];
+  const extension = UP_PATH.exec(urlOf(request).pathname)?.[1];
   const accept = request.headers.get("Accept")?.trim() ?? "";
   const format = extension === undefined ? acceptedFormat(accept) : extension === "html" || extension === "json" ? extension : null;
   if (!format) return new Response(null, { status: 406 });

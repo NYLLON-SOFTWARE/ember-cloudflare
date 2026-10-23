@@ -4,6 +4,7 @@ import { jsonBodyOf } from "./bodies";
 import { toBase64url } from "./encoding";
 import { guestSignIn, type Env } from "./env";
 import { notFound } from "./error-pages";
+import { hmacKey } from "./hmac";
 import { appPage, empty, formAnswer } from "./pages";
 import { workspace } from "./workspace";
 
@@ -33,8 +34,7 @@ const encoder = new TextEncoder();
 
 /** What signs `transfer`'s link that expires at `expiresAt`: its HMAC under `secret`, as base64url. */
 async function signatureOf({ userId, sessionId }: Transfer, expiresAt: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signed = await crypto.subtle.sign("HMAC", key, encoder.encode(JSON.stringify(["transfer", userId, sessionId, expiresAt])));
+  const signed = await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(JSON.stringify(["transfer", userId, sessionId, expiresAt])));
   return toBase64url(new Uint8Array(signed));
 }
 

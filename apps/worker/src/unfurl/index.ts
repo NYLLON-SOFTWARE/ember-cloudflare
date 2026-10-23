@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import { credentialsOf } from "../auth";
 import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
+import { urlOf } from "../request-url";
 import { workspace } from "../workspace";
 import { Outbound, type Network } from "./fetch";
 import { resolveOverHttps } from "./guard";
@@ -84,5 +85,5 @@ function requiredUrl(body: unknown): unknown {
 /** Whether `url` is on this Ember's own host, which the app never shows a preview of. */
 function isOwnHost(url: string, request: Request): boolean {
   const host = parseHttpUri(url)?.host.toLowerCase().replace(/\.$/, "");
-  return host === new URL(request.url).hostname;
+  return host === urlOf(request).hostname;
 }

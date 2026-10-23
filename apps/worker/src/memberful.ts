@@ -15,6 +15,7 @@ import type { Env } from "./env";
 import { notFound } from "./error-pages";
 import { isSubject, memberfulApiOf, memberfulKeysOf, memberWhoSignedIn, type MemberfulApi, type MemberfulKeys } from "./memberful-api";
 import { home, withCookies } from "./pages";
+import { urlOf } from "./request-url";
 import { isToken } from "./secrets";
 import { MEMBERFUL_ROUND_TRIP_MS, workspace } from "./workspace";
 
@@ -102,7 +103,7 @@ function keptStateOf(request: Request): { state: string; returnPath: string; con
   const bytes = encoded === undefined ? null : urlsafeDecode64(encoded);
   if (!state || !bytes) return null;
   try {
-    return { state, returnPath: returnPathOf(decoder.decode(bytes), new URL(request.url).origin), connecting: connecting === CONNECTING };
+    return { state, returnPath: returnPathOf(decoder.decode(bytes), urlOf(request).origin), connecting: connecting === CONNECTING };
   } catch {
     return null;
   }
@@ -121,7 +122,7 @@ export async function startMemberfulSignIn(request: Request, env: Env): Promise<
   if (!account.memberfulSignIn) return backToSignIn(request, "off");
   const keys = memberfulKeysOf(env);
   if (!keys) return backToSignIn(request, "unavailable");
-  const url = new URL(request.url);
+  const url = urlOf(request);
   // The cookie is only sent back to the address that set it.
   const origin = originFor(request, account.customDomain);
   if (origin !== url.origin) return redirect(new URL(`${url.pathname}${url.search}`, origin).href);
@@ -147,7 +148,7 @@ export async function memberfulConnectionFor(
 ): Promise<{ connection: MemberfulConnection; cookie: string | null } | null> {
   const keys = memberfulKeysOf(env);
   if (!keys) return null;
-  const url = new URL(request.url);
+  const url = urlOf(request);
   const returnPath = returnPathOf(typeof returnTo === "string" ? returnTo : null, url.origin);
   // Memberful sends the browser back to the custom domain, which a cookie kept here is never sent to.
   const origin = originFor(request, (await workspace(env).account())?.customDomain ?? null);
@@ -174,7 +175,7 @@ export async function finishMemberfulSignIn(request: Request, env: Env): Promise
 async function signedInWithMemberful(request: Request, env: Env): Promise<Response> {
   const keys = memberfulKeysOf(env);
   if (!keys) return backToSignIn(request, "unavailable");
-  const params = new URL(request.url).searchParams;
+  const params = urlOf(request).searchParams;
   const [kept, state, code] = [keptStateOf(request), params.get("state"), params.get("code")];
   // A state this browser didn't start with, as another site's link to the callback would bring, signs
   // nobody in and connects nothing, nor does a callback without a code.

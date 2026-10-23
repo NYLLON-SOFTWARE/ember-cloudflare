@@ -218,7 +218,7 @@ function backendSection(backend: Results["backend"]): string[] {
       "",
       "### Search",
       "",
-      `${num(messages)} messages written in each of ${rooms} rooms at once, then searched for by someone in all of them. Catch-up is the last of them being acknowledged until a search finds it. New message is a message in a quiet room being acknowledged until a search finds it, searching every 10 ms. Then each search is timed alone: common is a word in a quarter of the messages, whose newest 100 are read from every room, rare a word in one message in each room, and none a word in no message.`,
+      `${num(messages)} messages written in each of ${rooms} rooms at once, then searched for by someone in all of them. Catch-up is the last of them being acknowledged until a search finds it. New message is a message in a quiet room being acknowledged until a search finds it, searching every 10 ms. Then each search is timed alone: common is a word in a quarter of the messages, whose newest 100 come from every room, rare a word in one message in each room, and none a word in no message.`,
       "",
     );
     out.push(

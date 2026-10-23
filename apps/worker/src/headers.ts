@@ -3,6 +3,7 @@ import { contentSecurityPolicy } from "./csp";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
 import { isLoopback } from "./loopback";
+import { urlOf } from "./request-url";
 import { versionOf } from "./version";
 
 // What ember-rust adds around everything its app answers, for every answer the Worker makes: Rails'
@@ -13,13 +14,13 @@ import { versionOf } from "./version";
 // none of them, as ember-rust's public files come without the first two.
 
 /** `config.action_dispatch.default_headers`, as Rails 7.1 sets them. */
-const DEFAULT_HEADERS: Record<string, string> = {
-  "X-Frame-Options": "SAMEORIGIN",
-  "X-XSS-Protection": "0",
-  "X-Content-Type-Options": "nosniff",
-  "X-Permitted-Cross-Domain-Policies": "none",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
-};
+const DEFAULT_HEADERS: [string, string][] = [
+  ["X-Frame-Options", "SAMEORIGIN"],
+  ["X-XSS-Protection", "0"],
+  ["X-Content-Type-Options", "nosniff"],
+  ["X-Permitted-Cross-Domain-Policies", "none"],
+  ["Referrer-Policy", "strict-origin-when-cross-origin"],
+];
 
 /**
  * `ssl_options = { hsts: { subdomains: true } }`, but for its subdomains: two years. A custom domain
@@ -29,7 +30,7 @@ const DEFAULT_HEADERS: Record<string, string> = {
 const HSTS = "max-age=63072000";
 
 /** Whether the request came to localhost or a loopback address, where `wrangler dev` serves and nobody on the Internet can reach. */
-export const isLoopbackHost = (request: Request) => isLoopback(new URL(request.url));
+export const isLoopbackHost = (request: Request) => isLoopback(urlOf(request));
 
 /**
  * Whether the request's host has to be reached over HTTPS, as ember-rust's `force_ssl` makes every
@@ -44,7 +45,7 @@ export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.t
  * with Thruster's redirect: 301, with a link to follow when it's a GET.
  */
 export function redirectToHttps(request: Request): Response {
-  const { hostname, pathname, search } = new URL(request.url);
+  const { hostname, pathname, search } = urlOf(request);
   const headers = new Headers();
   const location = `https://${hostname}${pathname}${search}`;
   headers.set("Location", location);
@@ -72,9 +73,8 @@ interface Additions {
  */
 export function withHeaders(response: Response, request: Request, env: Env, { version, policy = true }: Additions): Response {
   if (response.webSocket) return response;
-  // The assets' and Durable Objects' answers can't be changed, so this is a copy.
-  const answer = new Response(response.body, response);
-  for (const [name, value] of Object.entries(DEFAULT_HEADERS)) {
+  const answer = changeable(response);
+  for (const [name, value] of DEFAULT_HEADERS) {
     if (!answer.headers.has(name)) answer.headers.set(name, value);
   }
   if (policy && !answer.headers.has("Content-Security-Policy")) answer.headers.set("Content-Security-Policy", contentSecurityPolicy(request));
@@ -85,4 +85,22 @@ export function withHeaders(response: Response, request: Request, env: Env, { ve
   }
   if (isHttps(request) && requiresHttps(request, env)) answer.headers.set("Strict-Transport-Security", HSTS);
   return answer;
+}
+
+/** A header nothing sets. */
+const UNSET_HEADER = "X-Ember-Unset";
+
+/**
+ * `response` itself where its headers can change, as those of the Worker's own answers can, or else
+ * a copy: the assets' and Durable Objects' answers can't be changed. Copying every answer showed in
+ * profiles of cheap requests.
+ */
+function changeable(response: Response): Response {
+  try {
+    // Deleting a header that isn't there changes nothing, and throws where the headers are immutable.
+    response.headers.delete(UNSET_HEADER);
+    return response;
+  } catch {
+    return new Response(response.body, response);
+  }
 }

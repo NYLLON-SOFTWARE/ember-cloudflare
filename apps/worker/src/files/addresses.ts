@@ -1,5 +1,6 @@
 import type { StoredFile } from "@ember/protocol";
 import { toBase64url } from "../encoding";
+import { hmacKey } from "../hmac";
 import { escapePath } from "./filename";
 
 // The addresses that show and download a room's files, /files/<key>/<signature>/<name>, as ember-rust's
@@ -17,9 +18,6 @@ const SIGNATURE_BYTES = 16;
 /** The addresses that show a file and download it, and show its preview if it has one. */
 export type FileUrls = Pick<StoredFile, "url" | "downloadUrl" | "previewUrl">;
 
-/** SESSION_SECRET as the key file signatures are HMACs under. */
-const keyOf = (secret: string) => crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-
 /**
  * The signature of file `key` under `hmac`: the first 16 bytes of its HMAC, as base64url. Changing the
  * secret changes them all, as changing ember-rust's `SECRET_KEY_BASE` does.
@@ -31,7 +29,7 @@ async function signature(hmac: CryptoKey, key: string): Promise<string> {
 
 /** Whether `given` is file `key`'s signature under `secret`. */
 export async function isFileSignature(secret: string, key: string, given: string): Promise<boolean> {
-  const [a, b] = [encoder.encode(given), encoder.encode(await signature(await keyOf(secret), key))];
+  const [a, b] = [encoder.encode(given), encoder.encode(await signature(await hmacKey(secret), key))];
   return a.length === b.length && crypto.subtle.timingSafeEqual(a, b);
 }
 
@@ -48,7 +46,7 @@ const addressName = (name: string) => (name === "" || name === "." || name === "
  * attachment, and the one that shows its preview, if it has one.
  */
 export async function fileSigner(secret: string): Promise<(key: string, name: string, preview?: boolean) => Promise<FileUrls>> {
-  const hmac = await keyOf(secret);
+  const hmac = await hmacKey(secret);
   return async (key, name, preview) => {
     const signed = `${key}/${await signature(hmac, key)}/${addressName(name)}`;
     const url = `/files/${signed}`;

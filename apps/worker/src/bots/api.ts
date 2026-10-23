@@ -20,6 +20,7 @@ import { objectKey } from "../files/blobs";
 import { FormError, formBoundaryOf, FormReader, isFormType } from "../files/form-parts";
 import { storeArriving } from "../files/streamed";
 import { NO_STORAGE } from "../files/uploads";
+import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
 import { workspace, type BotKeyAccess } from "../workspace";
 import { botKeyParts } from "./keys";
@@ -417,7 +418,7 @@ async function bodyText(request: Request): Promise<string | null> {
 async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
   const access = await botIn(env, roomId, key);
   if (access instanceof Response) return access;
-  const url = new URL(request.url);
+  const url = urlOf(request);
   const cursor = { before: present(url.searchParams.get("before")), after: present(url.searchParams.get("after")) };
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, cursor);
   if (!page) return exception(404);

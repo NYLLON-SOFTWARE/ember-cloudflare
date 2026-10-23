@@ -1,6 +1,7 @@
 import { canBeCustomDomain, NOT_A_CUSTOM_DOMAIN, type CustomDomainReach } from "@ember/protocol";
 import { toBase64url } from "./encoding";
 import type { Env } from "./env";
+import { urlOf } from "./request-url";
 import { workspace } from "./workspace";
 
 // Ember's custom domain, which an administrator gives it in Workspace settings (`Account.customDomain`):
@@ -24,14 +25,14 @@ const CHECK_DEADLINE_MS = 10_000;
  */
 export function customDomainRefusal(customDomain: string | null | undefined, request: Request): string | null {
   if (customDomain === undefined || customDomain === null) return null;
-  const { host, hostname } = new URL(request.url);
+  const { host, hostname } = urlOf(request);
   if (customDomain !== host) return NOT_THIS_ADDRESS;
   return canBeCustomDomain(hostname) ? null : NOT_A_CUSTOM_DOMAIN;
 }
 
 /** The origin of Ember's address: its custom domain, by the scheme `request` came by, or the request's own origin while it has none. */
 export function originFor(request: Request, customDomain: string | null): string {
-  const url = new URL(request.url);
+  const url = urlOf(request);
   return customDomain === null ? url.origin : `${url.protocol}//${customDomain}`;
 }
 
@@ -54,7 +55,7 @@ const isUnreached = (status: number) => (status >= 520 && status <= 527) || stat
 export async function reachOf(request: Request, env: Env, domain: string): Promise<CustomDomainReach> {
   const [probe, answer] = [probeToken(), probeToken()];
   await workspace(env).expectProbe(probe, answer);
-  const { protocol } = new URL(request.url);
+  const { protocol } = urlOf(request);
   let response: Response;
   try {
     response = await fetch(`${protocol}//${domain}${PROBE_PREFIX}${probe}`, { redirect: "manual", signal: AbortSignal.timeout(CHECK_DEADLINE_MS) });

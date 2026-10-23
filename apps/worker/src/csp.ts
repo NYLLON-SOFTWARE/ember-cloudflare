@@ -1,5 +1,6 @@
 import { isHttps } from "./auth";
 import { bodyUpTo } from "./bodies";
+import { urlOf } from "./request-url";
 
 // A Content-Security-Policy on everything the Worker answers, which Campfire and ember-rust go
 // without: the backstop should markup ever get past the sanitizer, Lexxy or a dependency. Scripts
@@ -14,15 +15,31 @@ export const CSP_REPORT_PATH = "/csp-report";
 /** The most of a report that's read; a browser's is well under a kilobyte. */
 const MAX_REPORT_BYTES = 8 * 1024;
 
+/** Policies already written, by what they depend on: there are a few hosts, and one build's page at a time. */
+const policies = new Map<string, string>();
+/** More than a deployment has hosts and builds in use; past it, the oldest policy is forgotten. */
+const MAX_POLICIES = 32;
+
 /**
  * The policy for an answer to `request`, letting its page run the inline scripts whose SHA-256
  * hashes, in base64, are `scriptHashes`. Sockets name the host, since Safari reads `'self'` as the
  * page's own scheme alone, and on plain HTTP, as `wrangler dev` serves it, previews' images may load
- * over plain HTTP too.
+ * over plain HTTP too. Written once for each host, scheme and set of hashes, since every answer gets one.
  */
 export function contentSecurityPolicy(request: Request, scriptHashes: readonly string[] = []): string {
-  const { host } = new URL(request.url);
+  const { host } = urlOf(request);
   const https = isHttps(request);
+  const key = `${https ? "https" : "http"} ${host} ${scriptHashes.join(" ")}`;
+  let policy = policies.get(key);
+  if (policy === undefined) {
+    policy = writePolicy(host, https, scriptHashes);
+    if (policies.size >= MAX_POLICIES) policies.delete(policies.keys().next().value!);
+    policies.set(key, policy);
+  }
+  return policy;
+}
+
+function writePolicy(host: string, https: boolean, scriptHashes: readonly string[]): string {
   return [
     "default-src 'self'",
     ["script-src 'self'", ...scriptHashes.map((hash) => `'sha256-${hash}'`)].join(" "),

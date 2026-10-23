@@ -65,6 +65,18 @@ const toBoost = (row: BoostRow): Boost => ({
 
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** A page of messages, oldest first, and whether the room has older ones. */
+type Page = { messages: Message[]; hasMore: boolean };
+
+/** `value` with it and everything in it frozen, so whatever shares it can't change it. */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const inner of Object.values(value)) deepFreeze(inner);
+  }
+  return value;
+}
+
 const toMessage = (row: MessageRow): Message => ({
   id: row.id,
   clientMessageId: row.client_message_id,
@@ -151,11 +163,16 @@ export const MESSAGES_DELETED_SINCE = `SELECT message_id FROM message_deletions 
 /** The messages whose ids a JSON array lists. */
 const MESSAGES_WITH_IDS = `${SELECT_MESSAGES} WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
 
+/**
+ * The longest row the search index keeps for a result to show, in UTF-16 code units: a row of Durable
+ * Object SQLite takes 2 MB, and each unit takes at most 3 bytes of UTF-8, so this leaves room for the rest
+ * of the index's row. A message with more, as one with many cards can have, goes without, and a search
+ * reads it from its room.
+ */
+const MAX_INDEXED_ROW = 600_000;
+
 /** The same in every room, which D1 alone can read at once. */
 const MESSAGES_ANYWHERE_WITH_IDS = `${SELECT_MESSAGES} WHERE id IN (SELECT value FROM json_each(?))`;
-
-/** What the search index keeps of the messages whose ids a JSON array lists. */
-const INDEXABLE_MESSAGES = `SELECT id, created_at AS createdAt, plain_text AS text FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`;
 
 /** Which page `MessageStore.pageAt` reads: the one before a message, or after one, or with neither the newest. */
 export interface PageCursor {
@@ -180,6 +197,16 @@ export class MessageStore {
   private seq: number | null = null;
   /** What signs files' addresses, under `secret`, once the store has read a file message. */
   private signer: Promise<Signer> | null = null;
+  /**
+   * The newest page, by how many messages it holds, kept from one read until the room's next change:
+   * every socket's welcome starts with it, and the room is the only writer of its messages. Frozen,
+   * since every welcome shares it.
+   */
+  private readonly newest = new Map<number, Page>();
+  /** Counts changes begun and done, so a read that overlapped one isn't kept: on D1, queries interleave. */
+  private changes = 0;
+  /** How many changes are under way. */
+  private changing = 0;
 
   constructor(
     private readonly db: Db,
@@ -195,12 +222,14 @@ export class MessageStore {
   }
 
   /** The newest `limit` messages older than `before` (or the newest overall), oldest first. */
-  async page(limit: number, before?: string): Promise<{ messages: Message[]; hasMore: boolean }> {
-    const rows =
-      before === undefined
-        ? await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1)
-        : await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1);
-    return this.toPage(rows, limit);
+  async page(limit: number, before?: string): Promise<Page> {
+    if (before !== undefined) return this.toPage(await this.db.all<MessageRow>(MESSAGES_BEFORE, this.roomId, before, limit + 1), limit);
+    const kept = this.newest.get(limit);
+    if (kept) return kept;
+    const changes = this.changes;
+    const page = await this.toPage(await this.db.all<MessageRow>(NEWEST_MESSAGES, this.roomId, limit + 1), limit);
+    if (changes === this.changes && this.changing === 0) this.newest.set(limit, deepFreeze(page));
+    return page;
   }
 
   /** The oldest `limit` messages newer than `after`, oldest first, and whether there are newer ones still. */
@@ -279,9 +308,13 @@ export class MessageStore {
     return this.messagesOf(await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids)));
   }
 
-  /** What the search index keeps of the messages `ids` names that the room has. */
+  /** What the search index keeps of the messages `ids` names that the room has: their text, and their rows for results to show. */
   async indexable(ids: string[]): Promise<IndexedMessage[]> {
-    return this.db.all<IndexedMessage>(INDEXABLE_MESSAGES, this.roomId, JSON.stringify(ids));
+    const rows = await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids));
+    return rows.map((row) => {
+      const message = JSON.stringify(row);
+      return { id: row.id, createdAt: row.created_at, text: row.plain_text, message: message.length <= MAX_INDEXED_ROW ? message : null };
+    });
   }
 
   async find(id: string): Promise<Message | null> {
@@ -456,11 +489,13 @@ export class MessageStore {
    * deleted, for it to purge.
    */
   async deleteAllMessages(): Promise<void> {
-    await this.db.batch([
-      deletingAllFiles(this.roomId, new Date().toISOString()),
-      statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
-      statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
-    ]);
+    await this.changingMessages(() =>
+      this.db.batch([
+        deletingAllFiles(this.roomId, new Date().toISOString()),
+        statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
+        statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
+      ]),
+    );
     this.seq = null;
   }
 
@@ -477,6 +512,8 @@ export class MessageStore {
         now,
       ),
       this.numbered(messageId, seq),
+      // Search results show a message's boosts, as the index keeps it.
+      logIndexing(this.roomId, messageId),
     ]);
     return { boost: { id, messageId, booster, content, createdAt: now }, seq };
   }
@@ -487,7 +524,11 @@ export class MessageStore {
   }
 
   async removeBoost(boost: Boost): Promise<number> {
-    return this.change((seq) => [statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id), this.numbered(boost.messageId, seq)]);
+    return this.change((seq) => [
+      statement(`DELETE FROM boosts WHERE room_id = ? AND id = ?`, this.roomId, boost.id),
+      this.numbered(boost.messageId, seq),
+      logIndexing(this.roomId, boost.messageId),
+    ]);
   }
 
   /**
@@ -497,13 +538,27 @@ export class MessageStore {
   private async change(making: (seq: number) => Statement[], count = 1): Promise<number> {
     const seq = (await this.latestChange()) + 1;
     try {
-      await this.db.batch(making(seq));
+      await this.changingMessages(() => this.db.batch(making(seq)));
     } catch (error) {
       this.seq = null;
       throw error;
     }
     this.seq = seq + count - 1;
     return seq;
+  }
+
+  /** Runs `write`, which changes the room's messages, forgetting the newest page before and after it. */
+  private async changingMessages<T>(write: () => Promise<T>): Promise<T> {
+    this.newest.clear();
+    this.changes++;
+    this.changing++;
+    try {
+      return await write();
+    } finally {
+      this.changing--;
+      this.changes++;
+      this.newest.clear();
+    }
   }
 
   /** Gives message `messageId` the number of a change to its reactions. */
@@ -517,7 +572,7 @@ export class MessageStore {
   }
 
   /** Rows read newest first, one more than `limit` if there are more, as a page oldest first. */
-  private async toPage(rows: MessageRow[], limit: number): Promise<{ messages: Message[]; hasMore: boolean }> {
+  private async toPage(rows: MessageRow[], limit: number): Promise<Page> {
     return { messages: await this.messagesOf(rows.slice(0, limit).reverse()), hasMore: rows.length > limit };
   }
 }
@@ -528,4 +583,9 @@ export class MessageStore {
  */
 export async function messagesAnywhereWithIds(db: Db, ids: string[], secret: string): Promise<Message[]> {
   return toMessages(await db.all<MessageRow>(MESSAGES_ANYWHERE_WITH_IDS, JSON.stringify(ids)), () => fileSigner(secret));
+}
+
+/** The messages whose rows the search index keeps (`indexable`), their files' addresses signed under `secret`. */
+export function indexedMessages(rows: string[], secret: string): Promise<Message[]> {
+  return toMessages(rows.map((row) => JSON.parse(row) as MessageRow), () => fileSigner(secret));
 }

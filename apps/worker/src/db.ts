@@ -29,16 +29,34 @@ function durableObjectDb(storage: DurableObjectStorage): Db {
   const { sql } = storage;
   return {
     async all<T>(query: string, ...params: Value[]) {
-      return sql.exec(query, ...params).toArray() as T[];
+      return rowsOf(sql.exec(query, ...params)) as T[];
     },
     async run(query: string, ...params: Value[]) {
       sql.exec(query, ...params);
     },
     async batch(statements: Statement[]) {
-      // `sql.exec` can't run BEGIN, so the transaction comes from the storage API instead.
+      // `sql.exec` can't run BEGIN, so the transaction comes from the storage API instead. Its
+      // statements return few rows or none, where `rowsOf` costs more than `toArray`: with it,
+      // profiles showed posting a message slower.
       return storage.transactionSync(() => statements.map(({ query, params }) => sql.exec(query, ...params).toArray()));
     },
   };
+}
+
+/**
+ * A cursor's rows as objects, made here from its rows of values. The cursor's own objects, which
+ * `toArray` gives, are made a column at a time by the runtime, and profiles showed that costing more
+ * than running the query. A name that appears twice keeps its last column's value, as there.
+ */
+function rowsOf(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): Record<string, SqlStorageValue>[] {
+  const names = cursor.columnNames;
+  const rows: Record<string, SqlStorageValue>[] = [];
+  for (const values of cursor.raw()) {
+    const row: Record<string, SqlStorageValue> = {};
+    for (let i = 0; i < names.length; i++) row[names[i]!] = values[i]!;
+    rows.push(row);
+  }
+  return rows;
 }
 
 function d1Db(db: D1Database): Db {

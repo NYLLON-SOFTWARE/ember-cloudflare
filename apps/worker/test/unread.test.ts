@@ -142,6 +142,42 @@ describe(feature("sidebar.unread"), () => {
     expect(await heard(tab, room)).toEqual([unread(room)]);
   });
 
+  it("logs no read for someone who has read the room since its latest message, which would change nothing", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const room = await freshRoom("read-again");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    const tab = await openWorkspaceSocket(hopper);
+    await settle(ada);
+    await delivered(room);
+    const reconnect = await cutOff(room);
+    const logged = async () => (await roomSql(room, "SELECT kind FROM room_events WHERE room_id = ? ORDER BY seq", room)).map((row) => (row as RoomEvent).kind);
+
+    // Hopper reads the room, then opens it again and shows it again with nothing new since.
+    const reading = await connect(room, hopper, { visible: true });
+    await settle(reading);
+    reading.close();
+    await ada.next("presence.left");
+    const again = await connect(room, hopper, { visible: false });
+    again.send({ type: "presence.visible", visible: true });
+    await settle(again);
+    expect(await logged()).toEqual(["read"]);
+
+    // A message could mark the room for him, so the next time he shows it reads it.
+    again.send({ type: "presence.visible", visible: false });
+    await settle(again);
+    await post(ada, "something new");
+    again.send({ type: "presence.visible", visible: true });
+    await settle(again);
+    expect(await logged()).toEqual(["read", "message", "read"]);
+
+    await vi.waitFor(async () => expect(await alarmOf(room)).not.toBeNull(), { timeout: 5_000 });
+    await reconnect();
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    expect(await heard(tab, room)).toEqual([]);
+    expect(await marked(room)).toEqual(["Host"]);
+  });
+
   it("never marks a room for someone who has hidden it", async () => {
     const room = await freshRoom("hidden-room");
     const ada = await connect(room, "Ada", { visible: true });

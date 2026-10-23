@@ -4,8 +4,9 @@ import { credentialsOf } from "./auth";
 import { jsonBodyOf } from "./bodies";
 import { sharedDb } from "./db";
 import type { Env } from "./env";
+import { urlOf } from "./request-url";
 import { searchIndex, type SearchHit } from "./search-index";
-import { messagesAnywhereWithIds } from "./store";
+import { indexedMessages, messagesAnywhereWithIds } from "./store";
 import { workspace, type Searcher } from "./workspace";
 
 // Searching messages, and recent searches, as ember-rust's searches do (crates/ember/src/controllers/searches.rs).
@@ -24,7 +25,7 @@ export async function searchMessages(request: Request, env: Env): Promise<Respon
   const credentials = await credentialsOf(request, env);
   const searcher = credentials && (await workspace(env).searcher(credentials, null));
   if (!searcher) return problem(401, NOT_SIGNED_IN);
-  const q = new URL(request.url).searchParams.get("q") ?? "";
+  const q = urlOf(request).searchParams.get("q") ?? "";
   if (q.length > MAX_SEARCH_LENGTH) return problem(422, SEARCH_TOO_LONG);
   return answer(env, sanitizeSearch(q), searcher);
 }
@@ -68,16 +69,21 @@ async function search(env: Env, query: string, rooms: Room[]): Promise<Omit<Sear
 }
 
 /**
- * The messages `hits` names, as they are now, oldest first where the hits are newest first, leaving out
- * any deleted since the index heard of them.
+ * The messages `hits` names, oldest first where the hits are newest first, as the index last took them,
+ * so a search asks no room: an edit or a boost shows, and a deleted message goes, once its room has sent
+ * it, as a match does. A hit the index has no message for, from before it kept them or too big to keep,
+ * is read from its room as it is now, and left out if its room no longer has it.
  */
 async function messagesOf(env: Env, hits: SearchHit[]): Promise<Message[]> {
-  const found = new Map((await read(env, hits)).map((message) => [message.id, message]));
+  const kept = hits.flatMap(({ message }) => message ?? []);
+  const [indexed, read] = await Promise.all([indexedMessages(kept, env.SESSION_SECRET), readNow(env, hits.filter(({ message }) => message === null))]);
+  const found = new Map([...indexed, ...read].map((message) => [message.id, message]));
   return hits.toReversed().flatMap(({ messageId }) => found.get(messageId) ?? []);
 }
 
 /** The messages `hits` names that are still there: from D1 at once, where every room keeps them, or else from each room once. */
-async function read(env: Env, hits: SearchHit[]): Promise<Message[]> {
+async function readNow(env: Env, hits: SearchHit[]): Promise<Message[]> {
+  if (hits.length === 0) return [];
   const db = sharedDb(env);
   if (db) return messagesAnywhereWithIds(db, hits.map(({ messageId }) => messageId), env.SESSION_SECRET);
   const messages: Message[] = [];

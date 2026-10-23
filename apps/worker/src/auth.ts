@@ -1,6 +1,8 @@
 import type { User } from "@ember/protocol";
 import { toBase64url } from "./encoding";
 import { guestSignIn, type Env } from "./env";
+import { hmacKey } from "./hmac";
+import { urlOf } from "./request-url";
 import { workspace, type Credentials } from "./workspace";
 import type { Client } from "./workspace-store";
 
@@ -15,7 +17,7 @@ const SESSION_TOKEN = /^[\w-]{43}$/;
 
 const encoder = new TextEncoder();
 
-export const isHttps = (request: Request) => new URL(request.url).protocol === "https:";
+export const isHttps = (request: Request) => urlOf(request).protocol === "https:";
 
 /**
  * Over HTTPS the `__Host-` prefix makes browsers refuse the cookie from any other origin, such as
@@ -60,8 +62,7 @@ export const newSessionToken = () => toBase64url(crypto.getRandomValues(new Uint
  */
 export async function tokenDigest(token: string, secret: string): Promise<string> {
   if (!secret) throw new Error("SESSION_SECRET isn't set. `pnpm dev` and `pnpm run deploy` set it.");
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return toBase64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token))));
+  return toBase64url(new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(token))));
 }
 
 /** The browser and IP a session records, as ember-rust's does. */
@@ -109,7 +110,7 @@ export async function signOut(request: Request, env: Env, pushEndpoint: string |
  * `same-site` too, since on workers.dev every other Worker on the account is the same site.
  */
 export function isCrossSite(request: Request): boolean {
-  const url = new URL(request.url);
+  const url = urlOf(request);
   const origin = request.headers.get("Origin");
   if (origin !== null && origin !== url.origin) return true;
   const site = request.headers.get("Sec-Fetch-Site");
@@ -118,4 +119,4 @@ export function isCrossSite(request: Request): boolean {
 }
 
 /** Whether a WebSocket upgrade comes from the app's own pages, as Action Cable insists (crates/cable/src/server.rs). */
-export const isSameOriginUpgrade = (request: Request) => request.headers.get("Origin") === new URL(request.url).origin;
+export const isSameOriginUpgrade = (request: Request) => request.headers.get("Origin") === urlOf(request).origin;

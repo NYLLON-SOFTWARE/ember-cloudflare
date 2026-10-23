@@ -15,6 +15,7 @@ import { notFound } from "./error-pages";
 import { isLoopbackHost } from "./headers";
 import { appPage, empty, formAnswer, home, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
+import { urlOf } from "./request-url";
 import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
 import { workspace } from "./workspace";
 
@@ -92,7 +93,7 @@ export const isSetupPath = (pathname: string) => /^\/first_run(?:$|[/.])/.test(p
 
 /** Answers a request for one of setup's pages. */
 export async function setupPage(request: Request, env: Env): Promise<Response> {
-  const { pathname } = new URL(request.url);
+  const { pathname } = urlOf(request);
   const form = pathname.match(/^\/first_run(?:\.(.+))?$/);
   if (form && (request.method === "GET" || request.method === "HEAD")) return setupForm(request, env, form[1]);
   return notFound(request);

@@ -21,11 +21,11 @@ export interface SearchResult extends SearchOptions {
   catchUpMs: number;
   /** From a new message being acknowledged, in a quiet room, until a search finds it. */
   newMessage: Summary | null;
-  /** A word in a quarter of the messages: the newest 100, read from every room. */
+  /** A word in a quarter of the messages: the newest 100, from every room. */
   common: Summary | null;
   /** A word in one message in each room. */
   rare: Summary | null;
-  /** A word in none: everything a search costs but the index's matches and reading them from rooms. */
+  /** A word in none: everything a search costs but its matches. */
   none: Summary | null;
 }
 

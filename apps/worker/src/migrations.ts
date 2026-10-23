@@ -37,7 +37,9 @@ import invitationDismissals from "../migrations/0036_invitation_dismissals.sql";
 import identities from "../migrations/0037_identities.sql";
 import membershipChecks from "../migrations/0038_membership_checks.sql";
 import pendingIdentities from "../migrations/0039_pending_identities.sql";
+import searchResultsReindex from "../migrations/0040_search_results.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
+import searchResults from "../search-migrations/0002_search_results.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -98,6 +100,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0037_identities.sql", scope: "workspace", sql: identities },
   { name: "0038_membership_checks.sql", scope: "workspace", sql: membershipChecks },
   { name: "0039_pending_identities.sql", scope: "workspace", sql: pendingIdentities },
+  { name: "0040_search_results.sql", scope: "workspace", sql: searchResultsReindex },
 ];
 
 /**
@@ -106,7 +109,10 @@ export const MIGRATIONS: Migration[] = [
  * hold nothing the rooms can't send it again, and D1 can't export a database that holds a virtual table,
  * as FTS5's are. A test checks this list against the directory.
  */
-export const SEARCH_MIGRATIONS: Migration[] = [{ name: "0001_search_index.sql", scope: "search", sql: searchIndex }];
+export const SEARCH_MIGRATIONS: Migration[] = [
+  { name: "0001_search_index.sql", scope: "search", sql: searchIndex },
+  { name: "0002_search_results.sql", scope: "search", sql: searchResults },
+];
 
 /**
  * Applies the migrations for `scope` that a Durable Object's storage is missing, recording each in

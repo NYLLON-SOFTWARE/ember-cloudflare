@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isViewing, VIEWING_TTL_MS, viewersOf, type Viewing } from "../src/viewing";
 import { connect, freshRoom, roomStub, settle, signIn } from "./support";
 
@@ -85,9 +85,8 @@ describe(feature("realtime.presence"), () => {
     const grace = await connect(room, "Grace", { visible: true });
 
     shown.close();
-    // Closing one of her tabs only stops any typing in it, which tells Grace the room has heard.
-    await grace.next("typing");
-    expect(await viewers(room)).toEqual([grace.me.id]);
+    // Once the room has heard: her hidden tab doesn't count.
+    await vi.waitFor(async () => expect(await viewers(room)).toEqual([grace.me.id]));
 
     // As when Grace's access ends: her socket counts no more, though it's closing still.
     await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {

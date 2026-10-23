@@ -1,3 +1,5 @@
+import { toHex } from "./encoding";
+
 // ETags as ember-rust's Rack::ETag makes them (crates/kit/src/ctx.rs, `rack_etag`): weak, from the
 // first 128 bits of the body's SHA-256 in hex. A request whose If-None-Match lists the ETag, or `*`,
 // gets 304 Not Modified with no body instead, as `is_fresh` decides there.
@@ -7,8 +9,7 @@ const encoder = new TextEncoder();
 /** The ETag of a body that reads `body`, or is its bytes. */
 export async function etagOf(body: string | Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", typeof body === "string" ? encoder.encode(body) : body));
-  const hex = Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `W/"${hex}"`;
+  return `W/"${toHex(digest.subarray(0, 16))}"`;
 }
 
 /** Whether the request's If-None-Match lists `etag`, so the copy it has is current. */

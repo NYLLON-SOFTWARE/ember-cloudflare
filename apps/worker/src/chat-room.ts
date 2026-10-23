@@ -33,6 +33,7 @@ import { storeArriving, type ArrivingFile, type StreamedFile } from "./files/str
 import { NO_STORAGE, type Uploader } from "./files/uploads";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
+import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
@@ -51,6 +52,8 @@ interface Attachment extends Viewing {
   revoked?: true;
   /** Set when a ban blocks the IP address the socket comes from: it can read, but not change anything. */
   banned?: true;
+  /** Set while the tab is typing, from its typing.start until its typing.stop or message, so closing it stops only typing it did. */
+  typing?: true;
 }
 
 export const USER_HEADER = "X-Ember-User";
@@ -84,6 +87,14 @@ const BANNED = "Request failed (429)";
 const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
+
+/** Keeps in `ws`'s attachment whether its tab is typing, writing it only when that changes. */
+function markTyping(ws: WebSocket, typing: boolean): void {
+  const attachment = ws.deserializeAttachment() as Attachment;
+  if ((attachment.typing === true) === typing) return;
+  const { typing: _, ...rest } = attachment;
+  ws.serializeAttachment((typing ? { ...rest, typing: true } : rest) satisfies Attachment);
+}
 
 /** A page of a room's messages as the bot API reads it, with how many messages the room has. */
 export interface BotPage extends Omit<TimelinePage, "around"> {
@@ -130,7 +141,7 @@ const ERASE_RETRY_MS = 5 * 60 * 1000;
 interface Couriers {
   /** Sends the Workspace the room's events, which it marks the room unread and read by. */
   workspace: Courier;
-  /** Sends the search index the messages written, edited and deleted. */
+  /** Sends the search index the messages written, edited, boosted and deleted. */
   index: Courier;
   /** Has R2 delete the files the room has marked deleted. */
   files: Courier;
@@ -149,6 +160,12 @@ export class ChatRoom extends DurableObject<Env> {
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
+  /**
+   * Who has read the room since its latest message, as far as this object has seen. Only a new message
+   * marks a room unread, so until one comes another read of theirs would change nothing, and isn't
+   * logged, as ember-rust's `read` writes nothing for a membership that's read (membership.rs).
+   */
+  private readonly readers = new Set<UserId>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -167,7 +184,7 @@ export class ChatRoom extends DurableObject<Env> {
     if (!user || !roomId || !sessionId || !Number.isFinite(authorizedAt)) return new Response("Missing user, room, session or time", { status: 400 });
     const address = request.headers.get(ADDRESS_HEADER);
     const banned = request.headers.get(BANNED_HEADER) === "true";
-    const { visible, since, around, protocol } = parseRoomSocketParams(new URL(request.url).searchParams);
+    const { visible, since, around, protocol } = parseRoomSocketParams(urlOf(request).searchParams);
 
     return this.serially(async () => {
       const tags = [user.id, sessionTag(sessionId), ...(address ? [addressTag(address)] : [])];
@@ -651,6 +668,8 @@ export class ChatRoom extends DurableObject<Env> {
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
         await this.create(store, user, frame.clientMessageId, body, now);
+        // Everyone else takes the message as its author's stop.
+        markTyping(ws, false);
         return;
       }
       case "message.update": {
@@ -682,8 +701,11 @@ export class ChatRoom extends DurableObject<Env> {
         return this.removeBoost(store, boost);
       }
       case "typing.start":
-      case "typing.stop":
-        return this.broadcast({ type: "typing", user, typing: frame.type === "typing.start" }, ws);
+      case "typing.stop": {
+        const typing = frame.type === "typing.start";
+        markTyping(ws, typing);
+        return this.broadcast({ type: "typing", user, typing }, ws);
+      }
       case "history.before": {
         const { messages, hasMore } = await store.page(frame.limit ?? HISTORY_PAGE_SIZE, frame.before);
         return this.send(ws, { type: "history", before: frame.before, messages, hasMore });
@@ -725,6 +747,8 @@ export class ChatRoom extends DurableObject<Env> {
     kind?: "message" | "reply",
     posted?: PostedFile,
   ): Promise<Message> {
+    // Before the batch, which on D1 may save the message even when it fails.
+    this.readers.clear();
     const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted);
     this.broadcast({ type: "message.created", message, seq });
     const couriers = this.couriersFor(store.roomId);
@@ -805,6 +829,8 @@ export class ChatRoom extends DurableObject<Env> {
   private async addBoost(store: MessageStore, messageId: string, user: User, content: string, now: string): Promise<Boost> {
     const { boost, seq } = await store.addBoost(sortableId(), messageId, user, content, now);
     this.broadcast({ type: "boost.created", boost, seq });
+    // Search results show a message's boosts, so the index takes it again.
+    this.couriersFor(store.roomId).index.deliver();
     return boost;
   }
 
@@ -812,6 +838,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+    this.couriersFor(store.roomId).index.deliver();
   }
 
   /**
@@ -883,9 +910,14 @@ export class ChatRoom extends DurableObject<Env> {
     return (this.blobs ??= new Blobs(this.dbFor(), roomId));
   }
 
-  /** Logs that `userId` has read the room, for the Workspace to clear their mark, and sends it the log. */
+  /**
+   * Logs that `userId` has read the room, unless they have since its latest message, for the Workspace
+   * to clear their mark, and sends it the log.
+   */
   private async read(roomId: RoomId, userId: UserId): Promise<void> {
+    if (this.readers.has(userId)) return;
     await this.logFor(roomId).read(userId, new Date().toISOString());
+    this.readers.add(userId);
     this.couriersFor(roomId).workspace.deliver();
   }
 
@@ -1031,8 +1063,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Sends the search index the messages written, edited or deleted longest ago that it hasn't taken, as
-   * many as one call takes, as they are now, and forgets them once it has. Answers how many it sent.
+   * Sends the search index the messages written, edited, boosted or deleted longest ago that it hasn't
+   * taken, as many as one call takes, as they are now, and forgets them once it has. Answers how many it
+   * sent.
    */
   private async sendMessages(roomId: RoomId): Promise<number> {
     const log = this.logFor(roomId);
@@ -1121,15 +1154,19 @@ export class ChatRoom extends DurableObject<Env> {
 
   /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */
   private leave(ws: WebSocket): void {
-    const { user, revoked } = ws.deserializeAttachment() as Attachment;
-    if (!revoked) this.depart(user, ws);
+    const { user, revoked, typing } = ws.deserializeAttachment() as Attachment;
+    if (!revoked) this.depart(user, ws, typing === true);
   }
 
-  /** Tells the room that `user` closed a socket, `closed` if it's just the one, and has left if it was their last. */
-  private depart(user: User, closed?: WebSocket): void {
-    // Closing one of several tabs only stops the typing it may have been doing.
-    if (this.isPresent(user.id, closed)) this.broadcast({ type: "typing", user, typing: false }, closed);
-    else this.broadcast({ type: "presence.left", userId: user.id }, closed);
+  /**
+   * Tells the room that `user` closed a socket, `closed` if it's just the one, and has left if it was
+   * their last. Closing one of several tabs stops the typing it was doing, if it was: telling everyone
+   * whenever any tab closes was a message to everyone in a busy room for each room someone switched
+   * away from, and cleared the typing another of their tabs was doing.
+   */
+  private depart(user: User, closed?: WebSocket, typing = true): void {
+    if (!this.isPresent(user.id, closed)) this.broadcast({ type: "presence.left", userId: user.id }, closed);
+    else if (typing) this.broadcast({ type: "typing", user, typing: false }, closed);
   }
 
   private refuse(ws: WebSocket, message: string): void {

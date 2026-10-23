@@ -33,7 +33,14 @@ export function urlsafeDecode64(text: string): Uint8Array | null {
   return btoa(binary) === standard ? Uint8Array.from(binary, (char) => char.charCodeAt(0)) : null;
 }
 
-export const toHex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+/** Every byte's two hex digits, so writing a digest is a lookup per byte. */
+const HEX_DIGITS = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, "0"));
+
+export function toHex(bytes: Uint8Array): string {
+  let hex = "";
+  for (const byte of bytes) hex += HEX_DIGITS[byte];
+  return hex;
+}
 
 /** The bytes lowercase hex encodes, or null if `text` isn't any. */
 export const fromHex = (text: string) => (/^(?:[0-9a-f]{2})*$/.test(text) ? Uint8Array.from(text.match(/../g) ?? [], (pair) => parseInt(pair, 16)) : null);

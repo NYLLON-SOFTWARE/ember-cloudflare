@@ -3,6 +3,7 @@ import { sessionToken } from "./auth";
 import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
+import { urlOf } from "./request-url";
 
 // What the Worker answers for pages: the app's, those it serves itself, such as setup's and the join
 // link's, and their forms, which post to the API.
@@ -51,7 +52,7 @@ function appScriptHashes(request: Request, env: Env, etag: string | null): Promi
  */
 function preloadsFor(request: Request): string {
   const paths = ["/api/bootstrap"];
-  if (workspacePageOf(new URL(request.url).pathname) && sessionToken(request)) paths.push("/api/sidebar", "/api/users");
+  if (workspacePageOf(urlOf(request).pathname) && sessionToken(request)) paths.push("/api/sidebar", "/api/users");
   return paths.map((path) => `<${path}>; rel=preload; as=fetch; crossorigin`).join(", ");
 }
 
@@ -70,7 +71,7 @@ export async function anyOtherPage(request: Request, env: Env, pathname: string)
   if (isAppPage(pathname)) return appPage(request, env, "/");
   const path = normalized(pathname);
   if (path !== pathname && isAppPage(path)) {
-    const { origin, search } = new URL(request.url);
+    const { origin, search } = urlOf(request);
     return new Response(null, { status: 307, headers: { Location: `${origin}${path}${search}` } });
   }
   return env.ASSETS.fetch(request);
