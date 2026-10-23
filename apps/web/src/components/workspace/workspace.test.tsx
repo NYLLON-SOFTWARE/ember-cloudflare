@@ -1102,6 +1102,25 @@ describe(feature("sidebar.activity-filter"), () => {
     expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
     expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("keeps the drawer open on a phone as Activity, pressed there on community settings' pages, goes home, filtering its conversations", async () => {
+    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
+    const { user } = showWorkspace("/account/edit");
+    await communitySettings();
+    await user.click(screen.getByRole("button", { name: "Open navigation", expanded: false }));
+    await user.click(within(screen.getByRole("dialog", { name: "Navigation" })).getByRole("button", { name: "Activity" }));
+    // Home goes on to the last room, which shows under the drawer.
+    await waitFor(() => expect(location.pathname).toMatch(/^\/rooms\/\w+$/));
+    const drawer = await screen.findByRole("dialog", { name: "Conversations" });
+    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
+    // The room home went on to is read, so Activity leaves it out.
+    const unread = within(drawer).getAllByRole("link", { name: /random|general|Design/ });
+    expect(unread).toHaveLength(1);
+
+    // Going on to another page closes it, as ever.
+    await user.click(unread[0]!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
 });
 
 describe(feature("sidebar.rooms"), () => {

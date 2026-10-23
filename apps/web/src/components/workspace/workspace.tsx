@@ -306,8 +306,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     return () => drawerLayout.removeEventListener("change", close);
   }, []);
 
-  // Another page starts with the drawer closed, as each of ember-rust's does.
-  useEffect(() => setDrawerOpen(false), [route]);
+  // Another page starts with the drawer closed, as each of ember-rust's does, but the one Activity goes to
+  // from the drawer on a page of community settings, which keeps it open on the conversations it filters.
+  const keepDrawer = useRef(false);
+  useEffect(() => {
+    if (!keepDrawer.current) setDrawerOpen(false);
+  }, [route]);
 
   // The pages few visits need load once the rooms have, while the browser is idle, so that going to one
   // doesn't wait for them. If they fail to, the first page that needs them tries again.
@@ -435,6 +439,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   useLayoutEffect(() => {
     if (goingOn) redirect(goingOn);
   }, [goingOn, redirect]);
+  // The page Activity keeps the drawer open for is the one home goes on to, if it goes on.
+  useEffect(() => {
+    if (!goingOn) keepDrawer.current = false;
+  }, [route, goingOn]);
 
   const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
   const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
@@ -488,10 +496,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => {
       // A page of community settings has no conversations to show, so Activity goes home to them, as
-      // shell.js visits it there, once unsaved changes let it.
+      // shell.js visits it there, once unsaved changes let it. Pressed in the drawer, it keeps the drawer
+      // open, as it is when Activity's pressed on any other page, where shell.js's visit closes it.
       if (!settings) return setUnreadOnly((on) => !on);
+      const inDrawer = drawerOpen;
       navigate("/");
-      afterNavigating(() => setUnreadOnly((on) => !on));
+      afterNavigating(() => {
+        setUnreadOnly((on) => !on);
+        keepDrawer.current = inDrawer;
+      });
     },
   };
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
