@@ -453,14 +453,22 @@ async function endSession(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * The signed-in person's sidebar: the rooms they're in, and the welcome card's invitation if they're in
- * its room. It can hold the join code, which no cache should keep, not even the browser's, where it
- * would outlast signing out. So the app keeps its own copy, and sends its ETag to ask whether it's current.
+ * The signed-in person's sidebar: the rooms they're in, and the welcome card's invitation if they're an
+ * administrator in its room who hasn't dismissed it. It can hold the join code, which no cache should
+ * keep, not even the browser's, where it would outlast signing out. So the app keeps its own copy, and
+ * sends its ETag to ask whether it's current.
  */
 async function sidebar(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const sidebar = credentials && (await workspace(env).sidebar(credentials));
   return sidebar ? jsonWithETag(request, sidebar satisfies Sidebar, { "Cache-Control": "no-store" }) : problem(401, "Not signed in");
+}
+
+/** Dismisses the welcome card for the signed-in person, for good, as its × does, answering 204. ember-rust's can't be dismissed. */
+async function dismissInvitation(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const dismissed = credentials !== null && (await workspace(env).dismissInvitation(credentials));
+  return dismissed ? new Response(null, { status: 204 }) : problem(401, "Not signed in");
 }
 
 /**
@@ -750,6 +758,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const botKey = pathname.match(/^\/api\/account\/bots\/([^/]+)\/key$/);
   if (botKey && request.method === "PUT") return () => resetBotKey(request, env, botKey[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
+  if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);

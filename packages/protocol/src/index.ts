@@ -178,7 +178,8 @@ export type Room = SharedRoom | DirectRoom;
 
 /**
  * The welcome card's invitation: the workspace's first room, where the card shows while the room is
- * new, and the code in the workspace's join link, such as aB3d-Ef5h-iJ7k.
+ * new, and the code in the workspace's join link, such as aB3d-Ef5h-iJ7k. Only administrators are
+ * given it, until they dismiss the card.
  */
 export interface Invitation {
   roomId: RoomId;
@@ -215,8 +216,9 @@ export interface Favorites {
 
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
- * they've starred, the invitation, when they're in its room, and the people suggested for DMs. It
- * comes with an ETag, and a request whose If-None-Match names it gets 304 Not Modified instead.
+ * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
+ * card, and the people suggested for DMs. It comes with an ETag, and a request whose If-None-Match
+ * names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
@@ -736,6 +738,8 @@ export type WorkspaceServerFrame =
   | { type: "favorites.changed"; favorites: Favorites }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
+  /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
+  | { type: "invitation.dismissed" }
   /**
    * An administrator saved the shared room order, so the sidebar loads again, as ember-rust's
    * `room_order_changed` has every sidebar reload (broadcasts.rs). It names no rooms, since some aren't

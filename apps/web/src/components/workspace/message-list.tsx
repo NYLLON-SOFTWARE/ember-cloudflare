@@ -89,6 +89,8 @@ interface Props {
   direct?: boolean;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
+  /** Dismisses the welcome card for good, settling once it's gone, or failed to go. */
+  onDismissInvitation: () => Promise<void>;
   state: RoomState;
   me: Me;
   /** What can be done to the messages, or null for a room that's gone, whose messages stay as they are. */
@@ -109,7 +111,7 @@ interface Props {
  * messages, it stays there as new ones come. Anywhere else, it keeps the reader's place, loads the pages
  * before and after as they near either end, and offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {} }: Props) {
+export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {} }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -227,7 +229,8 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
     place.current = placeIn(el);
   };
 
-  // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome.
+  // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome, but
+  // only to the administrators who haven't dismissed it, who alone are given the invitation.
   const welcomeCard = invitation !== null && state.paged === false;
   // Until the room lets the socket in, which brings its messages afresh. The timeline is busy then, and while it
   // draws a page newest first, so screen readers read the page once it's whole.
@@ -242,7 +245,7 @@ export function MessageList({ roomName, direct = false, invitation, state, me, a
           <div ref={top} aria-hidden className="h-px" />
           {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
-          {welcomeCard && <InvitationCard joinCode={invitation.joinCode} />}
+          {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
 
           {state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
             <div className="p-6 text-center text-muted-foreground">

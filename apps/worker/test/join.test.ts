@@ -222,20 +222,19 @@ describe(feature("accounts.regenerate-join-link"), () => {
 });
 
 describe(feature("rooms.invitation-card"), () => {
-  it("gives everyone in the workspace's first room its invitation, with the join code", async () => {
+  it("gives administrators in the workspace's first room its invitation, with the join code", async () => {
     const administrator = await setUp();
     const code = await joinCode();
     await createRoom("Design", { as: administrator });
     expect((await roomList(administrator.cookie)).invitation).toEqual({ roomId: administrator.general.id, joinCode: code });
-    // Including people who joined after it was made.
-    const member = cookieOf(await join(code, grace));
-    expect((await roomList(member)).invitation).toEqual({ roomId: administrator.general.id, joinCode: code });
-    expect((await api("/api/sidebar", { headers: { Cookie: member } })).headers.get("Cache-Control")).toBe("no-store");
+    expect((await api("/api/sidebar", { headers: { Cookie: administrator.cookie } })).headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("gives nobody else the invitation", async () => {
     const administrator = await setUp();
     const guest = await signIn("Katherine");
+    const promoted = await api(`/api/account/users/${guest.user.id}`, { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ role: "administrator" }) });
+    expect(promoted.status).toBe(200);
     await workspaceSql("DELETE FROM memberships WHERE user_id = ?", guest.user.id);
     expect((await roomList(guest.cookie)).invitation).toBeNull();
     expect((await roomList(administrator.cookie)).invitation).not.toBeNull();
