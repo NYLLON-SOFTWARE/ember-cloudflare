@@ -154,7 +154,7 @@ describe(feature("bots.webhook-reply"), () => {
     // Late answers wait on the clock, which the test moves on.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const webhook = webhookAnswering(recorded);
-    const delivered = postWebhook(recorded.url ?? `http://bots.example.com/${recorded.name}`, PAYLOAD, keepBytes, { send: webhook.send });
+    const delivered = postWebhook(recorded.url ?? `https://bots.example.com/${recorded.name}`, PAYLOAD, keepBytes, { send: webhook.send });
 
     if (answer.error) {
       await expect(delivered).rejects.toThrow(FAILURES[answer.error]!(recorded));
@@ -186,6 +186,14 @@ describe(feature("bots.webhook-reply"), () => {
     expect(contentTypeOf("")).toBe("");
     // Ruby's whitespace is ASCII's, so a no-break space stays, and the type is no media type.
     expect(contentTypeOf(`text/plain${noBreakSpace}`)).toBe(`text/plain${noBreakSpace}`);
+  });
+
+  it("reads a Content-Type header in a moment, however long a run of spaces it holds", () => {
+    const spaces = " ".repeat(300_000);
+    const started = Date.now();
+    expect(contentTypeOf(`text/pl${spaces}ain`)).toBe(`text/pl${spaces}ain`);
+    // A pattern for the spaces at a part's end would try to end each run inside it there: some 12 seconds for this.
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   it("gives a webhook 7 seconds to send each part of its answer and a minute in all, then says it failed to respond", async () => {

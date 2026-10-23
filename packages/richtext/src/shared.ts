@@ -7,3 +7,4 @@ export { isAllEmoji } from "./emoji";
 export { MAX_ATTRIBUTES, MAX_REOPENED_ELEMENTS, MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 export { mentionContent, mentionPromptItem, mentionSgid, userIdFromSgid, type MentionCard } from "./mentions";
 export { previewContent } from "./previews";
+export { strip } from "./ruby";

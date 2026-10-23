@@ -120,5 +120,14 @@ describe(feature("bots.slack-webhook"), () => {
       expect(mrkdwnHtml("*a_b~c".repeat(15_000))).toHaveLength(6 * 15_000 + "<p></p>".length);
       expect(Date.now() - started).toBeLessThan(2_000);
     });
+
+    it("trims a code block's line breaks and a paragraph's spaces in a moment, however long a run of them it holds", () => {
+      const [breaks, spaces] = ["\n".repeat(300_000), " ".repeat(300_000)];
+      const started = Date.now();
+      expect(mrkdwnHtml(`\`\`\`a${breaks}b\`\`\``)).toBe(`<pre>a${breaks}b</pre>`);
+      expect(mrkdwnHtml(`a${spaces}b`)).toBe(`<p>a${spaces}b</p>`);
+      // Patterns for the run at the text's end would try to end each run inside it there: some 15 seconds each for these.
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
   });
 });

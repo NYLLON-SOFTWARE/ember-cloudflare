@@ -3,6 +3,8 @@ import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSe
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutBotKeys } from "../src/bots/api";
+import { slackMessage } from "../src/bots/slack";
+import { keptCards } from "../src/cards";
 import type { Env } from "../src/env";
 import slackPayloads from "./fixtures/slack_payloads.json";
 import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, objectSql, roomSql, roomStub, shown, workspaceSql, type Session } from "./support";
@@ -293,6 +295,15 @@ describe(feature("bots.slack-webhook"), () => {
     expect(await bodiesIn(general)).toEqual(["", "<blockquote><p>Quoted</p><pre>with its code</pre><p>to the end</p></blockquote>"]);
   });
 
+  it("reads a rich text section of many line breaks in a moment", () => {
+    const section = { type: "rich_text_section", elements: [{ type: "text", text: `${"\n".repeat(300_000)}Done` }] };
+    const started = Date.now();
+    // Its markup is too long for a card to keep, so it shows nothing.
+    expect(slackMessage({ blocks: [{ type: "rich_text", elements: [section] }] })).toBe("no_text");
+    // A pattern for the breaks at the section's end would try to end each run of them inside it there: half a minute for these.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("posts each legacy attachment as a card under the text, formatted only where mrkdwn_in says, with its blocks, or as its fallback", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -544,6 +555,15 @@ describe(feature("bots.cards"), () => {
         ],
       },
     ]);
+  });
+
+  it("keeps a table's cells in a moment, however long a run of spaces they hold", () => {
+    const cell = `a${" ".repeat(99_990)}b`;
+    const started = Date.now();
+    const kept = keptCards([{ source: "blocks", parts: [{ kind: "table", rows: [[cell, cell, cell]], columns: [] }] }]);
+    expect(kept.plainText).toBe([cell, cell, cell].join(" | "));
+    // A pattern for the whitespace around a line break would try every run of it for one: some 10 seconds for these.
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   it("shows card blocks as small cards, a carousel's in a row, a video as a link to it, an image under its title, and a section's link button", async () => {

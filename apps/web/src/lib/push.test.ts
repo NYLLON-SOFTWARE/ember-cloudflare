@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { endPushSubscriptionAt, isPushOn, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import { endPushSubscriptionAt, isPushOn, pushEndpoint, savedAgain, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -65,6 +65,20 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await unsubscribeFromPush()).toBeNull();
     registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
     expect(await unsubscribeFromPush()).toBeNull();
+  });
+
+  it("names this browser's push subscription by its endpoint, keeping it, for a new password to keep", async () => {
+    const { registration, unsubscribe } = subscribed();
+    registered(registration);
+    expect(await pushEndpoint()).toBe(ENDPOINT);
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    registered({ pushManager: { getSubscription: async () => null } });
+    expect(await pushEndpoint()).toBeNull();
+    registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
+    expect(await pushEndpoint()).toBeNull();
+    Reflect.deleteProperty(navigator, "serviceWorker");
+    expect(await pushEndpoint()).toBeNull();
   });
 });
 
@@ -282,5 +296,46 @@ describe(feature("notifications.enable"), () => {
     expect(await isPushOn(KEY)).toBe(false);
     vi.stubGlobal("isSecureContext", false);
     expect(await isPushOn(KEY)).toBe(false);
+  });
+
+  it("saves the browser's subscription again, so the server keeps it among the ones you saved most recently", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    const fetch = saving();
+    await savePushAgain();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/push-subscriptions",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ endpoint: ENDPOINT, p256dhKey: "BNcRdreA", authKey: "tBHItJI5" }) }),
+    );
+  });
+
+  it("saves nothing for a browser without a subscription, and settles when saving fails", async () => {
+    const { serviceWorker } = pushable({ permission: "granted", registered: registration() });
+    const fetch = saving();
+    await savePushAgain();
+    expect(fetch).not.toHaveBeenCalled();
+
+    serviceWorker.getRegistration.mockResolvedValue(registration({ existing: subscription() }));
+    fetch.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    fetch.mockResolvedValue(Response.json({ error: "Endpoint is not a permitted push service" }, { status: 422 }));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    serviceWorker.getRegistration.mockRejectedValue(new DOMException("No", "SecurityError"));
+    await expect(savePushAgain()).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("says when the save it last started has settled, so deleting the subscription can wait for it", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    let answer!: (response: Response) => void;
+    const fetch = vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    void savePushAgain();
+    const settled = vi.fn();
+    void savedAgain().then(settled);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).not.toHaveBeenCalled();
+
+    answer(new Response(null, { status: 204 }));
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
   });
 });

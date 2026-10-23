@@ -1,5 +1,6 @@
 import {
   MAX_FAVORITES,
+  MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
@@ -119,6 +120,26 @@ export interface ProfileEntry extends DirectoryEntry {
 /** The same, with the avatar they've uploaded, if any, as their own profile page shows them. */
 export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
+  /** Whether they have a password, which changing their email address or password then asks for. */
+  password: boolean;
+}
+
+/** What someone signs in with: their email address, and their password's digest, or null without one. */
+export interface StoredSignIn {
+  emailAddress: string | null;
+  passwordDigest: string | null;
+}
+
+/**
+ * The sessions a new password ends, all of its person's but `kept`, the one saving it, whose sockets it
+ * closes with `code` in every room they're in, due at `dueAt`, and the push subscriptions it forgets with
+ * them, all of theirs but those at `pushEndpoint`, its browser's.
+ */
+export interface EndedByPassword {
+  kept: string;
+  pushEndpoint: string | null;
+  code: CloseCode;
+  dueAt: number;
 }
 
 /** A bot as the bots page lists it, with its token, which its key is made from, and the rooms it's in but its DMs. */
@@ -271,10 +292,14 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
- * while the last value says guests can't stay signed in.
+ * while ?7 says guests can't stay signed in, or the session ?8 names, which showed the link, has ended,
+ * is a guest's while ?7 says that, or is neither theirs nor an active administrator's.
  */
 const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND (guest = 0 OR ? = 1)`;
+  SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE} AND (guest = 0 OR ?7 = 1)
+    AND EXISTS (SELECT 1 FROM sessions AS showing JOIN users AS shower ON shower.id = showing.user_id
+      WHERE showing.id = ?8 AND shower.status = ${ACTIVE} AND (shower.guest = 0 OR ?7 = 1)
+        AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
@@ -537,6 +562,11 @@ const QUEUE_PERSON_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_
   SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
   WHERE sessions.user_id = ? RETURNING id`;
 
+/** The same, for every session of theirs but the one the last value names, which stays signed in. */
+const QUEUE_OTHER_SESSION_REVOCATIONS = `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT memberships.room_id, ? || sessions.id, ?, ? FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id
+  WHERE sessions.user_id = ? AND sessions.id <> ? RETURNING id`;
+
 /** Revocations due by a time, those due longest first, up to a number of them. */
 export const DUE_REVOCATIONS = `SELECT id, room_id AS roomId, tag, code FROM pending_revocations WHERE due_at <= ? ORDER BY due_at, id LIMIT ?`;
 
@@ -637,9 +667,10 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * Where a new message, numbered ?5, by ?2 in room ?1 is pushed, as ember-rust's `MessagePusher` finds it
  * (push_subscription.rs): to the subscriptions of the room's active members other than its author and
  * the people a JSON list ?3 names, who are viewing it, at all messages, then of those at @mentions whom
- * it mentions, a JSON list ?4, each in the order they were saved. Each comes with the room, its author's
- * name and the count its push sets the badge to: how many of its owner's conversations are marked
- * unread, as ember-rust's `badge` counts them. Nothing once the Workspace has applied the message's event.
+ * it mentions, a JSON list ?4, each in the order they were saved. Guests are left out unless ?6 says
+ * they can stay signed in. Each comes with the room, its author's name and the count its push sets the
+ * badge to: how many of its owner's conversations are marked unread, as ember-rust's `badge` counts
+ * them. Nothing once the Workspace has applied the message's event.
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -648,7 +679,7 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE}
+  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
     AND (memberships.involvement = 'everything' OR (memberships.involvement = 'mentions' AND memberships.user_id IN (SELECT value FROM json_each(?4))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
@@ -954,12 +985,24 @@ const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? O
 
 /**
  * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
- * with its user agent, or, when they've saved the same endpoint and keys before, records that it was
- * saved again, as ember-rust touches it.
+ * with its user agent, or, when they've saved one at the same endpoint before, records that it was
+ * saved again, as ember-rust touches it, with the keys and user agent it has now. ember-rust adds
+ * another for keys that differ, which each message then pushes to as well. It saves nothing once their
+ * session ?7, which was checked first, has ended, answering a row only if it saves: on D1 a password
+ * reset can end the session in between, and a subscription saved after would outlive it.
  */
 const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
-  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-  ON CONFLICT (user_id, endpoint, p256dh_key, auth_key) DO UPDATE SET updated_at = excluded.updated_at`;
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?7 AND user_id = ?1)
+  ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh_key = excluded.p256dh_key, auth_key = excluded.auth_key,
+    user_agent = excluded.user_agent, updated_at = excluded.updated_at
+  RETURNING id`;
+
+/**
+ * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
+ * does, so that saving many can't have a message that notifies them pushed as many times.
+ */
+const TRIM_PUSH_SUBSCRIPTIONS = `DELETE FROM push_subscriptions WHERE user_id = ?1
+  AND id NOT IN (SELECT id FROM push_subscriptions WHERE user_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2)`;
 
 /**
  * Forgets the subscriptions with endpoint ?2 of whoever's session has the token digest ?1, as signing out
@@ -997,8 +1040,10 @@ const SESSION_IP_ADDRESSES = `SELECT DISTINCT ip_address FROM sessions WHERE use
 /** Someone as the directory lists them, with their email address, whatever their status. */
 const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at FROM users WHERE id = ?`;
 
-/** The same, with the avatar they've uploaded. */
-const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant FROM users WHERE id = ?`;
+/** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
+const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
+    coalesce(password_digest, '') <> '' AS password
+  FROM users WHERE id = ?`;
 
 /** Gives someone an avatar, or none, recording when, which changes its address. */
 const CHANGE_AVATAR = `UPDATE users SET avatar_key = ?, avatar_variant = ?, updated_at = ? WHERE id = ?`;
@@ -1283,12 +1328,21 @@ export class WorkspaceStore {
   }
 
   /**
-   * Starts a session for someone who opened a sign-in link for them, unless they're no longer active,
-   * or are a guest while `guests` says guests can't stay signed in.
+   * Starts a session for someone who opened a sign-in link for them that the session `shownBy` showed,
+   * unless they're no longer active, or are a guest while `guests` says guests can't stay signed in, or
+   * that session has ended or is neither theirs nor an active administrator's.
    */
-  async startTransferredSession(userId: UserId, guests: boolean, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+  async startTransferredSession(
+    userId: UserId,
+    shownBy: string,
+    guests: boolean,
+    sessionId: string,
+    tokenDigest: string,
+    client: Client,
+    now: string,
+  ): Promise<StoredSession | null> {
     const [, [row]] = (await this.db.batch([
-      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, guests ? 1 : 0),
+      statement(INSERT_TRANSFERRED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId, guests ? 1 : 0, shownBy),
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
@@ -1343,15 +1397,17 @@ export class WorkspaceStore {
 
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
-   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs). In the
-   * same transaction it queues closing each session's sockets with `code` in every room they're in, due
-   * at `dueAt`, as signing out does. Answers whether it queued any.
+   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs), and
+   * forgets their push subscriptions, which ember-rust keeps. In the same transaction it queues closing
+   * each session's sockets with `code` in every room they're in, due at `dueAt`, as signing out does.
+   * Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
       statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
   }
@@ -1549,9 +1605,23 @@ export class WorkspaceStore {
     await this.db.run(`DELETE FROM searches WHERE user_id = ?`, userId);
   }
 
-  /** Saves a browser's push subscription for someone, with its user agent, or records that they saved it again. */
-  async savePushSubscription(userId: UserId, { endpoint, p256dhKey, authKey }: PushSubscriptionKeys, userAgent: string | null, now: string): Promise<void> {
-    await this.db.run(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now);
+  /**
+   * Saves a browser's push subscription for someone, with its user agent, or records that they saved it
+   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently. Answers whether it
+   * saved it, which it doesn't once their session `sessionId` has ended.
+   */
+  async savePushSubscription(
+    userId: UserId,
+    sessionId: string,
+    { endpoint, p256dhKey, authKey }: PushSubscriptionKeys,
+    userAgent: string | null,
+    now: string,
+  ): Promise<boolean> {
+    const [saved] = await this.db.batch([
+      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now, sessionId),
+      statement(TRIM_PUSH_SUBSCRIPTIONS, userId, MAX_PUSH_SUBSCRIPTIONS),
+    ]);
+    return saved!.length > 0;
   }
 
   /** Someone's push subscriptions, oldest first. */
@@ -1693,10 +1763,11 @@ export class WorkspaceStore {
    * has applied before change nothing. Answers whose marks changed, and whether each is now unread, and,
    * when a message has come in a DM, when the latest did and everyone in the DM, to tell. With `pushing`,
    * it answers each new message's pushes too, found just after its marks, so that a push's badge counts
-   * them and none of the events after it. It answers the bots' webhooks each new message is delivered to,
-   * but for a bot's reply to one, which reaches the room as any message does but goes to no webhook.
+   * them and none of the events after it, and to guests only if `guests` says they can stay signed in.
+   * It answers the bots' webhooks each new message is delivered to, but for a bot's reply to one, which
+   * reaches the room as any message does but goes to no webhook.
    */
-  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false): Promise<AppliedEvents> {
+  async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
     const last = events.at(-1)!.seq;
     const message = events.findLast(isNewMessage);
@@ -1707,7 +1778,7 @@ export class WorkspaceStore {
       const { seq, kind, userId, at } = event;
       const marks = statements.push(isNewMessage(event) ? statement(MARK_UNREAD, at, roomId, userId, viewers, seq) : statement(MARK_READ, roomId, userId, seq)) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq)) - 1 : null;
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq, guests ? 1 : 0)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it.
       const webhooks = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1 : null;
       return { event, marks, pushes, webhooks };
@@ -1851,9 +1922,34 @@ export class WorkspaceStore {
     return row ? { ...directoryEntry(row), emailAddress: row.email_address } : null;
   }
 
-  /** Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string): Promise<void> {
-    await this.db.run(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+  /**
+   * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
+   * new password, in the same transaction it ends the sessions and forgets the push subscriptions
+   * `ended` says, queuing closing those sessions' sockets. Answers whether it queued any.
+   */
+  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+    if (!ended) {
+      await this.db.batch([change]);
+      return false;
+    }
+    const [queued] = await this.db.batch([
+      // Before their sessions go, which it finds their sockets by.
+      statement(QUEUE_OTHER_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, ended.code, ended.dueAt, userId, ended.kept),
+      statement(`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userId, ended.kept),
+      statement(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint IS NOT ?`, userId, ended.pushEndpoint),
+      change,
+    ]);
+    return queued!.length > 0;
+  }
+
+  /** What whoever has id `userId` signs in with, whatever their status, or null if nobody does. */
+  async signInOf(userId: UserId): Promise<StoredSignIn | null> {
+    const [row] = await this.db.all<{ email_address: string | null; password_digest: string | null }>(
+      `SELECT email_address, password_digest FROM users WHERE id = ?`,
+      userId,
+    );
+    return row ? { emailAddress: row.email_address, passwordDigest: row.password_digest || null } : null;
   }
 
   /** What the avatar of whoever has id `userId` is drawn from, whatever their status, or null if nobody does. */
@@ -1864,8 +1960,8 @@ export class WorkspaceStore {
 
   /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
   async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
-    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null }>(OWN_PROFILE, userId);
-    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row) } : null;
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number }>(OWN_PROFILE, userId);
+    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1 } : null;
   }
 
   /**

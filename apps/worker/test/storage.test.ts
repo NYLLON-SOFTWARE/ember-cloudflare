@@ -193,6 +193,51 @@ describe(feature("platform.storage"), () => {
     ]);
   });
 
+  it("keeps the push subscription saved most recently at each endpoint, then each person's ten saved most recently, from before a person had each endpoint once", async () => {
+    // D1 runs the same SQL, at setup, with no subscriptions from before to keep.
+    if ((env as { DB?: D1Database }).DB) return;
+    // A new room's storage stands in for a Workspace's from before, since a Workspace migrates as it opens.
+    const room = await freshRoom("push-subscriptions-per-browser");
+    const { rows, again } = await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+      state.storage.sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+      for (const { name, sql } of MIGRATIONS.filter(({ scope, name }) => scope === "workspace" && name < "0035")) {
+        state.storage.sql.exec(sql);
+        state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", name);
+      }
+      state.storage.sql.exec("INSERT INTO users (id, name, created_at, updated_at) VALUES ('u1', 'Grace', 'now', 'now'), ('u2', 'Lin', 'now', 'now')");
+      const subscribe = (userId: string, label: string, authKey: string, savedAt: string) =>
+        state.storage.sql.exec(
+          `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
+           VALUES (?, ?, 'p256dh', ?, 'Firefox', ?, ?)`,
+          userId,
+          `https://updates.push.services.mozilla.com/wpush/v2/${label}`,
+          authKey,
+          savedAt,
+          savedAt,
+        );
+      // Grace's laptop saved other keys, then its first ones again; Lin's has the same endpoint.
+      subscribe("u1", "laptop", "first", "2026-03-01T00:00:00.000Z");
+      subscribe("u1", "laptop", "second", "2026-02-01T00:00:00.000Z");
+      for (let day = 1; day <= 10; day++) subscribe("u1", `phone-${day}`, "phone", `2026-01-${String(day).padStart(2, "0")}T00:00:00.000Z`);
+      subscribe("u2", "laptop", "lin", "2026-01-01T00:00:00.000Z");
+      migrate(state.storage, "workspace");
+      let again = "saved";
+      try {
+        subscribe("u1", "laptop", "third", "2026-04-01T00:00:00.000Z");
+      } catch (error) {
+        again = String(error);
+      }
+      return { rows: state.storage.sql.exec("SELECT user_id, endpoint, auth_key FROM push_subscriptions ORDER BY id").toArray(), again };
+    });
+    const row = (userId: string, label: string, auth_key: string) => ({ user_id: userId, endpoint: `https://updates.push.services.mozilla.com/wpush/v2/${label}`, auth_key });
+    expect(rows).toEqual([
+      row("u1", "laptop", "first"),
+      ...Array.from({ length: 9 }, (_, i) => row("u1", `phone-${i + 2}`, "phone")),
+      row("u2", "laptop", "lin"),
+    ]);
+    expect(again).toMatch(/UNIQUE constraint failed: push_subscriptions.user_id, push_subscriptions.endpoint/);
+  });
+
   it("runs a batch as one transaction: if a statement fails, the ones before it are undone", async () => {
     const room = await freshRoom("batch");
     // D1 keeps every room's messages in one table, so the ids are the room's own.

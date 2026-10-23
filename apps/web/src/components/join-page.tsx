@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
@@ -32,9 +32,9 @@ interface Props {
 export function JoinPage({ workspace, joinCode, onJoined }: Props) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
   const photo = useChosenPhoto();
 
   useTitle("Sign up");
@@ -43,7 +43,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
     setBusy(true);
     setProblem(null);
     try {
-      onJoined(await joinWorkspace(joinCode, { name, emailAddress, password }, await photo.photo()));
+      onJoined(await joinWorkspace(joinCode, { name, emailAddress, password: passwordInput.current?.value ?? "" }, await photo.photo()));
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
@@ -99,15 +99,15 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
             />
           </Field>
           <Field id="user_password" label="Password" translation="password">
+            {/* Uncontrolled, so what's typed never reaches its `value` attribute, where custom CSS could read it. */}
             <Input
+              ref={passwordInput}
               id="user_password"
               type="password"
               required
               autoComplete="new-password"
               placeholder="Password"
               maxLength={MAX_PASSWORD_LENGTH}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
               className={FIELD_INPUT}
             />
           </Field>

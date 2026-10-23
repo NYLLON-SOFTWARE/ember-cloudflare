@@ -97,6 +97,20 @@ test.describe(feature("unfurl.render"), () => {
     expect((await box(image)).x).toBeGreaterThan((await box(title)).x + (await box(title)).width);
   });
 
+  test("loads a preview's image without a referrer, so its site doesn't learn which Ember shows it", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await previewWith(ada, basecamp);
+    await grace.page.route(basecamp.image!, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
+    const image = grace.page.waitForRequest(basecamp.image!);
+    await paste(ada, "https://basecamp.com/");
+    await expect(ada.composer().locator("action-text-attachment")).toHaveCount(1);
+    await ada.composer().press("Enter");
+
+    await expect(grace.message("Basecamp").locator(".message-content img")).toHaveAttribute("src", basecamp.image!);
+    expect(await (await image).headerValue("referer")).toBeNull();
+  });
+
   test("shows a preview's image under its text on a phone", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } });
     await previewWith(ada, basecamp);

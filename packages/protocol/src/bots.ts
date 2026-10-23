@@ -19,6 +19,9 @@ export const BOTS_FORBIDDEN = "Only administrators can manage bots";
 /** The longest webhook URL saved. */
 export const MAX_WEBHOOK_URL_LENGTH = 2048;
 
+/** Why a webhook URL is refused: one is delivered only to https, or to http on localhost. */
+export const WEBHOOK_URL_REFUSED = "Webhook URL must be an https URL, or an http one on localhost";
+
 /** A room a bot is in, which the bots page shows its commands for. */
 export interface BotRoom {
   id: RoomId;

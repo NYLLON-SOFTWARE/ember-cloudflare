@@ -70,3 +70,6 @@ export interface Env {
    */
   DISABLE_SSL?: string;
 }
+
+/** Whether people may sign in with just a name, and guests who did may stay signed in. */
+export const guestSignIn = (env: Env) => env.EMBER_GUEST_SIGN_IN === "true";

@@ -1,9 +1,19 @@
 import { feature } from "@ember/parity";
-import { MAX_PUSH_ENDPOINT_LENGTH, MAX_PUSH_KEY_LENGTH, PUSH_SUBSCRIPTIONS_PATH, type NewWorkspace, type PushSubscriptionKeys, type PushSubscriptions, type UserId } from "@ember/protocol";
+import {
+  MAX_PUSH_ENDPOINT_LENGTH,
+  MAX_PUSH_KEY_LENGTH,
+  MAX_PUSH_SUBSCRIPTIONS,
+  PUSH_SUBSCRIPTIONS_PATH,
+  type NewWorkspace,
+  type PushSubscriptionKeys,
+  type PushSubscriptions,
+  type UserId,
+} from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, apiWith, cookieOf, freshDeploy, freshRoom, origin, pushBrowser, shown, signIn, workspaceSql, type Session } from "./support";
 
 const FIREFOX = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0";
+const NEWER_FIREFOX = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0";
 
 /** A browser's subscription, with RFC 8291's example keys, at Chrome's push service unless given another endpoint. */
 const subscription = (endpoint = "https://fcm.googleapis.com/fcm/send/dpH5lCsTSSM:APA91bHq") => ({
@@ -12,19 +22,22 @@ const subscription = (endpoint = "https://fcm.googleapis.com/fcm/send/dpH5lCsTSS
   authKey: "BTBZMqHH6r4Tts7J_aSIgg",
 });
 
-/** What `POST /api/push-subscriptions` answers `session` for `body`, sent as JSON unless it's a string, from Firefox. */
-const save = (session: Session | null, body: unknown) =>
+/** What `POST /api/push-subscriptions` answers `session` for `body`, sent as JSON unless it's a string, from Firefox unless another `userAgent` is given. */
+const save = (session: Session | null, body: unknown, userAgent = FIREFOX) =>
   api("/api/push-subscriptions", {
     method: "POST",
-    headers: { "User-Agent": FIREFOX, ...(session ? { Cookie: session.cookie } : {}) },
+    headers: { "User-Agent": userAgent, ...(session ? { Cookie: session.cookie } : {}) },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
 /** Saves `keys` for `session`, as turning notifications on does. */
-async function saved(session: Session, keys: PushSubscriptionKeys = subscription()): Promise<void> {
-  const response = await save(session, keys);
+async function saved(session: Session, keys: PushSubscriptionKeys = subscription(), userAgent?: string): Promise<void> {
+  const response = await save(session, keys, userAgent);
   expect(response.status, await response.clone().text()).toBe(204);
 }
+
+/** `count` browsers' subscriptions, each at an endpoint of its own. */
+const browsers = (count: number) => Array.from({ length: count }, (_, i) => subscription(`https://fcm.googleapis.com/fcm/send/browser-${i}`));
 
 /** What `GET /api/push-subscriptions` answers `session`. */
 const list = (session: Session | null) => api("/api/push-subscriptions", { headers: session ? { Cookie: session.cookie } : {} });
@@ -83,7 +96,7 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await endpointsOf(grace)).toEqual([]);
   });
 
-  it("saving the same subscription again keeps one, saved again, while a changed key adds another", async () => {
+  it("saving the same subscription again keeps one, saved again, and saving its endpoint with other keys replaces them, where ember-rust adds another", async () => {
     const ada = await signIn("Ada");
     await saved(ada);
     await workspaceSql("UPDATE push_subscriptions SET updated_at = '2026-01-01T00:00:00.000Z'");
@@ -91,10 +104,45 @@ describe(feature("notifications.subscriptions"), () => {
     await saved(ada);
     const [row] = (await workspaceSql("SELECT created_at, updated_at FROM push_subscriptions")) as Array<{ created_at: string; updated_at: string }>;
     expect(row!.updated_at > "2026-01-01T00:00:00.000Z").toBe(true);
-    expect(await idsOf(ada.user.id)).toHaveLength(1);
+    const ids = await idsOf(ada.user.id);
+    expect(ids).toHaveLength(1);
 
-    await saved(ada, { ...subscription(), authKey: "AAAAAAAAAAAAAAAAAAAAAA" });
-    expect(await endpointsOf(ada)).toEqual([subscription().endpoint, subscription().endpoint]);
+    const browser = await pushBrowser();
+    await saved(ada, { ...subscription(), p256dhKey: browser.p256dh, authKey: browser.auth }, NEWER_FIREFOX);
+    expect(await idsOf(ada.user.id)).toEqual(ids);
+    expect(await stored(ada.user.id)).toEqual([{ endpoint: subscription().endpoint, p256dh_key: browser.p256dh, auth_key: browser.auth, user_agent: NEWER_FIREFOX }]);
+  });
+
+  it("keeps one subscription for a browser that saves its endpoint with many keys at once", async () => {
+    const ada = await signIn("Ada");
+    const keys = await Promise.all(Array.from({ length: MAX_PUSH_SUBSCRIPTIONS * 2 }, () => pushBrowser()));
+
+    await Promise.all(keys.map(({ p256dh, auth }) => saved(ada, { ...subscription(), p256dhKey: p256dh, authKey: auth })));
+    const [row, ...more] = (await stored(ada.user.id)) as Array<{ endpoint: string; p256dh_key: string; auth_key: string }>;
+    expect(more).toEqual([]);
+    expect(row!.endpoint).toBe(subscription().endpoint);
+    expect(keys).toContainEqual(expect.objectContaining({ p256dh: row!.p256dh_key, auth: row!.auth_key }));
+  });
+
+  it(`keeps the ${MAX_PUSH_SUBSCRIPTIONS} subscriptions you saved most recently, forgetting the one saved longest ago, and nobody else's`, async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    await saved(grace);
+    const [first, second, ...rest] = browsers(MAX_PUSH_SUBSCRIPTIONS + 1);
+    for (const keys of [first!, second!, ...rest.slice(0, -1)]) await saved(ada, keys);
+    await workspaceSql("UPDATE push_subscriptions SET updated_at = '2026-01-01T00:00:00.000Z'");
+
+    // Saving the first again makes it one of those saved most recently, so the second goes as another comes.
+    await saved(ada, first!);
+    await saved(ada, rest.at(-1)!);
+    expect(await endpointsOf(ada)).toEqual([first!, ...rest].map(({ endpoint }) => endpoint));
+    expect(await endpointsOf(grace)).toEqual([subscription().endpoint]);
+  });
+
+  it(`keeps ${MAX_PUSH_SUBSCRIPTIONS} subscriptions when you save more than that at once`, async () => {
+    const ada = await signIn("Ada");
+    await Promise.all(browsers(MAX_PUSH_SUBSCRIPTIONS + 5).map((keys) => saved(ada, keys)));
+    expect(await idsOf(ada.user.id)).toHaveLength(MAX_PUSH_SUBSCRIPTIONS);
   });
 
   it.each([
@@ -172,6 +220,17 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await workspaceSql("SELECT id FROM push_subscriptions")).toEqual([]);
   });
 
+  it("answers 401 and saves nothing when your session ends after it's checked, as a password reset can end it on D1", async () => {
+    const ada = await signIn("Ada");
+    // Behind the Workspace's back, so it still remembers the session, as when a reset lands between its check and the save.
+    await workspaceSql("DELETE FROM sessions WHERE user_id = ?", ada.user.id);
+
+    const response = await save(ada, subscription());
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Not signed in" });
+    expect(await idsOf(ada.user.id)).toEqual([]);
+  });
+
   it("deletes only your own subscriptions, and does nothing for anyone else's", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -194,7 +253,6 @@ describe(feature("notifications.subscriptions"), () => {
     const laptop = subscription("https://fcm.googleapis.com/fcm/send/laptop");
     const phone = subscription("https://web.push.apple.com/phone");
     await saved(ada, laptop);
-    await saved(ada, { ...laptop, authKey: "AAAAAAAAAAAAAAAAAAAAAA" });
     await saved(ada, phone);
     await saved(grace, laptop);
 

@@ -37,7 +37,7 @@ import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
-import { CLOSE_REASONS, closedAtOnce, RESERVED_CLOSE_CODES } from "./sockets";
+import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type PageCursor, type PostedFile, type StoredBody } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace, type BotAccess, type WebhookAccess } from "./workspace";
@@ -615,6 +615,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (isTooLarge(raw, MAX_ROOM_FRAME_SIZE)) return closeTooLarge(ws);
     const frame = typeof raw === "string" ? parseClientFrame(raw) : null;
     if (!frame) return this.send(ws, { type: "error", message: "Unrecognized frame" });
 

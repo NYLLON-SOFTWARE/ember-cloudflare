@@ -40,7 +40,7 @@ import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
-import type { Env } from "./env";
+import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
 import { webPush } from "./push/keys";
@@ -48,7 +48,8 @@ import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import { SessionCache } from "./session-cache";
-import { CLOSE_REASONS, RESERVED_CLOSE_CODES } from "./sockets";
+import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
+import type { Transfer } from "./transfers";
 import {
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
@@ -73,6 +74,11 @@ import {
 
 /** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
+/**
+ * How long a session lasts unused: as long as its cookie does (auth.ts), where ember-rust's sessions
+ * last forever, so a token kept from a browser that's long gone stops working too.
+ */
+export const SESSION_IDLE_MS = 400 * 24 * 60 * 60 * 1000;
 /** How many sessions the Workspace keeps in memory: a few devices each for a large team. */
 const CACHED_SESSIONS = 10_000;
 /** ember-rust's sign-in limit: 10 attempts from an IP address in a fixed 3-minute window (sessions.rs). */
@@ -135,9 +141,9 @@ export const ACCOUNT_NAME = "Ember";
  */
 const FIRST_ROOM_NAMES = ["general", "random"];
 
-/** Your profile, and your id, which the Worker makes your sign-in link for. */
+/** Your profile, and the sign-in link it shows you, by the session asking, which the Worker signs. */
 export interface YourProfile {
-  userId: UserId;
+  transfer: Transfer;
   profile: Profile;
 }
 
@@ -145,10 +151,10 @@ export interface YourProfile {
 export interface ShownPerson {
   person: DirectoryEntry | ProfileEntry;
   /**
-   * Whether the page gives a sign-in link for them, as ember-rust's does for administrators when
-   * they're active and aren't a bot (users/show.html).
+   * The sign-in link the page gives for them, by the session asking, as ember-rust's gives one to
+   * administrators when they're active and aren't a bot (users/show.html), or null.
    */
-  transferable: boolean;
+  transfer: Transfer | null;
 }
 
 /**
@@ -207,6 +213,13 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+
+/**
+ * Whether a change to the profile of someone with `emailAddress` changes what they sign in with: it's
+ * a new password, or `typed` is another email address, as `changeProfile` saves it, a blank one as none.
+ */
+const changesSignIn = ({ emailAddress }: { emailAddress: string | null }, typed: string | undefined, newPassword: boolean) =>
+  newPassword || (typed !== undefined && (typed || null) !== emailAddress);
 
 /**
  * How long a picture's key stays reserved for whatever gives someone the picture, which the Worker
@@ -310,6 +323,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Answers a ping that the runtime doesn't, because it carries more than its type. A workspace socket sends nothing else. */
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (isTooLarge(raw, MAX_WORKSPACE_FRAME_SIZE)) return closeTooLarge(ws);
     const frame = typeof raw === "string" ? parseWorkspaceClientFrame(raw) : null;
     send(ws, frame ? { type: "pong" } : { type: "error", message: "Unrecognized frame" });
   }
@@ -330,9 +344,10 @@ export class Workspace extends DurableObject<Env> {
     }
   }
 
-  /** Closes the workspace sockets tagged `tag`, with `code`. */
-  private closeSockets(tag: string, code: CloseCode): void {
+  /** Closes the workspace sockets tagged `tag`, with `code`, but those tagged `kept` too, if given. */
+  private closeSockets(tag: string, code: CloseCode, kept?: string): void {
     for (const socket of this.ctx.getWebSockets(tag)) {
+      if (kept !== undefined && this.ctx.getTags(socket).includes(kept)) continue;
       if (socket.readyState === WebSocket.OPEN) socket.close(code, CLOSE_REASONS[code]);
     }
   }
@@ -602,12 +617,13 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Signs in the person a sign-in link names, with a session of its own, as ember-rust's session
    * transfers do, unless they're no longer active, or are a guest while `guests` says guests can't
-   * stay signed in.
+   * stay signed in, or the session that showed the link has ended, is a guest's while that's so, or is
+   * neither theirs nor an active administrator's.
    */
-  async transferSession(userId: UserId, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
+  async transferSession({ userId, sessionId: shownBy }: Transfer, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startTransferredSession(userId, guests, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startTransferredSession(userId, shownBy, guests, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -638,6 +654,7 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
     if (!session || (session.guest && !guests)) return null;
     const now = Date.now();
+    if (now - session.lastActiveAt >= SESSION_IDLE_MS) return null;
     if (now - session.lastActiveAt >= SESSION_REFRESH_MS) {
       await this.store.touchSession(session.id, client, new Date(now).toISOString());
       session.lastActiveAt = now;
@@ -675,7 +692,9 @@ export class Workspace extends DurableObject<Env> {
    * digest of, as ember-rust's `reset-password` does (admin.rs): "not found" if nobody has it, whatever
    * their status, and "bot" for a bot, who never signs in with a password. Their role and status stay,
    * a ban included. All their sessions end, and their sockets close and are told to reconnect: here at
-   * once, and in every room they're in through the outbox, where ember-rust's wait for a restart.
+   * once, and in every room they're in through the outbox, where ember-rust's wait for a restart. Their
+   * push subscriptions are forgotten too, where ember-rust keeps them, so that a browser no longer
+   * signed in as them gets none of their pushes.
    */
   async resetPassword(emailAddress: string, passwordDigest: string): Promise<"reset" | "not found" | "bot"> {
     return this.closingSockets(async () => {
@@ -883,13 +902,16 @@ export class Workspace extends DurableObject<Env> {
    * administrators: "not found" if nobody has id `userId`, or null without a valid session.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
-    const user = await this.authenticate(credentials);
-    if (!user) return null;
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(user.id)]);
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
     if (!person) return "not found";
-    if (administrator) return { person, transferable: person.status === "active" && person.role !== "bot" };
+    if (administrator) {
+      const transferable = person.status === "active" && person.role !== "bot";
+      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null };
+    }
     const { emailAddress, ...listed } = person;
-    return { person: listed, transferable: false };
+    return { person: listed, transfer: null };
   }
 
   /**
@@ -1220,37 +1242,66 @@ export class Workspace extends DurableObject<Env> {
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
   async profile(credentials: Credentials): Promise<YourProfile | null> {
-    const user = await this.authenticate(credentials);
-    const person = user && (await this.store.ownProfile(user.id));
-    return person && this.yourProfile(person);
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const person = await this.store.ownProfile(session.user.id);
+    return person && this.yourProfile(person, session.id);
   }
 
-  /** `person`'s profile, as their own profile page shows it. */
-  private async yourProfile(person: OwnProfileEntry): Promise<YourProfile> {
-    const { name, emailAddress, bio, avatar } = person;
+  /** `person`'s profile, as their own profile page shows it to their session `sessionId`. */
+  private async yourProfile(person: OwnProfileEntry, sessionId: string): Promise<YourProfile> {
+    const { name, emailAddress, bio, avatar, password } = person;
     const { avatarUrl } = await this.directoryUser(person);
-    return { userId: person.id, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null } };
+    return { transfer: { userId: person.id, sessionId }, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password } };
+  }
+
+  /**
+   * What a change to the profile of the person `credentials` signs in checks first, when it gives them
+   * `emailAddress`, if it's given, or a new password if `newPassword`: the digest of their password, if
+   * they have one and the change is to what they sign in with, which the Worker checks their current
+   * password against, counting it against sign-in's limit for `ip`: "limited" past it. Null without a
+   * valid session. The passwords themselves stay in the Worker, as at sign-in.
+   */
+  async profileCheck(
+    credentials: Credentials,
+    ip: string,
+    emailAddress: string | undefined,
+    newPassword: boolean,
+  ): Promise<{ passwordDigest: string | null } | "limited" | null> {
+    const session = await this.session(credentials);
+    const signIn = session && (await this.store.signInOf(session.user.id));
+    if (!signIn) return null;
+    if (signIn.passwordDigest === null || !changesSignIn(signIn, emailAddress, newPassword)) return { passwordDigest: null };
+    return this.signInAttempts.attempt(ip) ? { passwordDigest: signIn.passwordDigest } : "limited";
   }
 
   /**
    * Saves `changes` to the profile of the person `credentials` signs in, with `passwordDigest` as their
    * password if it isn't null, as ember-rust's `profiles#update` does (profiles.rs), answering the
    * profile as it is then: "email address taken" when someone else has the email address, where
-   * ember-rust fails, or null without a valid session. A blank email address or bio is saved as none,
-   * so any number of people can be without one. As ember-rust's `User#update` does, it writes only what
-   * differs, and a new password leaves every session signed in. Everyone's workspace sockets hear of a
-   * new name or bio, which the people directory lists.
+   * ember-rust fails, "password needed" when the change is to their email address or password and they
+   * have a password whose digest isn't `checked`, the one the Worker checked their current password
+   * against (`profileCheck`), which ember-rust never asks for, or null without a valid session. A blank
+   * email address or bio is saved as none, so any number of people can be without one. As ember-rust's
+   * `User#update` does, it writes only what differs. A new password ends their other sessions, where
+   * ember-rust's leaves every session signed in: their sockets close and are told to reconnect, here at
+   * once and in every room they're in through the outbox, and their push subscriptions are forgotten but
+   * this browser's, at `pushEndpoint`. Everyone's workspace sockets hear of a new name or bio, which the
+   * people directory lists.
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Omit<ProfileChanges, "password">,
+    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio">,
     passwordDigest: string | null,
-  ): Promise<YourProfile | "email address taken" | null> {
-    return this.oneAtATime(async () => {
+    checked: string | null,
+    pushEndpoint: string | null,
+  ): Promise<YourProfile | "email address taken" | "password needed" | null> {
+    return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
-      const user = await this.authenticate(credentials);
-      if (!user) return null;
+      const session = await this.session(credentials);
+      if (!session) return null;
+      const { user } = session;
       const person = await this.store.ownProfile(user.id);
       if (!person) return null;
       const profile = {
@@ -1259,19 +1310,27 @@ export class Workspace extends DurableObject<Env> {
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
       };
       const listed = profile.name !== person.name || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person);
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session.id);
+      // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
+      if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
+        return "password needed";
+      }
       if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
         return "email address taken";
       }
 
-      const now = new Date().toISOString();
+      const now = Date.now();
+      const at = new Date(now).toISOString();
+      const ended = passwordDigest === null ? null : { kept: session.id, pushEndpoint, code: CloseCode.Reconnect, dueAt: now };
       const administrator = person.role === "administrator";
       if (administrator) this.helpContactChanges++;
+      // As when a password is reset, until the database says it queued nothing.
+      let queued = ended !== null;
       try {
         // Their sessions are read again, so they're signed in by the name they have now.
-        await this.sessions.change(
+        queued = await this.sessions.change(
           (session) => session.user.id === user.id,
-          () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, now),
+          () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, at, ended),
         );
       } finally {
         if (administrator) {
@@ -1279,10 +1338,13 @@ export class Workspace extends DurableObject<Env> {
           // The first administrator's name and email address, which may have changed.
           this.knownHelpContact = undefined;
         }
+        // Whether or not it saved: the sockets of sessions that didn't end are let in again.
+        if (ended) this.closeSockets(user.id, CloseCode.Reconnect, sessionTag(session.id));
+        if (queued) await this.revocationsQueued(now);
       }
-      const changed = { ...person, ...profile, updatedAt: now };
+      const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, updatedAt: at };
       if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
-      return this.yourProfile(changed);
+      return this.yourProfile(changed, session.id);
     });
   }
 
@@ -1305,12 +1367,13 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeAvatar(credentials: Credentials, avatar: StoredPicture | null): Promise<YourProfile | null> {
     return this.oneAtATime(async () => {
-      const user = await this.authenticate(credentials);
-      if (!user) return null;
+      const session = await this.session(credentials);
+      if (!session) return null;
+      const { user } = session;
       const person = await this.store.ownProfile(user.id);
       if (!person) return null;
       // As removing an avatar that isn't there changes nothing in ember-rust.
-      if (avatar === null && person.avatar === null) return this.yourProfile(person);
+      if (avatar === null && person.avatar === null) return this.yourProfile(person, session.id);
       const now = Date.now();
       const updatedAt = new Date(now).toISOString();
       const previous = person.avatar?.key ?? null;
@@ -1318,7 +1381,7 @@ export class Workspace extends DurableObject<Env> {
       if (previous) await this.wakeAt(now);
       const changed = { ...person, avatar, updatedAt };
       this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
-      return this.yourProfile(changed);
+      return this.yourProfile(changed, session.id);
     });
   }
 
@@ -1422,12 +1485,12 @@ export class Workspace extends DurableObject<Env> {
    * moves it to the top of everyone's DMs there, its author's too, as in ember-rust every member's
    * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once. It answers
    * the bots' webhooks each new message is delivered to and, while Web Push is on, its pushes, for the
-   * room to send.
+   * room to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing);
+    const { marks, active, pushes, webhooks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
     for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks };
@@ -1461,13 +1524,14 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves a browser's push subscription, already checked, for the person `credentials` signs in, with
-   * the browser's user agent, answering false without a valid session. Given none, it only checks the
-   * session, for a subscription that's refused.
+   * the browser's user agent, answering false without a valid session, or if it ends before the
+   * subscription is saved, as a password reset can on D1. Given none, it only checks the session, for a
+   * subscription that's refused.
    */
   async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionKeys | null): Promise<boolean> {
-    const user = await this.authenticate(credentials);
-    if (user && subscription) await this.store.savePushSubscription(user.id, subscription, credentials.client.userAgent, new Date().toISOString());
-    return user !== null;
+    const session = await this.session(credentials);
+    if (!session || !subscription) return session !== null;
+    return this.store.savePushSubscription(session.user.id, session.id, subscription, credentials.client.userAgent, new Date().toISOString());
   }
 
   /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */

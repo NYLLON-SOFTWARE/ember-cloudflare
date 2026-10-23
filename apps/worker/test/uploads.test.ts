@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { fileSigner } from "../src/files/addresses";
 import { objectKey, type UploadedPart } from "../src/files/blobs";
-import { UPLOAD_PART_SIZE } from "../src/files/uploads";
+import { keptAs, UPLOAD_PART_SIZE } from "../src/files/uploads";
 import { heifFile, hvcC, irot, ispe } from "./heif-files";
 import {
   api,
@@ -161,6 +161,70 @@ describe(feature("attachments.upload"), () => {
     const afterDeletion = await sendPart(ada.session, room, upload.id, 1, partOf(earth, upload, 1));
     expect(afterDeletion.status).toBe(404);
     expect(await errorOf(afterDeletion)).toBe("Upload not found");
+  });
+
+  it("answers a first part still arriving when another posted the file with that message, keeping the file it posted", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const earth = recordedImage("earth-thumb.png");
+    const page = fileOf(earth.length, new TextEncoder().encode("<!DOCTYPE html><html></html>"));
+    const upload = await started(ada, room, "earth.png", earth);
+
+    const { readable, writable } = new FixedLengthStream(page.length);
+    const arriving = writable.getWriter();
+    const late = api(uploadPartPath(room, upload.id, 1), { method: "PUT", headers: { Cookie: ada.cookie }, body: readable });
+    await arriving.write(page.subarray(0, 100));
+    const sent = await sendPart(ada, room, upload.id, 1, earth);
+    expect(sent.status).toBe(201);
+    const message = (await sent.json()) as FileMessage;
+    await arriving.write(page.subarray(100));
+    await arriving.close();
+
+    const answered = await late;
+    expect(answered.status).toBe(200);
+    expect(await answered.json()).toEqual(message);
+    const served = await fetchFile(message.attachment.url);
+    expect(served.headers.get("Content-Type")).toBe("image/png");
+    expect(await digestOf(await served.arrayBuffer())).toBe(await digestOf(earth));
+  });
+
+  it("answers a first part still arriving when another posted a file in parts with that message too", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const earth = fileOf(UPLOAD_PART_SIZE + 1_000, recordedImage("earth-thumb.png"));
+    const upload = await started(ada, room, "earth.png", earth);
+    const first = partOf(earth, upload, 1);
+
+    const { readable, writable } = new FixedLengthStream(first.length);
+    const arriving = writable.getWriter();
+    const late = api(uploadPartPath(room, upload.id, 1), { method: "PUT", headers: { Cookie: ada.cookie }, body: readable });
+    await arriving.write(first.subarray(0, 100));
+    expect((await sendPart(ada, room, upload.id, 1, first)).status).toBe(204);
+    const sent = await sendPart(ada, room, upload.id, 2, partOf(earth, upload, 2));
+    expect(sent.status).toBe(201);
+    const message = (await sent.json()) as FileMessage;
+    await arriving.write(first.subarray(100));
+    await arriving.close();
+
+    const answered = await late;
+    expect(answered.status, await answered.clone().text()).toBe(200);
+    expect(await answered.json()).toEqual(message);
+  });
+
+  it("posts the file in one part that a request stored but didn't live to post, over a part sent after", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("lobby");
+    const earth = recordedImage("earth-thumb.png");
+    const upload = await started(ada, room, "earth.png", earth);
+    await (env as unknown as Env).FILES!.put(objectKey(upload.id), earth, keptAs("image/png", "earth.png"));
+
+    const sent = await sendPart(ada, room, upload.id, 1, fileOf(earth.length, new TextEncoder().encode("<!DOCTYPE html><html></html>")));
+    expect(sent.status, await sent.clone().text()).toBe(201);
+    const { attachment } = (await sent.json()) as FileMessage;
+    expect(attachment).toMatchObject({ id: upload.id, name: "earth.png", contentType: "image/png", width: 640, height: 800 });
+    const served = await fetchFile(attachment.url);
+    expect(served.headers.get("Content-Type")).toBe("image/png");
+    expect(await digestOf(await served.arrayBuffer())).toBe(await digestOf(earth));
   });
 
   it("gives the message an id of its own when its upload started before files were messages", async () => {

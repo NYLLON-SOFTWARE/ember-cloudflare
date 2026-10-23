@@ -245,7 +245,8 @@ describe(feature("auth.first-run"), () => {
     render(<App />);
     const user = userEvent.setup();
     const name = await screen.findByLabelText("Name");
-    expect(location.hash).toBe("");
+    // An effect takes it out, which on a busy machine can run after the field shows.
+    await waitFor(() => expect(location.hash).toBe(""));
     expect(location.pathname).toBe("/first_run");
     await user.type(name, "Ada");
     await user.type(screen.getByLabelText("Email address"), "ada@example.com");

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
-import { isPushOn, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
+import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 
 export interface Push {
   /** Whether this browser has notifications on. */
@@ -45,7 +45,8 @@ interface Props {
 /**
  * Whether this browser has notifications on, for every page of the workspace, and turning them on. It's
  * checked as the workspace opens, where ember-rust's bell checks on each page, which would show the bell
- * that turns them on for a moment each time a room opens.
+ * that turns them on for a moment each time a room opens, and when they're on, this browser's
+ * subscription is saved again, so the server keeps it (`savePushAgain`).
  */
 export function PushProvider({ vapidPublicKey, platform, children }: Props) {
   const [on, setOn] = useState(false);
@@ -55,7 +56,9 @@ export function PushProvider({ vapidPublicKey, platform, children }: Props) {
   useEffect(() => {
     let stopped = false;
     void isPushOn(vapidPublicKey).then((on) => {
-      if (on && !stopped) setOn(true);
+      if (!on || stopped) return;
+      setOn(true);
+      void savePushAgain();
     });
     return () => void (stopped = true);
   }, [vapidPublicKey]);

@@ -1,6 +1,6 @@
 import type { User } from "@ember/protocol";
 import { toBase64url } from "./encoding";
-import type { Env } from "./env";
+import { guestSignIn, type Env } from "./env";
 import { hmacKey } from "./hmac";
 import { urlOf } from "./request-url";
 import { workspace, type Credentials } from "./workspace";
@@ -60,9 +60,6 @@ export async function tokenDigest(token: string, secret: string): Promise<string
   if (!secret) throw new Error("SESSION_SECRET isn't set. `pnpm dev` and `pnpm run deploy` set it.");
   return toBase64url(new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(token))));
 }
-
-/** Whether people may sign in with just a name, and guests who did may stay signed in. */
-export const guestSignIn = (env: Env) => env.EMBER_GUEST_SIGN_IN === "true";
 
 /** The browser and IP a session records, as ember-rust's does. */
 export const clientOf = (request: Request): Client => ({

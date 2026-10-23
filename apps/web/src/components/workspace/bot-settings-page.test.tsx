@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, type Account, type BotAnswer, type BotSettings, type Me } from "@ember/protocol";
+import { WEBHOOK_URL_REFUSED } from "@ember/protocol/bots";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
@@ -139,7 +140,7 @@ describe(feature("bots.create-edit"), () => {
 
   it("can't add the bot again until the server answers, and says why it refused, keeping what's typed", async () => {
     let refuse = () => {};
-    serve({ sent: () => new Promise((resolve) => (refuse = () => resolve(refused(422, "Webhook URL must be an http or https URL")))) });
+    serve({ sent: () => new Promise((resolve) => (refuse = () => resolve(refused(422, WEBHOOK_URL_REFUSED)))) });
     const { onFailed, user } = showNewBot();
     await user.type(nameField(), "Build Bot");
     await user.type(urlField(), "ftp://ci.example.com");
@@ -149,7 +150,7 @@ describe(feature("bots.create-edit"), () => {
     expect(sent()).toHaveLength(1);
 
     refuse();
-    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: "Webhook URL must be an http or https URL" })));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: WEBHOOK_URL_REFUSED })));
     expect(saveButton()).toBeEnabled();
     expect(urlField()).toHaveValue("ftp://ci.example.com");
     expect(location.pathname).toBe("/account/bots/new");

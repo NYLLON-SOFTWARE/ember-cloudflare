@@ -1,6 +1,7 @@
 import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
 import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
+import { trimmed } from "../trim";
 import type { BotWebhook, MessageWebhook } from "../workspace-store";
 import { botKeyOf } from "./keys";
 import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
@@ -68,8 +69,11 @@ export function webhookPayload(
  */
 const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentions.find(({ id }) => id === bot.id)?.name || bot.name;
 
+/** Rust's `char::is_whitespace`: Unicode's White_Space, which ember-rust's `without_recipient_mentions` trims. */
+const WHITE_SPACE = /\p{White_Space}/u;
+
 /** `without_recipient_mentions`: `text` without its @mentions of `name`, matched case for case, nor whitespace at either end. */
-const withoutMentionsOf = (name: string, text: string) => text.replaceAll(`@${name}`, "").replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "");
+const withoutMentionsOf = (name: string, text: string) => trimmed(text.replaceAll(`@${name}`, ""), (c) => WHITE_SPACE.test(c));
 
 /** What a bot says back: text, which it posts as its message, or a file, with what keeping it as it arrived came to. */
 export type Reply<K> = { text: string } | { file: ReplyFile; kept: K };
@@ -95,13 +99,30 @@ const TIMEOUTS: Timeouts = { endpointMs: ENDPOINT_TIMEOUT_MS, deadlineMs: DELIVE
 export class WebhookError extends Error {}
 
 /**
+ * Whether a webhook may be delivered to `url`: an https URL with a host, or an http one on this machine,
+ * as a bot run beside `wrangler dev` is, where Campfire takes any http URL. Each delivery carries the
+ * bot's key in `room.path`, which anyone on a plain http path could read and post with.
+ */
+export function isWebhookUrl({ protocol, hostname }: URL): boolean {
+  if (!hostname) return false;
+  return protocol === "https:" || (protocol === "http:" && isLoopback(hostname));
+}
+
+/** Whether `hostname`, as a URL gives it, names this machine: localhost, a name under it, or a loopback address. */
+const isLoopback = (hostname: string) =>
+  hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+
+/** Why a delivery to an http URL elsewhere fails, as a webhook saved before only https was taken can have. */
+const PLAIN_HTTP = "its URL is http, which only a webhook on localhost may use";
+
+/**
  * `Webhook#deliver`'s request and what it reads of the answer: POSTs `payload` to `url`, as Net::HTTP
  * does, and answers what the bot says back, having `keep` keep a file as it arrives, where Campfire reads
  * all of it first. A webhook that doesn't answer, or send the next part of its answer, within
  * `endpointMs`, or finish within `deadlineMs`, says it failed to respond, as Campfire has the bot say
- * then. Throws a `WebhookError` when `url` isn't an http or https URL with a host, the request fails, or
- * the answer can't be read or kept, with a message that never holds the URL. Tests can give it shorter
- * `timeouts`, and `send` to stand in for `fetch`.
+ * then. Throws a `WebhookError` when a webhook may not be delivered to `url` (`isWebhookUrl`), the
+ * request fails, or the answer can't be read or kept, with a message that never holds the URL. Tests
+ * can give it shorter `timeouts`, and `send` to stand in for `fetch`.
  */
 export async function postWebhook<K>(
   url: string,
@@ -110,7 +131,7 @@ export async function postWebhook<K>(
   { timeouts = TIMEOUTS, send = fetch }: { timeouts?: Timeouts; send?: typeof fetch } = {},
 ): Promise<Delivered<K>> {
   const target = URL.parse(url);
-  if (!target || (target.protocol !== "http:" && target.protocol !== "https:") || !target.hostname) throw new WebhookError("bad URI");
+  if (!target || !isWebhookUrl(target)) throw new WebhookError(target?.protocol === "http:" && target.hostname ? PLAIN_HTTP : "bad URI");
   const clock = new DeliveryClock(timeouts);
   try {
     const response = await clock.race(send(target, { method: "POST", headers: HEADERS, body: payload, redirect: "manual", signal: clock.signal }));

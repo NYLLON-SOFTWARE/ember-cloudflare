@@ -194,11 +194,13 @@ use it: browsers subscribe with its public key, so a new pair leaves everyone to
 on again. A pair from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
 
 A new message is pushed from its room's Durable Object as the room tells the Workspace of it, to the
-subscriptions of the members who aren't viewing the room and want to hear of it. Push services may
-contact whoever `VAPID_SUBJECT` names, a `mailto:` or `https:` address, about your pushes; without it
-they see this project's address. Each push is an outgoing request, of which the Workers Free plan
-allows 50 per invocation, so there the pushes past that, for a message with more subscribers or a run
-of messages sent together, fail and are logged; the Paid plan allows 10,000.
+subscriptions of the members who aren't viewing the room and want to hear of it: each person keeps
+one for each browser they turned notifications on in, which saves it again each time Ember opens
+there, and only the 10 saved most recently. Push services may contact whoever `VAPID_SUBJECT` names,
+a `mailto:` or `https:` address, about your pushes; without it they see this project's address. Each
+push is an outgoing request, of which the Workers Free plan allows 50 per invocation, so there the
+pushes past that, for a message with more subscribers or a run of messages sent together, fail and
+are logged; the Paid plan allows 10,000.
 
 ### Files
 
@@ -260,7 +262,8 @@ pnpm exec wrangler secret delete EMBER_RECOVERY_TOKEN
 ```
 
 The script asks for the new password twice without showing it, or reads one line from stdin. All
-the person's sessions end, and their open tabs go to sign in. Their role and status stay as they
+the person's sessions end, with the sign-in links they showed, and their open tabs go to sign in.
+Their browsers get no pushes until they sign in again. Their role and status stay as they
 were, so someone deactivated or banned still can't sign in. Whoever has the token can take over any
 account, so delete the secret once you're done; without it, the endpoint answers 404, as any
 address the API doesn't have does.
@@ -273,22 +276,31 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   Worker, images from any HTTPS site, since link previews show their page's image, and no page of
   Ember's in a frame elsewhere. When the policy gets in the way of something in a browser, the
   browser reports it to `/csp-report` and the Worker logs it, so look there if a page misbehaves.
+- Link previews and bot cards show images from other sites, which load without a referrer: a site
+  sees the reader's IP address, but not which Ember shows its image.
 - An administrator can make a sign-in link for anyone, administrators included, which signs in as
-  that person for 4 hours, more than once. Its id travels in the address's fragment, which no log
-  sees.
+  that person for 4 hours, more than once, while the session that showed it is still signed in as an
+  administrator. Your own link works only while the session that showed it does, so signing out, a
+  password reset, or a new password saved in another session ends it. Its id travels in the
+  address's fragment, which no log sees.
 - A file's address is signed and never expires: whoever has it can open the file until its message
   is deleted, as with Active Storage's links.
-- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Workers
-  Logs record each request's address, which for Campfire's bot API and the Slack-compatible webhooks
-  holds the bot's key and for the join link its code; Reset key and Regenerate join link are the
-  remedies if a log is shared, and
+- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Webhooks
+  go only to https, or to http on localhost, so nobody on the way reads the key; a bot saved with an
+  http URL elsewhere before gets no deliveries until its URL is changed, and the Worker's log says
+  why.
+- Workers Logs record each request's address, which for Campfire's bot API and the Slack-compatible
+  webhooks holds the bot's key and for the join link its code; Reset key and Regenerate join link are
+  the remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
   per-request record.
 - Passwords are kept as scrypt digests at OWASP's cost, which takes about a quarter of a second of
   CPU in a Durable Object of its own; digests from before scrypt are replaced as their passwords
   sign in.
-- Sessions last 400 days, refresh on use, and survive the person's own password change; an
-  administrator's reset, deactivation or ban ends them within a minute.
+- A session lasts until it goes 400 days unused. Changing your email address or password takes
+  your current password, so holding someone's session isn't enough to take their account, and a new
+  password ends your other sessions and forgets their browsers' push subscriptions. A password reset,
+  deactivation or ban ends all of a person's sessions within a minute.
 - Until Ember is set up, only the setup link the deploy printed opens the form, so finding a new
   deployment's address isn't enough to become its administrator; on localhost, and on a Worker
   without a setup token, setup is open or closed as [Deploying](#deploying) says.

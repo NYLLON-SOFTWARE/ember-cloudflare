@@ -49,6 +49,34 @@ export async function isPushOn(vapidPublicKey: string | null): Promise<boolean> 
   return (await pushSubscription().catch(() => null)) !== null;
 }
 
+/** The save `savePushAgain` last started. */
+let savingAgain: Promise<void> = Promise.resolve();
+
+/**
+ * Saves this browser's push subscription for you again, if it has one, as the workspace opens with
+ * notifications on, where ember-rust's bell doesn't. The server keeps the `MAX_PUSH_SUBSCRIPTIONS` you
+ * saved most recently, so this keeps the browsers you open among them, and brings this one's back once
+ * newer ones have pushed it out, which the bell can't, showing your level. Settles whether or not it could.
+ */
+export function savePushAgain(): Promise<void> {
+  return (savingAgain = saveAgain());
+}
+
+async function saveAgain(): Promise<void> {
+  try {
+    const subscription = await pushSubscription();
+    if (subscription) await savePushSubscription(keysOf(subscription));
+  } catch {
+    // Notifications stay on, as the bell found them, and the workspace tries again the next time it opens.
+  }
+}
+
+/**
+ * Settles once the save `savePushAgain` last started has. Deleting this browser's subscription waits for
+ * it, since a save reaching the server after the deletion would bring the subscription back.
+ */
+export const savedAgain = (): Promise<void> => savingAgain;
+
 /**
  * Turns notifications on as ember-rust's bell does, settling with why they aren't on, or null once
  * they are: it asks for permission, registers the service worker unless it's registered already, waits
@@ -135,6 +163,14 @@ export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
   if (subscription?.endpoint !== endpoint) return;
   await subscription.unsubscribe().catch(() => false);
   sayEnded();
+}
+
+/**
+ * The endpoint of this browser's push subscription, which a new password keeps on the server while it
+ * forgets your other browsers'. Null when there's none, or the browser can't say.
+ */
+export async function pushEndpoint(): Promise<string | null> {
+  return (await pushSubscription().catch(() => null))?.endpoint ?? null;
 }
 
 async function pushSubscription(): Promise<PushSubscription | null> {

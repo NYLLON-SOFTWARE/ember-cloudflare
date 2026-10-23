@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import type { Involvement, NewWorkspace, RoomId } from "@ember/protocol";
+import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,21 @@ const labelsOf = (pushes: MessagePush[]) => pushes.flatMap(({ deliveries }) => d
 
 /** How many subscriptions `session`'s person has. */
 const subscriptionsOf = async (session: Session) => ((await workspaceSql("SELECT count(*) AS n FROM push_subscriptions WHERE user_id = ?", session.user.id)) as [{ n: number }])[0].n;
+
+/** Runs `run` while the Workspace's bindings differ from this suite's by `changes`. */
+async function withWorkspaceEnv(changes: Partial<Env>, run: () => Promise<void>): Promise<void> {
+  let original: Env | undefined;
+  await runInDurableObject(workspaceStub(), (instance: Workspace) => {
+    const object = instance as unknown as { env: Env };
+    original = object.env;
+    object.env = { ...original, ...changes };
+  });
+  try {
+    await run();
+  } finally {
+    await runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
+  }
+}
 
 /** Stands in for every push service, answering each push with `status`, and keeps what was pushed where, in the order it came. */
 function pushServices(status: (endpoint: string) => number = () => 201) {
@@ -195,6 +210,30 @@ describe(feature("notifications.push"), () => {
     expect(await pushesFor(room, events.slice(1))).toEqual([]);
   });
 
+  it("pushes a message once to a browser that saved its subscription again with other keys, for those keys, where ember-rust pushes to each", async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace] = await people("Ada", "Grace");
+    await involve(grace, room, "everything");
+    const browser = await pushBrowser();
+    const laptop = await subscribe(grace, "laptop");
+    await subscribe(grace, "laptop", browser);
+
+    const [push] = await pushesFor(room, [message(ada, "Hi")]);
+    expect(push!.deliveries).toEqual([expect.objectContaining({ endpoint: laptop, p256dhKey: browser.p256dh, authKey: browser.auth })]);
+  });
+
+  it(`pushes a message to the ${MAX_PUSH_SUBSCRIPTIONS} browsers each person saved most recently, and no more, where ember-rust pushes to every one`, async () => {
+    const room = await freshRoom("Designers");
+    const [ada, grace] = await people("Ada", "Grace");
+    await involve(grace, room, "everything");
+    const browser = await pushBrowser();
+    const labels = Array.from({ length: MAX_PUSH_SUBSCRIPTIONS + 1 }, (_, i) => `browser-${i}`);
+    for (const label of labels) await subscribe(grace, label, browser);
+
+    expect(labelsOf(await pushesFor(room, [message(ada, "Hi")]))).toEqual(labels.slice(1));
+    expect(await subscriptionsOf(grace)).toBe(MAX_PUSH_SUBSCRIPTIONS);
+  });
+
   it("pushes nothing while Web Push is off, though messages still mark rooms unread", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace] = await people("Ada", "Grace");
@@ -202,18 +241,26 @@ describe(feature("notifications.push"), () => {
     await involve(grace, room, "everything");
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    let original: Env | undefined;
-    await runInDurableObject(workspaceStub(), (instance: Workspace) => {
-      const object = instance as unknown as { env: Env };
-      original = object.env;
-      object.env = { ...original, VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined };
-    });
-    try {
+    await withWorkspaceEnv({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }, async () => {
       expect(await pushesFor(room, [message(ada, "Off")])).toEqual([]);
       expect(await workspaceSql("SELECT unread_at IS NOT NULL AS unread FROM memberships WHERE room_id = ? AND user_id = ?", room, grace.user.id)).toEqual([{ unread: 1 }]);
-    } finally {
-      await runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
+    });
+  });
+
+  it("pushes nobody who signed in with just a name while EMBER_GUEST_SIGN_IN doesn't let them stay signed in, though they keep their subscriptions", async () => {
+    const ada = await setUp();
+    const room = await freshRoom("Designers");
+    const [grace, lin] = await people("Grace", "Lin");
+    for (const [session, label] of [[ada, "ada"], [grace, "grace"]] as const) {
+      await subscribe(session, label);
+      await involve(session, room, "everything");
     }
+
+    await withWorkspaceEnv({ EMBER_GUEST_SIGN_IN: undefined }, async () => {
+      expect(labelsOf(await pushesFor(room, [message(lin, "Hey @Grace", grace)]))).toEqual(["ada"]);
+    });
+    expect(await subscriptionsOf(grace)).toBe(1);
+    expect(labelsOf(await pushesFor(room, [message(lin, "Back")]))).toEqual(["ada", "grace"]);
   });
 
   it("finds a message's pushes through the memberships', people's and subscriptions' keys, and its text by the message's", async () => {
@@ -222,8 +269,8 @@ describe(feature("notifications.push"), () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1));
-    expect(pushes).toContain("index_push_subscriptions_on_user_id_and_keys (user_id=?)");
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1));
+    expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
     expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
     const undelivered = await details(roomSql(room, `EXPLAIN QUERY PLAN ${UNDELIVERED_EVENTS}`, room, 50));
