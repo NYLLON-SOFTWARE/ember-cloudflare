@@ -226,7 +226,16 @@ settings, which walks them through it:
    Or add them under the Worker's Settings, Variables and Secrets in the Cloudflare dashboard, as the
    type Secret, since a deploy takes away plain text ones. `pnpm run deploy` uploads them too when its
    environment has them, so the Preview workflow passes repository secrets of the same names through.
-3. Turn on Members sign in with Memberful in Workspace settings.
+3. So that a member whose membership lapses is signed out, not only kept from signing in again, add
+   a webhook in Memberful under Settings, Webhooks that sends the member, subscription and order
+   events to `https://<Ember's address>/webhooks/memberful`, and give the Worker the webhook's secret
+   key and the app's API key, as the step above does the others:
+
+   ```sh
+   pnpm exec wrangler secret put MEMBERFUL_WEBHOOK_SECRET
+   pnpm exec wrangler secret put MEMBERFUL_API_KEY
+   ```
+4. Turn on Members sign in with Memberful in Workspace settings.
 
 While it's on, the sign-in page offers Sign in with Memberful. Someone with an active subscription,
 or the all access pass, signs in as the person their Memberful account is linked to, or else joins
@@ -234,11 +243,22 @@ as a new member, in every open room. Accounts are linked by the Memberful site a
 there, never by email address, since Memberful lets anyone register an address without proving it's
 theirs: someone new whose Memberful email address someone here has already is turned away, and an
 administrator can help them. The site is `MEMBERFUL_URL`'s address, so keep it once people have signed
-in: at another address, even the same site's, every member would be someone new. The join link and signing in with just a name are off, and only
-administrators sign in with a password, who need no membership. Sessions people have go on, and a
-member whose membership lapses stays signed in where they are, but can't sign in again. Turning it off
-brings the join link and passwords back; the people who joined with Memberful have no password, so
-they can't sign in until it's on again or their password is reset.
+in: at another address, even the same site's, every member would be someone new. The join link and
+signing in with just a name are off, and only administrators sign in with a password, who need no
+membership. Sessions people have go on, and turning it off brings the join link and passwords back;
+the people who joined with Memberful have no password, so they can't sign in until it's on again or
+their password is reset.
+
+A member whose membership lapses can't sign in again. With the webhook, they're suspended too: their
+sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their
+rooms, private ones too, messages and role stay, and they're back as they were once it's renewed and
+they sign in. Making an open room private leaves them out of it, as it does anyone not chosen. A
+webhook only tells Ember whom to ask about: Memberful sends them in no particular order, so the
+Workspace asks Memberful's API what that member's membership is now, and asks about everyone linked
+once a day too, in case one never came. Administrators are never suspended. They see suspended
+members dimmed in Workspace settings, where they can remove them, and everyone else sees them as
+removed. Turning Memberful sign-in off leaves suspended members as they are, until it's on again
+and their membership is checked, and suspends nobody else, even with a check under way.
 
 ### Push notifications
 
@@ -370,7 +390,9 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   `wrangler dev`, as `.dev.vars.example` says.
 - With Memberful sign-in on, the Memberful site vouches for its members, so whoever runs it can sign
   in here as any of them. Administrators keep their passwords, so the site being down never locks
-  them out.
+  them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a
+  signed one only has Ember ask Memberful's API about a member, so one forged or sent again changes
+  nothing.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.

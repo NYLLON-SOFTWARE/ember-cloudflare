@@ -348,7 +348,12 @@ export function WorkspaceSettingsPage({
                 />
               </div>
               <CustomDomainSettings askForAccount={askForAccount} onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} />
-              <MemberfulSettings site={settings.memberfulSite} checked={switchingMemberful ?? account.memberfulSignIn} onCheckedChange={switchMemberful} />
+              <MemberfulSettings
+                site={settings.memberfulSite}
+                webhooks={settings.memberfulWebhooks}
+                checked={switchingMemberful ?? account.memberfulSignIn}
+                onCheckedChange={switchMemberful}
+              />
             </>
           ) : (
             <>

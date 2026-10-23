@@ -52,8 +52,8 @@ describe(feature("accounts.settings-page"), () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
     const joinCode = await storedJoinCode();
-    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null } satisfies WorkspaceSettings);
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null } satisfies WorkspaceSettings);
+    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null, memberfulWebhooks: false } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null, memberfulWebhooks: false } satisfies WorkspaceSettings);
   });
 
   it("asks who's signed in", async () => {
@@ -89,7 +89,7 @@ describe(feature("accounts.name"), () => {
     expect(await response.json()).toEqual({ account: named("Ember Studio") });
     expect((await storedAccount()).name).toBe("Ember Studio");
 
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null });
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null, memberfulWebhooks: false });
     expect((await bootstrap(member)).account).toEqual(named("Ember Studio"));
     // "Sign in to <name>", and the installed app's name.
     expect((await bootstrap()).account).toEqual(named("Ember Studio"));

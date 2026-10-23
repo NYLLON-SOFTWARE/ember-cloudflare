@@ -1,16 +1,11 @@
-import {
-  MAX_EMAIL_ADDRESS_LENGTH,
-  MAX_USER_NAME_LENGTH,
-  MEMBERFUL_PROBLEM_PARAM,
-  workspacePageOf,
-  type AccountSettings,
-  type MemberfulSignInProblem,
-} from "@ember/protocol";
+import { MEMBERFUL_PROBLEM_PARAM, workspacePageOf, type AccountSettings, type MemberfulSignInProblem } from "@ember/protocol";
 import { clientOf, cookieValues, hostCookie, hostCookieName, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import { bytesUpTo, MAX_JSON_BODY_BYTES } from "./bodies";
 import { originFor } from "./custom-domain";
-import { toBase64url, urlsafeDecode64 } from "./encoding";
+import { fromHex, toBase64url, urlsafeDecode64 } from "./encoding";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
+import { isSubject, memberfulApiOf, memberfulKeysOf, memberWhoSignedIn, type MemberfulApi } from "./memberful-api";
 import { home, withCookies } from "./pages";
 import { isToken } from "./secrets";
 import { workspace } from "./workspace";
@@ -23,54 +18,17 @@ import { workspace } from "./workspace";
 // app's client secret, for an access token to ask the member API who signed in. It works only while an
 // administrator has turned Memberful sign-in on, and the deployment has the app's keys.
 
-/** The deployment's Memberful site, and the keys of its custom app. */
-export interface MemberfulKeys {
-  /** The site's origin, such as https://example.memberful.com, by which accounts on it are linked. */
-  site: string;
-  clientId: string;
-  clientSecret: string;
-}
-
-/** Someone who signed in to the Memberful site, as its member API describes them. */
-export interface MemberfulMember {
-  /** Their member id, by which accounts here are linked to theirs. */
-  id: string;
-  /** What someone new is called here: their full name, else their email address's local part, else "Member". */
-  name: string;
-  /** Their email address, or null when they have none Ember can keep. */
-  emailAddress: string | null;
-  /** Whether they have an active subscription, or the all access pass (`unrestrictedAccess`). */
-  subscribed: boolean;
-}
-
 /** The cookie that keeps a sign-in's state, and the page to come back to, until Memberful sends the browser back. */
 const STATE_COOKIE = "memberful_state";
 /** How long that takes at most: long enough to sign in at Memberful, or sign up there. */
 const STATE_MAX_AGE_SECONDS = 10 * 60;
 /** The longest page to come back to that the cookie keeps. Any longer, and signing in goes home. */
 const MAX_RETURN_PATH_LENGTH = 1024;
-/** How long Memberful has to answer each request. */
-const MEMBERFUL_TIMEOUT_MS = 10_000;
-/** What the member API is asked of who signed in. */
-const MEMBER_QUERY = "{ currentMember { id email fullName unrestrictedAccess subscriptions { active } } }";
-/** The longest member id kept: far longer than Memberful's, which are numbers. */
-const MAX_SUBJECT_LENGTH = 255;
+/** Where Memberful signs a webhook: the HMAC-SHA256 of its body, under the webhook's secret, in hex. */
+const SIGNATURE_HEADER = "X-Memberful-Webhook-Signature";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
-
-/**
- * The deployment's Memberful keys, or null without all three, or with a site that isn't an https
- * address. The site is the address's origin, so a path or trailing slash after it changes nothing.
- */
-export function memberfulKeysOf(env: Env): MemberfulKeys | null {
-  const [url, clientId, clientSecret] = [env.MEMBERFUL_URL?.trim(), env.MEMBERFUL_CLIENT_ID?.trim(), env.MEMBERFUL_CLIENT_SECRET?.trim()];
-  if (!url || !clientId || !clientSecret) return null;
-  const site = URL.parse(url);
-  if (site?.protocol === "https:") return { site: site.origin, clientId, clientSecret };
-  console.error("MEMBERFUL_URL must be a Memberful site's https address, such as https://example.memberful.com, so Memberful sign-in is off");
-  return null;
-}
 
 /** Why Memberful sign-in can't be turned on: the deployment lacks the keys of a Memberful site's custom app. */
 export const MEMBERFUL_KEYS_NEEDED = "Memberful sign-in needs MEMBERFUL_URL, MEMBERFUL_CLIENT_ID and MEMBERFUL_CLIENT_SECRET set first";
@@ -163,77 +121,77 @@ async function signedInWithMemberful(request: Request, env: Env): Promise<Respon
   if (!kept || state === null || !(await isToken(state, kept.state)) || !code) return backToSignIn(request, "failed");
   // Each try counts against the address's sign-in limit, before Memberful is asked anything.
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-  if ((await workspace(env).beginSignIn(ip, null)) === "limited") return backToSignIn(request, "refused");
+  const begunAt = await workspace(env).beginMemberfulSignIn(ip);
+  if (begunAt === "limited") return backToSignIn(request, "refused");
   const member = await memberWhoSignedIn(keys, code);
   if (!member) return backToSignIn(request, "failed");
   const token = newSessionToken();
-  const user = await workspace(env).signInWithMemberful(keys.site, member, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  const user = await workspace(env).signInWithMemberful(keys.site, member, begunAt, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   if (typeof user === "string") return backToSignIn(request, user);
   return redirect(new URL(kept.returnPath, request.url).href, sessionCookie(request, token));
 }
 
 /**
- * Who signed in at the Memberful site to be given `code`, as its member API says, having exchanged the
- * code for an access token. Null when Memberful refuses the code, or doesn't answer, or not as it should,
- * which is logged without anything it sent.
+ * `POST /webhooks/memberful`, where the Memberful site says a member's account, subscription or order
+ * changed (`auth.memberful-memberships`): once its signature checks out, the Workspace queues checking
+ * that member's membership with the admin API, if they're linked to someone here, rather than trusting
+ * what it says, as Memberful advises, since its webhooks can come in any order
+ * (memberful.com/docs/api-reference/webhooks). Answers 404 without the webhook's secret and the API key
+ * to check with, 401 to a signature that doesn't check out, 413 to a body over the limit, and 204 to
+ * anything else, which Memberful takes as delivered.
  */
-async function memberWhoSignedIn({ site, clientId, clientSecret }: MemberfulKeys, code: string): Promise<MemberfulMember | null> {
+export async function memberfulWebhook(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return notFound(request);
+  const webhooks = memberfulWebhooksOf(env);
+  if (!webhooks) {
+    console.error("A Memberful webhook came, but the deployment lacks MEMBERFUL_WEBHOOK_SECRET or MEMBERFUL_API_KEY, so it's refused");
+    return new Response(null, { status: 404 });
+  }
+  const body = await bytesUpTo(request, MAX_JSON_BODY_BYTES);
+  if (body === null) return new Response(null, { status: 413 });
+  if (!(await isSignedWith(webhooks.secret, body, request.headers.get(SIGNATURE_HEADER)))) return new Response(null, { status: 401 });
+  const subject = subjectOf(parsed(body));
+  if (subject !== null) await workspace(env).queueMembershipCheck(webhooks.api.site, subject);
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * What hearing Memberful's webhooks takes, or null without it all: the deployment's Memberful site and
+ * its custom app's API key, to check what one says with, and the secret Memberful signs them with.
+ */
+export function memberfulWebhooksOf(env: Env): { api: MemberfulApi; secret: string } | null {
+  const api = memberfulApiOf(env);
+  const secret = env.MEMBERFUL_WEBHOOK_SECRET?.trim();
+  return api && secret ? { api, secret } : null;
+}
+
+/** Whether `signature` is the hex HMAC-SHA256 of `body` under `secret`, compared in constant time. */
+async function isSignedWith(secret: string, body: ArrayBuffer, signature: string | null): Promise<boolean> {
+  const signed = signature === null ? null : fromHex(signature.trim().toLowerCase());
+  if (signed?.byteLength !== 32) return false;
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  return crypto.subtle.verify("HMAC", key, signed, body);
+}
+
+/** The JSON value `body` holds, or null for none. */
+function parsed(body: ArrayBuffer): unknown {
   try {
-    // Never following a redirect, which would take the client secret, or the access token, elsewhere.
-    const exchanged = await fetch(new URL("/oauth/token", site), {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: clientId, client_secret: clientSecret }),
-      redirect: "manual",
-      signal: AbortSignal.timeout(MEMBERFUL_TIMEOUT_MS),
-    });
-    const accessToken = exchanged.ok ? accessTokenOf(await exchanged.json()) : null;
-    if (!accessToken) return refused("token", exchanged);
-    const asked = await fetch(new URL(`/api/graphql/member?${new URLSearchParams({ query: MEMBER_QUERY })}`, site), {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-      redirect: "manual",
-      signal: AbortSignal.timeout(MEMBERFUL_TIMEOUT_MS),
-    });
-    const member = asked.ok ? memberOf(await asked.json()) : null;
-    return member ?? refused("member", asked);
-  } catch (error) {
-    console.error("Signing in with Memberful failed:", error instanceof Error ? error.name : "unknown error");
+    return JSON.parse(decoder.decode(body));
+  } catch {
     return null;
   }
 }
 
-/** Logs that Memberful's `endpoint` didn't answer as it should, with its status only, and answers null. */
-async function refused(endpoint: "token" | "member", response: Response): Promise<null> {
-  if (!response.bodyUsed) await response.body?.cancel();
-  console.error(`Memberful's ${endpoint} endpoint answered ${response.status}${response.ok ? " without what it should" : ""}`);
-  return null;
-}
-
-/** The access token in the token endpoint's answer, if it has one. */
-function accessTokenOf(answer: unknown): string | null {
-  const token = (answer as { access_token?: unknown } | null)?.access_token;
-  return typeof token === "string" && token !== "" ? token : null;
-}
-
-/** The member the member API's answer describes, or null when it describes none. */
-function memberOf(answer: unknown): MemberfulMember | null {
-  const member = (answer as { data?: { currentMember?: unknown } } | null)?.data?.currentMember;
-  if (typeof member !== "object" || member === null) return null;
-  const { id, email, fullName, unrestrictedAccess, subscriptions } = member as Record<string, unknown>;
-  if (typeof id !== "string" || id === "" || id.length > MAX_SUBJECT_LENGTH) return null;
-  const given = typeof email === "string" ? email.trim() : "";
-  const emailAddress = given !== "" && given.length <= MAX_EMAIL_ADDRESS_LENGTH ? given : null;
-  const active = Array.isArray(subscriptions) && subscriptions.some((subscription) => (subscription as { active?: unknown } | null)?.active === true);
-  return { id, name: nameOf(fullName, emailAddress), emailAddress, subscribed: unrestrictedAccess === true || active };
-}
-
-/** What someone new is called here: `fullName`, else their email address's local part, else "Member", cut to the longest name. */
-function nameOf(fullName: unknown, emailAddress: string | null): string {
-  const name = (typeof fullName === "string" ? fullName.trim() : "") || emailAddress?.split("@")[0]?.trim() || "Member";
-  // Without half of a character cut in two.
-  const cut = name
-    .slice(0, MAX_USER_NAME_LENGTH)
-    .replace(/[\uD800-\uDBFF]$/, "")
-    .trimEnd();
-  return cut || "Member";
+/**
+ * The member a webhook's payload is about, by their member id, where Memberful's WordPress plugin finds
+ * it: `member.id` for a member's event, and the `member` of the subscription or order an event of theirs
+ * is about. Null for anything else, such as a plan's event, which says nothing about anyone's membership.
+ */
+function subjectOf(payload: unknown): string | null {
+  const { member, subscription, order } = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
+  const about = [member, (subscription as { member?: unknown } | null)?.member, (order as { member?: unknown } | null)?.member];
+  const id = about.map((someone) => (someone as { id?: unknown } | null)?.id).find((id) => id !== undefined && id !== null);
+  // Memberful's ids are numbers in a webhook's JSON, and strings in its GraphQL API, as accounts are linked by them.
+  const subject = typeof id === "number" && Number.isSafeInteger(id) ? String(id) : id;
+  return isSubject(subject) ? subject : null;
 }

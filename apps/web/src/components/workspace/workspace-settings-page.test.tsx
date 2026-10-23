@@ -26,6 +26,7 @@ const asAdministrator: WorkspaceSettings = {
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
+  memberfulWebhooks: false,
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -528,7 +529,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(following(section, screen.getByRole("heading", { level: 2, name: "Rooms" }))).toBe(true);
     expect(within(section).queryByRole("switch")).not.toBeInTheDocument();
     const steps = within(section).getByRole("list", { name: "Steps to let Memberful members sign in" });
-    expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
     // Memberful's custom app sends people back to Ember's address.
     expect(steps).toHaveTextContent(`OAuth redirect URL ${location.origin}/auth/memberful/callback`);
     expect(steps).toHaveTextContent("MEMBERFUL_URL");
@@ -1272,6 +1273,62 @@ describe(feature("accounts.remove-person"), () => {
     expect(await deleteOf("linus Torvalds")).toBeEnabled();
     expect(await readList()).toContain("linus Torvalds");
     expect(onPersonChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe(feature("auth.memberful-memberships"), () => {
+  const SITE = "https://example.memberful.com";
+  const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
+  const webhookSteps = () => screen.queryByRole("list", { name: "Steps to sign out members whose membership lapses" });
+  const lapsed = listed("u7", "Sam Lapsed", "member", "suspended");
+
+  it("says how to hear Memberful's webhooks in the steps to get the keys", async () => {
+    showPage();
+    const steps = await screen.findByRole("list", { name: "Steps to let Memberful members sign in" });
+    expect(steps).toHaveTextContent(`order events to ${location.origin}/webhooks/memberful.`);
+    expect(steps).toHaveTextContent("the webhook's secret key as MEMBERFUL_WEBHOOK_SECRET, and the custom app's API key as MEMBERFUL_API_KEY");
+    expect(webhookSteps()).not.toBeInTheDocument();
+  });
+
+  it("gives administrators the steps to hear Memberful's webhooks once members can sign in, until the deployment has their secrets", async () => {
+    serve(withKeys);
+    showPage();
+    const on = await screen.findByRole("switch", { name: "Members sign in with Memberful" });
+    expect(on).toHaveAccessibleDescription(expect.not.stringContaining("signed out"));
+    const steps = webhookSteps()!;
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(2);
+    expect(steps).toHaveTextContent(`order events to ${location.origin}/webhooks/memberful.`);
+    expect(steps).toHaveTextContent("Give this Worker two more secrets: the webhook's secret key as MEMBERFUL_WEBHOOK_SECRET, and the custom app's API key as MEMBERFUL_API_KEY.");
+    expect(within(steps).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByText(/stays signed in where they are/)).toBeInTheDocument();
+  });
+
+  it("says a member whose membership lapses is signed out once the deployment hears Memberful's webhooks, and where they come", async () => {
+    serve({ ...withKeys, memberfulWebhooks: true });
+    showPage();
+    const on = await screen.findByRole("switch", { name: "Members sign in with Memberful" });
+    expect(on).toHaveAccessibleDescription(expect.stringMatching(/ A member whose membership lapses is signed out until it's renewed\.$/));
+    expect(webhookSteps()).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent(
+      `and its webhook to ${location.origin}/webhooks/memberful. If Ember's address changes, change both there too.`,
+    );
+  });
+
+  it("shows administrators who's suspended for their membership's lapsing, dimmed and said to be so, with Delete but no crown", async () => {
+    showPage(asAda, [...everyone, lapsed]);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory", "Sam Lapsed"]);
+    const row = await rowOf("Sam Lapsed");
+    expect(row).toHaveTextContent("Membership lapsed");
+    expect(row.querySelector("a")).toHaveClass("[&>img]:opacity-50");
+    expect([...row.querySelectorAll("img")].map((image) => image.getAttribute("src"))).not.toContain(cancel);
+    expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(await deleteOf("Sam Lapsed")).toBeEnabled();
+  });
+
+  it("doesn't show members who's suspended", async () => {
+    serve(asMember);
+    showPage(asLinus, [...everyone, lapsed]);
+    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
   });
 });
 
