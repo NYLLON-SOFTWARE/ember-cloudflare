@@ -17,6 +17,12 @@
 # VAPID_PRIVATE_KEY=
 # Whom push services may contact about your pushes, a mailto: or https: address; this project's otherwise.
 # VAPID_SUBJECT=
+# A Memberful custom app's keys, with which an administrator can let a Memberful site's members sign
+# in: the site's address, such as https://example.memberful.com, and the app's OAuth identifier and
+# client secret. The app's OAuth redirect URL is Ember's address followed by /auth/memberful/callback.
+# MEMBERFUL_URL=
+# MEMBERFUL_CLIENT_ID=
+# MEMBERFUL_CLIENT_SECRET=
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true

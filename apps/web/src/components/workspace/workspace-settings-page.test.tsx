@@ -22,9 +22,10 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
   joinCode: JOIN_CODE,
   canAdminister: true,
+  memberfulSite: null,
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -100,6 +101,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
           customDomain,
+          memberfulSignIn: changed?.memberfulSignIn ?? account.memberfulSignIn,
         };
         return Response.json({ account });
       }
@@ -510,6 +512,94 @@ describe(feature("accounts.custom-domain"), () => {
     await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
     expect(screen.queryByRole("region", { name: "Custom domain" })).not.toBeInTheDocument();
     expect(screen.queryByText(/chat\.example\.com/)).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  const SITE = "https://example.memberful.com";
+  const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
+  const memberfulSwitch = () => screen.findByRole("switch", { name: "Members sign in with Memberful" });
+
+  it("gives administrators a Memberful section after Custom domain, with the steps to get the keys until the deployment has them", async () => {
+    showPage();
+    const section = await screen.findByRole("region", { name: "Memberful" });
+    const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(following(screen.getByRole("region", { name: "Custom domain" }), section)).toBe(true);
+    expect(following(section, screen.getByRole("heading", { level: 2, name: "Rooms" }))).toBe(true);
+    expect(within(section).queryByRole("switch")).not.toBeInTheDocument();
+    const steps = within(section).getByRole("list", { name: "Steps to let Memberful members sign in" });
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
+    // Memberful's custom app sends people back to Ember's address.
+    expect(steps).toHaveTextContent(`OAuth redirect URL ${location.origin}/auth/memberful/callback`);
+    expect(steps).toHaveTextContent("MEMBERFUL_URL");
+    expect(within(steps).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+  });
+
+  it("lets an administrator turn it on once the deployment has the keys, saved at once with no notice, which turns the join link off", async () => {
+    serve(withKeys);
+    const { onAccountChanged, user } = showPage();
+    const on = await memberfulSwitch();
+    expect(on).not.toBeChecked();
+    expect(on).toHaveAccessibleDescription(`Members of ${SITE} sign in with their Memberful account. While it's on, the join link is off, and only administrators sign in with a password.`);
+    expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent(`Memberful sends people back to ${location.origin}/auth/memberful/callback`);
+    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
+    expect(await joinLink()).toBeInTheDocument();
+
+    await user.click(on);
+    expect(on).toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, memberfulSignIn: true }));
+    expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]);
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+    expect(screen.getByText(/so the join link is off/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
+    let answer = (_: Response) => {};
+    serve(withKeys, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { onFailed, user } = showPage();
+    const on = await memberfulSwitch();
+    await user.click(on);
+    await user.click(on);
+    expect(on).toBeChecked();
+    expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]);
+
+    answer(Response.json({ error: "Memberful sign-in needs MEMBERFUL_URL, MEMBERFUL_CLIENT_ID and MEMBERFUL_CLIENT_SECRET set first" }, { status: 422 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422 })));
+    expect(on).not.toBeChecked();
+  });
+
+  it("keeps the switch to turn it off once the deployment has lost the keys, saying nobody can sign in with Memberful", async () => {
+    serve({ ...asAdministrator, account: { ...asAdministrator.account, memberfulSignIn: true } });
+    const { user } = showPage();
+    const on = await memberfulSwitch();
+    expect(on).toBeChecked();
+    expect(on).toHaveAccessibleDescription("It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful.");
+    expect(screen.getByRole("list", { name: "Steps to let Memberful members sign in" })).toBeInTheDocument();
+
+    await user.click(on);
+    expect(saved()).toEqual([{ settings: { memberfulSignIn: false } }]);
+    await waitFor(() => expect(screen.queryByRole("switch", { name: "Members sign in with Memberful" })).not.toBeInTheDocument());
+    expect(await joinLink()).toBeInTheDocument();
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    serve(withKeys);
+    showPage();
+    const on = await memberfulSwitch();
+    act(() => workspaceSays({ ...asAdministrator.account, memberfulSignIn: true }));
+    expect(on).toBeChecked();
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+  });
+
+  it("isn't shown to members, who see the join link is off while it's on", async () => {
+    serve({ ...withKeys, canAdminister: false, account: { ...asAdministrator.account, memberfulSignIn: true } });
+    showPage(asLinus);
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(screen.queryByRole("region", { name: "Memberful" })).not.toBeInTheDocument();
+    expect(screen.queryByText(SITE)).not.toBeInTheDocument();
+    expect(screen.getByText(/so the join link is off/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
   });
 });
 

@@ -18,7 +18,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
   helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,

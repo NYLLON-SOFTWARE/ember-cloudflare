@@ -203,6 +203,43 @@ and webhooks go on posting to the addresses they were given. Workspace settings 
 opened, so if the domain ever stops reaching Ember, open them at the workers.dev address and choose
 Stop using it. Deploys leave the domain alone as long as `wrangler.jsonc` lists no `routes`.
 
+### Memberful sign-in
+
+The members of a [Memberful](https://memberful.com) site can sign in with their Memberful accounts
+instead of passwords. It's off until an administrator turns it on under Memberful in Workspace
+settings, which walks them through it:
+
+1. In Memberful, under Settings, Custom applications, add an app with Include OAuth tokens with
+   this application checked, choose Server-side, and give it the OAuth redirect URL
+   `https://<Ember's address>/auth/memberful/callback`. Leave Memberful's automatic sign-in off,
+   since it skips the check that ties a sign-in to the browser that started it.
+2. Give the Worker the app's keys as secrets: `MEMBERFUL_URL`, the site's address, such as
+   `https://example.memberful.com`, and the app's OAuth identifier and client secret as
+   `MEMBERFUL_CLIENT_ID` and `MEMBERFUL_CLIENT_SECRET`. Each command asks for its value:
+
+   ```sh
+   pnpm exec wrangler secret put MEMBERFUL_URL      # add --name <worker> for a Worker not named in wrangler.jsonc
+   pnpm exec wrangler secret put MEMBERFUL_CLIENT_ID
+   pnpm exec wrangler secret put MEMBERFUL_CLIENT_SECRET
+   ```
+
+   Or add them under the Worker's Settings, Variables and Secrets in the Cloudflare dashboard, as the
+   type Secret, since a deploy takes away plain text ones. `pnpm run deploy` uploads them too when its
+   environment has them, so the Preview workflow passes repository secrets of the same names through.
+3. Turn on Members sign in with Memberful in Workspace settings.
+
+While it's on, the sign-in page offers Sign in with Memberful. Someone with an active subscription,
+or the all access pass, signs in as the person their Memberful account is linked to, or else joins
+as a new member, in every open room. Accounts are linked by the Memberful site and the member's id
+there, never by email address, since Memberful lets anyone register an address without proving it's
+theirs: someone new whose Memberful email address someone here has already is turned away, and an
+administrator can help them. The site is `MEMBERFUL_URL`'s address, so keep it once people have signed
+in: at another address, even the same site's, every member would be someone new. The join link and signing in with just a name are off, and only
+administrators sign in with a password, who need no membership. Sessions people have go on, and a
+member whose membership lapses stays signed in where they are, but can't sign in again. Turning it off
+brings the join link and passwords back; the people who joined with Memberful have no password, so
+they can't sign in until it's on again or their password is reset.
+
 ### Push notifications
 
 Push notifications need a VAPID key pair, which the first deploy makes. `pnpm vapid:keys` prints a
@@ -331,6 +368,9 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   without a setup token, setup is open or closed as [Deploying](#deploying) says.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
+- With Memberful sign-in on, the Memberful site vouches for its members, so whoever runs it can sign
+  in here as any of them. Administrators keep their passwords, so the site being down never locks
+  them out.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.
@@ -364,8 +404,9 @@ supported by Slack Technologies, LLC.
 
 This is the starter. Working now: first-run setup, which creates the administrator and the rooms
 general and random, the join link on general's welcome card, sign-in by email address and password
-(10 tries per IP address every 3 minutes) or,
-when `EMBER_GUEST_SIGN_IN` allows it, by display name, with a session cookie the Workspace keeps,
+(10 tries per IP address every 3 minutes),
+when `EMBER_GUEST_SIGN_IN` allows it by display name, or once an administrator turns it on with
+Memberful, with a session cookie the Workspace keeps,
 sign-out, which closes that browser's sockets, open and private rooms that only their members can
 open (made through the API until the New room page lands), live messages with optimistic sends, edit
 and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history

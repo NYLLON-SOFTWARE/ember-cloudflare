@@ -33,9 +33,10 @@ const roomList = (listed: Room[], favorites: RoomId[] = [], sharedOrder: RoomId[
 });
 const generalSettings: RoomSettings = { room: rooms[0]!, canAdminister: true, people: [{ ...ada, member: true }] };
 const workspaceSettings: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
   joinCode: "aB3d-Ef5h-iJ7k",
   canAdminister: false,
+  memberfulSite: null,
 };
 
 /**

@@ -68,7 +68,17 @@ const output = (name: string) => (existsSync(path.join(dir, name)) ? readFileSyn
 function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env = {} }: { deployStatus?: number; env?: Record<string, string> } = {}) {
   const LISTING = Array.isArray(listing) ? JSON.stringify(listing.map((name) => ({ name, type: "secret_text" }))) : listing;
   // The suite itself runs under CI, which the script must hear only from the test.
-  const { CI: _ci, GITHUB_ACTIONS: _actions, WORKERS_CI: _workers, EMBER_SETUP_TOKEN: _token, WRANGLER_OUTPUT_FILE_PATH: _output, ...shell } = process.env;
+  const {
+    CI: _ci,
+    GITHUB_ACTIONS: _actions,
+    WORKERS_CI: _workers,
+    EMBER_SETUP_TOKEN: _token,
+    WRANGLER_OUTPUT_FILE_PATH: _output,
+    MEMBERFUL_URL: _site,
+    MEMBERFUL_CLIENT_ID: _client,
+    MEMBERFUL_CLIENT_SECRET: _secret,
+    ...shell
+  } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
     env: { ...shell, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus), TARGETS: JSON.stringify([WORKER_URL]), ...env },
     encoding: "utf8",
@@ -264,6 +274,30 @@ describe(feature("auth.protected-setup"), () => {
     const { secrets, logs } = deploy("no worker", [], { env: { CI: "true", WORKERS_CI: "1" } });
     expect(secrets!.EMBER_SETUP_TOKEN).toMatch(SECRET);
     expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
+  });
+});
+
+describe(feature("auth.memberful-sign-in"), () => {
+  const keys = { MEMBERFUL_URL: "https://example.memberful.com", MEMBERFUL_CLIENT_ID: "client-id", MEMBERFUL_CLIENT_SECRET: "client-secret" };
+
+  it("uploads the Memberful keys the environment gives with every deploy, so a changed one changes in the Worker, and never prints them", () => {
+    const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { ...keys, CI: "true", GITHUB_ACTIONS: "true" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual(keys);
+    expect(logs).toContain("Deploying with MEMBERFUL_URL, MEMBERFUL_CLIENT_ID, MEMBERFUL_CLIENT_SECRET from the environment");
+    expect(logs).not.toContain("client-secret");
+  });
+
+  it("names the secrets it made apart from the ones the environment gave", () => {
+    const { secrets, logs } = deploy(["SESSION_SECRET", "EMBER_SETUP_TOKEN"], [], { env: { MEMBERFUL_CLIENT_SECRET: "client-secret" } });
+    expect(Object.keys(secrets!)).toEqual(["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "MEMBERFUL_CLIENT_SECRET"]);
+    expect(logs).toContain("Deploying with new VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and MEMBERFUL_CLIENT_SECRET from the environment");
+  });
+
+  it("leaves the keys the environment doesn't give, as a workflow's missing secrets are empty, as the Worker has them", () => {
+    const { secrets, logs } = deploy(EVERY_SECRET, [], { env: { MEMBERFUL_URL: "", MEMBERFUL_CLIENT_ID: "", MEMBERFUL_CLIENT_SECRET: "" } });
+    expect(secrets).toEqual({});
+    expect(logs).toContain("Deploying with the Worker's secrets as they are");
   });
 });
 
