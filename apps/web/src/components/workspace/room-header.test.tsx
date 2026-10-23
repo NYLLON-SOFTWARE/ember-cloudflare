@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
 import { PushContext, type Push } from "@/hooks/use-push";
 import { PUSH_ON } from "@/test-push";
+import { INVOLVEMENT_NOT_SAVED } from "./notification-bell";
 import { RoomHeader } from "./room-header";
 
 const people = (count: number): User[] => Array.from({ length: count }, (_, i) => ({ id: `u${i}`, name: `Person ${i}` }));
@@ -17,6 +18,9 @@ const general: Room = { id: "general", name: "general", kind: "open", icon: null
 const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }], activeAt: "2026-10-15T12:00:00.000Z" };
 
 afterEach(() => history.replaceState(null, "", "/"));
+
+/** What the header's statuses say: the connection's, and the bell's, which says nothing until it's pressed. */
+const statuses = () => screen.queryAllByRole("status").flatMap((status) => status.textContent || []);
 
 /**
  * The header inside the drawer's Sheet, which its menu button opens, as in the workspace, on a browser
@@ -162,22 +166,22 @@ describe(feature("realtime.reconnect"), () => {
     ["reconnecting", "Reconnecting…"],
   ] as const)("says when the room is %s, once it has been without a connection a while", (status, label) => {
     renderHeader({ status, offline: true });
-    expect(screen.getByRole("status")).toHaveTextContent(label);
+    expect(statuses()).toEqual([label]);
   });
 
   it("says nothing while the connection has only just dropped", () => {
     renderHeader({ status: "reconnecting" });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(statuses()).toEqual([]);
   });
 
   it("shows no status once connected", () => {
     renderHeader();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(statuses()).toEqual([]);
   });
 
   it("shows no status for a room that's gone, which nothing reconnects to", () => {
     renderHeader({ status: "gone" });
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(statuses()).toEqual([]);
   });
 });
 
@@ -223,15 +227,22 @@ describe(feature("notifications.levels"), () => {
     }
   });
 
-  it("hands on the level its bell saves, and why it couldn't", async () => {
+  it("hands on the level its bell saves, says under the bell when it couldn't, and leaves a session that's ended to the workspace", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "everything" }));
     const [answered, onFailed] = [vi.fn(), vi.fn()];
     renderHeader({ askForRoom: () => answered, onFailed });
-    await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
+    const bell = screen.getByRole("checkbox", { name: "Notifying about @ mentions" });
+    await userEvent.click(bell);
     expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "general", involvement: "everything" });
+    expect(statuses()).toEqual(["Notifying about all messages"]);
 
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Something went wrong" }, { status: 500 }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Notifying about @ mentions" }));
+    await userEvent.click(bell);
+    expect(statuses()).toEqual([INVOLVEMENT_NOT_SAVED]);
+    expect(onFailed).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "Sign in" }, { status: 401 }));
+    await userEvent.click(bell);
     expect(onFailed).toHaveBeenCalledOnce();
   });
 });

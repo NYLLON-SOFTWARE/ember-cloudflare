@@ -203,7 +203,8 @@ describe(feature("sidebar.favorites"), () => {
     const [general, random] = rows();
     const star = within(general!).getByRole("img", { name: "Favorite" });
     expect(star).toHaveTextContent("★");
-    expect(star).toHaveClass("ml-auto", "text-[14px]", "text-muted-foreground");
+    // Faded, as ember-rust's pull request #24 fades it.
+    expect(star).toHaveClass("ml-auto", "text-[14px]", "text-muted-foreground/65");
     expect(general!.lastElementChild).toBe(star);
     // Without the grip ember-rust shows before it.
     expect(star.previousElementSibling).toHaveTextContent(/^general$/);

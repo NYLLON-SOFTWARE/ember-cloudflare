@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { SIGN_IN_REFUSED, type Directory } from "@ember/protocol";
+import { SIGN_IN_LIMITED, type Directory } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -202,7 +202,8 @@ test.describe(feature("accounts.ban-enforcement"), () => {
     await expect(hal.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
     await expect(star).toHaveAttribute("aria-pressed", "false");
     expect(await statusOfChange(visitor, "/api/session", () => signInAsAdministrator(visitor))).toBe(429);
-    await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+    // As if they'd tried too often, as ember-rust's 429 is.
+    await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_LIMITED);
 
     page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Remove ban" }).click();

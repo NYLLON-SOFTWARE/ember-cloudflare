@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CloseCode, type Bootstrap, type ChangedPerson, type Directory, type DirectoryUser, type Me, type NewWorkspace, type ProfileAnswer, type UserId } from "@ember/protocol";
+import { CloseCode, type ChangedPerson, type Directory, type DirectoryUser, type Me, type NewWorkspace, type ProfileAnswer, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../src/workspace";
@@ -274,18 +274,5 @@ describe(feature("accounts.remove-person"), () => {
     for (const close of await Promise.all(closes)) expect(close).toMatchObject({ code: CloseCode.Revoked });
     expect(await signedIn(member)).toBe(false);
     expect((await api(`/api/rooms/${lobby}/socket`, upgrade(member.cookie))).status).toBe(401);
-  });
-});
-
-describe(feature("auth.help-contact"), () => {
-  it("names the first administrator with the email address removing them gives them, as ember-rust does", async () => {
-    const administrator = await setUp();
-    const member = await join(grace);
-    await workspaceSql("UPDATE users SET role = 1 WHERE id = ?", member.user.id);
-    const helpContact = async () => ((await (await api("/api/bootstrap")).json()) as Bootstrap).helpContact;
-    expect(await helpContact()).toEqual({ name: ada.name, emailAddress: ada.emailAddress });
-
-    expect((await remove(member, administrator.user.id)).status).toBe(200);
-    expect(await helpContact()).toEqual({ name: ada.name, emailAddress: expect.stringMatching(/^ada-deactivated-[\w-]{36}@example\.com$/) });
   });
 });

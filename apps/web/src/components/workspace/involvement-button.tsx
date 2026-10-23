@@ -1,4 +1,4 @@
-import { useId, useState, type ComponentType } from "react";
+import { useId, useState, type ComponentType, type MouseEvent } from "react";
 import type { Involvement, Room } from "@ember/protocol";
 import {
   NotificationBellEverything,
@@ -27,8 +27,10 @@ interface Props {
   involvement: Involvement;
   /** Called as a press saves a level, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
-  /** Says why a save failed, as the workspace's alerts do. */
-  onFailed: (error: unknown) => void;
+  /** Says why a save failed, as the workspace's alerts do, and whether the keyboard pressed it. */
+  onFailed: (error: unknown, keyboard: boolean) => void;
+  /** Called once a press has saved a level, with the level the server answers and whether the keyboard pressed it. */
+  onSaved?: (involvement: Involvement, keyboard: boolean) => void;
   /** Whether it takes focus as it shows, as it does from the bell that turned notifications on. */
   autoFocus?: boolean;
   className?: string;
@@ -41,20 +43,24 @@ interface Props {
  * another tab saves a newer level before the answer comes. While it saves it's dimmed and ignores presses,
  * as the star does.
  */
-export function InvolvementButton({ room, involvement, askForRoom, onFailed, autoFocus, className }: Props) {
+export function InvolvementButton({ room, involvement, askForRoom, onFailed, onSaved, autoFocus, className }: Props) {
   const label = useId();
   const [saving, setSaving] = useState(false);
   const mounted = useMounted();
   const Bell = BELLS[involvement];
 
-  const save = async () => {
+  const save = async (event: MouseEvent<HTMLButtonElement>) => {
     if (saving) return;
     setSaving(true);
+    // A key's press clicks with no count of clicks.
+    const keyboard = event.detail === 0;
     const answered = askForRoom();
     try {
-      answered({ type: "involved", roomId: room.id, involvement: await setInvolvement(room.id, nextInvolvement(room, involvement)) });
+      const saved = await setInvolvement(room.id, nextInvolvement(room, involvement));
+      answered({ type: "involved", roomId: room.id, involvement: saved });
+      if (mounted.current) onSaved?.(saved, keyboard);
     } catch (error) {
-      if (mounted.current || isSignedOut(error)) onFailed(error);
+      if (mounted.current || isSignedOut(error)) onFailed(error, keyboard);
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { Menu } from "@/components/icons/ember";
+import { Menu } from "@/components/icons/lucide";
 import { SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
@@ -31,7 +31,8 @@ export function PageHeader({ children }: { children?: ReactNode }) {
           settings && "md:col-span-2",
         )}
       >
-        {/* Marked as ember-rust's is, for New direct message to give focus back to once the drawer's gone. */}
+        {/* Marked as ember-rust's is, for New direct message to give focus back to once the drawer's gone, and
+            drawn with Lucide's menu, as its pull request #24 draws it. */}
         <SheetTrigger
           data-ember-sidebar-toggle
           aria-label={`${drawerOpen ? "Close" : "Open"} ${drawer}`}

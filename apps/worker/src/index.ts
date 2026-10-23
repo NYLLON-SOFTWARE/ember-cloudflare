@@ -27,7 +27,8 @@ import {
   parseRoleChange,
   parseRoomChanges,
   PROFILE_PATH,
-  SIGN_IN_REFUSED,
+  SIGN_IN_LIMITED,
+  SIGN_IN_REJECTED,
   signOutEndpointOf,
   TRANSFER_PATH,
   workspacePageOf,
@@ -148,8 +149,8 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
     !isPasswordTooLong(password);
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const found = await workspace(env).beginSignIn(ip, given ? emailAddress : null);
-  if (found === "limited") return problem(429, SIGN_IN_REFUSED);
-  if (!given) return problem(401, SIGN_IN_REFUSED);
+  if (found === "limited") return problem(429, SIGN_IN_LIMITED);
+  if (!given) return problem(401, SIGN_IN_REJECTED);
 
   const { matches, rehash } = await passwordHasher(env).verify(password, found?.passwordDigest ?? DUMMY_DIGEST);
   const token = newSessionToken();
@@ -169,7 +170,7 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
     const connecting = found && (await memberfulConnectionFor(request, env, found.userId, found.passwordDigest, returnTo));
     return connecting ? connectionAnswer(connecting) : problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   }
-  if (!user) return problem(401, SIGN_IN_REFUSED);
+  if (!user) return problem(401, SIGN_IN_REJECTED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
@@ -195,7 +196,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const [{ account, helpContact, user }, push] = await Promise.all([
+  const [{ account, user }, push] = await Promise.all([
     workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null),
     webPush(env),
   ]);
@@ -205,7 +206,6 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
     account: account ?? ACCOUNT_BEFORE_SETUP,
-    helpContact,
     version: versionOf(env),
     vapidPublicKey: push.on ? push.keys.publicKey : null,
     platform: platformOf(request.headers.get("User-Agent")),
@@ -448,7 +448,7 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   const { password, currentPassword, pushSubscriptionEndpoint, ...rest } = changes;
   const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password));
   if (!check) return problem(401, "Not signed in");
-  if (check === "limited") return problem(429, SIGN_IN_REFUSED);
+  if (check === "limited") return problem(429, SIGN_IN_LIMITED);
   const checked = check.passwordDigest;
   if (checked !== null) {
     if (!currentPassword) return problem(422, CURRENT_PASSWORD_NEEDED);
@@ -481,7 +481,7 @@ async function connectMemberful(request: Request, env: Env): Promise<Response> {
   const { currentPassword } = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   const check = await workspace(env).memberfulConnectionCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", site);
   if (!check) return problem(401, "Not signed in");
-  if (check === "limited") return problem(429, SIGN_IN_REFUSED);
+  if (check === "limited") return problem(429, SIGN_IN_LIMITED);
   if (check === "off") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.off);
   if (check === "forbidden") return problem(403, "Guests can't connect Memberful");
   if (check === "connected") return problem(409, "You've connected Memberful already");

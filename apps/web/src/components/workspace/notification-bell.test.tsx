@@ -1,13 +1,13 @@
 import { feature } from "@ember/parity";
 import type { Account, Room } from "@ember/protocol";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { PushProvider } from "@/hooks/use-push";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { CHROME_MAC } from "@/test-platforms";
-import { NotificationBell } from "./notification-bell";
+import { FEEDBACK_MS, INVOLVEMENT_NOT_SAVED, NotificationBell } from "./notification-bell";
 
 vi.mock("@/lib/push", () => ({
   isPushOn: vi.fn(async () => false),
@@ -110,7 +110,7 @@ describe(feature("notifications.enable"), () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Notification setup" });
     expect(screen.getByRole("heading", { name: "Notifications are blocked" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Allow notifications for this site in your browser settings, then try again.");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Allow notifications for this site in your browser settings, then try again.");
     expect(screen.getByText("Check your Chrome settings")).toBeVisible();
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
     expect(enableButton()).not.toHaveAttribute("aria-busy");
@@ -130,6 +130,93 @@ describe(feature("notifications.enable"), () => {
     await user.click(enableButton());
     expect(await screen.findByRole("dialog", { name: "Notification setup" })).toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+});
+
+describe(feature("notifications.levels"), () => {
+  /** The level's bell in general's header, with notifications on, whose saves `fetch` answers. */
+  async function renderLevelBell(fetch: () => Promise<Response>) {
+    vi.mocked(isPushOn).mockResolvedValueOnce(true);
+    vi.spyOn(globalThis, "fetch").mockImplementation(fetch);
+    const onFailed = vi.fn();
+    render(
+      <PushProvider vapidPublicKey={KEY} platform={CHROME_MAC}>
+        <NotificationBell room={general} involvement="mentions" askForRoom={() => vi.fn()} onFailed={onFailed} />
+      </PushProvider>,
+    );
+    await act(async () => {});
+    return { bell: screen.getByRole("checkbox"), onFailed };
+  }
+
+  /** What the bell shows under itself, which screen readers don't get, as its status says the same. */
+  const tooltip = () => document.querySelector("[data-notification-tooltip]");
+  const answered = (involvement: string) => async () => Response.json({ involvement });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("confirms the level a press saved under itself for 3.2 seconds, which its status tells screen readers", async () => {
+    vi.useFakeTimers();
+    const { bell } = await renderLevelBell(answered("everything"));
+    expect(tooltip()).toBeEmptyDOMElement();
+    expect(tooltip()).toHaveClass("invisible");
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    // A pointer's press, which slides it in.
+    fireEvent.click(bell, { detail: 1 });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(tooltip()).toHaveTextContent("Notifying about all messages");
+    expect(tooltip()).toHaveAttribute("aria-hidden", "true");
+    expect(tooltip()).toHaveClass("visible", "opacity-100", "transition-[opacity,translate,visibility]", "motion-reduce:transition-none", "bg-foreground", "text-background");
+    expect(screen.getByRole("status")).toHaveTextContent("Notifying about all messages");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+
+    act(() => vi.advanceTimersByTime(FEEDBACK_MS - 1));
+    expect(tooltip()).toHaveClass("visible");
+    act(() => vi.advanceTimersByTime(1));
+    expect(tooltip()).toHaveClass("invisible", "opacity-0");
+    // Its words go with it as it fades.
+    expect(tooltip()).toHaveTextContent("Notifying about all messages");
+  });
+
+  it("shows at once when a key pressed it, keeping focus, until Escape", async () => {
+    const { bell } = await renderLevelBell(answered("everything"));
+    const user = userEvent.setup();
+    bell.focus();
+    await user.keyboard("{Enter}");
+    expect(tooltip()).toHaveTextContent("Notifying about all messages");
+    expect(tooltip()).toHaveClass("visible", "transition-none");
+    expect(bell).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(tooltip()).toHaveClass("invisible");
+    expect(bell).toHaveFocus();
+  });
+
+  it("says a press couldn't save under itself, rather than as the workspace's alert, afresh for screen readers each time", async () => {
+    const { bell, onFailed } = await renderLevelBell(async () => Response.json({ error: "Something went wrong" }, { status: 500 }));
+    const user = userEvent.setup();
+    await user.click(bell);
+    expect(tooltip()).toHaveTextContent(INVOLVEMENT_NOT_SAVED);
+    expect(tooltip()).not.toHaveClass("transition-none");
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn’t update notifications. Try again.");
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(bell).toHaveAccessibleName("Notifying about @ mentions");
+
+    const said = screen.getByRole("status").firstElementChild;
+    await user.click(bell);
+    expect(screen.getByRole("status").firstElementChild).not.toBe(said);
+    expect(screen.getByRole("status")).toHaveTextContent(INVOLVEMENT_NOT_SAVED);
+  });
+
+  it("leaves a session that's ended to the workspace, which signs in again", async () => {
+    const { bell, onFailed } = await renderLevelBell(async () => Response.json({ error: "Sign in" }, { status: 401 }));
+    await userEvent.click(bell);
+    expect(onFailed).toHaveBeenCalledOnce();
+    expect(tooltip()).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 });
 

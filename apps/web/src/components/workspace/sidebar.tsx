@@ -161,10 +161,11 @@ export function Sidebar({
               >
                 <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
                 <span className="truncate">{room.name}</span>
-                {/* The dot and star sit together at the row's end, pushed there by one auto margin. */}
+                {/* The dot and star sit together at the row's end, pushed there by one auto margin. The star's
+                    muted at 65%, as ember-rust's pull request #24 fades `.mb-room-favorite-marker`. */}
                 {unread && <span aria-hidden="true" className="ml-auto size-[7px] shrink-0 rounded-full bg-foreground" />}
                 {star && (
-                  <span role="img" aria-label="Favorite" className={cn("shrink-0 text-[14px] text-muted-foreground", !unread && "ml-auto")}>
+                  <span role="img" aria-label="Favorite" className={cn("shrink-0 text-[14px] text-muted-foreground/65", !unread && "ml-auto")}>
                     ★
                   </span>
                 )}

@@ -12,6 +12,9 @@ const INVISIBLE = "Notifications are off and room invisible in sidebar";
 /** The bell in the header of the room or DM shown, named for your level there. */
 const headerBell = (page: Page) => page.getByRole("navigation", { name: "Page" }).getByRole("checkbox");
 
+/** What the header's bell shows under itself as a press saves a level, which only the eye gets: its status says the same. */
+const bellTooltip = (page: Page) => page.getByRole("navigation", { name: "Page" }).locator("[data-notification-tooltip]");
+
 /** The sidebar's rows for rooms, top to bottom. */
 const roomRows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
 
@@ -48,6 +51,39 @@ test.describe(feature("notifications.levels"), () => {
 
     await grace.page.reload();
     await expect(headerBell(grace.page)).toHaveAccessibleName(NOTHING);
+  });
+
+  test("confirms each level saved under the bell, at once after a key's press, until Escape, and says when one couldn't be saved", async ({ members }) => {
+    const grace = await members.signIn(unique("Grace"), notificationsOn);
+    const bell = headerBell(grace.page);
+    const tooltip = bellTooltip(grace.page);
+    const status = grace.page.getByRole("navigation", { name: "Page" }).getByRole("status");
+    await expect(bell).toHaveAccessibleName(MENTIONS);
+    await expect(tooltip).toBeHidden();
+
+    await bell.click();
+    await expect(tooltip).toHaveText(EVERYTHING);
+    await expect(tooltip).toBeVisible();
+    await expect(status).toHaveText(EVERYTHING);
+    // It goes by itself.
+    await expect(tooltip).toBeHidden();
+
+    await bell.press("Enter");
+    await expect(tooltip).toHaveText(NOTHING);
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveCSS("transition-property", "none");
+    await expect(bell).toBeFocused();
+    await grace.page.keyboard.press("Escape");
+    await expect(tooltip).toBeHidden();
+
+    await grace.page.route("**/api/rooms/*/involvement", (route) => route.fulfill({ status: 500, json: { error: "Something went wrong" } }));
+    await bell.click();
+    await expect(tooltip).toHaveText("Couldn’t update notifications. Try again.");
+    await expect(tooltip).toBeVisible();
+    await expect(status).toHaveText("Couldn’t update notifications. Try again.");
+    await expect(bell).toHaveAccessibleName(NOTHING);
+    // Rather than the workspace's alert.
+    await expect(grace.page.getByRole("alert")).toHaveCount(0);
   });
 
   test("goes between all messages and off in a DM", async ({ members, request }) => {

@@ -1,4 +1,4 @@
-import { SIGN_IN_REFUSED } from "@ember/protocol";
+import { SIGN_IN_REJECTED } from "@ember/protocol";
 import { ADMINISTRATOR, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
 
@@ -20,12 +20,12 @@ test("you can sign in with taps", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });
 
-test("a refused sign-in's alert fits the phone", async ({ page, screenIsFine }) => {
+test("why a sign-in was refused fits the phone", async ({ page, screenIsFine }) => {
   await page.goto("/session/new");
   await page.getByLabel("Email address").fill(ADMINISTRATOR.emailAddress);
   await page.getByLabel("Password").fill("incorrect horse battery");
   await page.getByRole("button", { name: "Sign in" }).tap();
-  await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+  await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REJECTED);
   await screenIsFine();
 });
 

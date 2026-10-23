@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
-import { Close } from "@/components/icons/ember";
+import { X } from "@/components/icons/lucide";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -696,13 +696,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {/* As in ember-rust, the drawer leaves at least 16px of the room showing. */}
             {!settings && (
               <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
-                {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order. */}
+                {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order,
+                    with Lucide's x, as its pull request #24 draws it. */}
                 <SheetClose
                   ref={closeDrawerButton}
                   aria-label="Close conversations"
                   className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
                 >
-                  <Close className="size-5" />
+                  <X className="size-5" />
                 </SheetClose>
                 {sidebar}
               </aside>

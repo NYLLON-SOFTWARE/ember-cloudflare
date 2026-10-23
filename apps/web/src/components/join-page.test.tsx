@@ -19,7 +19,6 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
-  helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -193,11 +192,12 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("auth.help-contact"), () => {
-  it("shows whom to ask for help under the card, as the sign-in page does", () => {
+describe(feature("platform.version"), () => {
+  it("shows Ember's version under the card, as the sign-in page does, and nobody to email", () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
-    expect(screen.getByRole("link", { name: "ada@example.com" })).toHaveAttribute("title", "Email Ada Lovelace");
-    expect(screen.getByText(/^Ember™ version/)).toHaveTextContent("Ember™ version 0.1");
+    const card = screen.getByRole("heading", { name: /^Join / }).closest("section")!;
+    expect(card.nextElementSibling).toHaveTextContent(/^Ember version 0\.1$/);
+    expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   });
 });
 

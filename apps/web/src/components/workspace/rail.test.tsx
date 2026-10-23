@@ -181,17 +181,20 @@ describe(feature("users.avatars"), () => {
 });
 
 describe(feature("accounts.logo"), () => {
-  it("shows Ember's flame, or the workspace's logo on the page's background, as ember-rust's `.mb-rail__brand`", () => {
+  it("shows Ember's flame, or the workspace's logo, filling a 56px square with rounded corners, as ember-rust's `.mb-rail__brand`", () => {
     const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
     const brand = screen.getByRole("link", { name: "Ember home" });
     expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");
-    expect(brand).not.toHaveClass("bg-background");
+    expect(brand).toHaveClass("size-14", "rounded-[10px]");
+    expect(brand.querySelector("img")).toHaveClass("size-14", "rounded-[inherit]", "object-contain");
 
     rerender(<AccountContext value={{ ...account, logo: "/account/logo?v=20261017120000" }}>{railAt("home")}</AccountContext>);
     expect(brand.querySelector("img")).toHaveAttribute("src", "/account/logo?v=20261017120000");
     expect(brand.querySelector("img")).toHaveAttribute("alt", "");
-    expect(brand).toHaveClass("bg-background");
+    expect(brand.querySelector("img")).toHaveClass("size-14", "rounded-[inherit]", "object-cover");
+    // ember-rust's pull request #24 takes away the page's background it sat on.
+    expect(brand).not.toHaveClass("bg-background");
   });
 });
 
