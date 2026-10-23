@@ -1,19 +1,28 @@
 import { useState, type FormEvent } from "react";
-import { canBeCustomDomain, CUSTOM_DOMAIN_NOT_A_HOST, isHost, NOT_A_CUSTOM_DOMAIN, type Account } from "@ember/protocol";
+import { canBeCustomDomain, CUSTOM_DOMAIN_NOT_A_HOST, isHost, NOT_A_CUSTOM_DOMAIN, WORKSPACE_SETTINGS_PATH, type Account, type CustomDomainReach } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
-import { changeAccount, isSignedOut } from "@/lib/api";
+import { changeAccount, checkCustomDomain, isSignedOut } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
 // address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator attaches the
-// domain to the Worker in Cloudflare's dashboard, then opens Ember there and makes it Ember's address. Styled
-// as the Rooms section is.
+// domain to the Worker in Cloudflare's dashboard, checks it reaches Ember, then opens Ember there and makes
+// it Ember's address. Styled as the Rooms section is.
 
 /** Where the Cloudflare dashboard lists an account's Workers, whichever account the person picks. */
 export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";
+
+/** Where the Cloudflare dashboard shows the settings of the Worker named `worker`, whose Domains & Routes add a custom domain. */
+export const workerSettings = (worker: string) => `https://dash.cloudflare.com/?to=/:account/workers/services/view/${worker}/production/settings`;
+
+/** A workers.dev address, `<worker>.<subdomain>.workers.dev`: the Worker's name, then its account's subdomain. */
+const WORKERS_DEV = /^([a-z0-9-]+)\.[a-z0-9-]+\.workers\.dev$/;
+
+/** The name of the Worker at `hostname`, a workers.dev address, which a deploy gives Ember, or null at any other. */
+const workerAt = (hostname: string) => WORKERS_DEV.exec(hostname.toLowerCase())?.[1] ?? null;
 
 /** The section's buttons, as its New room is. */
 const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -110,14 +119,14 @@ export function CustomDomainSettings({ askForAccount, onSaved, onFailed }: Props
           <div>{thisAddressButton}</div>
         </>
       ) : (
-        <SetUp here={here} />
+        <SetUp here={here} onFailed={onFailed} />
       )}
     </section>
   );
 }
 
 /** At an address that can't be Ember's custom domain: the domain to give it, and then how. */
-function SetUp({ here }: { here: string }) {
+function SetUp({ here, onFailed }: { here: string; onFailed: Props["onFailed"] }) {
   const [typed, setTyped] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
   // The domain the steps are for, once Set up shows them.
@@ -164,25 +173,75 @@ function SetUp({ here }: { here: string }) {
           {refusal}
         </p>
       )}
-      {domain !== null && <Steps domain={domain} />}
+      {domain !== null && <Steps key={domain} domain={domain} onFailed={onFailed} />}
     </>
   );
 }
 
-/** The steps to make `domain` Ember's address: Cloudflare's, then Ember's. */
-function Steps({ domain }: { domain: string }) {
-  const settings = `${location.protocol}//${domain}/account/edit`;
+/** What Check DNS says it found at `domain`, which should be added to the Worker named `worker`, where that's known. */
+function reachNote(reaches: CustomDomainReach, domain: string, worker: string | null): string {
+  if (reaches === "ember") return `${domain} reaches Ember.`;
+  if (reaches === "elsewhere") return `Something else answers at ${domain}. Check that it's added to ${worker ?? "the Worker that runs Ember"}, not another.`;
+  return `Nothing answers at ${domain} yet. Cloudflare can take a few minutes to add a domain, so check again soon.`;
+}
+
+/**
+ * The steps to make `domain` Ember's address: Cloudflare's, at the settings of the Worker this page is
+ * open at, where its workers.dev address names it; a check that the domain reaches Ember; then Ember's.
+ */
+function Steps({ domain, onFailed }: { domain: string; onFailed: Props["onFailed"] }) {
+  // What Check DNS found, or "checking" while it asks.
+  const [reaches, setReaches] = useState<CustomDomainReach | "checking" | null>(null);
+  const mounted = useMounted();
+  const worker = workerAt(location.hostname);
+  const settings = `${location.protocol}//${domain}${WORKSPACE_SETTINGS_PATH}`;
+
+  const check = () => {
+    setReaches("checking");
+    checkCustomDomain(domain).then(
+      (found) => {
+        if (mounted.current) setReaches(found);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setReaches(null);
+        onFailed(error);
+      },
+    );
+  };
+
   return (
     <ol aria-label={`Steps to make ${domain} Ember's address`} className="flex list-decimal flex-col gap-2 ps-5">
       <li>
-        In the Cloudflare dashboard, open <em>Workers &amp; Pages</em> and choose this Worker. Under <em>Settings</em>, <em>Domains &amp; Routes</em>, choose <em>Add</em>, then{" "}
-        <em>Custom domain</em>, and enter <strong className="wrap-anywhere">{domain}</strong>. Its domain must be on Cloudflare, in the account that runs Ember.{" "}
-        <a href={WORKERS_DASHBOARD} target="_blank" rel="noopener" className="underline">
-          Open the Cloudflare dashboard
+        {worker === null ? (
+          <>
+            In the Cloudflare dashboard, open <em>Workers &amp; Pages</em> and choose this Worker. Under <em>Settings</em>, <em>Domains &amp; Routes</em>,
+          </>
+        ) : (
+          <>
+            In the Cloudflare dashboard, open the settings of <strong className="wrap-anywhere">{worker}</strong>, the Worker that runs Ember. Under{" "}
+            <em>Domains &amp; Routes</em>,
+          </>
+        )}{" "}
+        choose <em>Add</em>, then <em>Custom domain</em>, and enter <strong className="wrap-anywhere">{domain}</strong>. Its domain must be on Cloudflare, in the account
+        that runs Ember.{" "}
+        <a href={worker === null ? WORKERS_DASHBOARD : workerSettings(worker)} target="_blank" rel="noopener" className="wrap-anywhere underline">
+          {worker === null ? "Open the Cloudflare dashboard" : `Open ${worker}'s settings`}
         </a>
       </li>
       <li>
-        Once Cloudflare has added it, open{" "}
+        Check that <strong className="wrap-anywhere">{domain}</strong> reaches Ember.
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button type="button" onClick={check} disabled={reaches === "checking"} className={BUTTON}>
+            Check DNS
+          </button>
+          <p role="status" className={cn("min-w-0 flex-1 basis-[16em] wrap-anywhere", reaches === "ember" && "text-positive", (reaches === "elsewhere" || reaches === "nothing") && "text-negative")}>
+            {reaches === "checking" ? `Checking ${domain}…` : reaches !== null && reachNote(reaches, domain, worker)}
+          </p>
+        </div>
+      </li>
+      <li>
+        Once it does, open{" "}
         <a href={settings} className="wrap-anywhere underline">
           {settings}
         </a>

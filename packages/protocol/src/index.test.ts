@@ -26,8 +26,10 @@ import {
   MAX_USER_NAME_LENGTH,
   memberfulProblemOf,
   memberfulSignInPath,
+  NOT_A_CUSTOM_DOMAIN,
   parseAccountChanges,
   parseClientFrame,
+  parseCustomDomainCheck,
   parseCustomStyles,
   parseInvolvementChange,
   parseNewDirect,
@@ -391,6 +393,9 @@ describe(feature("accounts.custom-domain"), () => {
     ["nothing", ""],
     ["an empty label", "chat..example.com"],
     ["a port without a host", ":8443"],
+    ["a port past 65535, which no URL has", "chat.example.com:65536"],
+    ["port 0, where nothing answers", "chat.example.com:0"],
+    ["a port with a leading zero, which location.host never has", "chat.example.com:08443"],
     ["a name longer than DNS allows", `${"a".repeat(63)}.`.repeat(3) + "a".repeat(62)],
     ["a number", 42],
     ["a list", ["chat.example.com"]],
@@ -401,6 +406,14 @@ describe(feature("accounts.custom-domain"), () => {
   it("can't be where a deploy or wrangler dev puts Ember, but can be a name under localhost", () => {
     for (const hostname of ["ember.kro.workers.dev", "workers.dev", "Ember.Kro.Workers.Dev", "localhost", "127.0.0.1", "127.8.0.1", "[::1]"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, false]);
     for (const hostname of ["chat.example.com", "workers.dev.example.com", "chat.localhost", "example.com"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, true]);
+  });
+
+  it("checks a domain that could be Ember's, as a host, with its port where it has one", () => {
+    expect(parseCustomDomainCheck({ domain: "chat.example.com" })).toEqual({ domain: "chat.example.com" });
+    expect(parseCustomDomainCheck({ domain: "chat.localhost:8443" })).toEqual({ domain: "chat.localhost:8443" });
+    for (const domain of ["ember.kro.workers.dev", "localhost:8787", "127.0.0.1"]) expect(parseCustomDomainCheck({ domain })).toBe(NOT_A_CUSTOM_DOMAIN);
+    for (const body of [{ domain: "https://chat.example.com" }, { domain: "Chat.Example.com" }, { domain: "chat.example.com:99999" }, { domain: "[::1]" }, { domain: 42 }, {}, null, ["chat.example.com"]])
+      expect(parseCustomDomainCheck(body)).toBe(CUSTOM_DOMAIN_NOT_A_HOST);
   });
 });
 

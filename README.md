@@ -186,11 +186,14 @@ Ember answers at its workers.dev address until an administrator gives it one of 
 Custom domain in Workspace settings, which walks them through it:
 
 1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
-   Worker: Workers & Pages, the Worker, Settings, Domains & Routes, Add, Custom domain. Its domain
-   must be on Cloudflare, in the account that runs the Worker; Cloudflare makes the DNS record and the
+   Worker: Workers & Pages, the Worker, Settings, Domains & Routes, Add, Custom domain. At the
+   workers.dev address the step names the Worker and links straight to its settings. Its domain must
+   be on Cloudflare, in the account that runs the Worker; Cloudflare makes the DNS record and the
    certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a domain
    to the Worker can also deploy new code to it.
-2. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
+2. Check DNS, which asks the domain from the Worker for a one-time probe only this Ember answers, and
+   says whether it reaches Ember, something else answers there, or nothing does yet.
+3. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
    the address the page is open at, so it can't be sent to one that doesn't reach it.
 
 From then on, a page opened at any other address moves to the same page at the new one, and the bot

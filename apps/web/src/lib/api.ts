@@ -11,6 +11,8 @@ import {
   type Bots,
   type BotSettings,
   type ChangedPerson,
+  type CustomDomainCheck,
+  type CustomDomainReach,
   type CustomStyles,
   type DirectRoom,
   type Directory,
@@ -234,6 +236,11 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** What `domain` reaches, as Check DNS in Workspace settings asks before it's made Ember's address: this Ember, something else, or nothing yet. */
+export async function checkCustomDomain(domain: string): Promise<CustomDomainReach> {
+  return (await request<CustomDomainCheck>("/api/account/custom_domain_checks", { method: "POST", body: JSON.stringify({ domain }) })).reaches;
 }
 
 /** A logo chosen for the workspace, with the variants made of it, or null where none could be made (`logoVariantsOf`). */

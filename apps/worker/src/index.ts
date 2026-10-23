@@ -12,6 +12,7 @@ import {
   isPasswordTooLong,
   isRoomId,
   parseAccountChanges,
+  parseCustomDomainCheck,
   parseCustomStyles,
   parseFavoriteOrder,
   parseInvolvementChange,
@@ -28,6 +29,7 @@ import {
   type Account,
   type Bootstrap,
   type ChangedPerson,
+  type CustomDomainCheck,
   type CustomStyles,
   type Directory,
   type Favorites,
@@ -73,7 +75,7 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
-import { customDomainRefusal } from "./custom-domain";
+import { answerProbe, customDomainRefusal, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -249,6 +251,20 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   return refusal ? problem(422, refusal) : json({ account });
+}
+
+/**
+ * Checks what a domain an administrator is making Ember's address reaches, as Workspace settings' Check
+ * DNS asks, after who's asking, as changing the workspace does: this Ember, something else, or nothing yet.
+ */
+async function checkCustomDomain(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const check = parseCustomDomainCheck(await jsonBodyOf(request));
+  if (typeof check === "string") return problem(422, check);
+  return json({ reaches: await reachOf(request, env, check.domain) } satisfies CustomDomainCheck, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
@@ -755,6 +771,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
+  if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
@@ -845,6 +862,9 @@ const tooManyRequests = () => new Response(null, { status: 429, headers: { "Cont
 async function route(request: Request, env: Env, pathname: string): Promise<Response> {
   // The deploy check isn't a browser's, any more than /up is.
   if (pathname === "/api/health") return health(request, env);
+  // Nor is a custom domain check's probe, which this Worker sends.
+  const probe = request.method === "GET" ? probeOf(pathname) : null;
+  if (probe !== null) return answerProbe(env, probe);
   // Nor is password recovery's script, whose token another site's page can't send, since its header
   // takes a preflight nothing here answers.
   if (pathname === RECOVERY_PATH) return resetPassword(request, env);
