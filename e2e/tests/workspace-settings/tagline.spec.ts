@@ -35,6 +35,10 @@ test.describe(feature("accounts.tagline"), () => {
     for (const tab of [page, otherTab]) await expect(taglineOf(tab)).toHaveText(TAGLINE);
     // On one line in the sidebar's full 280px, as in a phone's drawer (mobile/accounts.spec.ts).
     expect(await linesOf(taglineOf(page))).toBe(1);
+    // The other tab's settings follow, so saving there keeps it.
+    await expect(otherTab.getByRole("textbox", { name: "Tagline" })).toHaveValue(TAGLINE);
+    await otherTab.getByRole("button", { name: "Save changes" }).click();
+    await expect(otherTab.getByRole("alert")).toHaveText("Changes saved.");
 
     await page.reload();
     await expect(field).toHaveValue(TAGLINE);

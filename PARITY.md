@@ -310,6 +310,7 @@ ember-rust tests: [`crates/ember/src/controllers/presenters/accounts/tests.rs`](
 - The sidebar shows the tagline in small type under the workspace name, in the desktop layout and in the phones' drawer, where it keeps clear of the close button as the name does, and nothing there while there's none. Where it doesn't fit on one line it wraps, rather than being cut off.
 - Members' workspace settings show it under the workspace name.
 - Every open tab shows a new tagline at once, as the workspace socket says (`account.updated`).
+- Workspace settings' Workspace name and Tagline follow the workspace socket until they're typed in, so saving one in a tab never puts back what another tab saved in the other.
 
 Note: This port's own: ember-rust heads the sidebar with the workspace's name alone (`.mb-workspace-heading`, users/sidebars/show.html), and the project's owner asked for a line under it. It's called a tagline, as WordPress names the line under a site's title and HTML names what an `hgroup` holds beside its heading, which is what the sidebar puts them in. 30 characters fit on one line of 13px type in the 280px sidebar and in a phone's drawer from 375px wide, as Apple keeps an app's subtitle under its name to 30; a narrower sidebar, 230px between 901 and 1100px wide or a 320px phone's drawer, or wider letters can wrap it onto a second line. It's kept in the account's settings as `tagline`, beside ember-rust's, so it took no migration, and saving it leaves the other settings alone.
 

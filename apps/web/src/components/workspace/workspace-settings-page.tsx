@@ -97,8 +97,11 @@ export function WorkspaceSettingsPage({
   onSessionChanged,
 }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
-  const [name, setName] = useState("");
-  const [tagline, setTagline] = useState("");
+  // What's typed in Workspace name and Tagline, or null for either while it's as the workspace has it,
+  // when the field follows the workspace socket, so that saving one never puts back what another tab
+  // changed in the other.
+  const [typedName, setTypedName] = useState<string | null>(null);
+  const [typedTagline, setTypedTagline] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /** The address of the logo picked, shown while it saves. */
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
@@ -110,6 +113,8 @@ export function WorkspaceSettingsPage({
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
   const account = useAccount();
+  const name = typedName ?? account.name;
+  const tagline = typedTagline ?? account.tagline;
   const people = useContext(PeopleContext);
   // The people as they are now, for answers that come later.
   const peopleNow = useRef(people);
@@ -138,8 +143,8 @@ export function WorkspaceSettingsPage({
       (settings) => {
         if (stopped) return;
         setSettings(settings);
-        setName(settings.account.name);
-        setTagline(settings.account.tagline);
+        setTypedName(null);
+        setTypedTagline(null);
         answered(settings.account);
         onJoinCodeChanged(settings.joinCode);
       },
@@ -155,15 +160,16 @@ export function WorkspaceSettingsPage({
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
-    const sent = tagline;
-    changeAccount({ name, tagline }).then(
+    const sent = { name, tagline };
+    changeAccount(sent).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
         setSaving(false);
         setSettings((settings) => settings && { ...settings, account });
-        // The tagline as it's kept, with no space at its ends, unless it's been typed over since.
-        setTagline((typed) => (typed === sent ? account.tagline : typed));
+        // Each shows as it's kept, the tagline with no space at its ends, unless it's been typed over since.
+        setTypedName((typed) => (typed === sent.name ? null : typed));
+        setTypedTagline((typed) => (typed === sent.tagline ? null : typed));
         flash("notice", CHANGES_SAVED);
       },
       (error: unknown) => {
@@ -333,7 +339,7 @@ export function WorkspaceSettingsPage({
                     placeholder="Name this account"
                     data-ember-preserve-selection
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) => setTypedName(event.target.value)}
                     // zz-ember.css takes the focus ring off this field alone.
                     className={cn(FIELD_INPUT, "focus-visible:outline-none")}
                   />
@@ -346,7 +352,7 @@ export function WorkspaceSettingsPage({
                     placeholder="Sum it up in a few words"
                     aria-describedby="account-tagline-description"
                     value={tagline}
-                    onChange={(event) => setTagline(event.target.value)}
+                    onChange={(event) => setTypedTagline(event.target.value)}
                     className={FIELD_INPUT}
                   />
                   <p id="account-tagline-description" className="text-[0.8em] text-muted-foreground">

@@ -365,6 +365,23 @@ describe(feature("accounts.tagline"), () => {
     expect(tagline).toHaveValue("Engines galore");
   });
 
+  it("follows the name and tagline another tab saves until they're typed in, so saving one keeps what was saved in the other", async () => {
+    const { user } = showPage();
+    const name = await nameField();
+    const tagline = await taglineField();
+    act(() => workspaceSays({ ...asAdministrator.account, tagline: TAGLINE }));
+    expect(tagline).toHaveValue(TAGLINE);
+    await user.type(name, " Ltd{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ name: "Analytical Engines Ltd", tagline: TAGLINE }]);
+    // What's typed and not yet saved stays, whatever another tab saves.
+    await user.type(tagline, "!");
+    act(() => workspaceSays({ ...asAdministrator.account, name: "Difference Engines", tagline: "Engines, now with steam" }));
+    expect(name).toHaveValue("Difference Engines");
+    expect(tagline).toHaveValue(`${TAGLINE}!`);
+  });
+
   it("takes the tagline away once it's emptied and saved", async () => {
     serve(tagged);
     const { onAccountChanged, user } = showPage();
