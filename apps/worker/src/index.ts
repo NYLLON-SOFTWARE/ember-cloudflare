@@ -7,8 +7,11 @@ import {
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
   MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_CONNECTIONS_PATH,
+  MEMBERFUL_PASSWORD_NEEDED,
   MEMBERFUL_SIGN_IN_NEEDED,
   MEMBERFUL_SIGN_IN_PATH,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
   isPasswordTooLong,
   isRoomId,
@@ -23,6 +26,7 @@ import {
   parseProfileChanges,
   parseRoleChange,
   parseRoomChanges,
+  PROFILE_PATH,
   SIGN_IN_REFUSED,
   signOutEndpointOf,
   TRANSFER_PATH,
@@ -35,6 +39,7 @@ import {
   type Directory,
   type Favorites,
   type Involvement,
+  type MemberfulConnection,
   type NewJoinCode,
   type NewRoomForm,
   type PersonAnswer,
@@ -81,7 +86,7 @@ import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
-import { finishMemberfulSignIn, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
+import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
 import { anyOtherPage } from "./pages";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
@@ -126,9 +131,11 @@ async function signIn(request: Request, env: Env): Promise<Response> {
  * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
  * address's limit before anything is checked, and an unknown email address costs a password check
  * too, so the answer's timing doesn't say who has an account. While members sign in with Memberful,
- * only an administrator signs in with a password, and anyone else whose password checks out hears 403.
+ * only an administrator signs in with a password. Anyone else whose password checks out goes on to
+ * connect their Memberful account (`auth.memberful-connect`), as 202 says, to come back to `returnTo`
+ * signed in, until they have one connected, and hears 403 once they have.
  */
-async function signInWithPassword({ emailAddress, password }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
+async function signInWithPassword({ emailAddress, password, returnTo }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
   // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
   // form sends, which nobody can have, or an email address longer than any account's, which the
   // Workspace would otherwise be sent whole.
@@ -157,7 +164,10 @@ async function signInWithPassword({ emailAddress, password }: Record<string, unk
       user = await workspace(env).startSession(kept.userId, kept.passwordDigest, null, digest, client);
     }
   }
-  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
+  if (user === "memberful") {
+    const connecting = found && (await memberfulConnectionFor(request, env, found.userId, found.passwordDigest, returnTo));
+    return connecting ? connectionAnswer(connecting) : problem(403, MEMBERFUL_SIGN_IN_NEEDED);
+  }
   if (!user) return problem(401, SIGN_IN_REFUSED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
@@ -402,12 +412,14 @@ async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<
 
 /**
  * Your profile as its page shows it, with a new sign-in link for you, as each of ember-rust's profile
- * pages has (users/profiles/_transfer.html). No cache should keep it, since it holds your email address
- * and the link.
+ * pages has (users/profiles/_transfer.html), and whether you've connected an account at the Memberful site
+ * the deployment's keys name. No cache should keep it, since it holds your email address and the link.
  */
-async function profileAnswer({ transfer, profile }: YourProfile, env: Env): Promise<Response> {
+async function profileAnswer({ transfer, profile, connected }: YourProfile, env: Env): Promise<Response> {
   const transferId = await newTransferId(transfer, env.SESSION_SECRET, Date.now());
-  return json({ profile, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
+  const site = memberfulKeysOf(env)?.site;
+  const memberful = connected && site ? connected.includes(site) : null;
+  return json({ profile: { ...profile, memberful }, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Your profile, for its page (profiles.rs, `show`). */
@@ -449,6 +461,42 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   return profileAnswer(yours, env);
 }
+
+/**
+ * Connect Memberful on your profile (`auth.memberful-connect`), this port's own: once your password checks
+ * out, while you have one, so that holding your session isn't enough to add a way into your account, as
+ * for changing your email address or password, answers where to sign in at the Memberful site to connect
+ * your account there to yours, with the cookie that keeps the state it goes with, to come back to your
+ * profile. 401 without a valid session; 403 while members don't sign in with Memberful, or the deployment
+ * lacks its keys, or to a guest; 409 once you've connected one; 422 without your password, or with one that
+ * isn't yours; and 429 past sign-in's limit, which checking the password counts against.
+ */
+async function connectMemberful(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const site = memberfulKeysOf(env)?.site;
+  if (!site) return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.unavailable);
+  const body: unknown = await jsonBodyOf(request);
+  const { currentPassword } = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const check = await workspace(env).memberfulConnectionCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", site);
+  if (!check) return problem(401, "Not signed in");
+  if (check === "limited") return problem(429, SIGN_IN_REFUSED);
+  if (check === "off") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.off);
+  if (check === "forbidden") return problem(403, "Guests can't connect Memberful");
+  if (check === "connected") return problem(409, "You've connected Memberful already");
+  if (check.passwordDigest !== "") {
+    if (typeof currentPassword !== "string" || !currentPassword) return problem(422, MEMBERFUL_PASSWORD_NEEDED);
+    // One longer than the form takes is nobody's, as at sign-in.
+    if (isPasswordTooLong(currentPassword) || !(await passwordHasher(env).verify(currentPassword, check.passwordDigest)).matches) return problem(422, CURRENT_PASSWORD_WRONG);
+  }
+  const connecting = await memberfulConnectionFor(request, env, check.userId, check.passwordDigest, PROFILE_PATH);
+  // Something changed meanwhile: their password, the setting, or what they've connected.
+  return connecting ? connectionAnswer(connecting) : problem(409, "Connecting Memberful didn't start. Try again.");
+}
+
+/** Sends the browser on to sign in at the Memberful site to connect an account there, with the cookie that keeps the state it goes with, which no cache should keep. */
+const connectionAnswer = ({ connection, cookie }: { connection: MemberfulConnection; cookie: string }) =>
+  json(connection, { status: 202, headers: { "Set-Cookie": cookie, "Cache-Control": "no-store" } });
 
 /**
  * Gives you the avatar the form brings, as ember-rust's profile form saves `user[avatar]` as soon as
@@ -799,6 +847,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);
   if (pathname === AVATAR_PATH && request.method === "DELETE") return () => removeAvatar(request, env);
   const someone = pathname.match(/^\/api\/users\/([^/]+)$/);

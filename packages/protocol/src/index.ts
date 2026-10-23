@@ -423,6 +423,12 @@ export interface Profile {
   avatar: boolean;
   /** Whether you have a password, which changing your email address or password then asks for (`currentPassword`). */
   password: boolean;
+  /**
+   * Whether you've connected your account to an account at the Memberful site, which you can sign in with
+   * then (`auth.memberful-connect`), or null while members don't sign in with Memberful, or the deployment
+   * lacks its keys, or for a guest, who has nothing to connect.
+   */
+  memberful: boolean | null;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -554,6 +560,11 @@ export interface NewWorkspace {
 export interface PasswordSignIn {
   emailAddress: string;
   password: string;
+  /**
+   * The page to come back to, a page of the workspace, if signing in goes on at the Memberful site, to
+   * connect a member's account there first (`MemberfulConnection`), as Sign in with Memberful names it.
+   */
+  returnTo?: string;
 }
 
 /** Signing in with a sign-in link (`POST /api/session/transfers`): its id, which the link's address keeps out of every request's. */
@@ -594,16 +605,46 @@ export const memberfulSignInPath = (returnTo: string | null) =>
   returnTo === null ? MEMBERFUL_SIGN_IN_PATH : `${MEMBERFUL_SIGN_IN_PATH}?return_to=${encodeURIComponent(returnTo)}`;
 
 /**
- * Why a Memberful sign-in didn't sign anyone in, which the callback sends the browser back to sign in
- * with, as `?memberful=`, and what the sign-in page then says.
+ * Where your profile's Connect Memberful goes (`auth.memberful-connect`), which answers where to sign in
+ * at the Memberful site (`MemberfulConnection`) once it knows it's you.
+ */
+export const MEMBERFUL_CONNECTIONS_PATH = "/api/users/me/memberful_connections";
+
+/**
+ * What connecting your account to a Memberful account from your profile takes (`POST
+ * /api/users/me/memberful_connections`): your password, while you have one, so that holding your session
+ * isn't enough to add a way into your account, as changing your email address or password takes it.
+ */
+export interface MemberfulConnectionStart {
+  currentPassword?: string;
+}
+
+/**
+ * Where to sign in at the Memberful site, within ten minutes, to connect the account you sign in to there
+ * to yours here (`auth.memberful-connect`): what connecting from your profile answers, and what signing in
+ * with a password answers a member whose password checks out while members sign in with Memberful, until
+ * they've connected one. Memberful sends the browser back, which connects it.
+ */
+export interface MemberfulConnection {
+  memberfulConnection: string;
+}
+
+/**
+ * Why a Memberful sign-in didn't sign anyone in, or didn't connect an account, which the callback sends
+ * the browser back to sign in with, as `?memberful=`, or to your profile when it's signed in as you, and
+ * what that page then says.
  */
 export const MEMBERFUL_SIGN_IN_PROBLEMS = {
   /** Memberful sent the browser back without a sign-in, or with one this browser didn't start, or didn't answer as it should. */
   failed: "Signing in with Memberful didn't work. Try again.",
   /** The Memberful account has no active subscription, nor the all access pass. */
   membership: "Your Memberful account has no active membership.",
-  /** Someone here has the Memberful account's email address already, and accounts are never matched by it. */
-  taken: "Someone here has your Memberful email address already. Ask an administrator for help.",
+  /** Someone here has the Memberful account's email address already, and accounts are never matched by it, but connected by its owner. */
+  taken: "Someone here has your Memberful email address already. If that's you, sign in with your password to connect your Memberful account.",
+  /** The Memberful account is connected to someone else here already. */
+  claimed: "That Memberful account is connected to someone else here.",
+  /** Your account is connected to another account at the Memberful site already. */
+  another: "Your account is connected to another Memberful account already.",
   /** An administrator has turned Memberful sign-in off. */
   off: "Memberful sign-in is off.",
   /** It's on, but the deployment has no Memberful keys. */
@@ -613,12 +654,19 @@ export const MEMBERFUL_SIGN_IN_PROBLEMS = {
 } as const;
 export type MemberfulSignInProblem = keyof typeof MEMBERFUL_SIGN_IN_PROBLEMS;
 
-/** The query parameter that names a Memberful sign-in's problem. */
+/** The query parameter that names a Memberful sign-in's problem, or says that your profile connected your Memberful account. */
 export const MEMBERFUL_PROBLEM_PARAM = "memberful";
+
+/** What that parameter says once your Memberful account is connected, and what your profile then says. */
+export const MEMBERFUL_CONNECTED = "connected";
+export const MEMBERFUL_CONNECTED_NOTICE = "Your Memberful account is connected.";
 
 /** The problem `value` names, or null for none it names. */
 export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem | null =>
   value !== null && Object.hasOwn(MEMBERFUL_SIGN_IN_PROBLEMS, value) ? (value as MemberfulSignInProblem) : null;
+
+/** Why connecting Memberful from your profile is refused without your password, while you have one. */
+export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberful.";
 
 /** Why signing in with a password, joining with the join link, or signing in with just a name is refused while members sign in with Memberful. */
 export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";

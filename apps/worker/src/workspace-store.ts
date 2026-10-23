@@ -135,6 +135,8 @@ export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
   /** Whether they have a password, which changing their email address or password then asks for. */
   password: boolean;
+  /** The issuers of the accounts elsewhere they've connected, such as the Memberful site's address. */
+  issuers: string[];
 }
 
 /** Someone who signs in with a Memberful account, which no account here is linked to yet. */
@@ -375,6 +377,29 @@ const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due
 
 /** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
 const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
+
+/** Whom an account elsewhere can be connected to: someone active, neither a guest nor a bot. */
+const CONNECTABLE = `users.status = ${ACTIVE} AND users.guest = 0 AND users.role <> ${BOT}`;
+
+/**
+ * Keeps the state digest ?1, started at ?2, for connecting the account of person ?3 to one at issuer ?5,
+ * if they can connect one, their password's digest is still ?4, or "" without one, as it was checked, and
+ * they aren't connected to an account there already.
+ */
+const START_CONNECTION = `INSERT INTO pending_identities (state_digest, user_id, created_at)
+  SELECT ?1, id, ?2 FROM users WHERE id = ?3 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?4
+    AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?5)
+  RETURNING user_id`;
+
+/** Whether the person ?1 can have an account elsewhere connected, and the subject of theirs at issuer ?2, if they have one. */
+const CONNECTING_PERSON = `SELECT users.role = ${ADMINISTRATOR} AS administrator,
+    (SELECT subject FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?2) AS subject
+  FROM users WHERE id = ?1 AND ${CONNECTABLE}`;
+
+/** Links the account at issuer ?1 with subject ?2, its membership read at ?3, to person ?5 at ?4, if they can have one connected. */
+const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at)
+  SELECT ?1, ?2, id, ?3, ?4, ?4 FROM users WHERE id = ?5 AND ${CONNECTABLE}
+  RETURNING user_id`;
 
 /**
  * The same, for someone signing in with a sign-in link, unless they're no longer active, or are a guest
@@ -1172,7 +1197,8 @@ const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, 
 
 /** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
 const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
-    coalesce(password_digest, '') <> '' AS password
+    coalesce(password_digest, '') <> '' AS password,
+    (SELECT json_group_array(issuer) FROM identities WHERE identities.user_id = users.id) AS issuers
   FROM users WHERE id = ?`;
 
 /** Gives someone an avatar, or none, recording when, which changes its address. */
@@ -1472,6 +1498,48 @@ export class WorkspaceStore {
     return row ? storedSession(row) : null;
   }
 
+  /**
+   * Keeps `stateDigest`, started at `now`, for connecting the account of `userId` to one at `issuer`,
+   * forgetting those started before `expiredBefore`, which can no longer connect anything. Whether it's
+   * kept: not unless they're active, neither a guest nor a bot, their password's digest is still
+   * `passwordDigest`, or "" for none, as it was checked, and they aren't connected to an account there.
+   */
+  async startConnection(stateDigest: string, userId: UserId, passwordDigest: string, issuer: string, now: number, expiredBefore: number): Promise<boolean> {
+    const [, started] = await this.db.batch([
+      statement(`DELETE FROM pending_identities WHERE created_at < ?`, expiredBefore),
+      statement(START_CONNECTION, stateDigest, now, userId, passwordDigest, issuer),
+    ]);
+    return started!.length > 0;
+  }
+
+  /** Takes the connection `stateDigest` started, if it started one, for good, answering whose it is and when it was started. */
+  async takeConnection(stateDigest: string): Promise<{ userId: UserId; startedAt: number } | null> {
+    const [row] = await this.db.all<{ user_id: UserId; created_at: number }>(
+      `DELETE FROM pending_identities WHERE state_digest = ? RETURNING user_id, created_at`,
+      stateDigest,
+    );
+    return row ? { userId: row.user_id, startedAt: row.created_at } : null;
+  }
+
+  /**
+   * Whether `userId` can have an account elsewhere connected, as an active person, neither a guest nor a
+   * bot, can: if so, whether they're an administrator, and the subject of their account at `issuer`, if
+   * they have one there already.
+   */
+  async connectingPerson(userId: UserId, issuer: string): Promise<{ administrator: boolean; subject: string | null } | null> {
+    const [row] = await this.db.all<{ administrator: number; subject: string | null }>(CONNECTING_PERSON, userId, issuer);
+    return row ? { administrator: row.administrator === 1, subject: row.subject } : null;
+  }
+
+  /**
+   * Links the account elsewhere that `issuer` and `subject` name to `userId`, its membership read at
+   * `checkedAt`, unless they've stopped being able to have one connected. Whether it's linked. A unique
+   * index refuses it for an account linked to anyone already, or a second account of theirs at `issuer`.
+   */
+  async connectIdentity(userId: UserId, issuer: string, subject: string, checkedAt: number, now: string): Promise<boolean> {
+    return (await this.db.all(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId)).length > 0;
+  }
+
   /** Whether anyone has exactly this email address, whatever their status. */
   async hasEmailAddress(emailAddress: string): Promise<boolean> {
     return (await this.db.all(`SELECT 1 FROM users WHERE email_address = ?`, emailAddress)).length > 0;
@@ -1600,7 +1668,8 @@ export class WorkspaceStore {
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
    * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs), and
-   * forgets their push subscriptions, which ember-rust keeps. In the same transaction it queues closing
+   * forgets their push subscriptions, which ember-rust keeps, and the accounts elsewhere their old
+   * password started connecting (`auth.memberful-connect`). In the same transaction it queues closing
    * each session's sockets with `code` in every room they're in, due at `dueAt`, as signing out does.
    * Answers whether it queued any.
    */
@@ -1610,6 +1679,7 @@ export class WorkspaceStore {
       statement(`UPDATE users SET password_digest = ?, updated_at = ? WHERE id = ?`, passwordDigest, now, userId),
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
+      statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
   }
@@ -2240,7 +2310,8 @@ export class WorkspaceStore {
   /**
    * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
    * new password, in the same transaction it ends the sessions and forgets the push subscriptions
-   * `ended` says, queuing closing those sessions' sockets. Answers whether it queued any.
+   * `ended` says, queuing closing those sessions' sockets, and forgets the accounts elsewhere their old
+   * password started connecting (`auth.memberful-connect`). Answers whether it queued any.
    */
   async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
     const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
@@ -2253,6 +2324,7 @@ export class WorkspaceStore {
       statement(QUEUE_OTHER_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, ended.code, ended.dueAt, userId, ended.kept),
       statement(`DELETE FROM sessions WHERE user_id = ? AND id <> ?`, userId, ended.kept),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint IS NOT ?`, userId, ended.pushEndpoint),
+      statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
       change,
     ]);
     return queued!.length > 0;
@@ -2275,8 +2347,10 @@ export class WorkspaceStore {
 
   /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
   async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
-    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number }>(OWN_PROFILE, userId);
-    return row ? { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1 } : null;
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number; issuers: string }>(OWN_PROFILE, userId);
+    if (!row) return null;
+    const issuers = JSON.parse(row.issuers) as string[];
+    return { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1, issuers };
   }
 
   /**

@@ -541,7 +541,9 @@ describe(feature("auth.memberful-sign-in"), () => {
     const { onAccountChanged, user } = showPage();
     const on = await memberfulSwitch();
     expect(on).not.toBeChecked();
-    expect(on).toHaveAccessibleDescription(`Members of ${SITE} sign in with their Memberful account. While it's on, the join link is off, and only administrators sign in with a password.`);
+    expect(on).toHaveAccessibleDescription(
+      `Members of ${SITE} sign in with their Memberful account. While it's on, the join link is off, and only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.`,
+    );
     expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent(`Memberful sends people back to ${location.origin}/auth/memberful/callback`);
     expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
     expect(await joinLink()).toBeInTheDocument();

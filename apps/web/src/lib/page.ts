@@ -10,3 +10,8 @@ export function loadPage(path: string, flash?: FlashMessage): void {
   if (flash) flashOnNextPage(flash);
   location.replace(path);
 }
+
+/** Opens `url`, a page elsewhere, such as the Memberful site's, after this one, which Back comes back to. */
+export function openPage(url: string): void {
+  location.assign(url);
+}

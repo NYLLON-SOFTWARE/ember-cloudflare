@@ -4,7 +4,7 @@ import { featureProjects, RECOVERY_TOKEN } from "./projects/features";
 import { FIRST_RUN, firstRunProjects, SETUP_TOKEN } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
 import { screenshotProjects } from "./projects/screenshots";
-import { SETTINGS_SERVER_PORT, workspaceSettingsProjects } from "./projects/workspace-settings";
+import { MEMBERFUL_KEYS, MEMBERFUL_SITE_PORT, SETTINGS_SERVER_PORT, workspaceSettingsProjects } from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
 /**
@@ -51,12 +51,18 @@ export default defineConfig<MobileOptions>({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },
-    // The same build again, over HTTPS, for the workspace-settings projects. Servers start in turn,
-    // so the app is built by then.
+    // The same build again, over HTTPS, for the workspace-settings projects, with the keys of the
+    // Memberful site the Memberful specs fake. Servers start in turn, so the app is built by then.
     {
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/settings-state', { recursive: true, force: true })"`,
-        `pnpm --filter @ember/worker exec wrangler dev -c ../../wrangler.jsonc --ip 127.0.0.1 --port ${SETTINGS_SERVER_PORT} --local-protocol https --var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_SETUP_TOKEN:${SETUP_TOKEN} --persist-to ../../e2e/.wrangler/settings-state`,
+        [
+          `pnpm --filter @ember/worker exec wrangler dev -c ../../wrangler.jsonc --ip 127.0.0.1 --port ${SETTINGS_SERVER_PORT} --local-protocol https`,
+          `--var SESSION_SECRET:e2e-only-not-a-secret --var EMBER_SETUP_TOKEN:${SETUP_TOKEN} --var MEMBERFUL_URL:http://127.0.0.1:${MEMBERFUL_SITE_PORT}`,
+          `--var MEMBERFUL_CLIENT_ID:${MEMBERFUL_KEYS.clientId} --var MEMBERFUL_CLIENT_SECRET:${MEMBERFUL_KEYS.clientSecret}`,
+          `--var MEMBERFUL_API_KEY:${MEMBERFUL_KEYS.apiKey} --var MEMBERFUL_WEBHOOK_SECRET:${MEMBERFUL_KEYS.webhookSecret}`,
+          "--persist-to ../../e2e/.wrangler/settings-state",
+        ].join(" "),
       ].join(" && "),
       cwd: path.resolve(import.meta.dirname, ".."),
       url: `https://127.0.0.1:${SETTINGS_SERVER_PORT}/api/health`,

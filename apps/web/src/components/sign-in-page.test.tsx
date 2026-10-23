@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -224,7 +224,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     const memberful = screen.getByRole("link", { name: "Sign in with Memberful" });
     expect(memberful).toHaveAttribute("href", "/auth/memberful?return_to=%2Frooms%2Fabc%3Ftab%3Dpins");
     expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
-    expect(screen.getByText("Administrator?")).toBeInTheDocument();
+    expect(screen.getByText("Have a password?")).toBeInTheDocument();
 
     // The Worker opens that page once it's signed in, and this tab keeps it, for another try if Memberful
     // sends it back here, or an administrator's password. jsdom can't follow the link.
@@ -238,7 +238,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toHaveAttribute("href", "/auth/memberful");
   });
 
-  it("lets an administrator sign in with a password instead, and back", async () => {
+  it("lets someone sign in with a password instead, and back", async () => {
     const user = userEvent.setup();
     render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await user.click(screen.getByRole("button", { name: "Sign in with a password" }));
@@ -282,6 +282,44 @@ describe(feature("auth.memberful-sign-in"), () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Administrator?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Have a password?")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.memberful-connect"), () => {
+  const withMemberful = { ...workspace, account: { ...workspace.account, memberfulSignIn: true } };
+  /** Where the Memberful site signs someone in to connect their account there. */
+  const MEMBERFUL_OAUTH = "https://example.memberful.com/oauth?response_type=code&client_id=ember&state=s7a7e";
+
+  it("asks a member whose password checks out to connect their Memberful account, to come back to the page this tab was sent from", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
+    const fetch = respond(202, { memberfulConnection: MEMBERFUL_OAUTH });
+    const onSignedIn = vi.fn();
+    render(<SignInPage workspace={withMemberful} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    await signIn("correct horse");
+
+    const credentials = { emailAddress: "ada@example.com", password: "correct horse", returnTo: "/rooms/abc?tab=pins" };
+    expect(fetch).toHaveBeenCalledWith("/api/session", expect.objectContaining({ method: "POST", body: JSON.stringify(credentials) }));
+    expect(await screen.findByText("Members sign in with Memberful now. Connect your Memberful account to keep signing in as yourself.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connect Memberful" })).toHaveAttribute("href", MEMBERFUL_OAUTH);
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  it("asks for a password at once when someone here has the Memberful email address already", () => {
+    history.replaceState(null, "", "/session/new?memberful=taken");
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
+    expect(screen.getByLabelText("Email address")).toHaveFocus();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+  });
+
+  it("says nothing of a connection, which only a page of the workspace says", () => {
+    history.replaceState(null, "", "/session/new?memberful=connected");
+    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(location.search).toBe("");
   });
 });

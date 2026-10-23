@@ -1,13 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  MAX_PASSWORD_LENGTH,
-  MEMBERFUL_PROBLEM_PARAM,
-  MEMBERFUL_SIGN_IN_PROBLEMS,
-  memberfulProblemOf,
-  memberfulSignInPath,
-  SIGN_IN_REFUSED,
-  type Me,
-} from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, SIGN_IN_REFUSED, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
@@ -17,57 +9,59 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, signIn } from "@/lib/api";
+import { forgetMemberfulOutcome, memberfulOutcomeOnArrival } from "@/lib/memberful";
 import { returnPath } from "@/lib/return-path";
 
 // ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
 // in zz-ember.css) and the help contact under it. A refused sign-in shakes the card and flashes
 // ember-rust's alert, keeping the email address and emptying the password, as its page does when
 // it's shown again. While members sign in with Memberful, this port's own, the card offers that
-// instead, and the email and password form only to administrators who ask for it.
+// instead, and the email and password form to those who ask for it: administrators, and members with an
+// account from before, whose password then asks them to connect their Memberful account.
 
 /** What a Memberful sign-in that came back here says went wrong, as this page's address names it, if it does. */
-function memberfulProblemOnArrival(): string | null {
-  const problem = memberfulProblemOf(new URLSearchParams(location.search).get(MEMBERFUL_PROBLEM_PARAM));
-  return problem && MEMBERFUL_SIGN_IN_PROBLEMS[problem];
-}
-
-/** Takes a Memberful sign-in's problem out of this page's address, so that it's said once, not again on reload. */
-function forgetMemberfulProblem(): void {
-  const params = new URLSearchParams(location.search);
-  if (!params.has(MEMBERFUL_PROBLEM_PARAM)) return;
-  params.delete(MEMBERFUL_PROBLEM_PARAM);
-  const search = params.toString();
-  history.replaceState(history.state, "", `${location.pathname}${search ? `?${search}` : ""}${location.hash}`);
+function memberfulProblemOnArrival() {
+  const outcome = memberfulOutcomeOnArrival();
+  return outcome === MEMBERFUL_CONNECTED ? null : outcome;
 }
 
 /**
  * Signs in with an email address and password, or with just a name when the workspace allows it, or,
- * while members sign in with Memberful, with Memberful, or a password for administrators.
+ * while members sign in with Memberful, with Memberful, or a password for administrators, which asks
+ * anyone else to connect their Memberful account (`auth.memberful-connect`) until they have.
  */
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const { memberfulSignIn } = workspace.account;
+  const [arrival] = useState(memberfulProblemOnArrival);
   const [asGuest, setAsGuest] = useState(false);
-  const [withPassword, setWithPassword] = useState(!memberfulSignIn);
+  // Someone whose Memberful email address is someone's here is asked for that someone's password.
+  const [withPassword, setWithPassword] = useState(!memberfulSignIn || arrival === "taken");
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
-  const [problem, setProblem] = useState(memberfulProblemOnArrival);
+  const [problem, setProblem] = useState<string | null>(arrival && MEMBERFUL_SIGN_IN_PROBLEMS[arrival]);
+  /** Where to connect your Memberful account, once your password has checked out but you have yet to connect one. */
+  const [connection, setConnection] = useState<string | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const flash = useFlash();
 
   useTitle("Sign in");
-  useEffect(forgetMemberfulProblem, []);
+  useEffect(forgetMemberfulOutcome, []);
 
   async function submit() {
     setBusy(true);
     setProblem(null);
     try {
-      onSignedIn(await signIn({ emailAddress, password: passwordInput.current?.value ?? "" }));
+      // Connecting Memberful comes back to the page this tab was sent here from, signed in.
+      const answer = await signIn({ emailAddress, password: passwordInput.current?.value ?? "", returnTo: returnPath() ?? undefined });
+      if (!("memberfulConnection" in answer)) return onSignedIn(answer);
+      setBusy(false);
+      setConnection(answer.memberfulConnection);
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       if (passwordInput.current) passwordInput.current.value = "";
-      // A member whose password is right hears that they sign in with Memberful.
+      // A member whose password is right, and who has connected Memberful, hears that they sign in with it.
       flash("alert", error.status === 403 ? error.message : SIGN_IN_REFUSED);
       setShaking(true);
       passwordInput.current?.focus();
@@ -78,7 +72,16 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     <AuthPage workspace={workspace}>
       {problem && <Problem>{problem}</Problem>}
       <AuthCard onAnimationEnd={(event) => event.target === event.currentTarget && setShaking(false)} className={shaking ? "motion-safe:animate-shake" : undefined}>
-        {asGuest ? (
+        {connection !== null ? (
+          <>
+            <AuthHeading title={`Sign in to ${workspace.account.name}`} logo={workspace.account.logo}>
+              Members sign in with Memberful now. Connect your Memberful account to keep signing in as yourself.
+            </AuthHeading>
+            <Button asChild className={PRIMARY_BUTTON}>
+              <a href={connection}>Connect Memberful</a>
+            </Button>
+          </>
+        ) : asGuest ? (
           <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
         ) : (
           <>
@@ -129,7 +132,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
               (withPassword ? (
                 <AuthAlternative question="Member?" action="Sign in with Memberful" onClick={() => setWithPassword(false)} disabled={busy} />
               ) : (
-                <AuthAlternative question="Administrator?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
+                <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
               ))}
             {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} disabled={busy} />}
           </>
