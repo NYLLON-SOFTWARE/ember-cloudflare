@@ -23,6 +23,7 @@ import {
   post,
   pushBrowser,
   recordedImage,
+  roomSql,
   roomStub,
   settle,
   shown,
@@ -124,6 +125,14 @@ function sendingFileWhenLet(): { reading: () => boolean; send: () => void } {
   });
   return { reading: () => reading, send: () => (sending = true) };
 }
+
+/**
+ * Waits until room `room` has nothing left in its log, which it forgets once the Workspace has applied
+ * it, queuing each message's deliveries. The room gathers what it logs for a moment between calls, and
+ * a message deleted, or a bot taken away, before its call goes out has no delivery queued at all.
+ */
+const applied = (room: RoomId) =>
+  vi.waitFor(async () => expect(await roomSql(room, "SELECT seq FROM room_events WHERE room_id = ?", room)).toEqual([]), { timeout: 5_000 });
 
 /** The R2 bucket that keeps files. */
 const files = () => (env as unknown as Env).FILES!;
@@ -585,6 +594,7 @@ describe(feature("bots.webhook-reply"), () => {
     await post(client, `<p>Two ${mention(bot)}</p>`);
     const waiting = await post(client, `<p>Three ${mention(bot)}</p>`);
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(room.id);
     expect((await api(`/api/rooms/${room.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } })).status).toBe(204);
     await closed;
     await vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM pending_revocations")).toEqual([{ n: 0 }]), { timeout: 5_000 });
@@ -680,6 +690,7 @@ describe(feature("bots.webhook-jobs"), () => {
       await post(client, `<p>Four ${mention(bot)}</p>`),
     ];
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(general);
     // The third and fourth wait their turn, by which time the bot is renamed, the third edited, which
     // mentions it by its new name, and the fourth deleted.
     await changeBot(ada, bot, { name: "Deploy Bot" });
@@ -725,6 +736,7 @@ describe(feature("bots.webhook-jobs"), () => {
     await post(client, `<p>Two ${mention(busy)}</p>`);
     const sent = await post(client, `<p>Three ${mention(deleted)} ${mention(removed)} ${mention(unhooked)}</p>`);
     await vi.waitFor(() => expect(delivered).toHaveLength(2));
+    await applied(room.id);
     await deleteBot(ada, deleted);
     await keepOnly(ada, room.id, [ada.user.id, busy.id, unhooked.id]);
     await changeBot(ada, unhooked, { webhookUrl: "" });
