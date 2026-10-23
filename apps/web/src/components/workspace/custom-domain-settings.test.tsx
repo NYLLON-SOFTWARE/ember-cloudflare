@@ -3,11 +3,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type AccountChanges } from "@ember/protocol";
+import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type AccountChanges, type CustomDomainReach } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
-import { CustomDomainSettings, WORKERS_DASHBOARD } from "./custom-domain-settings";
+import { CustomDomainSettings, WORKERS_DASHBOARD, workerSettings } from "./custom-domain-settings";
 
 /** The test environment's jsdom, whose address the section reads as the page's. */
 declare const jsdom: { reconfigure(options: { url: string }): void };
@@ -27,6 +27,23 @@ function serve(refusal?: { status: number; error: string }) {
     account = { ...account, customDomain: customDomain ?? null };
     return Response.json({ account });
   });
+}
+
+/**
+ * Answers Check DNS as the server does, with what each domain reaches in turn, once `answer` lets each
+ * through, or with `refusal`, and keeps the domains asked about.
+ */
+function serveChecks(reaches: CustomDomainReach[], refusal?: { status: number; error: string }) {
+  const asked: unknown[] = [];
+  let answer = () => {};
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    expect(`${init?.method} ${String(input)}`).toBe("POST /api/account/custom_domain_checks");
+    asked.push(JSON.parse(String(init?.body)));
+    await new Promise<void>((resolve) => (answer = resolve));
+    if (refusal) return Response.json({ error: refusal.error }, { status: refusal.status });
+    return Response.json({ reaches: reaches.shift() });
+  });
+  return { asked, answer: () => answer() };
 }
 
 /** What the section asked to save, in order. */
@@ -74,10 +91,18 @@ describe(feature("accounts.custom-domain"), () => {
     await user.type(field, " https://Chat.Example.com/account/edit ");
     await user.click(screen.getByRole("button", { name: "Set up" }));
     const steps = screen.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
-    const [cloudflare, ember] = within(steps).getAllByRole("listitem");
-    expect(cloudflare).toHaveTextContent("Under Settings, Domains & Routes, choose Add, then Custom domain, and enter chat.example.com.");
-    expect(within(cloudflare!).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", WORKERS_DASHBOARD);
-    expect(ember).toHaveTextContent("Once Cloudflare has added it, open https://chat.example.com/account/edit, sign in, and choose Use this address.");
+    const [cloudflare, check, ember] = within(steps).getAllByRole("listitem");
+    // The Worker's workers.dev address names it, so the dashboard opens at its settings.
+    expect(cloudflare).toHaveTextContent(
+      "In the Cloudflare dashboard, open the settings of ember, the Worker that runs Ember. Under Domains & Routes, choose Add, then Custom domain, and enter chat.example.com.",
+    );
+    expect(within(cloudflare!).getByRole("link", { name: "Open ember's settings" })).toHaveAttribute(
+      "href",
+      "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/settings",
+    );
+    expect(check).toHaveTextContent("Check that chat.example.com reaches Ember.");
+    expect(within(check!).getByRole("button", { name: "Check DNS" })).toBeEnabled();
+    expect(ember).toHaveTextContent("Once it does, open https://chat.example.com/account/edit, sign in, and choose Use this address.");
     expect(within(ember!).getByRole("link", { name: settingsAt("chat.example.com") })).toHaveAttribute("href", settingsAt("chat.example.com"));
 
     // Changing the domain takes the steps away until it's set up again.
@@ -109,6 +134,78 @@ describe(feature("accounts.custom-domain"), () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(field).not.toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("link", { name: "http://chat.localhost:8787/account/edit" })).toBeInTheDocument();
+    // No workers.dev address names the Worker here, so the dashboard opens at the list of Workers.
+    const [cloudflare] = screen.getAllByRole("listitem");
+    expect(cloudflare).toHaveTextContent("In the Cloudflare dashboard, open Workers & Pages and choose this Worker. Under Settings, Domains & Routes, choose Add, then Custom domain");
+    expect(within(cloudflare!).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", WORKERS_DASHBOARD);
+  });
+
+  it("checks the domain reaches Ember, saying what answers there instead until it does", async () => {
+    const { asked, answer } = serveChecks(["nothing", "elsewhere", "ember"]);
+    const { user, onFailed } = showSection(settingsAt("ember-production.nyllon.workers.dev"));
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.getByRole("link", { name: "Open ember-production's settings" })).toHaveAttribute("href", workerSettings("ember-production"));
+    const check = screen.getByRole("button", { name: "Check DNS" });
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/^$/);
+
+    for (const said of [
+      "Nothing answers at chat.example.com yet. Cloudflare can take a few minutes to add a domain, so check again soon.",
+      "Something else answers at chat.example.com. Check that it's added to ember-production, not another.",
+      "chat.example.com reaches Ember.",
+    ]) {
+      await user.click(check);
+      expect(check).toBeDisabled();
+      expect(status).toHaveTextContent("Checking chat.example.com…");
+      answer();
+      await waitFor(() => expect(status).toHaveTextContent(said));
+      expect(check).toBeEnabled();
+    }
+    expect(asked).toEqual([{ domain: "chat.example.com" }, { domain: "chat.example.com" }, { domain: "chat.example.com" }]);
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("says where else a domain may have gone where no workers.dev address names the Worker", async () => {
+    const { answer } = serveChecks(["elsewhere"]);
+    const { user } = showSection("http://localhost:8787/account/edit");
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.localhost:8787");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    await user.click(screen.getByRole("button", { name: "Check DNS" }));
+    answer();
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Something else answers at chat.localhost:8787. Check that it's added to the Worker that runs Ember, not another."),
+    );
+  });
+
+  it("says why a check failed, and can be asked again", async () => {
+    const { answer } = serveChecks([], { status: 403, error: "Only administrators can change the workspace" });
+    const { user, onFailed } = showSection(settingsAt("ember.kro.workers.dev"));
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const check = screen.getByRole("button", { name: "Check DNS" });
+    await user.click(check);
+    answer();
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
+    expect(check).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent(/^$/);
+  });
+
+  it("forgets what a check found once the domain changes", async () => {
+    const { answer } = serveChecks(["ember"]);
+    const { user } = showSection(settingsAt("ember.kro.workers.dev"));
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    await user.type(field, "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    await user.click(screen.getByRole("button", { name: "Check DNS" }));
+    answer();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("chat.example.com reaches Ember."));
+
+    await user.clear(field);
+    await user.type(field, "team.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.getByRole("list", { name: "Steps to make team.example.com Ember's address" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/^$/);
   });
 
   it("makes the address the page is open at Ember's", async () => {

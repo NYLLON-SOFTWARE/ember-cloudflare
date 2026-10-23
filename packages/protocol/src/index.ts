@@ -1080,6 +1080,28 @@ export const NOT_A_CUSTOM_DOMAIN = "A workers.dev or localhost address can't be 
 const customDomainOf = (value: unknown): string | null | undefined => (value === null || (typeof value === "string" && isHost(value)) ? value : undefined);
 
 /**
+ * What a custom domain reaches, as checking it finds: this Ember; something else, which answers there
+ * but isn't it; or nothing yet, as before Cloudflare has added the domain, or while its certificate is
+ * on the way.
+ */
+export type CustomDomainReach = "ember" | "elsewhere" | "nothing";
+
+/** What `POST /api/account/custom_domain_checks` answers: what the domain it was sent reaches. */
+export interface CustomDomainCheck {
+  reaches: CustomDomainReach;
+}
+
+/**
+ * Parses an untrusted request to check a custom domain, `{ domain }`, whose host could be Ember's as
+ * one `PATCH /api/account` takes could. Returns why it's refused instead of the domain.
+ */
+export function parseCustomDomainCheck(data: unknown): { domain: string } | string {
+  const domain = isJsonObject(data) && typeof data.domain === "string" && isHost(data.domain) ? data.domain : null;
+  if (domain === null) return CUSTOM_DOMAIN_NOT_A_HOST;
+  return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
+}
+
+/**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
  * ember-rust, the name is saved as typed, even blank. Each setting is true or false, and one it doesn't
  * know is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null,

@@ -1,7 +1,10 @@
 import { feature } from "@ember/parity";
-import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type BotAnswer, type BotSettings, type Bootstrap, type NewWorkspace, type RoomId, type WorkspaceSettings } from "@ember/protocol";
-import { beforeEach, describe, expect, it } from "vitest";
-import { NOT_THIS_ADDRESS } from "../src/custom-domain";
+import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type BotAnswer, type CustomDomainCheck, type BotSettings, type Bootstrap, type NewWorkspace, type RoomId, type WorkspaceSettings } from "@ember/protocol";
+import { env, exports } from "cloudflare:workers";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";
+import type { Env } from "../src/env";
+import { workspace } from "../src/workspace";
 import { api, apiWith, connect, cookieOf, freshDeploy, openWorkspaceSocket, origin, post, shown, signIn, workspaceSql, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
@@ -276,5 +279,137 @@ describe(feature("accounts.custom-domain"), () => {
     // Nor anything signed out.
     expect((await save(null, DOMAIN, "graces-tablet", { replacing: keyOf("graces-mac") })).status).toBe(401);
     expect(await subscriptionsOf(grace)).toEqual(["graces-mac", "graces-phone"]);
+  });
+});
+
+/** What `session` hears checking `domain`, as Check DNS in Workspace settings at ember.test asks. */
+const check = (session: Session | null, domain: unknown) =>
+  api("/api/account/custom_domain_checks", { method: "POST", headers: as(session), body: JSON.stringify({ domain }) });
+
+/** What checking `domain` as `session` finds there. */
+async function reachOf(session: Session, domain: string): Promise<unknown> {
+  const response = await check(session, domain);
+  expect(response.status, await response.clone().text()).toBe(200);
+  return ((await response.json()) as CustomDomainCheck).reaches;
+}
+
+/** A request this Worker sent the Internet. */
+interface Sent {
+  url: string;
+  init: RequestInit | undefined;
+}
+
+/** Stands in for the Internet, where whatever `answer` says answers each request this Worker sends, which it keeps. */
+function internet(answer: { with: (request: Request) => Promise<Response> }): Sent[] {
+  const sent: Sent[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    sent.push({ url: request.url, init });
+    return answer.with(request);
+  });
+  return sent;
+}
+
+/** Matches the address of a probe the Worker sends to `origin`. */
+const probeAt = (origin: string) => new RegExp(`^${origin.replace(/\./g, "\\.")}/api/custom_domain_probes/[\\w-]{32}$`);
+
+describe(feature("accounts.custom-domain"), () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("checks that a domain reaches this Ember by asking it for a probe only this Ember waits for, once", async () => {
+    const administrator = await setUp();
+    // As Cloudflare sends the domain to this Worker, once its dashboard has added it.
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    expect(await reachOf(administrator, DOMAIN)).toBe("ember");
+    expect(sent).toHaveLength(1);
+    const [{ url, init }] = sent as [Sent];
+    expect(url).toMatch(probeAt(`https://${DOMAIN}`));
+    // It sends nothing but the probe, follows no redirect, and waits only so long.
+    expect(init).toEqual({ redirect: "manual", signal: expect.any(AbortSignal) });
+    expect((await exports.default.fetch(url)).status).toBe(404);
+
+    // By the scheme the check came by, and with the domain's port.
+    expect(await reachOf(administrator, "chat.example.com:8443")).toBe("ember");
+    expect(sent[1]!.url).toMatch(probeAt("https://chat.example.com:8443"));
+  });
+
+  it("says something else answers there when a site does, but not as this Ember", async () => {
+    const administrator = await setUp();
+    const answer = { with: async (_: Request) => new Response() };
+    internet(answer);
+    for (const [what, response] of [
+      ["a parked page", () => new Response("<html>Parked</html>", { headers: { "Content-Type": "text/html" } })],
+      ["a site that answers anything", () => new Response(null, { status: 204 })],
+      // Another Ember's Workspace waits for no such probe, as another Worker's wouldn't.
+      ["another Ember", () => Response.json({ error: "Not found" }, { status: 404 })],
+      ["a guess at the answer", () => new Response(null, { status: 204, headers: { [PROBE_ANSWER_HEADER]: "a guess" } })],
+      ["a redirect, which isn't followed", () => Response.redirect(`https://${DOMAIN}/elsewhere`, 302)],
+      ["a failing site", () => new Response(null, { status: 500 })],
+    ] as const) {
+      answer.with = async () => response();
+      expect([what, await reachOf(administrator, DOMAIN)]).toEqual([what, "elsewhere"]);
+    }
+  });
+
+  it("says nothing answers there yet when nothing does, or only Cloudflare for an origin it can't reach", async () => {
+    const administrator = await setUp();
+    const answer = { with: async (_: Request) => new Response() };
+    internet(answer);
+    for (const [what, response] of [
+      ["no address", () => Promise.reject(new TypeError("Network connection lost."))],
+      ["no answer in time", () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"))],
+      ["a domain DNS doesn't know, as Cloudflare's error 1016", () => Promise.resolve(new Response("error code: 1016", { status: 530 }))],
+      ["an origin that's down", () => Promise.resolve(new Response(null, { status: 521 }))],
+      ["a certificate that isn't ready", () => Promise.resolve(new Response(null, { status: 525 }))],
+    ] as const) {
+      answer.with = response;
+      expect([what, await reachOf(administrator, DOMAIN)]).toEqual([what, "nothing"]);
+    }
+  });
+
+  it("lets only administrators check, telling anyone else so before checking what they sent", async () => {
+    await setUp();
+    const member = await signIn("Grace");
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    for (const domain of [DOMAIN, "ember.kro.workers.dev", 42]) {
+      const response = await check(member, domain);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    }
+    expect((await check(null, DOMAIN)).status).toBe(401);
+    expect(sent).toEqual([]);
+  });
+
+  it("refuses a domain that can't be Ember's, sending nothing", async () => {
+    const administrator = await setUp();
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    for (const [domain, error] of [
+      ["ember.kro.workers.dev", NOT_A_CUSTOM_DOMAIN],
+      ["localhost:8787", NOT_A_CUSTOM_DOMAIN],
+      [`https://${DOMAIN}`, CUSTOM_DOMAIN_NOT_A_HOST],
+      [`${DOMAIN}/api/health`, CUSTOM_DOMAIN_NOT_A_HOST],
+      [42, CUSTOM_DOMAIN_NOT_A_HOST],
+    ] as const) {
+      const response = await check(administrator, domain);
+      expect([domain, response.status]).toEqual([domain, 422]);
+      expect(await response.json()).toEqual({ error });
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it("answers a probe only while a check waits for it, and only for the latest few checks", async () => {
+    const probe = (n: number) => `${String(n).padStart(2, "0")}${"p".repeat(30)}`;
+    const answerTo = async (n: number) => (await exports.default.fetch(`https://${DOMAIN}/api/custom_domain_probes/${probe(n)}`)).headers.get(PROBE_ANSWER_HEADER);
+    expect(await answerTo(1)).toBeNull();
+    const waiting = workspace(env as unknown as Env);
+    for (let n = 1; n <= 21; n++) await waiting.expectProbe(probe(n), `answer ${n}`);
+    expect(await answerTo(1)).toBeNull();
+    expect(await answerTo(2)).toBe("answer 2");
+    expect(await answerTo(21)).toBe("answer 21");
+    expect(await answerTo(21)).toBeNull();
+    // Only GET asks.
+    await waiting.expectProbe(probe(3), "answer 3");
+    expect((await exports.default.fetch(`https://${DOMAIN}/api/custom_domain_probes/${probe(3)}`, { method: "POST", headers: { "Sec-Fetch-Site": "same-origin" } })).status).toBe(404);
+    expect(await answerTo(3)).toBe("answer 3");
   });
 });
