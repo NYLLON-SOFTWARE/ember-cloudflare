@@ -1052,8 +1052,10 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
 
-/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port. */
-const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
+/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port, from 1 and without leading zeros. */
+const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::([1-9][0-9]{0,4}))?$/;
+/** The highest port a URL can have. */
+const MAX_PORT = 65535;
 
 /**
  * Where a deploy or `wrangler dev` puts Ember, which can't be its custom domain: a workers.dev address,
@@ -1062,10 +1064,10 @@ const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
  */
 const DEPLOYED_HOSTNAME = /(?:^|\.)workers\.dev$|^localhost$|^127(?:\.[0-9]{1,3}){3}$|^\[::1\]$/;
 
-/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have. */
+/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have and a port a URL can. */
 export function isHost(host: string): boolean {
-  const name = host.length <= MAX_HOST_NAME_LENGTH + ":65535".length ? HOST.exec(host)?.[1] : undefined;
-  return name !== undefined && name.length <= MAX_HOST_NAME_LENGTH;
+  const match = host.length <= MAX_HOST_NAME_LENGTH + `:${MAX_PORT}`.length ? HOST.exec(host) : null;
+  return match !== null && match[1]!.length <= MAX_HOST_NAME_LENGTH && Number(match[2] ?? 0) <= MAX_PORT;
 }
 
 /** Whether the host name `hostname` could be Ember's custom domain: any but where a deploy or `wrangler dev` puts it. */
@@ -1078,6 +1080,28 @@ export const NOT_A_CUSTOM_DOMAIN = "A workers.dev or localhost address can't be 
 
 /** A custom domain as `PATCH /api/account` may send one, a host or null for none, or undefined when it's neither. */
 const customDomainOf = (value: unknown): string | null | undefined => (value === null || (typeof value === "string" && isHost(value)) ? value : undefined);
+
+/**
+ * What a custom domain reaches, as checking it finds: this Ember; something else, which answers there
+ * but isn't it; or nothing yet, as before Cloudflare has added the domain, or while its certificate is
+ * on the way.
+ */
+export type CustomDomainReach = "ember" | "elsewhere" | "nothing";
+
+/** What `POST /api/account/custom_domain_checks` answers: what the domain it was sent reaches. */
+export interface CustomDomainCheck {
+  reaches: CustomDomainReach;
+}
+
+/**
+ * Parses an untrusted request to check a custom domain, `{ domain }`, whose host could be Ember's as
+ * one `PATCH /api/account` takes could. Returns why it's refused instead of the domain.
+ */
+export function parseCustomDomainCheck(data: unknown): { domain: string } | string {
+  const domain = isJsonObject(data) && typeof data.domain === "string" && isHost(data.domain) ? data.domain : null;
+  if (domain === null) return CUSTOM_DOMAIN_NOT_A_HOST;
+  return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
+}
 
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in

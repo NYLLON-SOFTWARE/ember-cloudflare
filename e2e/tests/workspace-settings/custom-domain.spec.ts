@@ -25,6 +25,10 @@ test.describe(feature("accounts.custom-domain"), () => {
       await section.getByRole("button", { name: "Set up" }).click();
       await expect(section.getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/workers-and-pages");
       await expect(section.getByRole("link", { name: `https://${domain}/account/edit` })).toBeVisible();
+      // The Worker's own request doesn't reach this server at a name under localhost: only the browser
+      // takes the name to this machine and trusts its certificate.
+      await section.getByRole("button", { name: "Check DNS" }).click();
+      await expect(section.getByRole("status")).toHaveText(`Nothing answers at ${domain} yet. Cloudflare can take a few minutes to add a domain, so check again soon.`);
 
       // Sessions belong to their address, so the administrator signs in there once more.
       const there = await page.context().newPage();

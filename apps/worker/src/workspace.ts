@@ -90,6 +90,10 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
  */
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
+/** How long the Workspace waits for a custom domain check's probe, longer than the check waits for an answer. */
+const PROBE_WAIT_MS = 30 * 1000;
+/** How many probes the Workspace waits for at once, of the latest checks. */
+const WAITING_PROBES = 20;
 /**
  * How many rows of its outbox the Workspace delivers in one run of its alarm, at most, revocations
  * first, then purges, then reindexes, and how many rooms a change calls before it answers
@@ -270,6 +274,8 @@ export class Workspace extends DurableObject<Env> {
   private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
+  /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
+  private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
   /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
@@ -361,6 +367,25 @@ export class Workspace extends DurableObject<Env> {
   /** Resolves once the workspace's database answers a query. */
   async health(): Promise<void> {
     await this.db.all("SELECT 1");
+  }
+
+  /**
+   * Waits a while for a custom domain check's `probe`, which `takeProbe` then answers with `answer`.
+   * There's one Workspace, which only this Ember reaches, so a domain that answers the probe reaches
+   * this Ember (custom-domain.ts, `reachOf`). A check takes seconds, so probes are only kept in memory,
+   * and only the latest few.
+   */
+  expectProbe(probe: string, answer: string): void {
+    const now = Date.now();
+    for (const [waiting, { until }] of this.probes) if (until <= now || this.probes.size >= WAITING_PROBES) this.probes.delete(waiting);
+    this.probes.set(probe, { answer, until: now + PROBE_WAIT_MS });
+  }
+
+  /** The answer to a custom domain check's `probe`, once, while the Workspace waits for it, or null. */
+  takeProbe(probe: string): string | null {
+    const expected = this.probes.get(probe);
+    this.probes.delete(probe);
+    return expected !== undefined && expected.until > Date.now() ? expected.answer : null;
   }
 
   /** The workspace's account, or null until first run creates it. Its join code is only for the people in it. */
