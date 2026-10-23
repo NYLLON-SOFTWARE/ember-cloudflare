@@ -918,6 +918,29 @@ describe(feature("users.profile"), () => {
   });
 });
 
+describe(feature("auth.memberful-connect"), () => {
+  const address = () => `${location.pathname}${location.search}${location.hash}`;
+
+  it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, memberful: true } }) });
+    const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
+    expect(address()).toBe("/users/me/profile#top");
+
+    unmount();
+    showWorkspace(address());
+    expect(await screen.findByRole("region", { name: "Memberful" })).toHaveTextContent("Your Memberful account is connected, so you sign in with it.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("flashes what went wrong, on whatever page connecting it was started from", async () => {
+    showWorkspace("/rooms/random?memberful=claimed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("That Memberful account is connected to someone else here.");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(address()).toBe("/rooms/random");
+  });
+});
+
 describe(feature("users.show"), () => {
   const grace: DirectoryUser = { ...withGrace.members[1]!, bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
 

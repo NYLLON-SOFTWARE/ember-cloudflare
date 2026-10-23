@@ -49,12 +49,17 @@ export const ADMINISTRATOR = { name: "Ada Lovelace", emailAddress: "ada@example.
 
 /**
  * Signs the administrator in through the API, in a session of its own, from an IP address of its own,
- * so the per-address limit on signing in never counts another test's attempts.
+ * so the per-address limit on signing in never counts another test's attempts. It says it comes from the
+ * app's own pages, as a browser does, which a server over HTTPS asks of every change.
  */
 export async function administratorSession(request: APIRequestContext): Promise<Session> {
   const { emailAddress, password } = ADMINISTRATOR;
-  return sessionOf(await request.post("/api/session", { data: { emailAddress, password }, headers: { "CF-Connecting-IP": newAddress() } }));
+  const headers = { "CF-Connecting-IP": newAddress(), ...SAME_ORIGIN };
+  return sessionOf(await request.post("/api/session", { data: { emailAddress, password }, headers }));
 }
+
+/** What a browser says of a request from the app's own pages, which a server over HTTPS asks of every change. */
+export const SAME_ORIGIN = { "Sec-Fetch-Site": "same-origin" };
 
 /** Makes `session`'s person an administrator, as the administrator does on their page. */
 export async function makeAdministrator(request: APIRequestContext, session: Session): Promise<void> {

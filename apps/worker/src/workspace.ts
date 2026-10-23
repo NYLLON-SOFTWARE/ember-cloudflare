@@ -59,6 +59,7 @@ import {
   type AvatarOwner,
   type BotWebhook,
   type Client,
+  type Connecting,
   type DirectoryEntry,
   type JoinableAccount,
   type LinkedPerson,
@@ -118,6 +119,11 @@ const MESSAGES_PER_PURGE = 100;
 const MEMBERSHIPS_PER_CHECK = 25;
 /** How often the Workspace checks the membership of everyone linked to the Memberful site, in case a webhook about one never came. */
 const MEMBERSHIP_CATCH_UP_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long signing in with Memberful, or connecting an account there, has to come back from the Memberful
+ * site: long enough to sign in there, or sign up.
+ */
+export const MEMBERFUL_ROUND_TRIP_MS = 10 * 60 * 1000;
 
 /**
  * ember-rust's `fresh_account_logo_path`, which account-logo.ts serves: versioned by when the account
@@ -169,7 +175,13 @@ const FIRST_ROOM_NAMES = ["general", "random"];
 /** Your profile, and the sign-in link it shows you, by the session asking, which the Worker signs. */
 export interface YourProfile {
   transfer: Transfer;
-  profile: Profile;
+  profile: Omit<Profile, "memberful">;
+  /**
+   * The issuers of the accounts elsewhere you've connected, while members sign in with Memberful and you
+   * aren't a guest, of which the Worker, which knows the Memberful site, tells your profile
+   * (`Profile.memberful`), or else null.
+   */
+  connected: string[] | null;
 }
 
 /** Someone as their page shows them to the person asking. */
@@ -219,11 +231,12 @@ export interface BotKeyAccess extends BotAccess {
 export interface WebhookAccess extends BotAccess, BotWebhook {}
 
 /**
- * Why signing in with Memberful signed nobody in: members don't sign in with Memberful, the person the
- * account is linked to was removed or banned, it has no active membership, or someone new would have
- * someone's email address.
+ * Why signing in with Memberful signed nobody in, or connected no account: members don't sign in with
+ * Memberful, the person the account is linked to was removed or banned, it has no active membership,
+ * someone new would have someone's email address, or, connecting one, it's connected to someone else, or
+ * they're connected to another.
  */
-export type MemberfulRefusal = "off" | "refused" | "membership" | "taken";
+export type MemberfulRefusal = "off" | "refused" | "membership" | "taken" | "claimed" | "another";
 
 /** What a join link does: joins, is off while members sign in with Memberful, or isn't the join link. */
 export type JoinLink = "joins" | "memberful" | "not found";
@@ -673,12 +686,21 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Counts a sign-in with Memberful from `ip` against the same limit, before Memberful is asked anything:
-   * "limited" past it, or else when it began by the Workspace's clock, which what Memberful then says of
-   * the membership of whoever signed in is no older than.
+   * Counts a sign-in with Memberful from `ip` against the same limit, before Memberful is asked anything,
+   * having taken the connection whose state's digest is `connection`, for one that connects an account
+   * (`auth.memberful-connect`), so that each is good for one try, whatever comes of it: "limited" past the
+   * limit, "expired" for a connection taken already, forgotten, or started more than ten minutes ago, or
+   * else when it began by the Workspace's clock, which what Memberful then says of the membership of
+   * whoever signed in is no older than, and whose account it connects, if anyone's, with the password
+   * that started it.
    */
-  async beginMemberfulSignIn(ip: string): Promise<"limited" | number> {
-    return this.signInAttempts.attempt(ip) ? Date.now() : "limited";
+  async beginMemberfulSignIn(ip: string, connection: string | null): Promise<"limited" | "expired" | { begunAt: number; connecting: Connecting | null }> {
+    const taken = connection === null ? null : await this.store.takeConnection(connection);
+    if (!this.signInAttempts.attempt(ip)) return "limited";
+    const begunAt = Date.now();
+    if (connection === null) return { begunAt, connecting: null };
+    if (!taken || taken.startedAt < begunAt - MEMBERFUL_ROUND_TRIP_MS) return "expired";
+    return { begunAt, connecting: { userId: taken.userId, passwordDigest: taken.passwordDigest } };
   }
 
   /** Whose password `emailAddress` signs in with, and its digest as kept now, for a sign-in that found the one it checked replaced. */
@@ -782,6 +804,91 @@ export class Workspace extends DurableObject<Env> {
       }
       this.sessions.remember(tokenDigest, session);
       return meOf(session);
+    });
+  }
+
+  /**
+   * What connecting the account of the person `credentials` signs in to one at the Memberful site
+   * `issuer` from their profile checks first (`auth.memberful-connect`): whose account it is, and the
+   * digest of their password, or "" without one, which the Worker checks the password they give against,
+   * counting it against sign-in's limit for `ip`, as changing their email address or password does:
+   * "limited" past it. "off" unless members sign in with Memberful, "forbidden" for a guest, "connected"
+   * when they're connected to an account at the site already, and null without a valid session.
+   */
+  async memberfulConnectionCheck(
+    credentials: Credentials,
+    ip: string,
+    issuer: string,
+  ): Promise<{ userId: UserId; passwordDigest: string } | "limited" | "off" | "forbidden" | "connected" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
+    if (session.guest) return "forbidden";
+    const person = await this.store.connectingPerson(session.user.id, issuer);
+    if (!person) return null;
+    if (person.subject !== null) return "connected";
+    const passwordDigest = (await this.store.signInOf(session.user.id))?.passwordDigest ?? "";
+    if (passwordDigest !== "" && !this.signInAttempts.attempt(ip)) return "limited";
+    return { userId: session.user.id, passwordDigest };
+  }
+
+  /**
+   * Starts connecting the account of `userId`, whose password's digest was `passwordDigest` as the Worker
+   * checked it, or "" without one, to one at the Memberful site `issuer` (`auth.memberful-connect`): keeps
+   * `stateDigest`, the digest of the state their browser goes there with, for the callback to take within
+   * ten minutes. Whether it's kept: not unless members sign in with Memberful, and they're active, neither
+   * a guest nor a bot, have that password still, and aren't connected to an account at the site already.
+   */
+  async startMemberfulConnection(userId: UserId, passwordDigest: string, stateDigest: string, issuer: string): Promise<boolean> {
+    if (!(await this.joinableAccount())?.memberfulSignIn) return false;
+    const now = Date.now();
+    return this.store.startConnection(stateDigest, userId, passwordDigest, issuer, now, now - MEMBERFUL_ROUND_TRIP_MS);
+  }
+
+  /**
+   * Connects the account of `member`, who signed in to the Memberful site `issuer`, to the account here of
+   * the person `connecting` is for, who started connecting one (`auth.memberful-connect`), and signs them
+   * in with the session their cookie's token opens, `tokenDigest`, unless it's null, as it is when the
+   * browser is signed in as them already, which answers "connected". Only its owner here connects an
+   * account there, which is never matched by email address, and only while the password that started it
+   * is theirs still, so that a new one, as a reset gives someone whose account was taken over, ends a
+   * connection on its way as it ends their sessions. A member needs an active membership to connect one,
+   * as to sign in with it, which an administrator doesn't, and an account connected to them already signs
+   * them in as signing in with it does, going by what Memberful said of its membership as of `readAt`
+   * (`settleMembership`). Answers "off" unless members sign in with Memberful, "claimed" for an account
+   * connected to someone else, "another" when they're connected to another account at the site,
+   * "membership" for a member without an active membership, and "refused" when they've been removed or
+   * banned, or their password has changed.
+   */
+  async connectMemberful(
+    issuer: string,
+    member: MemberfulMember,
+    readAt: number,
+    connecting: Connecting,
+    tokenDigest: string | null,
+    client: Client,
+  ): Promise<Me | "connected" | MemberfulRefusal> {
+    const { userId } = connecting;
+    // One at a time, as signing in with Memberful is, so that two can't connect the same account.
+    return this.closingSockets(async () => {
+      if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
+      const linked = await this.store.linkedPerson(issuer, member.id);
+      if (linked && linked.userId !== userId) return "claimed";
+      if (linked) {
+        if (linked.status === "deactivated" || linked.status === "banned") return "refused";
+        if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
+      } else {
+        const person = await this.store.connectingPerson(userId, issuer);
+        if (!person) return "refused";
+        if (person.subject !== null) return "another";
+        if (!person.administrator && !member.subscribed) return "membership";
+        if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
+      }
+      if (tokenDigest === null) return "connected";
+      // On D1 a role change can overlap it, so it's remembered only if none did.
+      const session = await this.sessions.keep(tokenDigest, () => this.store.startLinkedSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()));
+      return session ? meOf(session) : "refused";
     });
   }
 
@@ -1496,14 +1603,15 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return null;
     const person = await this.store.ownProfile(session.user.id);
-    return person && this.yourProfile(person, session.id);
+    return person && this.yourProfile(person, session);
   }
 
-  /** `person`'s profile, as their own profile page shows it to their session `sessionId`. */
-  private async yourProfile(person: OwnProfileEntry, sessionId: string): Promise<YourProfile> {
+  /** `person`'s profile, as their own profile page shows it to their `session`. */
+  private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
     const { name, emailAddress, bio, avatar, password } = person;
     const { avatarUrl } = await this.directoryUser(person);
-    return { transfer: { userId: person.id, sessionId }, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password } };
+    const connected = (await this.joinableAccount())?.memberfulSignIn && !session.guest ? person.issuers : null;
+    return { transfer: { userId: person.id, sessionId: session.id }, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password }, connected };
   }
 
   /**
@@ -1561,7 +1669,7 @@ export class Workspace extends DurableObject<Env> {
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
       };
       const listed = profile.name !== person.name || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session.id);
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
         return "password needed";
@@ -1595,7 +1703,7 @@ export class Workspace extends DurableObject<Env> {
       }
       const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, updatedAt: at };
       if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
-      return this.yourProfile(changed, session.id);
+      return this.yourProfile(changed, session);
     });
   }
 
@@ -1624,7 +1732,7 @@ export class Workspace extends DurableObject<Env> {
       const person = await this.store.ownProfile(user.id);
       if (!person) return null;
       // As removing an avatar that isn't there changes nothing in ember-rust.
-      if (avatar === null && person.avatar === null) return this.yourProfile(person, session.id);
+      if (avatar === null && person.avatar === null) return this.yourProfile(person, session);
       const now = Date.now();
       const updatedAt = new Date(now).toISOString();
       const previous = person.avatar?.key ?? null;
@@ -1632,7 +1740,7 @@ export class Workspace extends DurableObject<Env> {
       if (previous) await this.wakeAt(now);
       const changed = { ...person, avatar, updatedAt };
       this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
-      return this.yourProfile(changed, session.id);
+      return this.yourProfile(changed, session);
     });
   }
 

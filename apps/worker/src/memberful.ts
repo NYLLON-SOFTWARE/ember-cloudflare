@@ -1,14 +1,22 @@
-import { MEMBERFUL_PROBLEM_PARAM, workspacePageOf, type AccountSettings, type MemberfulSignInProblem } from "@ember/protocol";
-import { clientOf, cookieValues, hostCookie, hostCookieName, newSessionToken, sessionCookie, tokenDigest } from "./auth";
+import {
+  MEMBERFUL_CONNECTED,
+  MEMBERFUL_PROBLEM_PARAM,
+  workspacePageOf,
+  type AccountSettings,
+  type MemberfulConnection,
+  type MemberfulSignInProblem,
+  type UserId,
+} from "@ember/protocol";
+import { authenticate, clientOf, cookieValues, hostCookie, hostCookieName, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { bytesUpTo, MAX_JSON_BODY_BYTES } from "./bodies";
 import { originFor } from "./custom-domain";
 import { fromHex, toBase64url, urlsafeDecode64 } from "./encoding";
 import type { Env } from "./env";
 import { notFound } from "./error-pages";
-import { isSubject, memberfulApiOf, memberfulKeysOf, memberWhoSignedIn, type MemberfulApi } from "./memberful-api";
+import { isSubject, memberfulApiOf, memberfulKeysOf, memberWhoSignedIn, type MemberfulApi, type MemberfulKeys } from "./memberful-api";
 import { home, withCookies } from "./pages";
 import { isToken } from "./secrets";
-import { workspace } from "./workspace";
+import { MEMBERFUL_ROUND_TRIP_MS, workspace } from "./workspace";
 
 // Signing in with Memberful (`auth.memberful-sign-in`), this port's own, as ember-rust signs people in
 // with passwords alone. Memberful speaks OAuth 2.0 but not OpenID Connect, so this follows its guide for
@@ -16,12 +24,15 @@ import { workspace } from "./workspace";
 // Memberful sends the browser to the site's `/oauth` with a random state, which a cookie keeps, and the
 // site sends it back to the callback with that state and a code, which the Worker exchanges, with the
 // app's client secret, for an access token to ask the member API who signed in. It works only while an
-// administrator has turned Memberful sign-in on, and the deployment has the app's keys.
+// administrator has turned Memberful sign-in on, and the deployment has the app's keys. Someone who has an
+// account here already connects their Memberful account to it the same way (`auth.memberful-connect`),
+// once their password has checked out, from their profile, or as they sign in: the Workspace keeps the
+// state's digest for the callback, which connects the account to theirs.
 
 /** The cookie that keeps a sign-in's state, and the page to come back to, until Memberful sends the browser back. */
 const STATE_COOKIE = "memberful_state";
 /** How long that takes at most: long enough to sign in at Memberful, or sign up there. */
-const STATE_MAX_AGE_SECONDS = 10 * 60;
+const STATE_MAX_AGE_SECONDS = MEMBERFUL_ROUND_TRIP_MS / 1000;
 /** The longest page to come back to that the cookie keeps. Any longer, and signing in goes home. */
 const MAX_RETURN_PATH_LENGTH = 1024;
 /** Where Memberful signs a webhook: the HMAC-SHA256 of its body, under the webhook's secret, in hex. */
@@ -45,6 +56,20 @@ const redirect = (location: string, ...cookies: string[]) =>
 const backToSignIn = (request: Request, problem: MemberfulSignInProblem) =>
   redirect(new URL(`/session/new?${MEMBERFUL_PROBLEM_PARAM}=${problem}`, request.url).href);
 
+/** Sends the browser back to `returnPath`, a page of the workspace, which says how connecting Memberful went: `outcome`. */
+function backTo(request: Request, returnPath: string, outcome: MemberfulSignInProblem | typeof MEMBERFUL_CONNECTED): Response {
+  const url = new URL(returnPath, request.url);
+  url.searchParams.set(MEMBERFUL_PROBLEM_PARAM, outcome);
+  return redirect(url.href);
+}
+
+/** Where to sign in at the Memberful site, which sends the browser back to the callback with `state`. */
+function authorizationOf({ site, clientId }: MemberfulKeys, state: string): string {
+  const authorize = new URL("/oauth", site);
+  authorize.search = new URLSearchParams({ response_type: "code", client_id: clientId, state }).toString();
+  return authorize.href;
+}
+
 /**
  * The page of the workspace at `origin` that `returnTo` names, its query and fragment included, or "/"
  * for anything else, so that signing in only ever opens a page here, or for one too long to keep, as
@@ -56,21 +81,28 @@ function returnPathOf(returnTo: string | null, origin: string): string {
   return path.length <= MAX_RETURN_PATH_LENGTH ? path : "/";
 }
 
-/** The `Set-Cookie` that keeps a sign-in's `state` and the page to come back to, `returnPath`. */
-const stateCookie = (request: Request, state: string, returnPath: string) =>
-  hostCookie(request, STATE_COOKIE, `${state}.${toBase64url(encoder.encode(returnPath))}`, STATE_MAX_AGE_SECONDS);
+/** What the state cookie of a connection (`auth.memberful-connect`) ends with, after the page to come back to. */
+const CONNECTING = "connecting";
+
+/**
+ * The `Set-Cookie` that keeps a sign-in's `state` and the page to come back to, `returnPath`, and whether
+ * it's `connecting` an account, so that the callback never takes one whose connection has gone for a
+ * sign-in.
+ */
+const stateCookie = (request: Request, state: string, returnPath: string, connecting = false) =>
+  hostCookie(request, STATE_COOKIE, `${state}.${toBase64url(encoder.encode(returnPath))}${connecting ? `.${CONNECTING}` : ""}`, STATE_MAX_AGE_SECONDS);
 
 /** The `Set-Cookie` that forgets it. */
 const expiredStateCookie = (request: Request) => hostCookie(request, STATE_COOKIE, "", 0);
 
-/** The state and the page to come back to that the request's cookie keeps, if it keeps any. */
-function keptStateOf(request: Request): { state: string; returnPath: string } | null {
+/** The state, the page to come back to, and whether it's connecting an account, that the request's cookie keeps, if it keeps any. */
+function keptStateOf(request: Request): { state: string; returnPath: string; connecting: boolean } | null {
   const [kept] = cookieValues(request, hostCookieName(request, STATE_COOKIE));
-  const [state, encoded] = kept?.split(".") ?? [];
+  const [state, encoded, connecting] = kept?.split(".") ?? [];
   const bytes = encoded === undefined ? null : urlsafeDecode64(encoded);
   if (!state || !bytes) return null;
   try {
-    return { state, returnPath: returnPathOf(decoder.decode(bytes), new URL(request.url).origin) };
+    return { state, returnPath: returnPathOf(decoder.decode(bytes), new URL(request.url).origin), connecting: connecting === CONNECTING };
   } catch {
     return null;
   }
@@ -94,15 +126,43 @@ export async function startMemberfulSignIn(request: Request, env: Env): Promise<
   const origin = originFor(request, account.customDomain);
   if (origin !== url.origin) return redirect(new URL(`${url.pathname}${url.search}`, origin).href);
   const state = newSessionToken();
-  const authorize = new URL("/oauth", keys.site);
-  authorize.search = new URLSearchParams({ response_type: "code", client_id: keys.clientId, state }).toString();
-  return redirect(authorize.href, stateCookie(request, state, returnPathOf(url.searchParams.get("return_to"), origin)));
+  return redirect(authorizationOf(keys, state), stateCookie(request, state, returnPathOf(url.searchParams.get("return_to"), origin)));
+}
+
+/**
+ * Starts connecting the account of `userId`, whose password's digest `passwordDigest` the Worker checked
+ * the password they gave against, or "" without one, to an account at the Memberful site
+ * (`auth.memberful-connect`), to come back to the page `returnTo` names: where to sign in there, and the
+ * `Set-Cookie` that keeps the state it goes with, whose digest the Workspace keeps for the callback. Null
+ * unless the deployment has Memberful's keys and the Workspace kept it (`startMemberfulConnection`).
+ * Asked at an address Ember has moved from to its custom domain, as a tab left open there is, it starts
+ * nothing, and answers that page at the custom domain instead, to sign in and connect there.
+ */
+export async function memberfulConnectionFor(
+  request: Request,
+  env: Env,
+  userId: UserId,
+  passwordDigest: string,
+  returnTo: unknown,
+): Promise<{ connection: MemberfulConnection; cookie: string | null } | null> {
+  const keys = memberfulKeysOf(env);
+  if (!keys) return null;
+  const url = new URL(request.url);
+  const returnPath = returnPathOf(typeof returnTo === "string" ? returnTo : null, url.origin);
+  // Memberful sends the browser back to the custom domain, which a cookie kept here is never sent to.
+  const origin = originFor(request, (await workspace(env).account())?.customDomain ?? null);
+  if (origin !== url.origin) return { connection: { memberfulConnection: new URL(returnPath, origin).href }, cookie: null };
+  const state = newSessionToken();
+  if (!(await workspace(env).startMemberfulConnection(userId, passwordDigest, await tokenDigest(state, env.SESSION_SECRET), keys.site))) return null;
+  return { connection: { memberfulConnection: authorizationOf(keys, state) }, cookie: stateCookie(request, state, returnPath, true) };
 }
 
 /**
  * `GET /auth/memberful/callback`, where Memberful sends the browser back: signs it in as whoever signed
- * in there (`Workspace.signInWithMemberful`), and opens the page the sign-in was started from, or else
- * goes back to sign in, which says why not. Each state is good for one try, whatever comes of it.
+ * in there (`Workspace.signInWithMemberful`), or connects their account there to the one here that the
+ * state started connecting (`Workspace.connectMemberful`), and opens the page it was started from, or
+ * else goes back to sign in, or to that page when the browser is signed in, which says why not. Each
+ * state is good for one try, whatever comes of it.
  */
 export async function finishMemberfulSignIn(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return notFound(request);
@@ -117,17 +177,28 @@ async function signedInWithMemberful(request: Request, env: Env): Promise<Respon
   const params = new URL(request.url).searchParams;
   const [kept, state, code] = [keptStateOf(request), params.get("state"), params.get("code")];
   // A state this browser didn't start with, as another site's link to the callback would bring, signs
-  // nobody in, nor does a callback without a code.
+  // nobody in and connects nothing, nor does a callback without a code.
   if (!kept || state === null || !(await isToken(state, kept.state)) || !code) return backToSignIn(request, "failed");
   // Each try counts against the address's sign-in limit, before Memberful is asked anything.
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-  const begunAt = await workspace(env).beginMemberfulSignIn(ip);
-  if (begunAt === "limited") return backToSignIn(request, "refused");
+  const connection = kept.connecting ? await tokenDigest(kept.state, env.SESSION_SECRET) : null;
+  const [begun, signedIn] = await Promise.all([workspace(env).beginMemberfulSignIn(ip, connection), authenticate(request, env)]);
+  const back = (problem: MemberfulSignInProblem) => (signedIn ? backTo(request, kept.returnPath, problem) : backToSignIn(request, problem));
+  if (begun === "limited") return back("refused");
+  if (begun === "expired") return back("failed");
   const member = await memberWhoSignedIn(keys, code);
-  if (!member) return backToSignIn(request, "failed");
+  if (!member) return back("failed");
   const token = newSessionToken();
-  const user = await workspace(env).signInWithMemberful(keys.site, member, begunAt, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
-  if (typeof user === "string") return backToSignIn(request, user);
+  const digest = await tokenDigest(token, env.SESSION_SECRET);
+  const { connecting, begunAt } = begun;
+  // A browser signed in as whoever is connecting stays signed in as it is.
+  const staying = connecting !== null && signedIn?.user.id === connecting.userId;
+  const user =
+    connecting === null
+      ? await workspace(env).signInWithMemberful(keys.site, member, begunAt, digest, clientOf(request))
+      : await workspace(env).connectMemberful(keys.site, member, begunAt, connecting, staying ? null : digest, clientOf(request));
+  if (user === "connected") return backTo(request, kept.returnPath, MEMBERFUL_CONNECTED);
+  if (typeof user === "string") return back(user);
   return redirect(new URL(kept.returnPath, request.url).href, sessionCookie(request, token));
 }
 

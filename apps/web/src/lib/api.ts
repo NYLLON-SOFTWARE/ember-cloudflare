@@ -1,6 +1,7 @@
 import {
   AVATAR_PATH,
   LOGO_PATH,
+  MEMBERFUL_CONNECTIONS_PATH,
   roomSocketQuery,
   type Account,
   type AccountChanges,
@@ -22,6 +23,8 @@ import {
   type LinkPreview,
   type LinkSignIn,
   type Me,
+  type MemberfulConnection,
+  type MemberfulConnectionStart,
   type NewDirect,
   type NewJoinCode,
   type NewRoom,
@@ -136,9 +139,14 @@ export async function joinWorkspace(joinCode: string, person: SignUp, photo: Cho
   return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: userBody(person, photo) })).user;
 }
 
-/** Signs in with an email address and password. */
-export async function signIn(credentials: PasswordSignIn): Promise<Me> {
-  return (await request<{ user: Me }>("/api/session", { method: "POST", body: JSON.stringify(credentials) })).user;
+/**
+ * Signs in with an email address and password: who signed in, or, for a member whose password checks out
+ * while members sign in with Memberful, until they've connected their Memberful account, where to connect
+ * it (`auth.memberful-connect`), which signs them in and opens the page `credentials.returnTo` names.
+ */
+export async function signIn(credentials: PasswordSignIn): Promise<Me | MemberfulConnection> {
+  const answer = await request<{ user: Me } | MemberfulConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
+  return "memberfulConnection" in answer ? answer : answer.user;
 }
 
 /** Signs in with just a name, as someone new. */
@@ -205,6 +213,17 @@ export async function fetchPerson(userId: UserId): Promise<PersonAnswer> {
 /** Your profile, for the profile page: your name, email address and bio, and a new sign-in link. */
 export async function fetchProfile(): Promise<ProfileAnswer> {
   return request<ProfileAnswer>("/api/users/me/profile");
+}
+
+/**
+ * Starts connecting your account to an account at the Memberful site (`auth.memberful-connect`), with your
+ * password while you have one: where to sign in there, which sends the browser back to your profile.
+ * Fails with a 422 ApiError without your password, or with one that isn't yours, and a 409 once you've
+ * connected one.
+ */
+export async function connectMemberful(currentPassword?: string): Promise<MemberfulConnection> {
+  const start: MemberfulConnectionStart = currentPassword === undefined ? {} : { currentPassword };
+  return request<MemberfulConnection>(MEMBERFUL_CONNECTIONS_PATH, { method: "POST", body: JSON.stringify(start) });
 }
 
 /**

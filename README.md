@@ -241,13 +241,20 @@ While it's on, the sign-in page offers Sign in with Memberful. Someone with an a
 or the all access pass, signs in as the person their Memberful account is linked to, or else joins
 as a new member, in every open room. Accounts are linked by the Memberful site and the member's id
 there, never by email address, since Memberful lets anyone register an address without proving it's
-theirs: someone new whose Memberful email address someone here has already is turned away, and an
-administrator can help them. The site is `MEMBERFUL_URL`'s address, so keep it once people have signed
-in: at another address, even the same site's, every member would be someone new. The join link and
-signing in with just a name are off, and only administrators sign in with a password, who need no
-membership. Sessions people have go on, and turning it off brings the join link and passwords back;
-the people who joined with Memberful have no password, so they can't sign in until it's on again or
-their password is reset.
+theirs: someone new whose Memberful email address someone here has already is turned away, and asked
+to sign in with their password to connect it, if it's theirs. The site is `MEMBERFUL_URL`'s address,
+so keep it once people have signed in: at another address, even the same site's, every member would
+be someone new. The join link and signing in with just a name are off, and only administrators sign
+in with a password, who need no membership. Sessions people have go on, and turning it off brings
+the join link and passwords back; the people who joined with Memberful have no password, so they
+can't sign in until it's on again or their password is reset.
+
+Someone with an account from before connects their Memberful account to it with their password: from
+the Memberful section of their profile, or as they sign in with their password, which asks them to
+connect one while members sign in with Memberful, until they have. Memberful sends them back signed
+in as themselves, and from then on they sign in with Memberful, and their membership counts as
+anyone's. A connection is good for one try within ten minutes, and a new password, theirs or a reset,
+forgets the ones the old one started. Administrators can connect one too, and sign in either way.
 
 A member whose membership lapses can't sign in again. With the webhook, they're suspended too: their
 sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their

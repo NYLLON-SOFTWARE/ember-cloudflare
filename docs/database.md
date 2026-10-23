@@ -30,9 +30,9 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
-`membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`, `bans`, `searches`,
-`rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes` and
-`deleted_rooms`, and the search
+`pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
+`bans`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`,
+`pending_reindexes` and `deleted_rooms`, and the search
 index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
@@ -454,7 +454,16 @@ search index. On top of that schema it adds indexes and query changes for speed.
   open rooms are one batch, so nothing is left behind. Whether members sign in with Memberful is one
   more of the account's settings (`memberful_sign_in`), and the site's keys are Worker secrets, so the
   client secret is never stored. The table names no provider but by its issuer, so another provider
-  would need no migration. People who sign in this way have no `password_digest`.
+  would need no migration. People who sign in this way have no `password_digest`. Someone with an
+  account from before connects one once their password checks out (`auth.memberful-connect`):
+  `pending_identities` (workspace migration 0039) keeps the connection's OAuth state, as its HMAC under
+  SESSION_SECRET, whose account it's for, and the digest of the password that checked out, for ten
+  minutes, and the callback takes the row with `DELETE … RETURNING` before Memberful is asked
+  anything, so each is good for one try. A new password deletes that person's rows, and the identity
+  is inserted only while `users.password_digest` is still the one the row kept, so a new password
+  while the callback waits on Memberful connects nothing either. That insert, which `identities`'
+  unique indexes guard, runs one at a time with sign-ins, then a session starts unless the browser
+  is signed in as them.
 - **Memberships are asked about, not taken from webhooks.** ember-rust has no memberships. Memberful
   sends its webhooks in no particular order, so one only queues a check of a linked member in
   `membership_checks` (workspace migration 0038), keyed by issuer and subject, as `identities` is,

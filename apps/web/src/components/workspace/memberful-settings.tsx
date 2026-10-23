@@ -49,7 +49,7 @@ export function MemberfulSettings({ site, webhooks, checked, onCheckedChange }: 
               ) : (
                 <>
                   Members of <strong className="wrap-anywhere">{site}</strong> sign in with their Memberful account. While it's on, the join link is off, and
-                  only administrators sign in with a password.
+                  only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.
                   {webhooks && " A member whose membership lapses is signed out until it's renewed."}
                 </>
               )}

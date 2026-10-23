@@ -11,6 +11,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
+import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useRoute, type Route } from "@/hooks/use-route";
@@ -302,6 +303,11 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   const flash = useFlash();
   const mounted = useMounted();
+  // What connecting a Memberful account came to, as the address Memberful sent this browser back to says.
+  useEffect(() => {
+    const message = takeMemberfulFlash();
+    if (message) flash(message.kind, message.text);
+  }, [flash]);
   // A session that's ended goes to sign in; anything else is an alert. Once another person's workspace
   // has taken this one's place, as another tab signing in makes it, what this one's pages hear is
   // about a session already replaced.

@@ -2,6 +2,7 @@ import { isHttps } from "./auth";
 import { contentSecurityPolicy } from "./csp";
 import { escapeHtml } from "./encoding";
 import type { Env } from "./env";
+import { isLoopback } from "./loopback";
 import { versionOf } from "./version";
 
 // What ember-rust adds around everything its app answers, for every answer the Worker makes: Rails'
@@ -27,11 +28,8 @@ const DEFAULT_HEADERS: Record<string, string> = {
  */
 const HSTS = "max-age=63072000";
 
-/** localhost, its subdomains and the loopback addresses, which browsers count as secure over plain HTTP. */
-const LOOPBACK_HOST = /^(?:(?:.+\.)?localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
-
 /** Whether the request came to localhost or a loopback address, where `wrangler dev` serves and nobody on the Internet can reach. */
-export const isLoopbackHost = (request: Request) => LOOPBACK_HOST.test(new URL(request.url).hostname);
+export const isLoopbackHost = (request: Request) => isLoopback(new URL(request.url));
 
 /**
  * Whether the request's host has to be reached over HTTPS, as ember-rust's `force_ssl` makes every

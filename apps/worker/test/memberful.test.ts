@@ -1,7 +1,11 @@
 import { feature } from "@ember/parity";
 import {
+  CURRENT_PASSWORD_WRONG,
   MEMBERFUL_CALLBACK_PATH,
+  MEMBERFUL_CONNECTIONS_PATH,
+  MEMBERFUL_PASSWORD_NEEDED,
   MEMBERFUL_SIGN_IN_NEEDED,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
   memberfulSignInPath,
   SIGN_IN_REFUSED,
@@ -9,7 +13,11 @@ import {
   type Bootstrap,
   type Directory,
   type Me,
+  type MemberfulConnection,
+  type MemberfulConnectionStart,
   type NewWorkspace,
+  type Profile,
+  type ProfileAnswer,
   type RoomSettings,
   type Sidebar,
   type UserId,
@@ -34,6 +42,7 @@ import {
   openWorkspaceSocket,
   origin,
   shown,
+  signIn,
   withWorkspaceEnv,
   workspaceSql,
   workspaceStub,
@@ -89,17 +98,18 @@ interface SentToMemberful {
 
 /**
  * Stands in for the Memberful site: its token endpoint gives an access token for `CODE` sent with the
- * app's keys, and its member API describes `site.member`, which a test can change, to that token. Its
- * admin API describes `site.member` and `site.others` by their ids to the app's API key, as they were when
- * it was asked, once `site.held` settles, or answers 502 if `site.down` was set then. Either fails to
- * describe the members whose ids are in `site.failing`, answering as GraphQL answers a field that failed:
- * null, with an error saying where. What it's sent goes in `site.requests`.
+ * app's keys, and its member API describes `site.member`, which a test can change, to that token, once
+ * `site.signInHeld` settles. Its admin API describes `site.member` and `site.others` by their ids to the
+ * app's API key, as they were when it was asked, once `site.held` settles, or answers 502 if `site.down`
+ * was set then. Either fails to describe the members whose ids are in `site.failing`, answering as GraphQL
+ * answers a field that failed: null, with an error saying where. What it's sent goes in `site.requests`.
  */
 function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
   const site = {
     member: member && { ...katherine, ...member },
     others: [] as MemberfulMember[],
     held: Promise.resolve(),
+    signInHeld: Promise.resolve(),
     down: false,
     failing: [] as string[],
     requests: [] as SentToMemberful[],
@@ -121,6 +131,7 @@ function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
       return Response.json({ access_token: ACCESS_TOKEN, token_type: "bearer", expires_in: 900, refresh_token: "a-refresh-token" });
     }
     if (url.origin === SITE && url.pathname === "/api/graphql/member" && request.headers.get("Authorization") === `Bearer ${ACCESS_TOKEN}`) {
+      await site.signInHeld;
       if (site.member && site.failing.includes(site.member.id)) {
         const error = { message: "Internal server error", path: ["currentMember", "subscriptions"] };
         return Response.json({ data: { currentMember: { ...site.member, subscriptions: null } }, errors: [error] });
@@ -283,6 +294,9 @@ describe(feature("auth.memberful-sign-in"), () => {
       // A site Ember would send the client secret to in the clear, or that isn't an address at all, is none.
       expect(await settings({ ...KEYS, MEMBERFUL_URL: "http://example.memberful.com" })).toBeNull();
       expect(await settings({ ...KEYS, MEMBERFUL_URL: "example.memberful.com" })).toBeNull();
+      // But one on this computer, where the browser tests fake one, is a site.
+      expect(await settings({ ...KEYS, MEMBERFUL_URL: "http://127.0.0.1:8790/" })).toBe("http://127.0.0.1:8790");
+      expect(await settings({ ...KEYS, MEMBERFUL_URL: "http://localhost:8790" })).toBe("http://localhost:8790");
     });
 
     it("can't be turned on until the deployment has the keys, but can be turned off without them", async () => {
@@ -1264,5 +1278,281 @@ describe(feature("auth.memberful-memberships"), () => {
     expect(await statusOf(administrator, id)).toBe("deactivated");
     site.member = katherine;
     expect(locationOf(await signInWithMemberful())).toBe(backToSignIn("refused"));
+  });
+});
+
+/** Starts connecting Memberful from `session`'s profile with `body`, from `ip`, on a deployment with the keys unless `keys` is false. */
+const connect = (session: Session | null, body: MemberfulConnectionStart = {}, { ip = IP, keys = true } = {}) =>
+  apiWith(keys ? KEYS : {}, MEMBERFUL_CONNECTIONS_PATH, { method: "POST", headers: { ...as(session), "CF-Connecting-IP": ip }, body: JSON.stringify(body) });
+
+/** Signs in with `person`'s email address and password, coming back to `returnTo` if connecting goes on at Memberful, on a deployment with the keys. */
+const signInWithPasswordToConnect = ({ emailAddress, password }: { emailAddress: string; password: string }, returnTo?: string, ip = IP) =>
+  withKeys("/api/session", { method: "POST", headers: { "CF-Connecting-IP": ip }, body: JSON.stringify({ emailAddress, password, returnTo }) });
+
+/** The state a connection sends the browser to Memberful with, and the cookie that keeps it, from the 202 that started it. */
+async function connectionOf(response: Response): Promise<{ state: string; cookie: string }> {
+  expect(response.status, await response.clone().text()).toBe(202);
+  const location = new URL(((await response.json()) as MemberfulConnection).memberfulConnection);
+  expect(`${location.origin}${location.pathname}`).toBe(`${SITE}/oauth`);
+  expect(location.searchParams.get("client_id")).toBe(KEYS.MEMBERFUL_CLIENT_ID);
+  return { state: location.searchParams.get("state")!, cookie: cookieOf(response) };
+}
+
+/** Comes back from Memberful with the connection's state, to a browser with its cookie, signed in as `session` too if given, from `ip`. */
+const finish = ({ state, cookie }: { state: string; cookie: string }, session?: Session, ip = IP) =>
+  callback({ code: CODE, state }, session ? `${cookie}; ${session.cookie}` : cookie, ip);
+
+/** Where connecting sends a browser signed in back to, its profile, saying how it went. */
+const backToProfile = (outcome: string) => `${origin}/users/me/profile?memberful=${outcome}`;
+
+/** `session`'s profile as its page reads it, from a deployment with the keys unless `keys` is false. */
+const profileOf = async (session: Session, { keys = true } = {}): Promise<Profile> =>
+  ((await (await apiWith(keys ? KEYS : {}, "/api/users/me/profile", { headers: as(session) })).json()) as ProfileAnswer).profile;
+
+/** Grace's account at the Memberful site, with an active subscription. */
+const gracesAccount: Partial<MemberfulMember> = { id: "4250", email: grace.emailAddress, fullName: grace.name };
+
+/** Sets Ember up with Ada as its administrator and Grace, who joined with a password, then turns Memberful sign-in on. */
+async function setUpWithGrace(): Promise<{ administrator: Session; member: Session }> {
+  const administrator = await setUp();
+  const member = await joinAsGrace();
+  await turnMemberful(administrator, true);
+  return { administrator, member };
+}
+
+describe(feature("auth.memberful-connect"), () => {
+  describe("from your profile", () => {
+    it("says whether you've connected a Memberful account, while members sign in with Memberful", async () => {
+      const administrator = await setUp();
+      const member = await joinAsGrace();
+      const guest = await signIn("Visitor");
+      expect((await profileOf(member)).memberful).toBeNull();
+
+      await turnMemberful(administrator, true);
+      expect((await profileOf(member)).memberful).toBe(false);
+      expect((await profileOf(administrator)).memberful).toBe(false);
+      expect((await profileOf(member, { keys: false })).memberful).toBeNull();
+      // Signed in with just a name, they have nothing to connect.
+      expect((await profileOf(guest)).memberful).toBeNull();
+    });
+
+    it("connects your account once your password checks out, and keeps you signed in", async () => {
+      const { member } = await setUpWithGrace();
+      const site = fakeMemberful(gracesAccount);
+      const started = await connect(member, { currentPassword: grace.password });
+      expect(started.headers.get("Cache-Control")).toBe("no-store");
+      const back = await finish(await connectionOf(started), member);
+      expect(locationOf(back)).toBe(backToProfile("connected"));
+      // Only the state's cookie is forgotten: she's signed in as she was.
+      expect(back.headers.getSetCookie()).toEqual([expect.stringMatching(/memberful_state=;/)]);
+      expect(await identities()).toEqual([{ issuer: SITE, subject: "4250", user_id: member.user.id }]);
+      expect(await signsIn(member)).toBe(true);
+      expect((await profileOf(member)).memberful).toBe(true);
+      expect(await count("pending_identities")).toBe(0);
+
+      // From then on she signs in with Memberful as herself, and has nothing more to connect.
+      expect((await signedInAs(await signInWithMemberful())).id).toBe(member.user.id);
+      const again = await connect(member, { currentPassword: grace.password });
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: "You've connected Memberful already" });
+      expect(site.requests.filter(({ url }) => url === `${SITE}/oauth/token`)).toHaveLength(2);
+    });
+
+    it("asks for your password, counting it against the sign-in limit", async () => {
+      const { member } = await setUpWithGrace();
+      const without = await connect(member);
+      expect(without.status).toBe(422);
+      expect(await without.json()).toEqual({ error: MEMBERFUL_PASSWORD_NEEDED });
+      const wrong = await connect(member, { currentPassword: "wrong" });
+      expect(wrong.status).toBe(422);
+      expect(await wrong.json()).toEqual({ error: CURRENT_PASSWORD_WRONG });
+      for (let attempt = 2; attempt < 10; attempt++) expect((await connect(member, { currentPassword: "wrong" })).status).toBe(422);
+
+      const limited = await connect(member, { currentPassword: grace.password });
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toEqual({ error: SIGN_IN_REFUSED });
+      expect(limited.headers.get("Set-Cookie")).toBeNull();
+      expect((await connect(member, { currentPassword: grace.password }, { ip: "203.0.113.21" })).status).toBe(202);
+      expect(await count("pending_identities")).toBe(1);
+    });
+
+    it("connects someone without a password without asking for one", async () => {
+      const { member } = await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      // As people without a password keep it.
+      await workspaceSql("UPDATE users SET password_digest = '' WHERE id = ?", member.user.id);
+      expect(locationOf(await finish(await connectionOf(await connect(member)), member))).toBe(backToProfile("connected"));
+    });
+
+    it("answers 401 without a session, and 403 while it's off, to a deployment without the keys, or to a guest", async () => {
+      const administrator = await setUp();
+      const member = await joinAsGrace();
+      const guest = await signIn("Visitor");
+      const password = { currentPassword: grace.password };
+      expect((await connect(null, password)).status).toBe(401);
+      const off = await connect(member, password);
+      expect(off.status).toBe(403);
+      expect(await off.json()).toEqual({ error: MEMBERFUL_SIGN_IN_PROBLEMS.off });
+
+      await turnMemberful(administrator, true);
+      const unavailable = await connect(member, password, { keys: false });
+      expect(unavailable.status).toBe(403);
+      expect(await unavailable.json()).toEqual({ error: MEMBERFUL_SIGN_IN_PROBLEMS.unavailable });
+      const guests = await connect(guest);
+      expect(guests.status).toBe(403);
+      expect(await guests.json()).toEqual({ error: "Guests can't connect Memberful" });
+      expect(await count("pending_identities")).toBe(0);
+    });
+
+    it("connects nothing when the Memberful account is someone else's, or has no membership, or you've connected another", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      const site = fakeMemberful();
+      const katherinesId = (await signedInAs(await signInWithMemberful())).id;
+      const password = { currentPassword: grace.password };
+
+      // Signed in at Memberful as Katherine, who has an account here.
+      expect(locationOf(await finish(await connectionOf(await connect(member, password)), member))).toBe(backToProfile("claimed"));
+      site.member = { ...katherine, ...gracesAccount, subscriptions: [] };
+      expect(locationOf(await finish(await connectionOf(await connect(member, password)), member))).toBe(backToProfile("membership"));
+      expect(await identities()).toEqual([{ issuer: SITE, subject: "4242", user_id: katherinesId }]);
+      expect(await signsIn(member)).toBe(true);
+
+      // An administrator needs no membership, but connects only one account there.
+      const adas = { currentPassword: ada.password };
+      const ip = "203.0.113.30";
+      const [first, second] = [await connectionOf(await connect(administrator, adas, { ip })), await connectionOf(await connect(administrator, adas, { ip }))];
+      site.member = { ...katherine, id: "4251", email: ada.emailAddress, fullName: ada.name, subscriptions: [] };
+      expect(locationOf(await finish(first, administrator, ip))).toBe(backToProfile("connected"));
+      site.member = { ...katherine, id: "4252", email: "ada@elsewhere.example", fullName: ada.name };
+      expect(locationOf(await finish(second, administrator, ip))).toBe(backToProfile("another"));
+      expect(await identities()).toEqual(expect.arrayContaining([{ issuer: SITE, subject: "4251", user_id: administrator.user.id }]));
+      expect(await identities()).toHaveLength(2);
+    });
+  });
+
+  describe("at sign in", () => {
+    it("sends a member whose password checks out on to Memberful, which brings them back signed in", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      const connection = await connectionOf(await signInWithPasswordToConnect(grace, "/rooms/abc?tab=pins"));
+      const back = await finish(connection);
+      expect(locationOf(back)).toBe(`${origin}/rooms/abc?tab=pins`);
+      expect((await signedInAs(back)).id).toBe(member.user.id);
+      expect(await identities()).toEqual([{ issuer: SITE, subject: "4250", user_id: member.user.id }]);
+
+      // Once she has, her password signs her in no more, and an administrator's still does.
+      const again = await signInWithPasswordToConnect(grace);
+      expect(again.status).toBe(403);
+      expect(await again.json()).toEqual({ error: MEMBERFUL_SIGN_IN_NEEDED });
+      expect((await signInWithPasswordToConnect(ada)).status).toBe(201);
+      void administrator;
+    });
+
+    it("goes back to sign in, which says why, when connecting doesn't work", async () => {
+      await setUpWithGrace();
+      fakeMemberful({ ...gracesAccount, subscriptions: [] });
+      expect(locationOf(await finish(await connectionOf(await signInWithPasswordToConnect(grace))))).toBe(backToSignIn("membership"));
+      expect(await identities()).toEqual([]);
+    });
+
+    it("comes back home rather than to a page that isn't the workspace's", async () => {
+      await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      expect(locationOf(await finish(await connectionOf(await signInWithPasswordToConnect(grace, "https://example.com/rooms/abc"))))).toBe(`${origin}/`);
+    });
+  });
+
+  describe("each connection", () => {
+    it("is good for one try within ten minutes, and never signs anyone in once it's gone", async () => {
+      const { member } = await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      const password = { currentPassword: grace.password };
+      const late = await connectionOf(await connect(member, password));
+      await workspaceSql("UPDATE pending_identities SET created_at = created_at - ?", 10 * 60 * 1000 + 1);
+      expect(locationOf(await finish(late, member))).toBe(backToProfile("failed"));
+      expect(await count("pending_identities")).toBe(0);
+
+      const used = await connectionOf(await connect(member, password));
+      expect(locationOf(await finish(used, member))).toBe(backToProfile("connected"));
+      // Brought back again, by another browser, it signs nobody in, though the account is Grace's now.
+      const replayed = await finish(used);
+      expect(locationOf(replayed)).toBe(backToSignIn("failed"));
+      expect(replayed.headers.getSetCookie()).toEqual([expect.stringMatching(/memberful_state=;/)]);
+    });
+
+    it("is forgotten once the password that started it is changed, or reset", async () => {
+      const { member } = await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      const started = await connectionOf(await connect(member, { currentPassword: grace.password }));
+      const changed = await api("/api/users/me/profile", {
+        method: "PATCH",
+        headers: as(member),
+        body: JSON.stringify({ password: "a new password", currentPassword: grace.password }),
+      });
+      expect(changed.status).toBe(200);
+      expect(await count("pending_identities")).toBe(0);
+      expect(locationOf(await finish(started, member))).toBe(backToProfile("failed"));
+
+      const before = await connectionOf(await connect(member, { currentPassword: "a new password" }));
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.resetPassword(grace.emailAddress, "recovery digest"));
+      expect(await count("pending_identities")).toBe(0);
+      expect(locationOf(await finish(before))).toBe(backToSignIn("failed"));
+      expect(await identities()).toEqual([]);
+    });
+
+    it("connects nothing once the password that started it is reset while Memberful is asked who signed in", async () => {
+      const { member } = await setUpWithGrace();
+      const site = fakeMemberful(gracesAccount);
+      const started = await connectionOf(await connect(member, { currentPassword: grace.password }));
+      const answered = Promise.withResolvers<void>();
+      site.signInHeld = answered.promise;
+      const finishing = finish(started);
+      // The callback has taken the connection by now, so the reset has none to forget.
+      await vi.waitFor(() => expect(site.requests.some(({ url }) => new URL(url).pathname === "/api/graphql/member")).toBe(true));
+      expect(await count("pending_identities")).toBe(0);
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.resetPassword(grace.emailAddress, "recovery digest"));
+      answered.resolve();
+      expect(locationOf(await finishing)).toBe(backToSignIn("refused"));
+      expect(await identities()).toEqual([]);
+    });
+
+    it("connects nothing to someone removed meanwhile", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      fakeMemberful(gracesAccount);
+      const started = await connectionOf(await connect(member, { currentPassword: grace.password }));
+      expect((await api(`/api/account/users/${member.user.id}`, { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+      expect(locationOf(await finish(started))).toBe(backToSignIn("refused"));
+      expect(await identities()).toEqual([]);
+    });
+
+    it("starts at Ember's custom domain, where Memberful sends the browser back, and goes there from a tab left open elsewhere", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      const used = await apiWith({}, "https://chat.example.com/api/account", {
+        method: "PATCH",
+        headers: as(administrator),
+        body: JSON.stringify({ customDomain: "chat.example.com" }),
+      });
+      expect(used.status).toBe(200);
+
+      // From her profile, or as she signs in, at the address Ember has moved from, it keeps nothing.
+      const fromProfile = await connect(member, { currentPassword: grace.password });
+      expect(fromProfile.status).toBe(202);
+      expect(await fromProfile.json()).toEqual({ memberfulConnection: "https://chat.example.com/users/me/profile" });
+      expect(fromProfile.headers.get("Set-Cookie")).toBeNull();
+      expect(fromProfile.headers.get("Cache-Control")).toBe("no-store");
+      const atSignIn = await signInWithPasswordToConnect(grace, "/rooms/abc?tab=pins");
+      expect(atSignIn.status).toBe(202);
+      expect(await atSignIn.json()).toEqual({ memberfulConnection: "https://chat.example.com/rooms/abc?tab=pins" });
+      expect(atSignIn.headers.get("Set-Cookie")).toBeNull();
+      expect(await count("pending_identities")).toBe(0);
+
+      const there = await apiWith(KEYS, `https://chat.example.com${MEMBERFUL_CONNECTIONS_PATH}`, {
+        method: "POST",
+        headers: { ...as(member), "CF-Connecting-IP": IP },
+        body: JSON.stringify({ currentPassword: grace.password }),
+      });
+      expect((await connectionOf(there)).cookie).toMatch(/^__Host-memberful_state=/);
+      expect(await count("pending_identities")).toBe(1);
+    });
   });
 });
