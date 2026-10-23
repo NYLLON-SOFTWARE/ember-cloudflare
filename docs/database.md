@@ -70,7 +70,8 @@ search index. On top of that schema it adds indexes and query changes for speed.
   column with a unique index, so a second account can't be inserted. Ours has it too: the Workspace
   runs one first run at a time on DO SQLite, but on D1 two can overlap, and the index refuses the
   second. The account's columns are ember-rust's: its name, its join code, its settings as JSON and
-  its custom styles.
+  its custom styles. Ember's custom domain, which ember-rust doesn't have, is one more of those
+  settings (`custom_domain`), so it took no migration and is read with the rest of the account.
 - **Unread marks are a column of the membership.** `memberships.unread_at` is when a room was marked
   unread for someone, null while it isn't, and one `UPDATE` marks every member a message should, as
   ember-rust's `unread_memberships` does (`crates/db/src/models/room.rs`). We skip its `connections`
@@ -395,6 +396,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   migration 0026), since a push service answers that a subscription is gone only after the push to it
   went out, and the Workspace then forgets it by its number, which SQLite would otherwise give the
   next subscription saved once the newest is deleted.
+- **A subscription keeps the host it was saved at.** ember-rust answers at one address, so its
+  subscriptions don't say where they were saved. A subscription belongs to the service worker of one
+  address, and ours can answer at several (`accounts.custom-domain`), so each keeps its host (workspace
+  migration 0036; those saved before have none). Saving one at Ember's custom domain deletes, in the
+  same batch, that person's subscriptions from the same user agent at any other host, an older one
+  without a host included, so a browser that turned notifications on at both isn't pushed twice. The
+  delete reads only the person's rows, through the index led by the person.
 - **A message's pushes are found as the Workspace applies its event.** ember-rust's push job loads
   the message again once it's stored, then its room's memberships, people and subscriptions, and
   counts each recipient's unread rooms for the badge (`crates/db/src/models/push_subscription.rs`).
