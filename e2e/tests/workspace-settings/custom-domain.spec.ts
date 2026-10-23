@@ -52,6 +52,12 @@ test.describe(feature("accounts.custom-domain"), () => {
       await expect(opened).toHaveURL(`https://${domain}${room}?from=bookmark`);
       await expect(opened.getByRole("textbox", { name: "Write a message" })).toBeVisible();
       await expect(opened.getByText(/Ember has moved/)).toHaveCount(0);
+      // A page that moved names this browser's push subscription at the old address, which the page
+      // there takes out of its address, keeping it for the subscription saved there to replace.
+      await opened.goto(`https://${domain}${room}?from=bookmark&replacing_push=BOv7-moved_from`);
+      await expect(opened.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+      await expect(opened).toHaveURL(`https://${domain}${room}?from=bookmark`);
+      expect(await opened.evaluate(() => localStorage.getItem("ember:replacing-push"))).toBe("BOv7-moved_from");
 
       // Workspace settings stay at the old address, from where the administrator stops using it.
       await page.goto("/account/edit");

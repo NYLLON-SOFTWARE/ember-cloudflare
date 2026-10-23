@@ -32,6 +32,7 @@ import {
   type ProfileAnswer,
   type ProfileChanges,
   type PushSubscriptionKeys,
+  type PushSubscriptionSave,
   type PushSubscriptions,
   type Room,
   type RoomChanges,
@@ -162,9 +163,13 @@ export async function signOut(pushSubscriptionEndpoint: string | null = null): P
   await request("/api/session", { method: "DELETE", body: JSON.stringify(body) });
 }
 
-/** Saves this browser's push subscription for you, so that pushes reach it, or records that it was saved again. */
-export async function savePushSubscription(subscription: PushSubscriptionKeys): Promise<void> {
-  await request("/api/push-subscriptions", { method: "POST", body: JSON.stringify(subscription) });
+/**
+ * Saves this browser's push subscription for you, so that pushes reach it, or records that it was saved
+ * again, replacing your subscription with the P-256 key `replacing`, if given.
+ */
+export async function savePushSubscription(subscription: PushSubscriptionKeys, replacing: string | null = null): Promise<void> {
+  const body: PushSubscriptionSave = replacing === null ? subscription : { ...subscription, replacing };
+  await request("/api/push-subscriptions", { method: "POST", body: JSON.stringify(body) });
 }
 
 /** Your browsers' push subscriptions, oldest first, with the browsers that saved them. */

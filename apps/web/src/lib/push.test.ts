@@ -1,6 +1,17 @@
 import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { endPushSubscriptionAt, isPushOn, pushEndpoint, savedAgain, savePushAgain, subscribeToPushEnding, turnOnPush, unsubscribeFromPush } from "./push";
+import {
+  endPushSubscriptionAt,
+  isPushOn,
+  pushEndpoint,
+  pushKey,
+  replaceOnSave,
+  savedAgain,
+  savePushAgain,
+  subscribeToPushEnding,
+  turnOnPush,
+  unsubscribeFromPush,
+} from "./push";
 
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 
@@ -121,6 +132,59 @@ describe(feature("notifications.test-page"), () => {
     await endPushSubscriptionAt(ENDPOINT);
     expect(ended).toHaveBeenCalledTimes(2);
     stop();
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  /** The P-256 key of the push subscription this browser had at the address its page moved from. */
+  const MOVED_FROM = "BOv7-moved_from";
+  /** What saving this browser's subscription sends, replacing the subscription with the key `replacing`, if given. */
+  const saved = (replacing?: string) =>
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ endpoint: ENDPOINT, p256dhKey: "BNcRdreA", authKey: "tBHItJI5", replacing }) });
+
+  afterEach(() => localStorage.clear());
+
+  it("names this browser's push subscription by its P-256 key, for the address a page moves to", async () => {
+    registered(registration({ existing: subscription() }));
+    expect(await pushKey()).toBe("BNcRdreA");
+
+    registered(registration());
+    expect(await pushKey()).toBeNull();
+    registered(undefined, vi.fn(() => Promise.reject(new DOMException("No", "SecurityError"))));
+    expect(await pushKey()).toBeNull();
+    Reflect.deleteProperty(navigator, "serviceWorker");
+    expect(await pushKey()).toBeNull();
+  });
+
+  it("replaces the subscription this browser had at the address its page moved from with the next one it saves, and only that one", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    const fetch = saving();
+    replaceOnSave(MOVED_FROM);
+    expect(await turnOnPush(KEY)).toBeNull();
+    expect(fetch).toHaveBeenLastCalledWith("/api/push-subscriptions", saved(MOVED_FROM));
+
+    await savePushAgain();
+    expect(fetch).toHaveBeenLastCalledWith("/api/push-subscriptions", saved());
+  });
+
+  it("names it again until a save goes through, and then the one a page that moved here since names", async () => {
+    pushable({ permission: "granted", registered: registration({ existing: subscription() }) });
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+    replaceOnSave(MOVED_FROM);
+    await savePushAgain();
+    let answer!: (response: Response) => void;
+    fetch.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    void savePushAgain();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(fetch).toHaveBeenLastCalledWith("/api/push-subscriptions", saved(MOVED_FROM));
+
+    // Moved here again from another address while it saved.
+    replaceOnSave("BOv7-moved_again");
+    answer(new Response(null, { status: 204 }));
+    await savedAgain();
+    fetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await savePushAgain();
+    expect(fetch).toHaveBeenLastCalledWith("/api/push-subscriptions", saved("BOv7-moved_again"));
   });
 });
 

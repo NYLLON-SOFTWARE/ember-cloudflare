@@ -23,7 +23,7 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
-  type PushSubscriptionKeys,
+  type PushSubscriptionSave,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -1532,17 +1532,16 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves a browser's push subscription, already checked, for the person `credentials` signs in, with
-   * the browser's user agent and `host`, the address it was saved at, answering false without a valid
-   * session, or if it ends before the subscription is saved, as a password reset can on D1. Given none,
-   * it only checks the session, for a subscription that's refused. Saved at Ember's custom domain, it
-   * replaces the ones the same browser saved at the address Ember had before.
+   * the browser's user agent, answering false without a valid session, or if it ends before the
+   * subscription is saved, as a password reset can on D1. Given none, it only checks the session, for a
+   * subscription that's refused. It replaces the subscription of theirs it names, the one the same
+   * browser had at the address it moved from to Ember's custom domain.
    */
-  async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionKeys | null, host: string): Promise<boolean> {
+  async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionSave | null): Promise<boolean> {
     const session = await this.session(credentials);
     if (!session || !subscription) return session !== null;
-    const customDomain = (await this.joinableAccount())?.customDomain ?? null;
-    const browser = { userAgent: credentials.client.userAgent, host };
-    return this.store.savePushSubscription(session.user.id, session.id, subscription, browser, customDomain, new Date().toISOString());
+    const { replacing = null, ...keys } = subscription;
+    return this.store.savePushSubscription(session.user.id, session.id, keys, credentials.client.userAgent, replacing, new Date().toISOString());
   }
 
   /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */

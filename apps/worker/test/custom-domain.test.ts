@@ -9,8 +9,8 @@ const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "
 /** The address an administrator gives Ember in these tests, as the Cloudflare dashboard attached it to the Worker. */
 const DOMAIN = "chat.example.com";
 
-const FIREFOX = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0";
-const SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+/** Every Mac's user agent on the same Chrome, whose reduced user agent says no more. */
+const CHROME_ON_A_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
 /** A new workspace as pages show it, with the custom domain `customDomain`. */
 const withDomain = (customDomain: string | null): Account => ({ name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain });
@@ -59,27 +59,30 @@ const messagesOf = (room: RoomId, bot: BotSettings) => `/rooms/${room}/${bot.key
 /** As `curl -d` sends a body. */
 const FORM = { "Content-Type": "application/x-www-form-urlencoded" };
 
-/** A browser's subscription, with RFC 8291's example keys, at an endpoint of its own. */
-const subscription = (endpoint: string) => ({
-  endpoint: `https://fcm.googleapis.com/fcm/send/${endpoint}`,
-  p256dhKey: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
-  authKey: "BTBZMqHH6r4Tts7J_aSIgg",
-});
+/** The P-256 key of the browser subscribed at `endpoint`, each browser's its own. */
+const keyOf = (endpoint: string) => `BP-${endpoint}`;
 
-/** Saves the subscription at `endpoint` for `session` at `host`, as turning notifications on there does, from a browser with `userAgent`, or none. */
-async function save(session: Session, host: string, endpoint: string, userAgent: string | null = FIREFOX): Promise<void> {
-  const response = await at(host, "/api/push-subscriptions", {
+/**
+ * What `session` saves at `host` to subscribe the browser at `endpoint`, as turning notifications on
+ * there does, replacing the subscription `body.replacing` names.
+ */
+const save = (session: Session | null, host: string, endpoint: string, body: Record<string, unknown> = {}) =>
+  at(host, "/api/push-subscriptions", {
     method: "POST",
-    headers: { ...as(session), ...(userAgent === null ? {} : { "User-Agent": userAgent }) },
-    body: JSON.stringify(subscription(endpoint)),
+    headers: { ...as(session), "User-Agent": CHROME_ON_A_MAC },
+    body: JSON.stringify({ endpoint: `https://fcm.googleapis.com/fcm/send/${endpoint}`, p256dhKey: keyOf(endpoint), authKey: "BTBZMqHH6r4Tts7J_aSIgg", ...body }),
   });
+
+/** Saves the browser at `endpoint` for `session` at `host`, replacing `session`'s subscription at `replacing`, if given. */
+async function subscribe(session: Session, host: string, endpoint: string, replacing?: string): Promise<void> {
+  const response = await save(session, host, endpoint, replacing === undefined ? {} : { replacing: keyOf(replacing) });
   expect(response.status, await response.clone().text()).toBe(204);
 }
 
-/** The endpoints of `session`'s person's subscriptions, oldest first, each with the host it was saved at. */
+/** The endpoints of `session`'s person's subscriptions, oldest first. */
 const subscriptionsOf = async (session: Session) =>
-  ((await workspaceSql("SELECT endpoint, host FROM push_subscriptions WHERE user_id = ? ORDER BY id", session.user.id)) as Array<{ endpoint: string; host: string | null }>).map(
-    ({ endpoint, host }) => [endpoint.slice("https://fcm.googleapis.com/fcm/send/".length), host],
+  ((await workspaceSql("SELECT endpoint FROM push_subscriptions WHERE user_id = ? ORDER BY id", session.user.id)) as Array<{ endpoint: string }>).map(({ endpoint }) =>
+    endpoint.slice("https://fcm.googleapis.com/fcm/send/".length),
   );
 
 beforeEach(freshDeploy);
@@ -236,54 +239,42 @@ describe(feature("accounts.custom-domain"), () => {
     expect((await api(messagesOf(general, bot), { method: "POST", body: "Shipped" })).headers.get("Location")).toMatch(new RegExp(`^${origin}/rooms/`));
   });
 
-  it("replaces a browser's subscription at the old address with the one it saves at the custom domain", async () => {
+  it("replaces the subscription a browser had at the address its page moved from with the one it saves there, and no other", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
-    await save(grace, "ember.test", "firefox-before");
-    await save(grace, "ember.test", "safari-before", SAFARI);
-    await save(administrator, "ember.test", "adas-firefox");
+    await subscribe(grace, "ember.test", "work-mac");
+    await subscribe(grace, "ember.test", "home-mac");
+    await subscribe(administrator, "ember.test", "adas-mac");
     await use(administrator, DOMAIN);
 
-    await save(grace, DOMAIN, "firefox-after");
-    // Her phone's, and Ada's in the same browser, stay until they turn notifications on there.
-    expect(await subscriptionsOf(grace)).toEqual([
-      ["safari-before", "ember.test"],
-      ["firefox-after", DOMAIN],
-    ]);
-    expect(await subscriptionsOf(administrator)).toEqual([["adas-firefox", "ember.test"]]);
+    await subscribe(grace, DOMAIN, "work-mac-there", "work-mac");
+    // Her other Mac's stays, though its user agent is the same, until it moves too, and so does Ada's.
+    expect(await subscriptionsOf(grace)).toEqual(["home-mac", "work-mac-there"]);
+    expect(await subscriptionsOf(administrator)).toEqual(["adas-mac"]);
+    await subscribe(grace, DOMAIN, "home-mac-there", "home-mac");
+    expect(await subscriptionsOf(grace)).toEqual(["work-mac-there", "home-mac-there"]);
+
+    // Saved again with the key it named, as the app saves a browser's as it opens, it stays.
+    await subscribe(grace, DOMAIN, "home-mac-there", "home-mac-there");
+    expect(await subscriptionsOf(grace)).toEqual(["work-mac-there", "home-mac-there"]);
   });
 
-  it("replaces none saved anywhere but the custom domain, or from a browser that sends no user agent", async () => {
+  it("replaces only a subscription of the person saving, and ignores a key that names none or can't be one", async () => {
     const administrator = await setUp();
-    await save(administrator, "ember.test", "before");
-    await save(administrator, "ember.test", "no-agent-before", null);
+    const grace = await signIn("Grace");
+    await subscribe(administrator, "ember.test", "adas-mac");
     await use(administrator, DOMAIN);
 
-    await save(administrator, "ember.test", "old-address-again");
-    await save(administrator, "ember.example.org", "elsewhere");
-    await save(administrator, DOMAIN, "no-agent-after", null);
-    expect(await subscriptionsOf(administrator)).toEqual([
-      ["before", "ember.test"],
-      ["no-agent-before", "ember.test"],
-      ["old-address-again", "ember.test"],
-      ["elsewhere", "ember.example.org"],
-      ["no-agent-after", DOMAIN],
-    ]);
-    await save(administrator, DOMAIN, "after");
-    expect(await subscriptionsOf(administrator)).toEqual([
-      ["no-agent-before", "ember.test"],
-      ["no-agent-after", DOMAIN],
-      ["after", DOMAIN],
-    ]);
-  });
+    await subscribe(grace, DOMAIN, "graces-mac", "adas-mac");
+    await subscribe(grace, DOMAIN, "graces-phone", "nobodys");
+    for (const replacing of ["", 42, null, ["adas-mac"], "K".repeat(257)]) {
+      expect((await save(grace, DOMAIN, "graces-mac", { replacing })).status).toBe(204);
+    }
+    expect(await subscriptionsOf(administrator)).toEqual(["adas-mac"]);
+    expect(await subscriptionsOf(grace)).toEqual(["graces-mac", "graces-phone"]);
 
-  it("counts a subscription saved before hosts were recorded as saved at another address", async () => {
-    const administrator = await setUp();
-    await save(administrator, "ember.test", "before");
-    await workspaceSql("UPDATE push_subscriptions SET host = NULL");
-    await use(administrator, DOMAIN);
-    expect(await subscriptionsOf(administrator)).toEqual([["before", null]]);
-    await save(administrator, DOMAIN, "after");
-    expect(await subscriptionsOf(administrator)).toEqual([["after", DOMAIN]]);
+    // Nor anything signed out.
+    expect((await save(null, DOMAIN, "graces-tablet", { replacing: keyOf("graces-mac") })).status).toBe(401);
+    expect(await subscriptionsOf(grace)).toEqual(["graces-mac", "graces-phone"]);
   });
 });

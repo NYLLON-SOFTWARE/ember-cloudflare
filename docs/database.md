@@ -395,14 +395,10 @@ search index. On top of that schema it adds indexes and query changes for speed.
   comes back when it's next opened. Like ember-rust's, they're numbered with `AUTOINCREMENT` (workspace
   migration 0026), since a push service answers that a subscription is gone only after the push to it
   went out, and the Workspace then forgets it by its number, which SQLite would otherwise give the
-  next subscription saved once the newest is deleted.
-- **A subscription keeps the host it was saved at.** ember-rust answers at one address, so its
-  subscriptions don't say where they were saved. A subscription belongs to the service worker of one
-  address, and ours can answer at several (`accounts.custom-domain`), so each keeps its host (workspace
-  migration 0036; those saved before have none). Saving one at Ember's custom domain deletes, in the
-  same batch, that person's subscriptions from the same user agent at any other host, an older one
-  without a host included, so a browser that turned notifications on at both isn't pushed twice. The
-  delete reads only the person's rows, through the index led by the person.
+  next subscription saved once the newest is deleted. A subscription belongs to one address's service
+  worker, and ours can answer at several (`accounts.custom-domain`), so a save can name, by its P-256
+  key, the subscription the same browser had at the address its page moved from, and the same batch
+  forgets that person's with that key, reading only their rows through the same index.
 - **A message's pushes are found as the Workspace applies its event.** ember-rust's push job loads
   the message again once it's stored, then its room's memberships, people and subscriptions, and
   counts each recipient's unread rooms for the badge (`crates/db/src/models/push_subscription.rs`).

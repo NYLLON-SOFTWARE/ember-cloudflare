@@ -89,6 +89,7 @@ export {
   signOutEndpointOf,
   type PushSubscriptionKeys,
   type PushSubscriptions,
+  type PushSubscriptionSave,
   type SavedPushSubscription,
   type SignOut,
 } from "./push.ts";

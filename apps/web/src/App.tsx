@@ -15,7 +15,7 @@ import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-r
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
-import { pageMovingTo } from "@/lib/custom-domain";
+import { moveTo, movesTo } from "@/lib/custom-domain";
 import { replaceInstallPromptsFor } from "@/lib/install-prompt";
 import { loadPage } from "@/lib/page";
 import { unsubscribeFromPush } from "@/lib/push";
@@ -63,8 +63,8 @@ export function App() {
         ({ user, ...workspace }) => {
           if (stopped) return;
           // A page opened at any address but Ember's custom domain moves there before anything shows.
-          const there = pageMovingTo(workspace.account.customDomain);
-          if (there) return loadPage(there);
+          const { customDomain } = workspace.account;
+          if (movesTo(customDomain)) return void moveTo(customDomain);
           replaceInstallPromptsFor(workspace.platform);
           const atSetup = location.pathname === SETUP_PATH;
           // Until Ember is set up, every page is setup's, which says what it takes where it isn't open.

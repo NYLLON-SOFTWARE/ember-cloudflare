@@ -509,12 +509,12 @@ describe(feature("accounts.custom-domain"), () => {
     act(() => WorkspaceSocket.all[0]!.welcome(ada));
     expect(movedNotice()).not.toBeInTheDocument();
     /** Gives Ember the custom domain `customDomain`, as an administrator at that address does, which the workspace socket then says. */
-    const moveTo = async (customDomain: string | null) => {
+    const moveEmberTo = async (customDomain: string | null) => {
       const { account } = (await (await fetch("/api/account", { method: "PATCH", body: JSON.stringify({ customDomain }) })).json()) as { account: Account };
       act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account }));
     };
 
-    await moveTo(DOMAIN);
+    await moveEmberTo(DOMAIN);
     expect(movedNotice()).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go there" })).toHaveAttribute("href", `http://${DOMAIN}/rooms/general`);
     // Not moved from under them.
@@ -532,9 +532,12 @@ describe(feature("accounts.custom-domain"), () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(movedNotice()).not.toBeInTheDocument();
     // Until Ember moves again.
-    await moveTo("ember.example.org");
+    await moveEmberTo("ember.example.org");
     expect(screen.getByRole("link", { name: "Go there" })).toHaveAttribute("href", "http://ember.example.org/rooms/general");
-    await moveTo(null);
+    // Moving as a page opened afresh would.
+    await user.click(screen.getByRole("link", { name: "Go there" }));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("http://ember.example.org/rooms/general"));
+    await moveEmberTo(null);
     expect(screen.queryByRole("link", { name: "Go there" })).not.toBeInTheDocument();
   });
 });
