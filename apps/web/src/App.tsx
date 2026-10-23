@@ -15,6 +15,7 @@ import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-r
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
 import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
+import { moveTo, movesTo } from "@/lib/custom-domain";
 import { replaceInstallPromptsFor } from "@/lib/install-prompt";
 import { loadPage } from "@/lib/page";
 import { unsubscribeFromPush } from "@/lib/push";
@@ -31,7 +32,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.hideTranslationButtons === b.hideTranslationButtons &&
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&
-  a.logo === b.logo;
+  a.logo === b.logo &&
+  a.customDomain === b.customDomain;
 
 export function App() {
   // Undefined until the server says whether Ember is set up.
@@ -60,6 +62,9 @@ export function App() {
       fetchBootstrap().then(
         ({ user, ...workspace }) => {
           if (stopped) return;
+          // A page opened at any address but Ember's custom domain moves there before anything shows.
+          const { customDomain } = workspace.account;
+          if (movesTo(customDomain)) return void moveTo(customDomain);
           replaceInstallPromptsFor(workspace.platform);
           const atSetup = location.pathname === SETUP_PATH;
           // Until Ember is set up, every page is setup's, which says what it takes where it isn't open.

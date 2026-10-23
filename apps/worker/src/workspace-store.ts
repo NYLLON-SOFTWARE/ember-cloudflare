@@ -58,8 +58,11 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
-/** What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, and anyone may create rooms. */
-export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false } as const;
+/**
+ * What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, anyone may
+ * create rooms, and no custom domain.
+ */
+export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, customDomain: null } as const;
 
 /**
  * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
@@ -79,8 +82,8 @@ export interface NewAccount {
   joinCode: string;
 }
 
-/** What `WorkspaceStore.changeAccount` changes: the name, and the settings workspace settings' switches change. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation">>;
+/** What `WorkspaceStore.changeAccount` changes: the name, the settings workspace settings' switches change, and the custom domain. */
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -386,6 +389,9 @@ function hidesTranslationButtons(settings: Record<string, unknown> | null): bool
  * (account.rs, `restrict_room_creation_to_administrators`): only while the setting is present.
  */
 const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
+
+/** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
+const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
@@ -785,6 +791,7 @@ const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
   ), updated_at = ?2`;
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
+const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -1008,6 +1015,15 @@ const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoin
   RETURNING id`;
 
 /**
+ * Forgets someone's, ?1's, push subscription with the P-256 key ?2, but the one at ?3 they're saving, as
+ * they save it in session ?4, if it hasn't ended: the one the same browser had at the address its page
+ * moved from to Ember's custom domain, which would have every push come twice. A key is one browser's,
+ * where a user agent can be every Mac's on the same Chrome, so no other browser's goes.
+ */
+const FORGET_REPLACED_PUSH_SUBSCRIPTION = `DELETE FROM push_subscriptions WHERE user_id = ?1 AND p256dh_key = ?2 AND endpoint <> ?3
+  AND EXISTS (SELECT 1 FROM sessions WHERE id = ?4 AND user_id = ?1)`;
+
+/**
  * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
  * does, so that saving many can't have a message that notifies them pushed as many times.
  */
@@ -1198,17 +1214,19 @@ export class WorkspaceStore {
       hideTranslationButtons: hidesTranslationButtons(settings),
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
+      customDomain: customDomainIn(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
-  /** Changes the workspace's name and settings, as `change` has them, in one batch. */
-  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation }: AccountChange, now: string): Promise<void> {
+  /** Changes the workspace's name, settings and custom domain, as `change` has them, in one batch. */
+  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
+      ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
     ]);
   }
 
@@ -1617,18 +1635,21 @@ export class WorkspaceStore {
 
   /**
    * Saves a browser's push subscription for someone, with its user agent, or records that they saved it
-   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently. Answers whether it
-   * saved it, which it doesn't once their session `sessionId` has ended.
+   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently, and the one with
+   * the P-256 key `replacing`, which it replaces. Answers whether it saved it, which it doesn't once their
+   * session `sessionId` has ended.
    */
   async savePushSubscription(
     userId: UserId,
     sessionId: string,
     { endpoint, p256dhKey, authKey }: PushSubscriptionKeys,
     userAgent: string | null,
+    replacing: string | null,
     now: string,
   ): Promise<boolean> {
     const [saved] = await this.db.batch([
       statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now, sessionId),
+      ...(replacing === null ? [] : [statement(FORGET_REPLACED_PUSH_SUBSCRIPTION, userId, replacing, endpoint, sessionId)]),
       statement(TRIM_PUSH_SUBSCRIPTIONS, userId, MAX_PUSH_SUBSCRIPTIONS),
     ]);
     return saved!.length > 0;

@@ -234,9 +234,11 @@ describe(feature("platform.security-headers"), () => {
     for (const method of ["GET", "PUT", "DELETE"]) expect((await api("/csp-report", { method })).status, method).toBe(404);
   });
 
-  it("pins HTTPS with HSTS on every answer", async () => {
+  it("pins HTTPS with HSTS on every answer, for this host alone", async () => {
+    // ember-rust's includes subdomains, which on a custom domain at a domain's apex would hold every other
+    // site under it to HTTPS.
     for (const response of [await api("/api/bootstrap"), await page("/"), await api("/up")]) {
-      expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=63072000; includeSubDomains");
+      expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=63072000");
     }
   });
 

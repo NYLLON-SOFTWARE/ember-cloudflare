@@ -9,7 +9,7 @@ import { AccountContext } from "@/hooks/use-account";
 import { CustomStylesPage } from "./custom-styles-page";
 
 const CSS = ".mb-app { --mb-ink: rebeccapurple; }";
-const styled: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: CSS, restrictRoomCreation: false, logo: null };
+const styled: Account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: CSS, restrictRoomCreation: false, logo: null, customDomain: null };
 
 interface Answers {
   /** What loading the CSS answers, rather than `CSS`. */

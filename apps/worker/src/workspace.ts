@@ -23,7 +23,7 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
-  type PushSubscriptionKeys,
+  type PushSubscriptionSave,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -112,12 +112,13 @@ const MESSAGES_PER_PURGE = 100;
 const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
 
 /** The account as every page shows it, without its join code, which only the people in it see. */
-const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation, updatedAt, storedLogo }: JoinableAccount): Account => ({
+const accountOf = ({ name, hideTranslationButtons, customStyles, restrictRoomCreation, customDomain, updatedAt, storedLogo }: JoinableAccount): Account => ({
   name,
   hideTranslationButtons,
   customStyles,
   restrictRoomCreation,
   logo: storedLogo && accountLogoPath(updatedAt),
+  customDomain,
 });
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
@@ -183,6 +184,11 @@ export interface BotAccess {
   bot: User;
   /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
   authorizedAt: number;
+}
+
+/** The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it has none. */
+export interface BotKeyAccess extends BotAccess {
+  customDomain: string | null;
 }
 
 /** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
@@ -397,9 +403,10 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
    * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change.
+   * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change, a
+   * new custom domain included, which tabs open at another address then point to.
    */
-  async changeAccount(credentials: Credentials, { name, settings }: AccountChanges): Promise<Account | "forbidden" | null> {
+  async changeAccount(credentials: Credentials, { name, settings, customDomain }: AccountChanges): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
       const { hideTranslationButtons, restrictRoomCreation } = settings ?? {};
@@ -407,6 +414,7 @@ export class Workspace extends DurableObject<Env> {
         ...(name !== undefined && name !== account.name && { name }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
+        ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
       };
       if (Object.keys(change).length === 0) return accountOf(account);
       return this.publishAccount({ ...account, ...change }, (now) => this.store.changeAccount(change, now));
@@ -1541,12 +1549,14 @@ export class Workspace extends DurableObject<Env> {
    * Saves a browser's push subscription, already checked, for the person `credentials` signs in, with
    * the browser's user agent, answering false without a valid session, or if it ends before the
    * subscription is saved, as a password reset can on D1. Given none, it only checks the session, for a
-   * subscription that's refused.
+   * subscription that's refused. It replaces the subscription of theirs it names, the one the same
+   * browser had at the address it moved from to Ember's custom domain.
    */
-  async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionKeys | null): Promise<boolean> {
+  async savePushSubscription(credentials: Credentials, subscription: PushSubscriptionSave | null): Promise<boolean> {
     const session = await this.session(credentials);
     if (!session || !subscription) return session !== null;
-    return this.store.savePushSubscription(session.user.id, session.id, subscription, credentials.client.userAgent, new Date().toISOString());
+    const { replacing = null, ...keys } = subscription;
+    return this.store.savePushSubscription(session.user.id, session.id, keys, credentials.client.userAgent, replacing, new Date().toISOString());
   }
 
   /** The push subscriptions of the person `credentials` signs in, or null without a valid session. */
@@ -1594,16 +1604,16 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The active bot a bot API key names by `botId` and `token`, as ember-rust's `allow_bot_access` finds
-   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`, with when this checked: "not found"
-   * when it isn't, as `set_room` answers then (messages/by_bots.rs), or null unless `token` is the bot's
-   * token now.
+   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`, with when this checked and Ember's
+   * custom domain: "not found" when it isn't, as `set_room` answers then (messages/by_bots.rs), or null
+   * unless `token` is the bot's token now.
    */
-  async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotAccess | "not found" | null> {
+  async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotKeyAccess | "not found" | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
-    const found = await this.store.activeBotKey(botId, roomId);
+    const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
     if (!found || !isBotToken(token, found.token)) return null;
-    return found.member ? { bot: found.bot, authorizedAt } : "not found";
+    return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null } : "not found";
   }
 
   /**

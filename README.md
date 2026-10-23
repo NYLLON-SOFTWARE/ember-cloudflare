@@ -174,9 +174,31 @@ with, and invites people with the join link on general's welcome card.
 
 Ember insists on HTTPS, as ember-rust does: plain HTTP is redirected to the same address over HTTPS,
 and every answer from the Worker carries HSTS, except on `localhost` and loopback addresses, where
-`wrangler dev` serves. To serve plain HTTP anywhere else, such as `wrangler dev --ip 0.0.0.0` for a
-phone on your network, set the `DISABLE_SSL` variable to any value. `/up` answers 200 for uptime
-checks, as Rails' does, without touching storage.
+`wrangler dev` serves. Unlike ember-rust's, it holds only the address it's given at to HTTPS, not the
+names under it, which would be every name on a domain whose apex is Ember's custom domain. To serve
+plain HTTP anywhere else, such as `wrangler dev --ip 0.0.0.0` for a phone on your network, set the
+`DISABLE_SSL` variable to any value. `/up` answers 200 for uptime checks, as Rails' does, without
+touching storage.
+
+### A custom domain
+
+Ember answers at its workers.dev address until an administrator gives it one of your own, under
+Custom domain in Workspace settings, which walks them through it:
+
+1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
+   Worker: Workers & Pages, the Worker, Settings, Domains & Routes, Add, Custom domain. Its domain
+   must be on Cloudflare, in the account that runs the Worker; Cloudflare makes the DNS record and the
+   certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a domain
+   to the Worker can also deploy new code to it.
+2. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
+   the address the page is open at, so it can't be sent to one that doesn't reach it.
+
+From then on, a page opened at any other address moves to the same page at the new one, and the bot
+API's links name it. Everyone signs in once more there, since a session belongs to its address, and
+turns notifications on again, which replaces their browser's subscription at the old address. Bots
+and webhooks go on posting to the addresses they were given. Workspace settings stay wherever they're
+opened, so if the domain ever stops reaching Ember, open them at the workers.dev address and choose
+Stop using it. Deploys leave the domain alone as long as `wrangler.jsonc` lists no `routes`.
 
 ### Push notifications
 

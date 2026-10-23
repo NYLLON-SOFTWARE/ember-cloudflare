@@ -14,6 +14,7 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
 import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useRoute, type Route } from "@/hooks/use-route";
+import { MovedNotice } from "./moved-notice";
 import { NewDirectDialog } from "./new-direct-dialog";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
@@ -649,6 +650,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           </SheetContent>
 
           {page()}
+          <MovedNotice />
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}

@@ -89,6 +89,7 @@ export {
   signOutEndpointOf,
   type PushSubscriptionKeys,
   type PushSubscriptions,
+  type PushSubscriptionSave,
   type SavedPushSubscription,
   type SignOut,
 } from "./push.ts";
@@ -306,6 +307,12 @@ export interface Account {
    * `fresh_account_logo_path` makes it, or null while there's none, when pages show Ember's flame.
    */
   logo: string | null;
+  /**
+   * The address an administrator gave Ember in Workspace settings: a host, with its port where it isn't
+   * the scheme's own, as `location.host` writes it. Pages opened at any other address move there, but
+   * workspace settings. Null while Ember has none, and is used wherever it's opened.
+   */
+  customDomain: string | null;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -322,10 +329,14 @@ export interface NewJoinCode {
   joinCode: string;
 }
 
-/** What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, and its settings. */
+/**
+ * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its settings,
+ * and its custom domain, which can only be the address the request comes to, or null for none.
+ */
 export interface AccountChanges {
   name?: string;
   settings?: AccountSettings;
+  customDomain?: string | null;
 }
 
 /** The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]` names it. */
@@ -826,6 +837,8 @@ export const MAX_CHECKED_MESSAGES = 50;
 export const MAX_ROOM_NAME_LENGTH = 100;
 /** ember-rust has no limit; this keeps the workspace's name to what the sidebar's heading can show. */
 export const MAX_ACCOUNT_NAME_LENGTH = 100;
+/** The longest host name DNS has, which a custom domain can be, with a port. */
+const MAX_HOST_NAME_LENGTH = 253;
 /**
  * ember-rust has no limit; this keeps custom CSS, which every page load and workspace socket carries,
  * well within what a row or a socket's message can hold.
@@ -1039,16 +1052,46 @@ export const parseFavoriteOrder = (data: unknown) => parseRoomOrder(data, MAX_FA
 /** Parses an untrusted shared room order. Returns why it's refused instead of the rooms. */
 export const parseSharedOrder = (data: unknown) => parseRoomOrder(data, MAX_SHARED_ORDER);
 
+/** A host as `location.host` writes one: its name, lowercase labels between dots, and maybe a port. */
+const HOST = /^([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::[0-9]{1,5})?$/;
+
+/**
+ * Where a deploy or `wrangler dev` puts Ember, which can't be its custom domain: a workers.dev address,
+ * and localhost itself or a loopback address, though a name under localhost can, as a custom domain
+ * stands in for one there.
+ */
+const DEPLOYED_HOSTNAME = /(?:^|\.)workers\.dev$|^localhost$|^127(?:\.[0-9]{1,3}){3}$|^\[::1\]$/;
+
+/** Whether `host` is written as a custom domain is: as `location.host` writes it, with a name DNS could have. */
+export function isHost(host: string): boolean {
+  const name = host.length <= MAX_HOST_NAME_LENGTH + ":65535".length ? HOST.exec(host)?.[1] : undefined;
+  return name !== undefined && name.length <= MAX_HOST_NAME_LENGTH;
+}
+
+/** Whether the host name `hostname` could be Ember's custom domain: any but where a deploy or `wrangler dev` puts it. */
+export const canBeCustomDomain = (hostname: string) => !DEPLOYED_HOSTNAME.test(hostname.toLowerCase());
+
+/** Why a custom domain is refused when it isn't a host. */
+export const CUSTOM_DOMAIN_NOT_A_HOST = "Custom domain must be a host name, such as chat.example.com";
+/** Why a custom domain is refused when it's where a deploy or `wrangler dev` puts Ember. */
+export const NOT_A_CUSTOM_DOMAIN = "A workers.dev or localhost address can't be a custom domain";
+
+/** A custom domain as `PATCH /api/account` may send one, a host or null for none, or undefined when it's neither. */
+const customDomainOf = (value: unknown): string | null | undefined => (value === null || (typeof value === "string" && isHost(value)) ? value : undefined);
+
 /**
  * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
  * ember-rust, the name is saved as typed, even blank. Each setting is true or false, and one it doesn't
- * know is refused, where ember-rust fails (account.rs, `assign`).
+ * know is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null,
+ * which the Worker then checks is the address the request came to.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, settings } = data;
+  const { name, settings, customDomain } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
-  const changes: AccountChanges = name === undefined ? {} : { name };
+  const domain = customDomainOf(customDomain);
+  if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
+  const changes: AccountChanges = { ...(name !== undefined && { name }), ...(domain !== undefined && { customDomain: domain }) };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";
   const changed: AccountSettings = {};

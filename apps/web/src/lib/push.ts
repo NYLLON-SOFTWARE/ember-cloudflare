@@ -65,7 +65,7 @@ export function savePushAgain(): Promise<void> {
 async function saveAgain(): Promise<void> {
   try {
     const subscription = await pushSubscription();
-    if (subscription) await savePushSubscription(keysOf(subscription));
+    if (subscription) await save(subscription);
   } catch {
     // Notifications stay on, as the bell found them, and the workspace tries again the next time it opens.
   }
@@ -105,11 +105,49 @@ async function subscribe(registration: ServiceWorkerRegistration, vapidPublicKey
   const existing = await registration.pushManager.getSubscription();
   const subscription = existing ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesOf(vapidPublicKey) }));
   try {
-    await savePushSubscription(keysOf(subscription));
+    await save(subscription);
   } catch (error) {
     // Kept, a new subscription the server doesn't have would pass for notifications being on.
     if (!existing) await subscription.unsubscribe().catch(() => false);
     throw error;
+  }
+}
+
+/** Where this browser keeps the key `replaceOnSave` is given, at the address its page moved to. */
+const REPLACING = "ember:replacing-push";
+
+/**
+ * Keeps `key`, the P-256 key of the push subscription this browser had at the address its page moved
+ * from to Ember's custom domain, for the next subscription saved here to replace, so that a browser
+ * that turns notifications on at both isn't pushed twice. A subscription belongs to an address, and the
+ * server can't tell which of someone's are the same browser's.
+ */
+export function replaceOnSave(key: string): void {
+  try {
+    localStorage.setItem(REPLACING, key);
+  } catch {
+    // Storage can be refused, and then both subscriptions stay.
+  }
+}
+
+/** The key `replaceOnSave` kept, or null. */
+function replacing(): string | null {
+  try {
+    return localStorage.getItem(REPLACING);
+  } catch {
+    return null;
+  }
+}
+
+/** Saves `subscription` for you, replacing the one `replaceOnSave` kept, which it then forgets. */
+async function save(subscription: PushSubscription): Promise<void> {
+  const replaced = replacing();
+  await savePushSubscription(keysOf(subscription), replaced);
+  try {
+    // Unless a page that moved here since has kept another.
+    if (replaced !== null && localStorage.getItem(REPLACING) === replaced) localStorage.removeItem(REPLACING);
+  } catch {
+    // Sent again, it names one that's gone, which replaces nothing.
   }
 }
 
@@ -171,6 +209,14 @@ export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
  */
 export async function pushEndpoint(): Promise<string | null> {
   return (await pushSubscription().catch(() => null))?.endpoint ?? null;
+}
+
+/**
+ * The P-256 key of this browser's push subscription, which names it to the address a page moves to, or
+ * null when there's none, or the browser can't say.
+ */
+export async function pushKey(): Promise<string | null> {
+  return (await pushSubscription().catch(() => null))?.toJSON().keys?.p256dh ?? null;
 }
 
 async function pushSubscription(): Promise<PushSubscription | null> {

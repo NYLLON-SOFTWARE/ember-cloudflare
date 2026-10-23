@@ -1,8 +1,9 @@
 import { feature } from "@ember/parity";
-import type { Room } from "@ember/protocol";
+import type { Account, Room } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
 import { PushProvider } from "@/hooks/use-push";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { CHROME_MAC } from "@/test-platforms";
@@ -129,5 +130,35 @@ describe(feature("notifications.enable"), () => {
     await user.click(enableButton());
     expect(await screen.findByRole("dialog", { name: "Notification setup" })).toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  const MOVED: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: "chat.example.com" };
+  /** The bell in general's header, at this address while Ember's custom domain is `customDomain`. */
+  const bellWhile = (customDomain: string | null) => (
+    <AccountContext value={{ ...MOVED, customDomain }}>
+      <PushProvider vapidPublicKey={KEY} platform={CHROME_MAC}>
+        <NotificationBell room={general} involvement="mentions" askForRoom={() => vi.fn()} onFailed={vi.fn()} />
+      </PushProvider>
+    </AccountContext>
+  );
+
+  it("doesn't save this browser's subscription again at an address Ember has moved from, where the one saved at its custom domain replaced it", async () => {
+    vi.mocked(isPushOn).mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+    const { rerender } = render(bellWhile(MOVED.customDomain));
+    expect(await screen.findByRole("checkbox", { name: "Notifying about @ mentions" })).toBeInTheDocument();
+    expect(savePushAgain).not.toHaveBeenCalled();
+
+    // Until Ember stops using the domain, which makes this address Ember's again.
+    rerender(bellWhile(null));
+    await vi.waitFor(() => expect(savePushAgain).toHaveBeenCalledOnce());
+  });
+
+  it("saves it again at Ember's custom domain", async () => {
+    vi.mocked(isPushOn).mockResolvedValueOnce(true);
+    render(bellWhile(location.host));
+    await screen.findByRole("checkbox", { name: "Notifying about @ mentions" });
+    expect(savePushAgain).toHaveBeenCalledOnce();
   });
 });
