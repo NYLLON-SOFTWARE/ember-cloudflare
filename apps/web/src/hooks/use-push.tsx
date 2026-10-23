@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
+import { movedFrom } from "@/lib/custom-domain";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
+import { useAccount } from "./use-account";
 
 export interface Push {
   /** Whether this browser has notifications on. */
@@ -46,22 +48,25 @@ interface Props {
  * Whether this browser has notifications on, for every page of the workspace, and turning them on. It's
  * checked as the workspace opens, where ember-rust's bell checks on each page, which would show the bell
  * that turns them on for a moment each time a room opens, and when they're on, this browser's
- * subscription is saved again, so the server keeps it (`savePushAgain`).
+ * subscription is saved again, so the server keeps it (`savePushAgain`), but at an address Ember has
+ * moved from to its custom domain, where the one this browser saved there replaced it (`replaceOnSave`),
+ * and saving it again would have everything pushed to both.
  */
 export function PushProvider({ vapidPublicKey, platform, children }: Props) {
   const [on, setOn] = useState(false);
   const [turningOn, setTurningOn] = useState(false);
   const turning = useRef(false);
+  const savesAgain = !movedFrom(useAccount().customDomain);
 
   useEffect(() => {
     let stopped = false;
     void isPushOn(vapidPublicKey).then((on) => {
       if (!on || stopped) return;
       setOn(true);
-      void savePushAgain();
+      if (savesAgain) void savePushAgain();
     });
     return () => void (stopped = true);
-  }, [vapidPublicKey]);
+  }, [vapidPublicKey, savesAgain]);
   // Logging out ends the subscription before it signs out, which may then fail and leave you here.
   useEffect(() => subscribeToPushEnding(() => setOn(false)), []);
 

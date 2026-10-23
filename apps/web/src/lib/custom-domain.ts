@@ -28,8 +28,11 @@ export function thisPageAt(customDomain: string | null, replacingPush: string | 
 /** Whether the page at `pathname` stays at whatever address it's opened at, as workspace settings does. */
 export const staysAtAnyAddress = (pathname: string) => pathname === WORKSPACE_SETTINGS_PATH;
 
+/** Whether Ember has moved from this page's address to its custom domain, `customDomain`. */
+export const movedFrom = (customDomain: string | null) => thisPageAt(customDomain) !== null;
+
 /** Whether this page moves to Ember's custom domain, `customDomain`, as it opens: it's elsewhere, and doesn't stay. */
-export const movesTo = (customDomain: string | null) => !staysAtAnyAddress(location.pathname) && thisPageAt(customDomain) !== null;
+export const movesTo = (customDomain: string | null) => !staysAtAnyAddress(location.pathname) && movedFrom(customDomain);
 
 /** Loads this page at Ember's custom domain, `customDomain`, naming this browser's push subscription here. */
 export async function moveTo(customDomain: string | null): Promise<void> {
