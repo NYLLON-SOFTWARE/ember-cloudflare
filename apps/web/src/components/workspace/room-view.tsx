@@ -24,6 +24,8 @@ interface Props {
   messageId?: string;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
+  /** Dismisses the welcome card for good, settling once it's gone, or failed to go. */
+  onDismissInvitation: () => Promise<void>;
   me: Me;
   /** Whether this person has starred the room. */
   favorite: boolean;
@@ -48,7 +50,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, invitation, me, favorite, gone, onStarred, involvement, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+export function RoomView({ room, messageId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
   const { state, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
@@ -146,6 +148,7 @@ export function RoomView({ room, messageId, invitation, me, favorite, gone, onSt
           roomName={name}
           direct={direct}
           invitation={invitation}
+          onDismissInvitation={onDismissInvitation}
           state={state}
           me={me}
           actions={deleted ? null : messageActions}

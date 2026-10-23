@@ -143,6 +143,17 @@ describe(feature("accounts.regenerate-join-link"), () => {
   });
 });
 
+describe(feature("rooms.invitation-dismissal"), () => {
+  it("takes the welcome card away, even from a list asked for before it was dismissed", () => {
+    const invited: Sidebar = { ...sidebar([room("r1", "general")]), invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
+    const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: invited });
+    const dismissed = roomListReducer(roomListReducer(loaded, { type: "asked" }), { type: "invitation dismissed" });
+    expect(dismissed.list!.invitation).toBeNull();
+    expect(dismissed.list!.rooms).toEqual(invited.rooms);
+    expect(roomListReducer(dismissed, { type: "loaded", list: invited }).list!.invitation).toBeNull();
+  });
+});
+
 /** Four rooms, in the order they were made. */
 const four = [room("r1", "Design"), room("r2", "general"), room("r3", "Ops"), room("r4", "Zebra")];
 

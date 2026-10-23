@@ -1,5 +1,5 @@
-import { test as base, expect, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
-import { roomSocketQuery, type Bootstrap, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { test as base, expect, type APIRequestContext, type APIResponse, type Browser, type BrowserContext, type Locator, type Page, type WebSocketRoute } from "@playwright/test";
+import { roomSocketQuery, type Bootstrap, type ClientFrame, type Invitation, type Message, type ServerFrame, type Sidebar, type User, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext";
 
 // Helpers every browser suite can share. They drive the real Worker and ChatRoom Durable Object
@@ -32,7 +32,11 @@ export interface TestRoom {
 
 /** Signs someone in through the API, as the sign-in form does. */
 export async function createSession(request: APIRequestContext, name: string): Promise<Session> {
-  const response = await request.post("/api/session", { data: { name } });
+  return sessionOf(await request.post("/api/session", { data: { name } }));
+}
+
+/** The session a sign-in through the API began. */
+async function sessionOf(response: APIResponse): Promise<Session> {
   expect(response.status(), await response.text()).toBe(201);
   const { user } = (await response.json()) as { user: User };
   const [pair] = response.headers()["set-cookie"]!.split(";");
@@ -42,6 +46,22 @@ export async function createSession(request: APIRequestContext, name: string): P
 
 /** The administrator the first-run project sets Ember up with, whom every other suite can sign in as. */
 export const ADMINISTRATOR = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse battery" };
+
+/**
+ * Signs the administrator in through the API, in a session of its own, from an IP address of its own,
+ * so the per-address limit on signing in never counts another test's attempts.
+ */
+export async function administratorSession(request: APIRequestContext): Promise<Session> {
+  const { emailAddress, password } = ADMINISTRATOR;
+  return sessionOf(await request.post("/api/session", { data: { emailAddress, password }, headers: { "CF-Connecting-IP": newAddress() } }));
+}
+
+/** Makes `session`'s person an administrator, as the administrator does on their page. */
+export async function makeAdministrator(request: APIRequestContext, session: Session): Promise<void> {
+  const administrator = await administratorSession(request);
+  const response = await request.patch(`/api/account/users/${session.user.id}`, { data: { role: "administrator" }, headers: { Cookie: cookieHeader(administrator) } });
+  expect(response.status(), await response.text()).toBe(200);
+}
 
 /** An IP address no other test uses, from the range set aside for documentation. */
 export function newAddress(): string {
@@ -183,14 +203,17 @@ export async function isolateRoom(page: Page, room: TestRoom, { joinCode }: { jo
 
 /**
  * The welcome card's invitation: the workspace's first room, the general that setup made, which every
- * open room's member is in, and the join code. Anyone in that room gets it with their rooms.
+ * open room's member is in, and the join code. Only administrators get it with their rooms, so it's
+ * what anyone can see: the oldest room in their sidebar, and the join link on workspace settings.
  */
 export async function invitation(request: APIRequestContext, session: Session): Promise<Invitation> {
-  const response = await request.get("/api/sidebar", { headers: { Cookie: cookieHeader(session) } });
-  expect(response.status(), await response.text()).toBe(200);
-  const { invitation } = (await response.json()) as Sidebar;
-  expect(invitation, "Everyone is in general, where the welcome card is").not.toBeNull();
-  return invitation!;
+  const headers = { Cookie: cookieHeader(session) };
+  const [sidebar, account] = await Promise.all([request.get("/api/sidebar", { headers }), request.get("/api/account", { headers })]);
+  expect(sidebar.status(), await sidebar.text()).toBe(200);
+  expect(account.status(), await account.text()).toBe(200);
+  const [first] = ((await sidebar.json()) as Sidebar).rooms;
+  expect(first, "Everyone is in general, where the welcome card is").toBeDefined();
+  return { roomId: first!.id, joinCode: ((await account.json()) as WorkspaceSettings).joinCode };
 }
 
 /** Opens a room and waits until its socket has connected and the history has loaded. */

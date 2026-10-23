@@ -13,14 +13,14 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 168 ported and 1 partial of 174 features; 0 not started, 5 not applicable.
+**Overall:** 169 ported and 1 partial of 175 features; 0 not started, 5 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
 | [Sign-in and sessions](#sign-in-and-sessions) | 12 | 0 | 0 | 0 | 12 |
 | [Workspace administration](#workspace-administration) | 14 | 0 | 0 | 0 | 14 |
 | [People and profiles](#people-and-profiles) | 5 | 0 | 0 | 0 | 5 |
-| [Rooms](#rooms) | 18 | 0 | 0 | 0 | 18 |
+| [Rooms](#rooms) | 19 | 0 | 0 | 0 | 19 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 10 | 0 | 0 | 0 | 10 |
 | [Messages](#messages) | 18 | 0 | 0 | 1 | 19 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 11 | 1 | 0 | 3 | 15 |
-| **Total** | **168** | **1** | **0** | **5** | **174** |
+| **Total** | **169** | **1** | **0** | **5** | **175** |
 
 ## Sign-in and sessions
 
@@ -540,6 +540,7 @@ ember-rust tests: [`crates/db/src/tests/user_test.rs`](https://github.com/NYLLON
 | Room icon picker | `rooms.icon-picker` | Ember | ✅ Ported | Web: [icon-picker](apps/web/src/components/workspace/icon-picker.test.tsx), [room-form](apps/web/src/components/workspace/room-form.test.tsx), [room-settings-page](apps/web/src/components/workspace/room-settings-page.test.tsx)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Unsaved changes guard | `rooms.unsaved-changes` | Ember | ✅ Ported | Web: [new-room-page](apps/web/src/components/workspace/new-room-page.test.tsx), [room-settings-page](apps/web/src/components/workspace/room-settings-page.test.tsx), [unsaved-changes](apps/web/src/components/workspace/unsaved-changes.test.tsx), [use-route](apps/web/src/hooks/use-route.test.ts)<br>E2E: [room-forms](e2e/tests/features/room-forms.spec.ts) |
 | Welcome and invite card | `rooms.invitation-card` | Campfire | ✅ Ported | Worker: [join](apps/worker/test/join.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [message-list](apps/web/src/components/workspace/message-list.test.tsx), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
+| Welcome card for administrators, until they dismiss it | `rooms.invitation-dismissal` | This port | ✅ Ported | Worker: [invitation](apps/worker/test/invitation.test.ts)<br>Web: [invitation-card](apps/web/src/components/workspace/invitation-card.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-sidebar](apps/web/src/hooks/use-sidebar.test.ts), [room-list](apps/web/src/lib/room-list.test.ts)<br>E2E: [rooms](e2e/tests/features/rooms.spec.ts) |
 | Only members see a room | `rooms.member-only-access` | Campfire | ✅ Ported | Worker: [rooms](apps/worker/test/rooms.test.ts), [uploads](apps/worker/test/uploads.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [room-state](apps/web/src/lib/room-state.test.ts) |
 | Rooms from before memberships | `rooms.legacy-rooms` | This port | ✅ Ported | Worker: [room-deletion](apps/worker/test/room-deletion.test.ts), [rooms](apps/worker/test/rooms.test.ts), [setup](apps/worker/test/setup.test.ts) |
 
@@ -756,11 +757,20 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Its buttons are "Show join link QR code", which opens the QR code in the image viewer, "Copy join link" and "Share join link"; the link can't be regenerated here.
 - Share appears only where the browser can share, and shares the title "Link to join Ember" with "Hit this link to join me in Ember and start chatting."
 
-Note: It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.
+Note: Only administrators are shown it, and each can dismiss it for good, as the project's owner chose (`rooms.invitation-dismissal`), where ember-rust shows it to everyone in the room. It shows the workspace's logo, or Ember's flame while there's none (`accounts.logo`). Whether it shows is decided when the room's history first loads, so it stays until the room is opened again, and in an empty first room it takes the place of the room's own welcome (`ui.empty-room`). First run makes general before random, so general is the first room (`auth.first-run`). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed.
 
 Sources: [`crates/views/templates/rooms/show/_invitation.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/rooms/show/_invitation.html) · [`crates/ember/src/controllers/rooms.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/rooms.rs) · [`crates/db/src/models/room.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/room.rs)
 
 ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml) · [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs)
+
+**Welcome card for administrators, until they dismiss it** (`rooms.invitation-dismissal`) ✅
+
+- Only the workspace's administrators are shown the welcome card. Anyone else in the first room sees the room's own welcome while it's empty.
+- The card's × ("Dismiss welcome card") takes it away for good for the administrator who pressed it: it leaves every tab of theirs at once, and no device of theirs shows it again. Other administrators keep theirs.
+- Someone made an administrator gets the card without reloading, unless they dismissed it before, and someone made a member loses it.
+- A dismissal the server doesn't save leaves the card and says why, and one from a session that's ended goes to sign in.
+
+Note: The project's owner asked for it (2026-10-23): ember-rust's card (`rooms.invitation-card`) shows to everyone in the first room and can't be dismissed. The join link stays on workspace settings, which anyone signed in can open, as in ember-rust (`accounts.join-link`). `DELETE /api/sidebar/invitation` records the dismissal in `users.invitation_dismissed_at` (workspace migration 0036) and answers 204, and the sidebar gives an invitation only to an active administrator who hasn't dismissed it. The × waits for that answer, dimmed, before the card goes, and the person's other tabs hear `invitation.dismissed` on the workspace socket. A new role loads the sidebar again, which brings the card or takes it away. The × is 36px, or 44px for fingers, as ember-rust's icon picker's is.
 
 **Only members see a room** (`rooms.member-only-access`) ✅
 
@@ -2396,7 +2406,7 @@ ember-rust tests: [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/embe
 **Empty room** (`ui.empty-room`) ✅
 
 - A room nobody has written in says "Welcome to #&lt;room&gt;" and "This is the very beginning of the room. Say hello!"
-- The workspace's first room shows the welcome card instead, while it has one (`rooms.invitation-card`).
+- The workspace's first room shows its administrators the welcome card instead, while it has one, until they dismiss it (`rooms.invitation-card`, `rooms.invitation-dismissal`).
 
 **Select a field's text on entry** (`ui.select-on-entry`) ✅
 

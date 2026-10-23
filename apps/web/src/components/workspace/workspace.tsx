@@ -9,7 +9,7 @@ import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { ApiError, isSignedOut, startDirect } from "@/lib/api";
+import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { lastRoomVisited } from "@/lib/last-room";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
@@ -325,6 +325,16 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const unlistRoom = useCallback((roomId: RoomId) => changeRooms({ type: "gone", roomId }), []);
   // And the welcome card shows the join link as workspace settings last loaded or regenerated it.
   const joinCodeChanged = useCallback((joinCode: string) => changeRooms({ type: "join code", joinCode }), []);
+  // Its × takes it away once the server has saved that, here, and in this person's other tabs as the
+  // workspace socket tells them. One the server didn't save leaves it, saying why.
+  const dismissCard = useCallback(async () => {
+    try {
+      await dismissInvitation();
+      changeRooms({ type: "invitation dismissed" });
+    } catch (error) {
+      failed(error);
+    }
+  }, [failed]);
   const starredRooms = useCallback((favorites: Favorites) => changeRooms({ type: "starred", favorites }), []);
   // A save's answer can come after a newer order has loaded, so the rooms load again once it's taken.
   const reorderedRooms = useCallback(
@@ -554,6 +564,7 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
               room={room}
               messageId={route.page === "room" ? route.messageId : undefined}
               invitation={invitation?.roomId === room.id ? invitation : null}
+              onDismissInvitation={dismissCard}
               me={me}
               favorite={starred.has(room.id)}
               gone={goneRoom !== null}

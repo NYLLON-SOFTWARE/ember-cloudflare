@@ -1,18 +1,27 @@
+import { useState } from "react";
 import { AccountLogo } from "@/components/account-logo";
-import { Link } from "@/components/icons/ember";
+import { Dismiss, Link } from "@/components/icons/ember";
 import { TranslationButton } from "@/components/translation-button";
 import { useAccount } from "@/hooks/use-account";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons } from "./link-buttons";
 
 // ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
-// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css).
+// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css), which only administrators are shown
+// here, with an × that dismisses it, as the project's owner chose: ember-rust shows it to everyone in
+// the room, for as long as the room is new.
 
 /** A `.btn` in `.mb-invite-actions`: a 38px square, 44px for fingers. */
 const BUTTON = "grid size-[38px] flex-none cursor-pointer place-items-center rounded-[9px] border bg-background text-sm touch:size-11";
 
-/** Welcomes people to the workspace's first room with its join link, to copy or share. */
-export function InvitationCard({ joinCode }: { joinCode: string }) {
+interface Props {
+  joinCode: string;
+  /** Dismisses the card for good, settling once it's gone, or failed to go. */
+  onDismiss: () => Promise<void>;
+}
+
+/** Welcomes an administrator to the workspace's first room with its join link, to copy or share, until they dismiss it. */
+export function InvitationCard({ joinCode, onDismiss }: Props) {
   const url = joinUrl(joinCode);
   const { logo } = useAccount();
 
@@ -30,6 +39,7 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
           <p className="text-muted-foreground max-md:text-[13px]">To invite people to chat, share the join link below.</p>
         </div>
         <TranslationButton translations="invite_message" />
+        <DismissButton onDismiss={onDismiss} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[9px] border px-[9px] py-[7px] narrow:basis-full max-md:basis-full touch:min-h-11">
@@ -52,5 +62,37 @@ export function InvitationCard({ joinCode }: { joinCode: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The card's ×, at the end of its heading, drawn as ember-rust's icon picker draws its own
+ * (`.mb-icon-dialog-close`): 36px, or 44px for fingers, with a 20px ×, in the muted ink of the star in a
+ * room's header. While the dismissal saves, it's dimmed and ignores presses, through `aria-disabled`,
+ * as the star is, so it keeps the keyboard's focus.
+ */
+function DismissButton({ onDismiss }: Pick<Props, "onDismiss">) {
+  const [dismissing, setDismissing] = useState(false);
+
+  const dismiss = async () => {
+    if (dismissing) return;
+    setDismissing(true);
+    try {
+      await onDismiss();
+    } finally {
+      setDismissing(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label="Dismiss welcome card"
+      aria-disabled={dismissing || undefined}
+      onClick={dismiss}
+      className="-mt-1.5 -mr-1.5 ml-auto grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] text-muted-foreground hover:bg-hover hover:text-foreground touch:size-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+    >
+      <Dismiss className="size-5" />
+    </button>
   );
 }

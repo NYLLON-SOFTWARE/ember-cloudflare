@@ -11,6 +11,8 @@ const general = { id: "r2", name: "general", kind: "open", icon: null, unread: f
 /** Ada's sidebar with `rooms`, none of them starred. */
 const unstarred = (rooms: SidebarRoom[]): Sidebar => ({ rooms, favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [] });
 const ember: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
+/** Someone as the directory lists them. */
+const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
 
 /** Stands in for the browser's WebSocket; tests play the Workspace and the network. */
 class FakeSocket {
@@ -379,9 +381,6 @@ describe(feature("sidebar.dm-order"), () => {
 });
 
 describe(feature("accounts.roles"), () => {
-  /** Someone as the directory lists them. */
-  const listed = (me: Me, role: DirectoryUser["role"]): DirectoryUser => ({ id: me.id, name: me.name, bio: null, role, status: "active", avatarUrl: `/users/${me.id}/avatar` });
-
   /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
   async function connected() {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
@@ -485,6 +484,53 @@ describe(feature("sidebar.favorites"), () => {
     await release();
     await settle();
     expect(result.current.list?.favorites).toEqual({ rooms: [design.id], version: 1 });
+  });
+});
+
+describe(feature("rooms.invitation-dismissal"), () => {
+  const invited: Sidebar = { ...unstarred([general]), invitation: { roomId: general.id, joinCode: "aB3d-Ef5h-iJ7k" } };
+
+  it("takes the welcome card away as the workspace socket says one of Ada's tabs dismissed it, even from a list on its way", async () => {
+    server.change(invited);
+    const { result } = await showSidebar();
+    expect(result.current.list?.invitation).toEqual(invited.invitation);
+    const release = holdAnswers();
+    socket().connect();
+    socket().receive({ type: "invitation.dismissed" });
+    expect(result.current.list?.invitation).toBeNull();
+    await release();
+    await settle();
+    expect(result.current.list?.invitation).toBeNull();
+    expect(result.current.list?.rooms).toEqual([general]);
+  });
+
+  it("loads Ada's rooms again once the workspace socket says she's an administrator, or a member again, for the card that comes and goes with it", async () => {
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+
+    server.change(invited);
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    await settle();
+    expect(sidebarRequests()).toHaveLength(3);
+    expect(result.current.list?.invitation).toEqual(invited.invitation);
+
+    server.change(unstarred([general]));
+    socket().receive({ type: "user.updated", user: listed(ada, "member") });
+    await settle();
+    expect(sidebarRequests()).toHaveLength(4);
+    expect(result.current.list?.invitation).toBeNull();
+  });
+
+  it("doesn't load them again for anything else about Ada, or for someone else's role", async () => {
+    await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "user.updated", user: { ...listed(ada, "member"), bio: "Poet of science" } });
+    socket().receive({ type: "user.updated", user: listed(grace, "member") });
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
   });
 });
 
