@@ -594,8 +594,8 @@ describe(feature("accounts.translation-buttons"), () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
     expect(saved()).toEqual([
-      { name: "Analytical Engines", settings: { hideTranslationButtons: false } },
-      { name: "Analytical Engines", settings: { hideTranslationButtons: true } },
+      { name: "Analytical Engines", tagline: "", settings: { hideTranslationButtons: false } },
+      { name: "Analytical Engines", tagline: "", settings: { hideTranslationButtons: true } },
     ]);
     expect(screen.queryByText("Translate")).not.toBeInTheDocument();
     expect(hide).toBeChecked();
@@ -637,7 +637,7 @@ describe(feature("accounts.translation-buttons"), () => {
     await user.click(hide);
     await act(async () => answer(Response.json({ account: { ...asAdministrator.account, hideTranslationButtons: false } })));
     expect(hide).toBeChecked();
-    expect(saved()).toEqual([{ name: "Analytical Engines", settings: { hideTranslationButtons: false } }]);
+    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "", settings: { hideTranslationButtons: false } }]);
   });
 
   it("isn't shown to members", async () => {

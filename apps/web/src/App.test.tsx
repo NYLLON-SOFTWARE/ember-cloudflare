@@ -486,7 +486,9 @@ describe(feature("accounts.tagline"), () => {
     await user.type(await screen.findByRole("textbox", { name: "Tagline" }), `${TAGLINE}{Enter}`);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
-    expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`);
+    // Community settings take the sidebar's place.
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await waitFor(() => expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`));
   });
 });
 
