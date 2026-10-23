@@ -32,8 +32,9 @@ export async function listPushSubscriptions(request: Request, env: Env): Promise
  * you, with its user agent, as ember-rust's `create` does, or, when you've saved one at that endpoint
  * before, records that it was saved again with the keys it has now, where ember-rust adds another for
  * keys that differ, answering 204 where ember-rust answers 200. You keep the `MAX_PUSH_SUBSCRIPTIONS`
- * you saved most recently, where ember-rust keeps any number. An endpoint pushes may not go to is
- * refused (422) with ember-rust's errors, which it leaves out of its answer.
+ * you saved most recently, where ember-rust keeps any number, and one can replace the one its browser
+ * had at the address it moved from to Ember's custom domain (`replacing`). An endpoint pushes may not
+ * go to is refused (422) with ember-rust's errors, which it leaves out of its answer.
  */
 export async function savePushSubscription(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);

@@ -182,7 +182,7 @@ describe(feature("users.avatars"), () => {
 
 describe(feature("accounts.logo"), () => {
   it("shows Ember's flame, or the workspace's logo on the page's background, as ember-rust's `.mb-rail__brand`", () => {
-    const account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
+    const account = { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
     const brand = screen.getByRole("link", { name: "Ember home" });
     expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");

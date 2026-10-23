@@ -23,6 +23,15 @@ export interface PushSubscriptionKeys {
 }
 
 /**
+ * What `POST /api/push-subscriptions` takes: a browser's push subscription, and the P-256 key of the one
+ * the same browser had at the address its page moved from to Ember's custom domain, which this one
+ * replaces (`accounts.custom-domain`).
+ */
+export interface PushSubscriptionSave extends PushSubscriptionKeys {
+  replacing?: string;
+}
+
+/**
  * One of your saved subscriptions, as `GET /api/push-subscriptions` lists them, with the browser that
  * saved it as ember-rust's push subscriptions page names it from its user agent: each name is "" where
  * the agent gives none.
@@ -47,16 +56,19 @@ export interface SignOut {
 
 /**
  * Parses what `POST /api/push-subscriptions` takes. Returns why it's refused instead: the endpoint and
- * both keys are required and have to be text, where ember-rust saves a missing key as none at all.
+ * both keys are required and have to be text, where ember-rust saves a missing key as none at all. A
+ * `replacing` that can't be a key is left out rather than refused, so that whatever a page's address
+ * carried can't stop notifications being turned on.
  */
-export function parsePushSubscription(data: unknown): PushSubscriptionKeys | string {
-  const { endpoint, p256dhKey, authKey } = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+export function parsePushSubscription(data: unknown): PushSubscriptionSave | string {
+  const { endpoint, p256dhKey, authKey, replacing } = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
   if (typeof endpoint !== "string" || typeof p256dhKey !== "string" || typeof authKey !== "string") {
     return "A push subscription needs its endpoint and keys";
   }
   if (endpoint.length > MAX_PUSH_ENDPOINT_LENGTH) return `Endpoint can't be longer than ${MAX_PUSH_ENDPOINT_LENGTH} characters`;
   if (p256dhKey.length > MAX_PUSH_KEY_LENGTH || authKey.length > MAX_PUSH_KEY_LENGTH) return `Keys can't be longer than ${MAX_PUSH_KEY_LENGTH} characters`;
-  return { endpoint, p256dhKey, authKey };
+  const replaces = typeof replacing === "string" && replacing !== "" && replacing.length <= MAX_PUSH_KEY_LENGTH;
+  return { endpoint, p256dhKey, authKey, ...(replaces && { replacing }) };
 }
 
 /**

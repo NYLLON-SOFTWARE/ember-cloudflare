@@ -6,7 +6,7 @@ const PENDING: Bootstrap = {
   setupAccess: "open",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: true,
-  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
+  account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
   helpContact: null,
   version: "0.1",
   vapidPublicKey: null,

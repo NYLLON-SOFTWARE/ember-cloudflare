@@ -21,8 +21,12 @@ const DEFAULT_HEADERS: [string, string][] = [
   ["Referrer-Policy", "strict-origin-when-cross-origin"],
 ];
 
-/** `ssl_options = { hsts: { subdomains: true } }`: two years, subdomains included. */
-const HSTS = "max-age=63072000; includeSubDomains";
+/**
+ * `ssl_options = { hsts: { subdomains: true } }`, but for its subdomains: two years. A custom domain
+ * (custom-domain.ts) can be a domain's apex, where `includeSubDomains` would hold every other site under
+ * it to HTTPS for as long.
+ */
+const HSTS = "max-age=63072000";
 
 /** localhost, its subdomains and the loopback addresses, which browsers count as secure over plain HTTP. */
 const LOOPBACK_HOST = /^(?:(?:.+\.)?localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;

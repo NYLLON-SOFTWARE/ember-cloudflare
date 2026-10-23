@@ -13,6 +13,7 @@ import {
 import { directoryOf } from "../avatar-tokens";
 import { bodyUpTo } from "../bodies";
 import { BLANK, EMPTY, FORBIDDEN, NOT_FOUND, type BotPage } from "../chat-room";
+import { originFor } from "../custom-domain";
 import type { Env } from "../env";
 import { etagOf, isFresh } from "../etag";
 import { objectKey } from "../files/blobs";
@@ -21,7 +22,7 @@ import { storeArriving } from "../files/streamed";
 import { NO_STORAGE } from "../files/uploads";
 import { urlOf } from "../request-url";
 import type { PageCursor } from "../store";
-import { workspace, type BotAccess } from "../workspace";
+import { workspace, type BotKeyAccess } from "../workspace";
 import { botKeyParts } from "./keys";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
@@ -109,14 +110,14 @@ const noStorage = () => Response.json({ error: NO_STORAGE }, { status: 503 });
  * `roomId`, as `set_room` finds the room, with when the Workspace checked, or what the request answers
  * otherwise: 401 unless the key is an active bot's own, and an empty 404 when the bot isn't in the room.
  */
-async function botIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | Response> {
+async function botIn(env: Env, roomId: RoomId, key: string): Promise<BotKeyAccess | Response> {
   const access = await botAccessIn(env, roomId, key);
   if (!access) return unknownKey();
   return access === "not found" ? head(404) : access;
 }
 
 /** The bot the key segment `key` names in room `roomId`, as `botIn` finds it: null unless it's an active bot's key, and "not found" when the bot isn't in the room. */
-async function botAccessIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | "not found" | null> {
+async function botAccessIn(env: Env, roomId: RoomId, key: string): Promise<BotKeyAccess | "not found" | null> {
   const parts = botKeyParts(segmentText(key));
   return parts && workspace(env).botInRoom(parts.botId, parts.token, roomId);
 }
@@ -152,7 +153,7 @@ async function createMessage(request: Request, env: Env, roomId: RoomId, key: st
   const created = await env.CHAT_ROOM.getByName(roomId).createBotMessage(roomId, arrived, markup);
   if (!created) return head(404);
   if (typeof created === "string") return unprocessable(created);
-  return createdAt(request, created);
+  return createdAt(request, arrived, created);
 }
 
 /**
@@ -181,7 +182,7 @@ async function postSlackMessage(request: Request, env: Env, roomId: RoomId, key:
  * otherwise: 403 `invalid_token` unless the key is an active bot's, and 404 `channel_not_found` when the bot
  * isn't in the room.
  */
-async function slackBotIn(env: Env, roomId: RoomId, key: string): Promise<BotAccess | Response> {
+async function slackBotIn(env: Env, roomId: RoomId, key: string): Promise<BotKeyAccess | Response> {
   const access = await botAccessIn(env, roomId, key);
   if (!access) return slackAnswer(403, "invalid_token");
   return access === "not found" ? slackAnswer(404, "channel_not_found") : access;
@@ -216,21 +217,21 @@ const slackReason = (reason: string): SlackError => (reason === MESSAGE_TOO_LONG
 /** What Slack's webhooks answer, `ok` or what's wrong, as text. */
 const slackAnswer = (status: number, text: string) => new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-/** What posting `message` answers: 201 with where it is. */
-const createdAt = (request: Request, message: Message) =>
-  new Response(null, { status: 201, headers: { Location: permalink(urlOf(request).origin, message), "Content-Type": JSON_TYPE } });
+/** What posting `message` answers: 201 with where it is, at Ember's address. */
+const createdAt = (request: Request, { customDomain }: BotKeyAccess, message: Message) =>
+  new Response(null, { status: 201, headers: { Location: permalink(originFor(request, customDomain), message), "Content-Type": JSON_TYPE } });
 
 /**
  * Posts the file `form` sends as `attachment` as the bot's message, as ember-rust's `create` does when it's
  * given one, answering as a post of text does. A form with no file posts nothing, an empty 422, as
  * ember-rust's `ensure_body_or_attachment_present` answers a request with nothing to post.
  */
-async function createFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotAccess, form: FormReader): Promise<Response> {
+async function createFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotKeyAccess, form: FormReader): Promise<Response> {
   const attachment = await attachmentIn(form);
   if (attachment?.kind !== "file") return attachment?.kind === "text" ? unprocessable(NOT_A_FILE) : head(422);
   const created = await postFile(env, roomId, key, access, form, attachment);
   if (created instanceof Response) return created;
-  return typeof created === "string" ? head(404) : createdAt(request, created);
+  return typeof created === "string" ? head(404) : createdAt(request, access, created);
 }
 
 /**
@@ -252,7 +253,7 @@ async function updateMessage(request: Request, env: Env, roomId: RoomId, key: st
   if (edited === NOT_FOUND) return exception(404);
   if (edited === FORBIDDEN) return head(403);
   if (typeof edited === "string") return unprocessable(edited);
-  return renderedMessage(request, env, edited);
+  return renderedMessage(request, env, arrived, edited);
 }
 
 /**
@@ -260,19 +261,19 @@ async function updateMessage(request: Request, env: Env, roomId: RoomId, key: st
  * or takes its file away when `attachment` is text with nothing in it, as ember-rust's `update` does,
  * answering as an edit of its text does. A form with no `attachment` changes nothing, an empty 422.
  */
-async function updateFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotAccess, form: FormReader, messageId: string): Promise<Response> {
+async function updateFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotKeyAccess, form: FormReader, messageId: string): Promise<Response> {
   const attachment = await attachmentIn(form);
   if (!attachment) return head(422);
   if (attachment.kind === "text") return unprocessable(NOT_A_FILE);
   const updated = attachment.kind === "file" ? await postFile(env, roomId, key, access, form, attachment, messageId) : await removeFile(env, roomId, key, messageId);
   if (updated instanceof Response) return updated;
   if (typeof updated === "string") return updated === FORBIDDEN ? head(403) : exception(404);
-  return renderedMessage(request, env, updated);
+  return renderedMessage(request, env, access, updated);
 }
 
 /** `message` as the list writes it, answered as `render :show` does. */
-async function renderedMessage(request: Request, env: Env, message: Message): Promise<Response> {
-  const [json] = await messagesJson(env, urlOf(request).origin, [message]);
+async function renderedMessage(request: Request, env: Env, { customDomain }: BotKeyAccess, message: Message): Promise<Response> {
+  const [json] = await messagesJson(env, originFor(request, customDomain), [message]);
   return rendered(json, 200);
 }
 
@@ -303,7 +304,7 @@ async function createBoost(request: Request, env: Env, roomId: RoomId, key: stri
   // `raw_request_body.blank?`, checked once the message is found.
   if (boost === BLANK) return head(422);
   if (typeof boost === "string") return unprocessable(boost);
-  return rendered(await boostJson(env, urlOf(request).origin, roomId, boost), 201);
+  return rendered(await boostJson(env, originFor(request, access.customDomain), roomId, boost), 201);
 }
 
 /**
@@ -366,7 +367,7 @@ async function postFile(
   env: Env,
   roomId: RoomId,
   key: string,
-  access: BotAccess,
+  access: BotKeyAccess,
   form: FormReader,
   { filename, contentType }: { filename: string; contentType: string | null },
   messageId?: string,
@@ -422,11 +423,12 @@ async function listMessages(request: Request, env: Env, roomId: RoomId, key: str
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, cursor);
   if (!page) return exception(404);
 
-  const body = railsJson(await messagesJson(env, url.origin, page.messages));
+  const origin = originFor(request, access.customDomain);
+  const body = railsJson(await messagesJson(env, origin, page.messages));
   const etag = await etagOf(body);
   const headers = new Headers({ "X-Total-Count": String(page.total), ETag: etag, "Cache-Control": REVALIDATE });
   const next = nextPage(page, cursor);
-  if (next) headers.set("Link", `<${url.origin}/rooms/${roomId}/${key}/messages?${next}>; rel="next"`);
+  if (next) headers.set("Link", `<${origin}/rooms/${roomId}/${key}/messages?${next}>; rel="next"`);
   if (isFresh(request, etag)) return new Response(null, { status: 304, headers });
   headers.set("Content-Type", JSON_TYPE);
   return new Response(request.method === "HEAD" ? null : body, { headers });
@@ -453,7 +455,7 @@ function nextPage({ messages, hasMore, hasNewer }: BotPage, { after }: PageCurso
 
 /**
  * Messages as `messages/_message.json.jbuilder` writes them, in its order of keys, each with its writer
- * as they are now and its addresses on `origin`, the host the request came to.
+ * as they are now and its addresses on `origin`, Ember's address (`originFor`).
  */
 async function messagesJson(env: Env, origin: string, messages: Message[]) {
   const writers = await peopleJson(env, origin, messages.map(({ creator }) => creator.id));

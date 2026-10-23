@@ -1,6 +1,8 @@
 import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
+  canBeCustomDomain,
+  CUSTOM_DOMAIN_NOT_A_HOST,
   INVOLVEMENTS,
   isInvolvement,
   isMessageTooLong,
@@ -181,7 +183,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
+      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -366,6 +368,37 @@ describe(feature("accounts.translation-buttons"), () => {
     ["a good setting beside a bad name", { name: 7, settings: { hideTranslationButtons: true } }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  it("takes a custom domain as a host, with its port where it has one, or null for none", () => {
+    expect(parseAccountChanges({ customDomain: "chat.example.com" })).toEqual({ customDomain: "chat.example.com" });
+    expect(parseAccountChanges({ customDomain: "chat.example.com:8443" })).toEqual({ customDomain: "chat.example.com:8443" });
+    expect(parseAccountChanges({ customDomain: "xn--bcher-kva.example" })).toEqual({ customDomain: "xn--bcher-kva.example" });
+    const longest = `${"a".repeat(63)}.`.repeat(3) + "a".repeat(61);
+    expect(parseAccountChanges({ customDomain: `${longest}:65535` })).toEqual({ customDomain: `${longest}:65535` });
+    expect(parseAccountChanges({ customDomain: null })).toEqual({ customDomain: null });
+    expect(parseAccountChanges({ name: "Ember Studio", customDomain: null })).toEqual({ name: "Ember Studio", customDomain: null });
+  });
+
+  it.each([
+    ["an address with its scheme", "https://chat.example.com"],
+    ["one with a path", "chat.example.com/"],
+    ["capitals, which location.host never has", "Chat.Example.com"],
+    ["nothing", ""],
+    ["an empty label", "chat..example.com"],
+    ["a port without a host", ":8443"],
+    ["a name longer than DNS allows", `${"a".repeat(63)}.`.repeat(3) + "a".repeat(62)],
+    ["a number", 42],
+    ["a list", ["chat.example.com"]],
+  ])("refuses %s", (_, customDomain) => {
+    expect(parseAccountChanges({ customDomain })).toBe(CUSTOM_DOMAIN_NOT_A_HOST);
+  });
+
+  it("can't be where a deploy or wrangler dev puts Ember, but can be a name under localhost", () => {
+    for (const hostname of ["ember.kro.workers.dev", "workers.dev", "Ember.Kro.Workers.Dev", "localhost", "127.0.0.1", "127.8.0.1", "[::1]"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, false]);
+    for (const hostname of ["chat.example.com", "workers.dev.example.com", "chat.localhost", "example.com"]) expect([hostname, canBeCustomDomain(hostname)]).toEqual([hostname, true]);
   });
 });
 

@@ -70,6 +70,7 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
+import { customDomainRefusal } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage } from "./join";
@@ -223,17 +224,19 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
- * hears so before anything they sent is checked (accounts.rs).
+ * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
+ * the request came to (`customDomainRefusal`).
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const changes = parseAccountChanges(await jsonBodyOf(request));
-  // Changes that don't parse change nothing, but who's asking is still checked first.
-  const account = await workspace(env).changeAccount(credentials, typeof changes === "string" ? {} : changes);
+  const refusal = typeof changes === "string" ? changes : customDomainRefusal(changes.customDomain, request);
+  // Changes that are refused change nothing, but who's asking is still checked first.
+  const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes);
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
-  return typeof changes === "string" ? problem(422, changes) : json({ account });
+  return refusal ? problem(422, refusal) : json({ account });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
