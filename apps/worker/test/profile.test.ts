@@ -4,8 +4,7 @@ import {
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
   MAX_BIO_LENGTH,
-  SIGN_IN_REFUSED,
-  type Bootstrap,
+  SIGN_IN_LIMITED,
   type Directory,
   type DirectoryUser,
   type NewWorkspace,
@@ -245,7 +244,7 @@ describe(feature("users.profile"), () => {
 
     const response = await save(administrator, { password: "difference engine", currentPassword: ada.password }, from);
     expect(response.status).toBe(429);
-    expect(await response.json()).toEqual({ error: SIGN_IN_REFUSED });
+    expect(await response.json()).toEqual({ error: SIGN_IN_LIMITED });
     expect((await signInWith(ada.emailAddress, ada.password, from)).status).toBe(429);
     // From anywhere else it's checked.
     expect((await save(administrator, { password: "difference engine", currentPassword: ada.password })).status).toBe(200);
@@ -398,15 +397,6 @@ describe(feature("users.profile"), () => {
     await save(administrator, { bio: "Countess" });
     // Only the bio was told.
     expect(await socket.next()).toMatchObject({ type: "user.updated", user: { bio: "Countess" } });
-  });
-
-  it("offers an administrator's new name and email address on sign-in, for help", async () => {
-    const administrator = await setUp();
-    const helpContact = async () => ((await (await api("/api/bootstrap")).json()) as Bootstrap).helpContact;
-    expect(await helpContact()).toEqual({ name: "Ada Lovelace", emailAddress: ada.emailAddress });
-
-    await save(administrator, { name: "Ada King", emailAddress: "countess@example.com", currentPassword: ada.password });
-    expect(await helpContact()).toEqual({ name: "Ada King", emailAddress: "countess@example.com" });
   });
 
   it.each([

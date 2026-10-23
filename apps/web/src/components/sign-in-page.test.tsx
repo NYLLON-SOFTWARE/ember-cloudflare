@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, SIGN_IN_REFUSED, type Bootstrap } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Bootstrap } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,6 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
   account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
-  helpContact: { name: "Ada Lovelace", emailAddress: "ada@example.com" },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -81,14 +80,18 @@ describe(feature("auth.sign-in"), () => {
     expect(onSignedIn).toHaveBeenCalledWith(ada);
   });
 
-  it("shakes, flashes ember-rust's alert and empties the password when it's refused", async () => {
-    respond(401, { error: SIGN_IN_REFUSED });
+  it("shakes, says at the top of the form that the email or password is wrong, and empties the password when it's refused", async () => {
+    respond(401, { error: SIGN_IN_REJECTED });
     const onSignedIn = vi.fn();
     render(<SignInPage workspace={workspace} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
     await signIn("wrong horse");
 
+    // In place of the flash, as ember-rust's pull request #24 says it, in `.mb-auth-error`.
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(SIGN_IN_REFUSED);
+    expect(alert).toHaveTextContent("Incorrect email or password. Please try again.");
+    expect(alert).toHaveAttribute("id", "sign-in-error");
+    expect(alert.closest("form")!.firstElementChild).toBe(alert);
+    expect(alert).toHaveClass("border-auth-error-border", "bg-auth-error-background", "text-auth-error", "text-[14px]");
     expect(card()).toHaveClass("motion-safe:animate-shake");
     expect(screen.getByLabelText("Email address")).toHaveValue("ada@example.com");
     expect(screen.getByLabelText("Password")).toHaveValue("");
@@ -96,15 +99,15 @@ describe(feature("auth.sign-in"), () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
     expect(onSignedIn).not.toHaveBeenCalled();
 
-    // The card shakes once, and the alert goes once it has faded.
+    // The card shakes once, and what went wrong stays said until the next try.
     fireEvent.animationEnd(card());
     expect(card()).not.toHaveClass("motion-safe:animate-shake");
     fireEvent.animationEnd(alert);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBe(alert);
   });
 
-  it("flashes the alert afresh for each refusal", async () => {
-    respond(401, { error: SIGN_IN_REFUSED });
+  it("says it afresh for each refusal, for screen readers to hear again", async () => {
+    respond(401, { error: SIGN_IN_REJECTED });
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await signIn("wrong horse");
     const first = await screen.findByRole("alert");
@@ -137,19 +140,20 @@ describe(feature("ui.accessibility"), () => {
 });
 
 describe(feature("auth.rate-limit"), () => {
-  it("refuses too many attempts the same way as a wrong password", async () => {
-    respond(429, { error: SIGN_IN_REFUSED });
+  it("says to wait after too many attempts, shaking the card as for a wrong password", async () => {
+    respond(429, { error: SIGN_IN_LIMITED });
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await signIn("correct horse");
-    expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REFUSED);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many sign-in attempts. Please wait a few minutes and try again.");
     expect(card()).toHaveClass("motion-safe:animate-shake");
   });
 });
 
-describe(feature("auth.help-contact"), () => {
-  it("shows whom to ask for help under the card", () => {
+describe(feature("platform.version"), () => {
+  it("shows Ember's version under the card, where ember-rust's pull request #24 takes away the help contact", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
-    expect(screen.getByRole("link", { name: "ada@example.com" })).toHaveAttribute("title", "Email Ada Lovelace");
+    expect(card().nextElementSibling).toHaveTextContent(/^Ember version 0\.1$/);
+    expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   });
 });
 
@@ -251,7 +255,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
   });
 
-  it("flashes what the server says when a member signs in with a password", async () => {
+  it("says what the server says when a member signs in with a password", async () => {
     respond(403, { error: MEMBERFUL_SIGN_IN_NEEDED });
     render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     await userEvent.click(screen.getByRole("button", { name: "Sign in with a password" }));

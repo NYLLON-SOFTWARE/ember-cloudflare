@@ -66,8 +66,9 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
         title={favorite ? "Remove from favorites" : "Add to favorites"}
         onClick={save}
         className={cn(
-          // 44px for fingers, where ember-rust's is 32px wide and 36px tall everywhere.
-          "flex min-h-9 w-8 items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:bg-hover touch:size-11",
+          // 44px for fingers, where ember-rust's is 32px wide and 36px tall everywhere. Muted at 65%, as its
+          // pull request #24 fades `.mb-favorite-button`.
+          "flex min-h-9 w-8 items-center justify-center rounded-lg p-1.5 text-muted-foreground/65 hover:bg-hover touch:size-11",
           "aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50",
         )}
       >

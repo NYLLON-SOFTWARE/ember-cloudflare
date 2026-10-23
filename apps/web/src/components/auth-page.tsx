@@ -1,13 +1,13 @@
 import type { ComponentProps, ReactNode } from "react";
 import type { Bootstrap } from "@ember/protocol";
 import { AccountLogo } from "@/components/account-logo";
-import { HelpContact } from "@/components/help-contact";
 import { MainContent, SkipLink } from "@/components/main-content";
+import { Version } from "@/components/version";
 import { cn } from "@/lib/utils";
 
 // What ember-rust's sign-in and join pages share (sessions/new.html and users/new.html, styled by the
-// .mb-auth-* rules in zz-ember.css): a card on the surface, holding a heading and a form, with the
-// help contact under it.
+// .mb-auth-* rules in zz-ember.css): a card on the surface, holding a heading and a form, with Ember's
+// version under it, where the help contact was until its pull request #24 took that away.
 
 /** What the app knows about the workspace before anyone signs in. */
 export type SignedOutWorkspace = Omit<Bootstrap, "user">;
@@ -15,14 +15,14 @@ export type SignedOutWorkspace = Omit<Bootstrap, "user">;
 /** ember-rust's `.mb-auth-form`. */
 export const AUTH_FORM = "flex flex-col gap-5";
 
-/** ember-rust's `.mb-auth-page`: what `children` holds, the card and anything above it, then the help contact. */
+/** ember-rust's `.mb-auth-page`: what `children` holds, the card and anything above it, then the version. */
 export function AuthPage({ workspace, children }: { workspace: SignedOutWorkspace; children: ReactNode }) {
   return (
     <>
       <SkipLink />
       <MainContent className="min-h-dvh bg-surface pt-header pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] max-md:pt-[calc(56px+env(safe-area-inset-top))]">
         {children}
-        <HelpContact contact={workspace.helpContact} version={workspace.version} />
+        <Version version={workspace.version} className="my-8 text-center" />
       </MainContent>
     </>
   );

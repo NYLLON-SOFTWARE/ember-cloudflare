@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, SIGN_IN_REFUSED, type Me } from "@ember/protocol";
+import { MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
-import { useFlash } from "@/components/flash";
 import { GuestSignIn } from "@/components/guest-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +12,9 @@ import { forgetMemberfulOutcome, memberfulOutcomeOnArrival } from "@/lib/memberf
 import { returnPath } from "@/lib/return-path";
 
 // ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
-// in zz-ember.css) and the help contact under it. A refused sign-in shakes the card and flashes
-// ember-rust's alert, keeping the email address and emptying the password, as its page does when
-// it's shown again. While members sign in with Memberful, this port's own, the card offers that
+// in zz-ember.css). A refused sign-in shakes the card and says why at the top of the form, as ember-rust's
+// pull request #24 does in place of its flash, keeping the email address and emptying the password, as
+// its page does when it's shown again. While members sign in with Memberful, this port's own, the card offers that
 // instead, and the email and password form to those who ask for it: administrators, and members with an
 // account from before, whose password then asks them to connect their Memberful account.
 
@@ -40,10 +39,11 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [problem, setProblem] = useState<string | null>(arrival && MEMBERFUL_SIGN_IN_PROBLEMS[arrival]);
+  /** Why the last sign-in was refused, said at the top of the form. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   /** Where to connect your Memberful account, once your password has checked out but you have yet to connect one. */
   const [connection, setConnection] = useState<string | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
-  const flash = useFlash();
 
   useTitle("Sign in");
   useEffect(forgetMemberfulOutcome, []);
@@ -51,6 +51,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   async function submit() {
     setBusy(true);
     setProblem(null);
+    setRefusal(null);
     try {
       // Connecting Memberful comes back to the page this tab was sent here from, signed in.
       const answer = await signIn({ emailAddress, password: passwordInput.current?.value ?? "", returnTo: returnPath() ?? undefined });
@@ -62,7 +63,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       if (passwordInput.current) passwordInput.current.value = "";
       // A member whose password is right, and who has connected Memberful, hears that they sign in with it.
-      flash("alert", error.status === 403 ? error.message : SIGN_IN_REFUSED);
+      setRefusal(error.status === 403 ? error.message : error.status === 429 ? SIGN_IN_LIMITED : SIGN_IN_REJECTED);
       setShaking(true);
       passwordInput.current?.focus();
     }
@@ -94,6 +95,12 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                   void submit();
                 }}
               >
+                {refusal && (
+                  // ember-rust's `.mb-auth-error`.
+                  <p id="sign-in-error" role="alert" className="rounded-[8px] border border-auth-error-border bg-auth-error-background px-3.5 py-3 text-[14px] leading-normal text-auth-error">
+                    {refusal}
+                  </p>
+                )}
                 <Field id="email_address" label="Email address" translation="email_address">
                   <Input
                     id="email_address"

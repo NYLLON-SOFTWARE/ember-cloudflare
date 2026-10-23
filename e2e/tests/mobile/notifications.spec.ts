@@ -10,7 +10,7 @@ test.beforeEach(async ({ page, session }) => {
 });
 
 test.describe(feature("notifications.levels"), () => {
-  test("the header's bell fits the phone beside a long room name, and a tap moves it on", async ({ page, room, screenIsFine }) => {
+  test("the header's bell fits the phone beside a long room name, and a tap moves it on, confirming the level under it", async ({ page, room, screenIsFine }) => {
     await allowNotifications(page.context());
     const named = { ...room, name: LONG_NAME };
     await isolateRoom(page, named);
@@ -21,6 +21,10 @@ test.describe(feature("notifications.levels"), () => {
 
     await bell.tap();
     await expect(bell).toHaveAccessibleName("Notifying about all messages");
+    // With the level it saved confirmed under it, on the screen.
+    const tooltip = page.getByRole("navigation", { name: "Page" }).locator("[data-notification-tooltip]");
+    await expect(tooltip).toHaveText("Notifying about all messages");
+    await expect(tooltip).toBeVisible();
     await screenIsFine();
   });
 });

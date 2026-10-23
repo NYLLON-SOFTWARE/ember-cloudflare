@@ -13,7 +13,6 @@ import {
   type CloseCode,
   type DirectRoom,
   type Favorites,
-  type HelpContact,
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
@@ -1689,17 +1688,6 @@ export class WorkspaceStore {
       statement(SESSION, tokenDigest),
     ])) as [unknown[], SessionRow[]];
     return row ? storedSession(row) : null;
-  }
-
-  /**
-   * The first administrator, whom the sign-in page offers to email for help, as ember-rust's help
-   * contact does (presenters/accounts.rs): whatever their status, so a deactivated one still shows.
-   */
-  async helpContact(): Promise<HelpContact | null> {
-    const [row] = await this.db.all<{ name: string; email_address: string | null }>(
-      `SELECT name, email_address FROM users WHERE role = ${ADMINISTRATOR} ORDER BY created_at, id LIMIT 1`,
-    );
-    return row ? { name: row.name, emailAddress: row.email_address ?? "" } : null;
   }
 
   /** Records that the session is in use from `client`, as ember-rust's `resume` does. */

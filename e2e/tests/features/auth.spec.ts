@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { SIGN_IN_REFUSED } from "@ember/protocol";
+import { SIGN_IN_REJECTED } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { ADMINISTRATOR, administratorOn, drawnPicture, editorField, invitation, logOut, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test, unique } from "./fixtures";
@@ -23,16 +23,15 @@ test.describe(feature("auth.sign-in"), () => {
     expect(await page.evaluate(() => document.cookie)).not.toContain("session_token");
   });
 
-  test("flashes an alert for a wrong password, keeping the email address", async ({ page }) => {
+  test("says at the top of the form that the email or password is wrong, keeping the email address", async ({ page }) => {
     await page.goto("/session/new");
     await signInAsAdministrator(page, "incorrect horse battery");
-    const alert = page.getByRole("alert");
-    await expect(alert).toHaveText(SIGN_IN_REFUSED);
+    // In the form, where ember-rust's pull request #24 says it in place of the flash.
+    const alert = page.locator("form").getByRole("alert");
+    await expect(alert).toHaveText(SIGN_IN_REJECTED);
     await expect(page.getByLabel("Email address")).toHaveValue(ADMINISTRATOR.emailAddress);
     await expect(page.getByLabel("Password")).toHaveValue("");
     await expect(page.getByLabel("Password")).toBeFocused();
-    // The alert fades out by itself, leaving the page as it was.
-    await expect(alert).toHaveCount(0);
     await expect(page).toHaveURL(/\/session\/new$/);
   });
 
@@ -116,14 +115,12 @@ test.describe(feature("auth.sign-up"), () => {
   });
 });
 
-test.describe(feature("auth.help-contact"), () => {
-  test("names whom to ask for help, and the version, under the sign-in and join cards", async ({ page, request, session }) => {
+test.describe(feature("platform.version"), () => {
+  test("shows the version under the sign-in and join cards, and nobody's email address, as ember-rust's pull request #24 does", async ({ page, request, session }) => {
     for (const path of ["/session/new", `/join/${(await invitation(request, session)).joinCode}`]) {
       await page.goto(path);
-      const contact = page.getByRole("link", { name: ADMINISTRATOR.emailAddress });
-      await expect(contact).toHaveAttribute("href", `mailto:"${ADMINISTRATOR.name}" <${ADMINISTRATOR.emailAddress}>`);
-      await expect(contact).toHaveAttribute("title", `Email ${ADMINISTRATOR.name}`);
-      await expect(page.getByText(/^Ember™ version/)).toHaveText(/^Ember™ version \d+\.\d+/);
+      await expect(page.getByText(/^Ember version/)).toHaveText(/^Ember version \d+\.\d+/);
+      await expect(page.getByText(ADMINISTRATOR.emailAddress)).toHaveCount(0);
     }
   });
 });

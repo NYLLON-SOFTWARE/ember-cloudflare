@@ -14,7 +14,6 @@ import {
   type DirectoryUser,
   type DirectRoom,
   type Favorites,
-  type HelpContact,
   type Involvement,
   type Me,
   type NavigationIconChanges,
@@ -326,16 +325,6 @@ export class Workspace extends DurableObject<Env> {
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
   private accountChanges = 0;
-  /**
-   * The help contact, the first administrator, once read. First run sets it, and changing a role or an
-   * administrator's profile forgets it.
-   */
-  private knownHelpContact: HelpContact | null | undefined;
-  /**
-   * Counts the starts and ends of changes to roles and administrators' profiles, so a help contact read
-   * that overlapped one isn't kept.
-   */
-  private helpContactChanges = 0;
   /** Every IP address a ban blocks, once read. Banning someone and lifting a ban forget it. */
   private knownBannedAddresses: Set<string> | null = null;
   /** Counts the starts and ends of bans and lifted bans, so a read of the banned addresses that overlapped one isn't kept. */
@@ -480,10 +469,10 @@ export class Workspace extends DurableObject<Env> {
     return account.memberfulSignIn ? "memberful" : "joins";
   }
 
-  /** What the app asks first: the account, if it's set up, whom to ask for help, and who `credentials` signs in, if anyone. */
-  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; helpContact: HelpContact | null; user: Me | null }> {
-    const [account, helpContact, user] = await Promise.all([this.account(), this.helpContact(), credentials && this.me(credentials)]);
-    return { account, helpContact, user };
+  /** What the app asks first: the account, if it's set up, and who `credentials` signs in, if anyone. */
+  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; user: Me | null }> {
+    const [account, user] = await Promise.all([this.account(), credentials && this.me(credentials)]);
+    return { account, user };
   }
 
   /**
@@ -628,15 +617,6 @@ export class Workspace extends DurableObject<Env> {
     return (this.knownAccount = { ...account, updatedAt: now });
   }
 
-  private async helpContact(): Promise<HelpContact | null> {
-    if (this.knownHelpContact !== undefined) return this.knownHelpContact;
-    const changes = this.helpContactChanges;
-    const contact = await this.store.helpContact();
-    // On D1, first run can finish while this reads, and what it found is newer.
-    if (changes === this.helpContactChanges) this.knownHelpContact ??= contact;
-    return this.knownHelpContact ?? contact;
-  }
-
   /**
    * Creates the workspace, its first administrator, the open rooms general and random, and the session
    * their cookie's token opens, as ember-rust's first run does with All Talk, answering general, which
@@ -665,7 +645,6 @@ export class Workspace extends DurableObject<Env> {
       throw error;
     }
     this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null };
-    this.knownHelpContact = { name: administrator.name, emailAddress: administrator.emailAddress };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };
   }
@@ -1325,18 +1304,11 @@ export class Workspace extends DurableObject<Env> {
 
       const now = new Date().toISOString();
       const changed = await this.directoryUser({ ...person, role, updatedAt: now });
-      this.helpContactChanges++;
-      try {
-        // Their sessions are read again, so their next welcome says what they are now.
-        await this.sessions.change(
-          (session) => session.user.id === userId,
-          () => this.store.changeRole(userId, role, now),
-        );
-      } finally {
-        this.helpContactChanges++;
-        // The first administrator, who may be someone else now.
-        this.knownHelpContact = undefined;
-      }
+      // Their sessions are read again, so their next welcome says what they are now.
+      await this.sessions.change(
+        (session) => session.user.id === userId,
+        () => this.store.changeRole(userId, role, now),
+      );
       this.broadcast({ type: "user.updated", user: changed });
       return changed;
     });
@@ -1376,16 +1348,12 @@ export class Workspace extends DurableObject<Env> {
     const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
-    this.helpContactChanges++;
     try {
       queued = await this.sessions.change(
         (session) => session.user.id === id,
         () => this.store.removePerson(id, crypto.randomUUID(), CloseCode.Revoked, now, removedAt),
       );
     } finally {
-      this.helpContactChanges++;
-      // The first administrator, whose email address it may have changed.
-      this.knownHelpContact = undefined;
       // Whether or not it saved: the app connects them again if they're still signed in.
       this.closeSockets(id, CloseCode.Revoked);
       if (queued) await this.revocationsQueued(now);
@@ -1699,8 +1667,6 @@ export class Workspace extends DurableObject<Env> {
       const now = Date.now();
       const at = new Date(now).toISOString();
       const ended = passwordDigest === null ? null : { kept: session.id, pushEndpoint, code: CloseCode.Reconnect, dueAt: now };
-      const administrator = person.role === "administrator";
-      if (administrator) this.helpContactChanges++;
       // As when a password is reset, until the database says it queued nothing.
       let queued = ended !== null;
       try {
@@ -1710,11 +1676,6 @@ export class Workspace extends DurableObject<Env> {
           () => this.store.changeProfile(user.id, { ...profile, passwordDigest }, at, ended),
         );
       } finally {
-        if (administrator) {
-          this.helpContactChanges++;
-          // The first administrator's name and email address, which may have changed.
-          this.knownHelpContact = undefined;
-        }
         // Whether or not it saved: the sockets of sessions that didn't end are let in again.
         if (ended) this.closeSockets(user.id, CloseCode.Reconnect, sessionTag(session.id));
         if (queued) await this.revocationsQueued(now);

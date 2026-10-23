@@ -265,20 +265,3 @@ describe(feature("accounts.roles"), () => {
     }
   });
 });
-
-describe(feature("auth.help-contact"), () => {
-  it("names the first administrator as they are now, once another has demoted them", async () => {
-    const administrator = await setUp();
-    const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
-    const [{ join_code: code }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
-    const joined = await api(`/api/join/${code}`, { method: "POST", body: JSON.stringify(grace) });
-    const graceSession: Session = { user: shown(((await joined.json()) as { user: { id: UserId; name: string } }).user), cookie: cookieOf(joined) };
-    const helpContact = async () => ((await (await api("/api/bootstrap")).json()) as Bootstrap).helpContact;
-    expect(await helpContact()).toEqual({ name: ada.name, emailAddress: ada.emailAddress });
-
-    await changeRole(administrator, graceSession.user.id, { role: "administrator" });
-    expect(await helpContact()).toEqual({ name: ada.name, emailAddress: ada.emailAddress });
-    await changeRole(graceSession, administrator.user.id, { role: "member" });
-    expect(await helpContact()).toEqual({ name: grace.name, emailAddress: grace.emailAddress });
-  });
-});

@@ -104,13 +104,14 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
         aria-label="Ember home"
         title={workspaceName}
         aria-current={marked === "home" ? "page" : undefined}
-        className={cn("mb-1 flex size-11 shrink-0 items-center justify-center", logo && "rounded-[15px] bg-background")}
+        className="mb-1 flex size-14 shrink-0 items-center justify-center rounded-[10px]"
       >
-        {/* The workspace's logo sits on the page's background, as ember-rust's `.mb-rail__brand:has(img)`. */}
+        {/* The logo, or the flame, fills the 56px square, its corners rounded, on no background of its own, as
+            ember-rust's `.mb-rail__brand` draws it since its pull request #24. */}
         {logo ? (
-          <img src={logo} alt="" width={44} height={44} className="size-11 rounded-[inherit] object-cover" />
+          <img src={logo} alt="" width={56} height={56} className="size-14 rounded-[inherit] object-cover" />
         ) : (
-          <img src="/ember-icon.png" alt="" width={44} height={44} className="size-11 object-contain" />
+          <img src="/ember-icon.png" alt="" width={56} height={56} className="size-14 rounded-[inherit] object-contain" />
         )}
       </PageLink>
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />

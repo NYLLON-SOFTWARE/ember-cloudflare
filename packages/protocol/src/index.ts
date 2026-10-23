@@ -508,12 +508,6 @@ export interface ProfileChanges {
   pushSubscriptionEndpoint?: string;
 }
 
-/** Whom the sign-in page offers to email for help: the workspace's first administrator. */
-export interface HelpContact {
-  name: string;
-  emailAddress: string;
-}
-
 /** What the Set up Ember form shows in its Name and Email address fields while they're empty. */
 export interface SetupPlaceholders {
   name: string;
@@ -543,8 +537,6 @@ export interface Bootstrap {
   guestSignIn: boolean;
   /** "Ember" before setup, as in ember-rust. */
   account: Account;
-  /** Null until there's an administrator. */
-  helpContact: HelpContact | null;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
   version: string;
   /**
@@ -634,7 +626,22 @@ export interface LinkPreview {
   description: string;
 }
 
-/** ember-rust's one answer to a sign-in it refuses, for a wrong password and too many attempts alike. */
+/**
+ * ember-rust's answer to a sign-in it refuses, since its pull request #24 (d49621e): a wrong password,
+ * an unknown email address, or an account removed or banned.
+ */
+export const SIGN_IN_REJECTED = "Incorrect email or password. Please try again.";
+
+/**
+ * ember-rust's answer, since its pull request #24, once an address has tried to sign in too often
+ * (`auth.rate-limit`), which checking a password anywhere counts against.
+ */
+export const SIGN_IN_LIMITED = "Too many sign-in attempts. Please wait a few minutes and try again.";
+
+/**
+ * ember-rust's one answer to a sign-in it refused before its pull request #24, which a Memberful sign-in
+ * it refuses still gets, since it can't say which of the two went wrong.
+ */
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
 
 /**
@@ -703,7 +710,7 @@ export const MEMBERFUL_SIGN_IN_PROBLEMS = {
   off: "Memberful sign-in is off.",
   /** It's on, but the deployment has no Memberful keys. */
   unavailable: "Memberful sign-in isn't set up. Ask an administrator for help.",
-  /** Too many sign-ins from the address, or the account was removed or banned: ember-rust's one answer to a refused sign-in. */
+  /** Too many sign-ins from the address, or the account was removed or banned, which this doesn't tell apart. */
   refused: SIGN_IN_REFUSED,
 } as const;
 export type MemberfulSignInProblem = keyof typeof MEMBERFUL_SIGN_IN_PROBLEMS;

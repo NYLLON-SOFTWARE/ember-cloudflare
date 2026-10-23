@@ -10,6 +10,7 @@ export {
   GripVertical,
   Hash,
   Link,
+  Menu,
   MessageCirclePlus,
   Palette,
   Pencil,
@@ -18,4 +19,5 @@ export {
   SlidersHorizontal,
   Star,
   Users,
+  X,
 } from "lucide-react";

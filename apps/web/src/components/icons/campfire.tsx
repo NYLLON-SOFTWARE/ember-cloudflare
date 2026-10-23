@@ -28,7 +28,6 @@ import externalWeb from "./campfire/external/web.svg";
 import globe from "./campfire/globe.svg";
 import installEdge from "./campfire/install-edge.svg";
 import laptop from "./campfire/laptop.svg";
-import lifebuoy from "./campfire/lifebuoy.svg";
 import lock from "./campfire/lock.svg";
 import logout from "./campfire/logout.svg";
 import menuDotsHorizontal from "./campfire/menu-dots-horizontal.svg";
@@ -191,10 +190,6 @@ export function InstallEdge(props: CampfireIconProps) {
 
 export function Laptop(props: CampfireIconProps) {
   return <CampfireIcon src={laptop} {...props} />;
-}
-
-export function Lifebuoy(props: CampfireIconProps) {
-  return <CampfireIcon src={lifebuoy} {...props} />;
 }
 
 export function Lock(props: CampfireIconProps) {

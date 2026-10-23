@@ -77,9 +77,12 @@ export class Member {
     return this.message(text).getByRole("group", { name: "Message actions" });
   }
 
-  /** The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds. */
+  /**
+   * The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds,
+   * rather than the bell's status, which says what a press of it did.
+   */
   connection(): Locator {
-    return this.page.getByRole("navigation", { name: "Page" }).getByRole("status");
+    return this.page.getByRole("navigation", { name: "Page" }).getByRole("status").filter({ hasText: /^(Connecting|Reconnecting)…$/ });
   }
 
   /** The room's or DM's messages, busy until the room lets its socket in. */

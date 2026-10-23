@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
-import { CloseCode, MAX_EMAIL_ADDRESS_LENGTH, SIGN_IN_REFUSED, type Bootstrap, type HelpContact, type NewWorkspace, type User } from "@ember/protocol";
-import { evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { CloseCode, MAX_EMAIL_ADDRESS_LENGTH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Bootstrap, type NewWorkspace, type User } from "@ember/protocol";
+import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { credentialsFor } from "../src/auth";
@@ -77,7 +77,7 @@ describe(feature("auth.sign-in"), () => {
     await setUp();
     const response = await signInWith(body);
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: SIGN_IN_REFUSED });
+    expect(await response.json()).toEqual({ error: SIGN_IN_REJECTED });
     expect(response.headers.has("Set-Cookie")).toBe(false);
     expect(await sessionCount()).toBe(1);
   });
@@ -88,7 +88,7 @@ describe(feature("auth.sign-in"), () => {
     const addressOf = (length: number) => `${"a".repeat(length - "@example.com".length)}@example.com`;
     const tooLong = await signInWith({ emailAddress: addressOf(MAX_EMAIL_ADDRESS_LENGTH + 1), password: ada.password });
     expect(tooLong.status).toBe(401);
-    expect(await tooLong.json()).toEqual({ error: SIGN_IN_REFUSED });
+    expect(await tooLong.json()).toEqual({ error: SIGN_IN_REJECTED });
     expect(lookups).not.toHaveBeenCalled();
     // One as long as an account's can be is looked for, as any other is.
     expect((await signInWith({ emailAddress: addressOf(MAX_EMAIL_ADDRESS_LENGTH), password: ada.password })).status).toBe(401);
@@ -214,7 +214,7 @@ describe(feature("auth.rate-limit"), () => {
 
     const limited = await signInWith({ emailAddress: ada.emailAddress, password: ada.password });
     expect(limited.status).toBe(429);
-    expect(await limited.json()).toEqual({ error: SIGN_IN_REFUSED });
+    expect(await limited.json()).toEqual({ error: SIGN_IN_LIMITED });
     expect(limited.headers.has("Set-Cookie")).toBe(false);
     // So is an attempt that wouldn't get as far as a password.
     expect((await signInWith({})).status).toBe(429);
@@ -321,33 +321,12 @@ describe(feature("auth.sign-out"), () => {
   });
 });
 
-describe(feature("auth.help-contact"), () => {
-  it("names no one until Ember is set up", async () => {
-    expect((await bootstrap()).helpContact).toBeNull();
-  });
-
-  it("names the first administrator, whether or not they're still active", async () => {
-    const { user } = await setUp();
-    expect((await bootstrap()).helpContact).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com" });
-
-    await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", user.id);
-    // A Workspace that starts afresh reads them again.
-    await evictDurableObject(workspaceStub());
-    expect((await bootstrap()).helpContact).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com" });
-  });
-
-  it("keeps the administrator first run names when a read from before it finishes after it", async () => {
-    // On D1 a read is a network call, during which first run can finish.
-    await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
-      const store = (workspace as unknown as { store: WorkspaceStore }).store;
-      let finishReading!: (contact: HelpContact | null) => void;
-      vi.spyOn(store, "helpContact").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
-      const reading = workspace.bootstrap(null);
-      await workspace.createWorkspace({ name: ada.name, emailAddress: ada.emailAddress, passwordDigest: await hashPassword(ada.password), avatar: null }, "digest", { ip: null, userAgent: null });
-      finishReading(null);
-      await reading;
-    });
-    expect((await bootstrap()).helpContact).toEqual({ name: "Ada Lovelace", emailAddress: "ada@example.com" });
+describe(feature("auth.sign-in"), () => {
+  it("names no administrator to anyone signed out, as ember-rust's pull request #24 takes the help contact off its sign-in and join pages", async () => {
+    await setUp();
+    const shown = await bootstrap();
+    expect(shown).not.toHaveProperty("helpContact");
+    expect(JSON.stringify(shown)).not.toContain(ada.emailAddress);
   });
 });
 

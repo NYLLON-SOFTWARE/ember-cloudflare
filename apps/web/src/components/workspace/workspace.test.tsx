@@ -1425,11 +1425,19 @@ describe(feature("ui.mobile-drawer"), () => {
   it("names its button for what it does next, and focuses Close conversations when it opens", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(screen.getByRole("button", { name: "Open conversations", expanded: false }));
+    const open = screen.getByRole("button", { name: "Open conversations", expanded: false });
+    await user.click(open);
     const drawer = screen.getByRole("dialog", { name: "Conversations" });
-    // The drawer hides the page behind it from screen readers, the header's button too.
-    expect(drawer).not.toContainElement(screen.getByRole("button", { name: "Close conversations", expanded: true, hidden: true }));
-    expect(within(drawer).getByRole("button", { name: "Close conversations" })).toHaveFocus();
+    // The header's button now closes it, and the drawer hides it from screen readers with the rest of the page.
+    expect(open).toHaveAttribute("aria-label", "Close conversations");
+    expect(open).toHaveAttribute("aria-expanded", "true");
+    expect(drawer).not.toContainElement(open);
+    await waitFor(() => expect(open).toHaveAttribute("aria-hidden", "true"));
+    const close = within(drawer).getByRole("button", { name: "Close conversations" });
+    expect(close).toHaveFocus();
+    // Lucide's menu and x, as ember-rust's pull request #24 draws them.
+    expect(open.querySelector("svg")).toHaveClass("lucide-menu", "size-[22px]");
+    expect(close.querySelector("svg")).toHaveClass("lucide-x", "size-5");
   });
 
   it("puts its close button first in the conversations' tab order", async () => {

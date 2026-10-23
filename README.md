@@ -348,7 +348,7 @@ Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL
 you add them, become the preview's setup form placeholders.
 
 The preview is a private workspace, which its administrator invites people to with the join link.
-Its version, under the sign-in page's help contact, is the commit it deployed. After each deploy,
+Its version, under the sign-in page's card, is the commit it deployed. After each deploy,
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,

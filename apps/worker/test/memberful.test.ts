@@ -8,7 +8,8 @@ import {
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
   memberfulSignInPath,
-  SIGN_IN_REFUSED,
+  SIGN_IN_LIMITED,
+  SIGN_IN_REJECTED,
   type Account,
   type Bootstrap,
   type Directory,
@@ -391,7 +392,7 @@ describe(feature("auth.memberful-sign-in"), () => {
       // A wrong password says nothing of whether there's an account.
       const wrong = await signInWithPassword({ emailAddress: grace.emailAddress, password: "wrong" });
       expect(wrong.status).toBe(401);
-      expect(await wrong.json()).toEqual({ error: SIGN_IN_REFUSED });
+      expect(await wrong.json()).toEqual({ error: SIGN_IN_REJECTED });
     });
 
     it("doesn't sign in an administrator made a member while their sign-in was checked", async () => {
@@ -1372,7 +1373,7 @@ describe(feature("auth.memberful-connect"), () => {
 
       const limited = await connect(member, { currentPassword: grace.password });
       expect(limited.status).toBe(429);
-      expect(await limited.json()).toEqual({ error: SIGN_IN_REFUSED });
+      expect(await limited.json()).toEqual({ error: SIGN_IN_LIMITED });
       expect(limited.headers.get("Set-Cookie")).toBeNull();
       expect((await connect(member, { currentPassword: grace.password }, { ip: "203.0.113.21" })).status).toBe(202);
       expect(await count("pending_identities")).toBe(1);

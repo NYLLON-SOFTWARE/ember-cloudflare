@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REFUSED, type Account, type AccountChanges, type Bootstrap, type Message } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -117,8 +117,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      const helpContact = setup === "complete" ? { name: "Ada", emailAddress: "ada@example.com" } : null;
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, helpContact, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -127,7 +126,7 @@ function serve({
     if (route === "POST /api/session") {
       const fields = JSON.parse(String(init?.body)) as Record<string, string>;
       const isAda = fields.emailAddress === "ada@example.com" && fields.password === "correct horse";
-      if (!("name" in fields) && !isAda) return Response.json({ error: SIGN_IN_REFUSED }, { status: 401 });
+      if (!("name" in fields) && !isAda) return Response.json({ error: SIGN_IN_REJECTED }, { status: 401 });
       [signedIn, me] = [true, ada];
       return Response.json({ user: ada }, { status: 201 });
     }
@@ -718,7 +717,7 @@ describe(feature("auth.sign-in"), () => {
     serve({ signedIn: false });
     render(<App />);
     await signInAsAda("wrong horse");
-    expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REFUSED);
+    expect(await screen.findByRole("alert")).toHaveTextContent(SIGN_IN_REJECTED);
     expect(screen.getByRole("heading", { name: "Sign in to Ember" })).toBeInTheDocument();
     expect(location.pathname).toBe("/session/new");
   });
@@ -933,9 +932,11 @@ describe(feature("ui.flash"), () => {
   const placement = async () => (await screen.findByRole("alert")).parentElement!;
 
   it("centers a flash over the window while signed out", async () => {
+    // A refused sign-in says why in its form, so this is one the page before kept.
+    flashOnNextPage({ kind: "alert", text: "Something went wrong" });
     serve({ signedIn: false });
     render(<App />);
-    await signInAsAda("wrong horse");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
     expect(await placement()).toHaveClass("left-1/2");
     expect(await placement()).not.toHaveClass(BESIDE_THE_RAIL);
   });

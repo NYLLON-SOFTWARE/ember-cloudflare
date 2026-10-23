@@ -48,6 +48,13 @@
   --negative: oklch(51% 0.2 31);
   /* ember-rust's `.btn--negative` (zz-ember.css), such as Delete on a room's settings: the same red in dark mode. */
   --negative-button: #b91c1c;
+  /*
+   * Its `.mb-auth-error` (its pull request #24), why a sign-in was refused: dark red on the negative red at 8%
+   * over the canvas, bordered by it at 25% over the border, mixed in whichever mode is on.
+   */
+  --auth-error: #b91c1c;
+  --auth-error-background: color-mix(in srgb, var(--negative) 8%, var(--background));
+  --auth-error-border: color-mix(in srgb, var(--negative) 25%, var(--border));
   /* A bot card's `warning` bar: Slack's own amber, since ember-rust's only orange, Campfire's --lch-orange, is too near the negative red to tell apart. */
   --warning: #daa038;
   /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
@@ -78,6 +85,8 @@
   --menu-shadow: #00000012;
   /* The shadow under a starred room's row while it's dragged, `.mb-channel-dragging`, in both modes. */
   --drag-shadow: #0002;
+  /* The shadow under the bell's confirmation in a room's header, `.mb-notification-tooltip` (pull request #24), in both modes. */
+  --tooltip-shadow: #0002;
   /* Campfire's `.dialog::backdrop` (base.css), a sunset at 75%, which ember-rust keeps behind its Notification setup dialog, in both modes. */
   --setup-backdrop: linear-gradient(45deg, #fff500, #ff9f00, #f00, #ec0061);
   /* Campfire's scrollbar thumb (base.css), the gray a Mac's are, in both modes. */
@@ -114,6 +123,7 @@
   --message-hover: #202020;
   --positive: oklch(75% 0.21 141.89);
   --negative: oklch(73.8% 0.184 29.18);
+  --auth-error: #fca5a5;
   --warning: oklch(80% 0.14 78);
   --lightbox: oklch(0% 0 0 / 0.66);
   --link: oklch(72.25% 0.16 248);
@@ -371,6 +381,9 @@
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --color-negative-button: var(--negative-button);
+  --color-auth-error: var(--auth-error);
+  --color-auth-error-background: var(--auth-error-background);
+  --color-auth-error-border: var(--auth-error-border);
   --color-warning: var(--warning);
   --color-lightbox: var(--lightbox);
   --color-dialog-backdrop: var(--dialog-backdrop);
@@ -379,6 +392,7 @@
   --color-drawer-backdrop: var(--drawer-backdrop);
   --color-menu-shadow: var(--menu-shadow);
   --color-drag-shadow: var(--drag-shadow);
+  --color-tooltip-shadow: var(--tooltip-shadow);
   /* Workspace geometry from ember-rust: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
   --spacing-rail: 80px;
   --spacing-sidebar: var(--sidebar-width);

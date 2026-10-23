@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { SIGN_IN_REFUSED } from "@ember/protocol";
+import { SIGN_IN_REJECTED } from "@ember/protocol";
 import { invitation, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { RECOVERY_TOKEN } from "../../projects/features";
 import { expect, test } from "./fixtures";
@@ -74,7 +74,7 @@ test.describe(feature("accounts.reset-password"), () => {
     await page.getByLabel("Email address").fill(emailAddress);
     await page.getByLabel("Password").fill("compiler");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REFUSED);
+    await expect(page.getByRole("alert")).toHaveText(SIGN_IN_REJECTED);
     await page.getByLabel("Password").fill("correct horse");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("link", { name: "Your profile" })).toHaveAttribute("title", "Grace Hopper");

@@ -94,14 +94,6 @@ export function Search(props: EmberIconProps) {
   );
 }
 
-export function Menu(props: EmberIconProps) {
-  return (
-    <EmberIcon {...props}>
-      <path d="M4 6h16M4 12h16M4 18h16" />
-    </EmberIcon>
-  );
-}
-
 export function Close(props: EmberIconProps) {
   return (
     <EmberIcon {...props}>
