@@ -6,17 +6,21 @@ import { guardLeaving } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
 // ember-rust's guard for room forms (crates/assets/overrides/ember/settings.js) and its dialog
-// (components/unsaved_changes.html), styled by zz-ember.css (.mb-unsaved-*). Where the app's other
+// (components/unsaved_changes.html), styled by zz-ember.css (.mb-unsaved-*). They guard workspace
+// settings' room order too, which ember-rust drops unsaved without asking. Where the app's other
 // dialogs are native ones, as ember-rust's are, this is a Radix dialog, so it can open over the
 // drawer, a Radix dialog itself, which would keep the pointer and focus from a native one.
+
+/** What the dialog says about a room's form, as ember-rust's says it. */
+const ROOM_CHANGES = "You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.";
 
 /** `.mb-unsaved-actions .btn`: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
 const ACTION = "inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border px-[22px] py-[0.5em] font-semibold touch:min-h-11 disabled:cursor-default upto-480px:flex-1";
 
 interface Props<T> {
-  /** Whether the form holds changes that leaving would lose. */
+  /** Whether the page holds changes that leaving would lose. */
   changed: boolean;
-  /** Whether going to `path` keeps the form, as the Everyone switch's move to the other form does. */
+  /** Whether going to `path` keeps the changes, as the Everyone switch's move to the other form does. */
   stays: (path: string) => boolean;
   /**
    * Saves the changes, settling with what's saved once the server has it, after which the page compares
@@ -25,15 +29,18 @@ interface Props<T> {
   onSave: () => Promise<T>;
   /** What the page does instead when it stays after Save, with what was saved: New room shows the room it made. */
   onStayAfterSave?: (saved: T) => void;
-  /** The form, whose fields Save checks first, and whose own dialogs close for this one. */
-  form: RefObject<HTMLFormElement | null>;
+  /** The form holding the changes, if a form does, whose fields Save checks first, and whose own dialogs close for this one. */
+  form?: RefObject<HTMLFormElement | null>;
+  /** What the dialog says the changes are, a room's form's unless it says otherwise. */
+  description?: string;
 }
 
 /**
- * While a room's form holds changes, leaving the page, by a link, Back or Forward, or signing out,
- * first asks whether to save or discard them, and reloading or closing the tab has the browser ask.
+ * While the page holds changes, a room's form's or the room order's, leaving it, by a link, Back or
+ * Forward, or signing out, first asks whether to save or discard them, and reloading or closing the tab
+ * has the browser ask.
  */
-export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, form }: Props<T>) {
+export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, form, description = ROOM_CHANGES }: Props<T>) {
   const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -56,7 +63,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       setFailed(false);
       // The form's own dialogs, such as the icon picker, are native ones, which would stay above this one
       // and keep it from being answered, where ember-rust's, native too, opens above them. They close first.
-      for (const dialog of form.current?.querySelectorAll<HTMLDialogElement>("dialog[open]") ?? []) dialog.close();
+      for (const dialog of form?.current?.querySelectorAll<HTMLDialogElement>("dialog[open]") ?? []) dialog.close();
       setAsking(true);
       return true;
     });
@@ -96,7 +103,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   };
 
   const save = async () => {
-    if (!form.current?.checkValidity()) {
+    if (form && !form.current?.checkValidity()) {
       invalid.current = true;
       return keepEditing();
     }
@@ -131,7 +138,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           if (!invalid.current) return;
           invalid.current = false;
           event.preventDefault();
-          form.current?.reportValidity();
+          form?.current?.reportValidity();
         }}
         className={cn(
           "block w-[420px] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))] sm:max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
@@ -152,9 +159,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           <PencilSquare className="size-[22px]" />
         </div>
         <DialogTitle className="mb-2.5 text-[22px] leading-[1.25] font-bold">Unsaved Changes</DialogTitle>
-        <DialogDescription className="leading-[1.65]">
-          You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.
-        </DialogDescription>
+        <DialogDescription className="leading-[1.65]">{description}</DialogDescription>
         {failed && (
           <p role="alert" className="mt-4 text-sm leading-[1.65] text-negative">
             Your changes couldn’t be saved. Please try again, or keep editing.
